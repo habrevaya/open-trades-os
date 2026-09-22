@@ -35,6 +35,12 @@ const ORDER = [
   "timeclock_entry", "wage_scale",
   "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
+  // Communications, in dependency order: a message points at a conversation
+  // and a consent row, a call points at a number, a number points at a
+  // campaign, a campaign points at a brand.
+  "message", "call", "conversation",
+  "suppression", "communication_consent", "message_template",
+  "phone_number", "messaging_campaign", "messaging_brand",
   "portal_event", "portal_grant",
   "booking_request", "bookable_service", "arrival_window",
   "portal_block", "portal_layout", "service_report_template",
