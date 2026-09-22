@@ -17,17 +17,19 @@
     "db:migrate": "pnpm --filter @opentradesos/db migrate",
     "db:test": "pnpm --filter @opentradesos/db test",
     "db:seed": "pnpm --filter @opentradesos/db seed",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.9",
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-boundaries": "^5.0.1",
+    "playwright-core": "^1.63.0",
+    "prettier": "^3.4.1",
     "turbo": "^2.3.0",
     "typescript": "^5.7.2",
-    "prettier": "^3.4.1",
-    "eslint": "^9.17.0",
-    "@eslint/js": "^9.17.0",
-    "typescript-eslint": "^8.18.1",
-    "eslint-plugin-boundaries": "^5.0.1"
+    "typescript-eslint": "^8.18.1"
   },
   "type": "module"
 }

@@ -101,4 +101,17 @@ export default tseslint.config(
     files: ["packages/db/src/seed/**/*.ts", "packages/db/src/migrate.ts"],
     rules: { "no-console": "off" },
   },
+
+  /**
+   * Plain Node scripts, run by a person from a terminal. They are not part of
+   * any package's build, so nothing else here has taught eslint that `process`
+   * and `console` exist in them.
+   */
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly", URL: "readonly", setTimeout: "readonly" },
+    },
+    rules: { "no-console": "off" },
+  },
 );

@@ -229,3 +229,26 @@ Saying this out loud is cheaper than discovering it in a pull request.
 | State by state lien law determinations | Record the dates, do not author the rules |
 | Tax rate determination | Pluggable, with a commercial provider as an option |
 | Being a bank | Stripe |
+
+---
+
+## Reproducing the product screenshots
+
+Every screenshot on the website is the running application against the seeded
+demo company, and these three commands regenerate all of them.
+
+```
+TZ=America/Chicago pnpm db:seed | tee /tmp/seed.txt
+TZ=America/Chicago pnpm --filter @opentradesos/web dev &
+pnpm screenshots --seed-output /tmp/seed.txt --out ./shots
+```
+
+`TZ` is not a detail. The seed builds the demo day around the current hour and
+the app renders every time in the company's own timezone, so running both in
+that zone is what produces a working day rather than one starting at half past
+six in the evening. `SEED_NOW` pins the clock if you want a specific hour.
+
+The capture fails rather than writing a screenshot of an error page, and it
+treats a redirect as a failure too: a stale session redirects to sign in, the
+sign in page answers 200, and checking the status alone once captured a login
+form and labelled it the dispatch board.
