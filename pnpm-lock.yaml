@@ -81,6 +81,15 @@ importers:
       '@asteasolutions/zod-to-openapi':
         specifier: ^7.3.0
         version: 7.3.4(zod@3.25.76)
+      '@opentradesos/core':
+        specifier: workspace:*
+        version: link:../core
+      '@opentradesos/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.36.4
+        version: 0.36.4(@types/react@19.3.0)(postgres@3.4.9)(react@19.3.0)
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -88,6 +97,9 @@ importers:
       '@types/node':
         specifier: ^22.10.1
         version: 22.20.4
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       tsx:
         specifier: ^4.19.2
         version: 4.23.15
@@ -136,6 +148,22 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@26.6.2)
+
+  packages/trade-packs:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.20.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.4)
 
   packages/ui:
     dependencies:

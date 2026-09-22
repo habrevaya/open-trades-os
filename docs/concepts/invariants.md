@@ -13,7 +13,23 @@ protected the moment it exists rather than when someone remembers. A coverage
 assertion fails the migration if any table with the column lacks the policy.
 
 **Application code never filters by organization by hand.** A forgotten `WHERE`
-clause is a cross-tenant leak, and hand-written filters get forgotten.
+clause is a cross-tenant leak, and hand-written filters get forgotten. Row level
+security is the isolation, not a second line of defence behind one.
+
+**Every request transaction drops to the unprivileged application role first.**
+`set local role` before anything else in `inTenant`. This is not belt and
+braces, it is the thing that makes the policies apply at all: RLS is inert for
+a superuser and for any role holding BYPASSRLS, and a superuser connection
+string is what `DATABASE_URL` usually contains the first time anyone runs this.
+Because the layer above deliberately writes no organization filter of its own,
+connecting as a privileged role means no isolation whatsoever. Not weak
+isolation. None.
+
+This one is not hypothetical. It shipped, and the service layer integration
+test caught it returning another tenant's customers, because the test connected
+as a superuser and every policy was silently doing nothing. That test now
+connects as a superuser on purpose, so the day someone removes the `set local
+role` the suite goes red.
 
 **A network never widens the tenant boundary.** Franchise and holding
 structures read across organizations only through an explicit grant for a named

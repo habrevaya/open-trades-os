@@ -345,3 +345,47 @@ begin
   end if;
 end
 $$;
+
+-- =========================================================================
+-- THE APPLICATION ROLE
+--
+-- Every request runs as this role, and the service layer drops into it inside
+-- each transaction. That is what makes row level security actually apply:
+-- policies are inert for a superuser or any role holding BYPASSRLS, and a
+-- superuser connection string is what DATABASE_URL usually contains the first
+-- time anyone runs this.
+--
+-- It is granted table access and nothing else. It cannot create, alter or drop
+-- anything, and it cannot read `credential` or another user's `session`
+-- because those carry deny policies.
+-- =========================================================================
+
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    create role authenticated nologin;
+  end if;
+end
+$$;
+
+grant usage on schema public to authenticated;
+grant usage on schema app to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+
+-- Future tables and sequences too, so a migration does not silently create
+-- something the application cannot read.
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to authenticated;
+alter default privileges in schema public
+  grant usage, select on sequences to authenticated;
+
+-- The tenant context helpers. Everything else in `app` stays private: the
+-- SECURITY DEFINER functions are called by the auth path with an explicit
+-- grant, not by every request.
+grant execute on function app.current_organization_id() to authenticated;
+grant execute on function app.current_user_id() to authenticated;
+grant execute on function app.resolve_session(text) to authenticated;
+grant execute on function app.create_session(uuid, text, uuid, timestamptz) to authenticated;
+grant execute on function app.revoke_session(text) to authenticated;
+grant execute on function app.credential_for_login(text) to authenticated;
