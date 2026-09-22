@@ -97,6 +97,23 @@ with the visit timeline. The public booking widget against real availability.
 **Done means:** a customer approves an estimate and books a job without anyone
 in the office touching it.
 
+**Done.** The sell path runs end to end against Postgres. A company publishes
+what it will let the public book and on what terms; the widget offers only
+windows derived from business hours, time off and what is already sold, and
+re-checks the slot inside the transaction that writes the request. An estimate
+carries good, better and best with optional lines priced separately; sending
+it freezes the document by hashing it and issues a single use grant; the
+customer chooses, signs and the signature records the hash, the address and
+the moment. Approval converts to a job and an invoice as a copy, never a
+re-price. Deposits are a liability from arrival and post distinctly on receipt,
+application, refund and forfeiture.
+
+Not in this phase, and named so nobody assumes otherwise: the technician's
+view of a job, the dispatch board, and the office UI for estimates. The
+service layer and the customer-facing pages are built; the internal pages that
+sit on top of them are Phase 3, which is where the board they belong on
+arrives.
+
 ---
 
 ## Phase 3: The field
