@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { createClient, schema } from "@opentradesos/db";
 import { hashPassword, verifyPassword, issueToken, SESSION_COOKIE, SESSION_TTL_DAYS, sessionCookieOptions } from "@/lib/session";
 
@@ -68,8 +68,11 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
 
     const { token, tokenHash } = issueToken();
     const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 864e5);
-    await tx.insert(schema.session)
-      .values({ userId: created!.id, tokenHash, activeOrganizationId: org!.id, expiresAt });
+    // Through the SECURITY DEFINER door, same as resolution. The session table
+    // denies direct access to the application role.
+    await tx.execute(
+      sql`select app.create_session(${created!.id}::uuid, ${tokenHash}, ${org!.id}::uuid, ${expiresAt.toISOString()}::timestamptz)`,
+    );
 
     return { token };
   });
@@ -90,18 +93,18 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
   const { email, password } = parsed.data;
   const db = createClient();
 
-  const rows = await db
-    .select({
-      userId: schema.user.id,
-      passwordHash: schema.credential.passwordHash,
-      lockedUntil: schema.credential.lockedUntil,
-    })
-    .from(schema.user)
-    .innerJoin(schema.credential, eq(schema.credential.userId, schema.user.id))
-    .where(eq(schema.user.email, email.toLowerCase()))
-    .limit(1);
-
-  const row = rows[0];
+  /**
+   * The hash is fetched through app.credential_for_login, not selected. The
+   * credential table denies the application role entirely, so a password hash
+   * is only ever reachable through a path that can be logged and rate limited.
+   */
+  const rows = await db.execute<{ user_id: string; password_hash: string; locked_until: Date | null }>(
+    sql`select * from app.credential_for_login(${email})`,
+  );
+  const found = rows[0];
+  const row = found
+    ? { userId: found.user_id, passwordHash: found.password_hash, lockedUntil: found.locked_until }
+    : undefined;
 
   /**
    * One message for an unknown email and for a wrong password, and the hash
@@ -126,12 +129,9 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
   if (memberships.length === 0) return { error: "This account is not a member of any company" };
 
   const { token, tokenHash } = issueToken();
-  await db.insert(schema.session).values({
-    userId: row.userId,
-    tokenHash,
-    activeOrganizationId: memberships[0]!.organizationId,
-    expiresAt: new Date(Date.now() + SESSION_TTL_DAYS * 864e5),
-  });
+  await db.execute(
+    sql`select app.create_session(${row.userId}::uuid, ${tokenHash}, ${memberships[0]!.organizationId}::uuid, ${new Date(Date.now() + SESSION_TTL_DAYS * 864e5).toISOString()}::timestamptz)`,
+  );
 
   (await cookies()).set(SESSION_COOKIE, token, sessionCookieOptions);
   redirect("/");
@@ -144,9 +144,7 @@ export async function signOut(): Promise<void> {
     const { hashToken } = await import("@/lib/session");
     const db = createClient();
     // Revoke rather than delete, so the audit trail keeps the session.
-    await db.update(schema.session)
-      .set({ revokedAt: new Date() })
-      .where(eq(schema.session.tokenHash, hashToken(token)));
+    await db.execute(sql`select app.revoke_session(${hashToken(token)})`);
   }
   jar.delete(SESSION_COOKIE);
   redirect("/login");

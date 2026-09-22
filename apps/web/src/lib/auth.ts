@@ -1,8 +1,8 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { eq, and, gt, isNull } from "drizzle-orm";
-import { createClient, schema } from "@opentradesos/db";
+import { sql } from "drizzle-orm";
+import { createClient } from "@opentradesos/db";
 import type { Actor, RoleId } from "@opentradesos/core";
 import { SESSION_COOKIE, hashToken } from "./session";
 
@@ -36,60 +36,51 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   if (!token) return null;
 
   const db = createClient();
-  const rows = await db
-    .select({
-      userId: schema.user.id,
-      email: schema.user.email,
-      name: schema.user.name,
-      organizationId: schema.organization.id,
-      organizationName: schema.organization.name,
-      organizationSlug: schema.organization.slug,
-      setupCompletedAt: schema.organization.setupCompletedAt,
-      role: schema.membership.role,
-      grants: schema.membership.grants,
-      revocations: schema.membership.revocations,
-      businessUnitId: schema.membership.businessUnitId,
-      locationId: schema.membership.locationId,
-      membershipActive: schema.membership.active,
-    })
-    .from(schema.session)
-    .innerJoin(schema.user, eq(schema.user.id, schema.session.userId))
-    .innerJoin(schema.organization, eq(schema.organization.id, schema.session.activeOrganizationId))
-    .innerJoin(
-      schema.membership,
-      and(
-        eq(schema.membership.userId, schema.session.userId),
-        eq(schema.membership.organizationId, schema.session.activeOrganizationId),
-      ),
-    )
-    .where(
-      and(
-        eq(schema.session.tokenHash, hashToken(token)),
-        gt(schema.session.expiresAt, new Date()),
-        isNull(schema.session.revokedAt),
-      ),
-    )
-    .limit(1);
+
+  /**
+   * Resolution goes through app.resolve_session rather than a select.
+   *
+   * Session lookup happens before we know who the user is, which is the point
+   * of the lookup, so a row level security policy keyed on the current user id
+   * can never match on that first read. The alternative would be connecting as
+   * a role that bypasses RLS, and the service role is never reachable from a
+   * request path. So a SECURITY DEFINER function takes the token hash, which
+   * the caller must already hold, and returns one row or none.
+   */
+  const rows = await db.execute<{
+    user_id: string;
+    email: string;
+    name: string | null;
+    organization_id: string;
+    organization_name: string;
+    organization_slug: string;
+    setup_completed_at: Date | null;
+    role: string;
+    grants: string[] | null;
+    revocations: string[] | null;
+    business_unit_id: string | null;
+    location_id: string | null;
+  }>(sql`select * from app.resolve_session(${hashToken(token)})`);
 
   const row = rows[0];
-  if (!row || !row.membershipActive) return null;
+  if (!row) return null;
 
   return {
-    userId: row.userId,
+    userId: row.user_id,
     email: row.email,
     name: row.name,
-    organizationId: row.organizationId,
-    organizationName: row.organizationName,
-    organizationSlug: row.organizationSlug,
-    setupCompleted: row.setupCompletedAt != null,
+    organizationId: row.organization_id,
+    organizationName: row.organization_name,
+    organizationSlug: row.organization_slug,
+    setupCompleted: row.setup_completed_at != null,
     actor: {
-      userId: row.userId,
-      organizationId: row.organizationId,
+      userId: row.user_id,
+      organizationId: row.organization_id,
       roles: [row.role as RoleId],
       grants: (row.grants ?? []) as Actor["grants"],
       revocations: (row.revocations ?? []) as Actor["revocations"],
-      ...(row.businessUnitId ? { businessUnitId: row.businessUnitId } : {}),
-      ...(row.locationId ? { locationId: row.locationId } : {}),
+      ...(row.business_unit_id ? { businessUnitId: row.business_unit_id } : {}),
+      ...(row.location_id ? { locationId: row.location_id } : {}),
     },
   };
 }

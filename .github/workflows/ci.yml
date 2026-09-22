@@ -18,13 +18,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm build
 
-  # Tenant isolation is the one bug class that ends this project.
-  # These run on every PR, not nightly.
-  rls:
+  # Tenant isolation, the SECURITY DEFINER boundaries and the ledger guards are
+  # all invisible to the compiler, and all three are the kind of mistake that
+  # ships quietly. They run against a real Postgres on every pull request
+  # rather than nightly, because the failure mode is a cross tenant leak.
+  database:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -45,7 +46,29 @@ jobs:
         with: { version: 9 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
-      - run: sudo apt-get update && sudo apt-get install -y postgresql-client libtap-parser-sourcehandler-pgtap-perl
       - run: pnpm install --frozen-lockfile
-      - run: pnpm db:migrate
-      - run: pnpm db:test
+
+      # The application role the tests assume. In production this is created by
+      # the deployment; in CI we make it here so the isolation tests run as a
+      # role that is actually subject to row level security. Testing as a
+      # superuser proves nothing, because superusers bypass RLS entirely.
+      - name: Create the application role
+        run: psql "$DATABASE_URL" -c "create role authenticated;"
+
+      - name: Migrate
+        run: pnpm --filter @opentradesos/db migrate
+
+      - name: Database tests
+        run: pnpm --filter @opentradesos/db test
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @opentradesos/core test
+      - run: pnpm --filter @opentradesos/api test

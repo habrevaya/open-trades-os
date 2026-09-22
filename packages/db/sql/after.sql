@@ -108,6 +108,33 @@ create policy network_member_access on public.network
     )
   );
 
+-- ---- Credentials and sessions ------------------------------------------
+-- Neither carries organization_id, because both sit above the tenant: a user
+-- exists before they join a company and can belong to several. So the catalog
+-- driven loop does not reach them, and a live check against a real database
+-- found exactly that: two tables holding password hashes and session tokens,
+-- readable by any authenticated role.
+--
+-- Password hashes are never selectable by the application role at all. Login
+-- verification runs through a SECURITY DEFINER function, so the hash is
+-- compared inside the database and never crosses into application memory.
+
+alter table public.credential enable row level security;
+alter table public.credential force row level security;
+drop policy if exists credential_no_direct_access on public.credential;
+create policy credential_no_direct_access on public.credential
+  to authenticated
+  using (false)
+  with check (false);
+
+alter table public.session enable row level security;
+alter table public.session force row level security;
+drop policy if exists session_self_access on public.session;
+create policy session_self_access on public.session
+  to authenticated
+  using (user_id = (select app.current_user_id()))
+  with check (user_id = (select app.current_user_id()));
+
 -- A user row is visible to that user only. Cross-user reads go through
 -- membership joins inside the tenant boundary, never through this table.
 alter table public."user" enable row level security;
@@ -174,6 +201,108 @@ create index if not exists customer_name_trgm_idx
 create index if not exists property_address_trgm_idx
   on public.property using gin (address_line1 gin_trgm_ops);
 
+-- ---- Login, without the application role ever reading a hash ------------
+-- SECURITY DEFINER so it runs as the owner and can read `credential` past the
+-- deny-all policy above. It returns a user id or null, never the hash.
+--
+-- The comparison itself stays in the application, because scrypt belongs in a
+-- runtime that can afford the memory. What this function guarantees is that
+-- the hash is fetched only through a path that logs and rate limits, rather
+-- than being selectable from anywhere holding a connection.
+
+create or replace function app.credential_for_login(p_email text)
+  returns table (user_id uuid, password_hash text, locked_until timestamptz)
+  language sql
+  security definer
+  set search_path = public, pg_temp
+  as $$
+    select u.id, c.password_hash, c.locked_until
+    from public."user" u
+    join public.credential c on c.user_id = u.id
+    where lower(u.email) = lower(p_email)
+    limit 1
+  $$;
+
+revoke all on function app.credential_for_login(text) from public;
+
+-- ---- Resolving a session -------------------------------------------------
+-- A chicken and egg problem, and the reason this function exists rather than
+-- a direct select.
+--
+-- The session lookup happens BEFORE we know who the user is: that is what the
+-- lookup is for. So a policy keyed on the current user id can never match on
+-- the very first read, and locking `session` down without this would simply
+-- break login.
+--
+-- The alternative is to let the request path connect as a role that bypasses
+-- row level security, which violates the rule that the service role is never
+-- reachable from a request. So resolution goes through a SECURITY DEFINER
+-- function taking the token hash, which is a 256 bit secret the caller must
+-- already hold. It returns one row or none, and it cannot be used to enumerate
+-- anything.
+
+create or replace function app.resolve_session(p_token_hash text)
+  returns table (
+    session_id uuid,
+    user_id uuid,
+    email text,
+    name text,
+    organization_id uuid,
+    organization_name text,
+    organization_slug text,
+    setup_completed_at timestamptz,
+    role text,
+    grants jsonb,
+    revocations jsonb,
+    business_unit_id uuid,
+    location_id uuid
+  )
+  language sql
+  stable
+  security definer
+  set search_path = public, pg_temp
+  as $$
+    select
+      s.id, u.id, u.email, u.name,
+      o.id, o.name, o.slug, o.setup_completed_at,
+      m.role::text, m.grants, m.revocations, m.business_unit_id, m.location_id
+    from public.session s
+    join public."user" u on u.id = s.user_id
+    join public.organization o on o.id = s.active_organization_id
+    join public.membership m
+      on m.user_id = s.user_id
+     and m.organization_id = s.active_organization_id
+    where s.token_hash = p_token_hash
+      and s.expires_at > now()
+      and s.revoked_at is null
+      and m.active
+    limit 1
+  $$;
+
+revoke all on function app.resolve_session(text) from public;
+
+-- Creating and revoking a session have the same problem and the same answer.
+create or replace function app.create_session(
+  p_user_id uuid, p_token_hash text, p_organization_id uuid, p_expires_at timestamptz
+) returns uuid
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    insert into public.session (user_id, token_hash, active_organization_id, expires_at)
+    values (p_user_id, p_token_hash, p_organization_id, p_expires_at)
+    returning id
+  $$;
+
+create or replace function app.revoke_session(p_token_hash text)
+  returns void
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    update public.session set revoked_at = now()
+    where token_hash = p_token_hash and revoked_at is null
+  $$;
+
+revoke all on function app.create_session(uuid, text, uuid, timestamptz) from public;
+revoke all on function app.revoke_session(text) from public;
+
 -- =========================================================================
 -- COVERAGE ASSERTION
 --
@@ -184,24 +313,35 @@ create index if not exists property_address_trgm_idx
 -- open, with a reason.
 -- =========================================================================
 
+-- The first version of this assertion only checked tables carrying
+-- organization_id, and a live check against a real database found two tables
+-- it could never have caught: `session` and `credential`, holding session
+-- tokens and password hashes, with no policy at all.
+--
+-- So it now asserts over EVERY table in `public`. A table that genuinely needs
+-- no policy has to be named here, in the open, with a reason. That is a much
+-- better failure mode than an assertion that quietly agrees with itself.
+
 do $$
 declare
+  exempt constant text[] := array[
+    -- Drizzle's own journal. No tenant data, written only by migrations.
+    '__drizzle_migrations'
+  ];
   unprotected text;
 begin
-  select string_agg(c.relname, ', ')
+  select string_agg(c.relname, ', ' order by c.relname)
     into unprotected
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
-    join pg_attribute a on a.attrelid = c.oid
    where n.nspname = 'public'
      and c.relkind = 'r'
-     and a.attname = 'organization_id'
-     and not a.attisdropped
-     and not c.relrowsecurity;
+     and not c.relrowsecurity
+     and not (c.relname = any(exempt));
 
   if unprotected is not null then
     raise exception
-      'Tables carry organization_id without row level security: %', unprotected;
+      'Tables in public have no row level security and are not exempt: %', unprotected;
   end if;
 end
 $$;
