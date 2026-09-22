@@ -35,6 +35,10 @@ const ORDER = [
   "timeclock_entry", "wage_scale",
   "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
+  // Automation. A step run points at a run, a run at a version, a version at
+  // a workflow. Events are last because a run references one.
+  "workflow_step_run", "workflow_run", "workflow_version", "workflow",
+  "domain_event",
   // Communications, in dependency order: a message points at a conversation
   // and a consent row, a call points at a number, a number points at a
   // campaign, a campaign points at a brand.

@@ -17,3 +17,4 @@ export * from "./workforce";
 export * from "./integrations";
 export * from "./platform";
 export * from "./comms";
+export * from "./automation";

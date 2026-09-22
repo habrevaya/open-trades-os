@@ -24,6 +24,7 @@
 | Trade packs | 8 shipped: HVAC, plumbing, electrical, lawn and landscape, pest control, cleaning, dumpster rental, trash bin cleaning |
 | Migration | Jobber and Housecall Pro read. Extract, profile and reconcile work. Nothing writes to a target yet |
 | Demo | `pnpm db:seed` builds a company with a day of work in it, and the product screenshots come from it |
+| Automation | Domain event log, workflow versions, runs and step runs. Trigger matching, condition evaluation and the publish authority check. No worker yet |
 | Comms | Schema and the consent decision. Phone numbers, conversations, messages, calls, per-purpose consent, carrier registration. No provider adapter yet |
 | Multi location | Tables, columns and scope filters exist. No shipped role uses a branch or shop scope yet, and scope is applied to job reads only. `docs/concepts/multi-location.md` |
 
