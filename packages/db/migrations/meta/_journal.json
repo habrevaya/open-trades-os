@@ -15,6 +15,13 @@
       "when": 1790090981437,
       "tag": "0001_agreements",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790094239274,
+      "tag": "0002_sloppy_gorgon",
+      "breakpoints": true
     }
   ]
 }

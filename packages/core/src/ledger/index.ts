@@ -20,6 +20,7 @@ export const ACCOUNTS = {
   AR: "1200",                 // Accounts receivable
   CASH: "1000",               // Undeposited funds
   INVENTORY: "1300",
+  CUSTOMER_DEPOSITS: "2300",  // Money held against work not yet done. A LIABILITY.
   DEFERRED_REVENUE: "2400",   // Unearned agreement revenue. A LIABILITY.
   TAX_PAYABLE: "2200",        // Sales tax collected, owed to a jurisdiction
   TIPS_PAYABLE: "2250",       // Tips collected, owed to a technician
@@ -228,6 +229,129 @@ export function postPayment(input: {
       cr(ACCOUNTS.AR, input.appliedAmount, "Applied to receivable", tag),
       cr(ACCOUNTS.TIPS_PAYABLE, tip, "Tip held for technician", tag),
       cr(ACCOUNTS.REVENUE, surcharge, "Surcharge", tag),
+    ]),
+  });
+}
+
+/**
+ * Taking a deposit.
+ *
+ * Cash goes up and a LIABILITY goes up. Nothing is earned. The company is
+ * holding the customer's money against work it has promised and not yet done,
+ * and if it went out of business tomorrow it would owe that money back.
+ *
+ * Booking it as revenue is the single most common accounting error in this
+ * industry, and it compounds: the month is overstated, commission is paid on
+ * work that has not happened, and a company taking 50% up front cannot tell
+ * from its own P&L what it has actually earned. This function exists so that
+ * getting it right is the path of least resistance.
+ *
+ * No tax is recognised here either. Sales tax is owed when the sale is
+ * recognised, not when cash arrives.
+ */
+export function postDeposit(input: {
+  depositId: string;
+  occurredAt: Date;
+  amount: Money;
+  processingFee?: Money | undefined;
+  customerId?: string | undefined;
+  jobId?: string | undefined;
+}): Posting {
+  const currency = input.amount.currency;
+  const fee = input.processingFee ?? zero(currency);
+  const tag = { customerId: input.customerId, jobId: input.jobId };
+
+  return assertBalanced({
+    sourceType: "deposit",
+    sourceId: input.depositId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CASH, subtract(input.amount, fee), "Deposit received", tag),
+      dr(ACCOUNTS.PROCESSING_FEES, fee, "Processing fee", tag),
+      cr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Deposit held", tag),
+    ]),
+  });
+}
+
+/**
+ * Applying a held deposit to an invoice.
+ *
+ * The liability is discharged against the receivable the invoice created. No
+ * cash moves, because the cash arrived when the deposit was taken; revenue was
+ * already recognised by `postInvoice`. This posting is what connects the two.
+ *
+ * Skipping it and simply marking the invoice paid leaves the deposit sitting
+ * on the balance sheet forever as money the company still owes, which is how a
+ * growing company ends up with a customer deposits balance that only ever
+ * climbs.
+ */
+export function postDepositApplication(input: {
+  depositId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+  jobId?: string | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId, jobId: input.jobId };
+  return assertBalanced({
+    sourceType: "deposit_application",
+    sourceId: input.depositId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Deposit applied", tag),
+      cr(ACCOUNTS.AR, input.amount, "Applied to receivable", tag),
+    ]),
+  });
+}
+
+/**
+ * Returning a deposit for work that will not happen.
+ *
+ * The liability goes away and so does the cash. Distinct from `postRefund`,
+ * which reverses a sale: nothing was ever sold here, so there is no revenue or
+ * tax to reverse, and treating the two the same produces a negative revenue
+ * line for a job that never existed.
+ *
+ * A forfeited deposit is NOT this function. Forfeiture earns the money, so it
+ * moves from the liability to revenue, which `postDepositForfeiture` does.
+ */
+export function postDepositRefund(input: {
+  depositId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "deposit_refund",
+    sourceId: input.depositId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Deposit returned", tag),
+      cr(ACCOUNTS.CASH, input.amount, "Cash out", tag),
+    ]),
+  });
+}
+
+/**
+ * A customer cancels late and the deposit is kept under the terms they agreed
+ * to. The company has now earned it, so the liability becomes revenue. No cash
+ * moves; it arrived when the deposit was taken.
+ */
+export function postDepositForfeiture(input: {
+  depositId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "deposit_forfeiture",
+    sourceId: input.depositId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Deposit forfeited", tag),
+      cr(ACCOUNTS.REVENUE, input.amount, "Forfeited deposit earned", tag),
     ]),
   });
 }

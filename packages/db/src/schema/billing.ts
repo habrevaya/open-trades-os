@@ -67,6 +67,126 @@ export const estimateOption = pgTable("estimate_option", {
   ...timestamps,
 }, (t) => ({ estimateIdx: index("estimate_option_estimate_idx").on(t.estimateId) }));
 
+/**
+ * A line belongs to an OPTION, not to the estimate.
+ *
+ * Good, better, best is not a discount ladder, it is three different scopes of
+ * work. The better option replaces the condenser; the best one replaces the
+ * system and adds a surge protector. Hanging lines off the estimate and
+ * flagging which option they belong to makes the common case, a line that
+ * appears in two options at a different quantity, impossible to express.
+ *
+ * Shape mirrors invoice_line deliberately. Converting an approved option into
+ * an invoice is then a copy, not a translation, and the frozen price book
+ * version and applied tax rate survive the conversion unchanged.
+ */
+export const estimateLine = pgTable("estimate_line", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  optionId: uuid("option_id").notNull().references(() => estimateOption.id, { onDelete: "cascade" }),
+  /** Frozen reference. Never the live item, always the version that was priced. */
+  priceBookItemVersionId: uuid("price_book_item_version_id").references(() => priceBookItemVersion.id),
+  sortOrder: integer("sort_order").notNull().default(0),
+  name: text("name").notNull(),
+  description: text("description"),
+  quantity: money("quantity").notNull().default("1"),
+  unitPrice: money("unit_price").notNull().default("0"),
+  unitCost: money("unit_cost"),
+  discountAmount: money("discount_amount").notNull().default("0"),
+  taxable: boolean("taxable").notNull().default(true),
+  /** The rate AS APPLIED, carried onto the invoice on conversion. */
+  taxRate: rate("tax_rate").notNull().default("0"),
+  taxAmount: money("tax_amount").notNull().default("0"),
+  lineTotal: money("line_total").notNull().default("0"),
+  /**
+   * Optional lines are priced and shown but excluded from the option total
+   * until the customer ticks them. A surge protector on an HVAC replacement
+   * sells far better offered than buried in the price.
+   */
+  isOptional: boolean("is_optional").notNull().default(false),
+  isSelected: boolean("is_selected").notNull().default(false),
+  costCode: text("cost_code"),
+  ...timestamps,
+}, (t) => ({ optionIdx: index("estimate_line_option_idx").on(t.optionId) }));
+
+/**
+ * What was signed, by whom, from where.
+ *
+ * An e-signature is worth exactly as much as the record that it happened. The
+ * useful record is not the image: it is the identifier the signer proved they
+ * controlled, the moment, the address the request came from, and a hash of the
+ * document content as displayed. Store the hash and a disagreement about what
+ * was agreed is answerable; store only the image and it is not.
+ *
+ * Append only in practice: a re-signature is a new row, so the history of a
+ * document that was revised and re-signed stays legible.
+ */
+export const signatureSubject = pgEnum("signature_subject", [
+  "estimate", "service_report", "agreement", "authorization",
+]);
+
+export const documentSignature = pgTable("document_signature", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  subject: signatureSubject("subject").notNull(),
+  subjectId: uuid("subject_id").notNull(),
+  signerName: text("signer_name").notNull(),
+  signerEmail: text("signer_email"),
+  signerPhone: text("signer_phone"),
+  /** Vector or raster capture, stored as a document reference. */
+  imageUrl: text("image_url"),
+  /** SHA-256 of the rendered document at the moment of signing. */
+  documentHash: text("document_hash").notNull(),
+  /** Which option the signature covers, where the subject offered a choice. */
+  selectedOptionId: uuid("selected_option_id"),
+  signedAt: timestamp("signed_at", { withTimezone: true }).notNull().defaultNow(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  ...timestamps,
+}, (t) => ({
+  subjectIdx: index("document_signature_subject_idx").on(t.organizationId, t.subject, t.subjectId),
+}));
+
+/**
+ * Money taken before the work is done.
+ *
+ * A deposit is a LIABILITY, not revenue, and it stays one until the work it
+ * covers is performed. Booking it as revenue on receipt overstates the month,
+ * overstates commission, and leaves a company that takes 50% up front unable
+ * to tell what it has actually earned. The ledger postings in packages/core
+ * enforce this; the row is here so that applying a deposit to an invoice is
+ * traceable to the request that collected it.
+ */
+export const depositStatus = pgEnum("deposit_status", [
+  "requested", "held", "applied", "refunded", "forfeited",
+]);
+
+export const deposit = pgTable("deposit", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id),
+  estimateId: uuid("estimate_id").references(() => estimate.id, { onDelete: "set null" }),
+  jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
+  /** Set once the deposit has been consumed by an invoice. */
+  appliedInvoiceId: uuid("applied_invoice_id"),
+  paymentId: uuid("payment_id"),
+  status: depositStatus("status").notNull().default("requested"),
+  currency: currency(),
+  /** What was asked for. Kept alongside the amount actually received. */
+  amountRequested: money("amount_requested").notNull(),
+  amountReceived: money("amount_received").notNull().default("0"),
+  amountApplied: money("amount_applied").notNull().default("0"),
+  amountRefunded: money("amount_refunded").notNull().default("0"),
+  /** Present when the deposit was computed as a percentage rather than set. */
+  percentOfTotal: rate("percent_of_total"),
+  receivedAt: timestamp("received_at", { withTimezone: true }),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: index("deposit_org_idx").on(t.organizationId, t.status),
+  customerIdx: index("deposit_customer_idx").on(t.customerId),
+}));
+
 export const invoiceStatus = pgEnum("invoice_status", [
   "draft", "open", "partially_paid", "paid", "void", "written_off",
 ]);

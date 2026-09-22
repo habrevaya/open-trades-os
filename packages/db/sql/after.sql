@@ -303,6 +303,88 @@ create or replace function app.revoke_session(p_token_hash text)
 revoke all on function app.create_session(uuid, text, uuid, timestamptz) from public;
 revoke all on function app.revoke_session(text) from public;
 
+-- -------------------------------------------------------------------------
+-- PORTAL GRANTS
+--
+-- A customer approving an estimate has no session and never will. Resolution
+-- has the same shape as a session: the caller holds a 256 bit token, the
+-- lookup happens before the organization is known, so it cannot go through
+-- row level security.
+--
+-- One difference matters. Consumption has to be atomic. A payment grant with
+-- `max_uses = 1` that is checked and then separately incremented can be spent
+-- twice by two requests arriving together, and the second one is a duplicate
+-- charge. So the use count is incremented in the same statement that reads the
+-- row, and the limit is enforced in the WHERE clause rather than afterwards in
+-- application code.
+create or replace function app.consume_portal_grant(
+  p_token_hash text, p_ip text default null
+) returns table (
+    grant_id uuid,
+    organization_id uuid,
+    customer_id uuid,
+    scope text,
+    subject_id uuid,
+    uses_remaining integer
+  )
+  language sql
+  volatile
+  security definer
+  set search_path = public, pg_temp
+  as $$
+    update public.portal_grant g
+       set use_count   = g.use_count + 1,
+           last_used_at = now(),
+           last_used_ip = coalesce(p_ip, g.last_used_ip)
+     where g.token_hash = p_token_hash
+       and g.expires_at > now()
+       and g.revoked_at is null
+       and (g.max_uses is null or g.use_count < g.max_uses)
+    returning
+      g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
+      case when g.max_uses is null then null else g.max_uses - g.use_count end
+  $$;
+
+-- Reading a grant without spending a use. Every refresh of a tracking page
+-- would otherwise burn one, which makes `max_uses` unusable for exactly the
+-- scopes that need it.
+create or replace function app.peek_portal_grant(p_token_hash text)
+  returns table (
+    grant_id uuid,
+    organization_id uuid,
+    customer_id uuid,
+    scope text,
+    subject_id uuid,
+    uses_remaining integer
+  )
+  language sql
+  stable
+  security definer
+  set search_path = public, pg_temp
+  as $$
+    select
+      g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
+      case when g.max_uses is null then null else g.max_uses - g.use_count end
+    from public.portal_grant g
+    where g.token_hash = p_token_hash
+      and g.expires_at > now()
+      and g.revoked_at is null
+      and (g.max_uses is null or g.use_count < g.max_uses)
+    limit 1
+  $$;
+
+create or replace function app.revoke_portal_grant(p_token_hash text)
+  returns void
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    update public.portal_grant set revoked_at = now()
+    where token_hash = p_token_hash and revoked_at is null
+  $$;
+
+revoke all on function app.consume_portal_grant(text, text) from public;
+revoke all on function app.peek_portal_grant(text) from public;
+revoke all on function app.revoke_portal_grant(text) from public;
+
 -- =========================================================================
 -- COVERAGE ASSERTION
 --
@@ -387,5 +469,8 @@ grant execute on function app.current_organization_id() to authenticated;
 grant execute on function app.current_user_id() to authenticated;
 grant execute on function app.resolve_session(text) to authenticated;
 grant execute on function app.create_session(uuid, text, uuid, timestamptz) to authenticated;
+grant execute on function app.consume_portal_grant(text, text) to authenticated;
+grant execute on function app.peek_portal_grant(text) to authenticated;
+grant execute on function app.revoke_portal_grant(text) to authenticated;
 grant execute on function app.revoke_session(text) to authenticated;
 grant execute on function app.credential_for_login(text) to authenticated;
