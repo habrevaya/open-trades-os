@@ -63,6 +63,7 @@ const TECHNICIAN_BASE: Permission[] = [
   // approving on the customer's behalf is a different thing, and is not here.
   "portal:grant",
   "message:read", "message:send",
+  "field:sync",
   "timeclock:own",
   "inventory:read",
   "asset:read", "asset:checkout",

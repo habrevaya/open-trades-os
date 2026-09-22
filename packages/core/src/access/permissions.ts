@@ -96,6 +96,7 @@ export const PERMISSIONS = {
   "inventory:adjust": "Adjust stock and record counts",
 
   // --- Workforce -----------------------------------------------------------
+  "field:sync": "Use the field app and submit work from it",
   "timeclock:own": "Clock in and out",
   "timesheet:read": "View timesheets",
   "timesheet:approve": "Approve timesheets",

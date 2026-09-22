@@ -92,10 +92,26 @@ export const serviceReport = pgTable("service_report", {
   skipped: boolean("skipped").notNull().default(false),
   skipReason: text("skip_reason"),
 
+  /**
+   * The technician finished it. NOT the same as publishing it.
+   *
+   * The permission model already separates recording a report from publishing
+   * one to the customer, because the office routinely reviews what a
+   * technician wrote before a homeowner reads it. Without this the two states
+   * are indistinguishable, and a report that has been submitted and not yet
+   * reviewed looks exactly like one nobody has started.
+   *
+   * It is also what makes a second submission from the field detectable: that
+   * usually means the technician edited after submitting and expects the
+   * change to land, and silently accepting it would tell them it did.
+   */
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   visitIdx: index("service_report_visit_idx").on(t.visitId),
+  /** The office's review queue: submitted and not yet published. */
+  reviewIdx: index("service_report_review_idx").on(t.organizationId, t.submittedAt, t.publishedAt),
   /** The portal's primary query: this property's reports, newest first. */
   portalIdx: index("service_report_portal_idx").on(t.organizationId, t.propertyId, t.publishedAt),
 }));

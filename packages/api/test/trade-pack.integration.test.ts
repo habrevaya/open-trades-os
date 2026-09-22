@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import { createClient } from "@opentradesos/db";
 import { PermissionError } from "@opentradesos/core";
 import { packById, packs } from "@opentradesos/trade-packs";
 import { applyTradePack } from "../src/services/trade-pack";
 import { NotFoundError, type ServiceContext } from "../src/services/context";
-import { seedOrg, resetOrg } from "./helpers";
+import { seedOrg, resetOrg, testDb } from "./helpers";
 
 const url = process.env.DATABASE_URL;
 
@@ -27,7 +26,7 @@ let raw: postgres.Sql;
 
 const ctx = (roles: ServiceContext["actor"]["roles"]): ServiceContext => ({
   actor: { userId: USER, organizationId: ORG, roles },
-  db: createClient(url!),
+  db: testDb(url!),
 });
 
 beforeAll(async () => {
@@ -152,7 +151,7 @@ run("every shipped pack applies cleanly", () => {
       values (${org}, ${USER}, 'owner')`;
 
     const result = await applyTradePack(
-      { actor: { userId: USER, organizationId: org, roles: ["owner"] }, db: createClient(url!) },
+      { actor: { userId: USER, organizationId: org, roles: ["owner"] }, db: testDb(url!) },
       packId,
     );
     expect(result.created.priceBookItems).toBeGreaterThan(0);

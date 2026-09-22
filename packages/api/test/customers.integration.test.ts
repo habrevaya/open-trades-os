@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import { createClient } from "@opentradesos/db";
 import type { Actor } from "@opentradesos/core";
 import * as customers from "../src/services/customers";
 import { PermissionError } from "@opentradesos/core";
 import { NotFoundError, type ServiceContext } from "../src/services/context";
-import { seedOrg } from "./helpers";
+import { seedOrg, testDb } from "./helpers";
 
 /**
  * Service layer against a real database.
@@ -34,7 +33,7 @@ const USER_A = "dddd1111-1111-1111-1111-111111111111";
 const USER_B = "dddd2222-2222-2222-2222-222222222222";
 
 let raw: postgres.Sql;
-const db = () => createClient(url!);
+const db = () => testDb(url!);
 
 const ctxFor = (organizationId: string, userId: string, roles: Actor["roles"], extra: Partial<ServiceContext> = {}): ServiceContext => ({
   actor: { userId, organizationId, roles },

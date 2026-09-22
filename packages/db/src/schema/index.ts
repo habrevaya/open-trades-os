@@ -12,6 +12,7 @@ export * from "./service-reports";
 export * from "./billing";
 export * from "./agreements";
 export * from "./portal";
+export * from "./field";
 export * from "./workforce";
 export * from "./integrations";
 export * from "./platform";

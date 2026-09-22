@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import { createClient } from "@opentradesos/db";
 import * as customers from "../src/services/customers";
 import * as jobs from "../src/services/jobs";
 import * as billing from "../src/services/billing";
 import { applyTradePack } from "../src/services/trade-pack";
 import type { ServiceContext } from "../src/services/context";
-import { seedOrg } from "./helpers";
+import { seedOrg, testDb } from "./helpers";
 
 /**
  * PHASE 1'S DEFINITION OF DONE
@@ -34,7 +33,7 @@ let raw: postgres.Sql;
 
 const ctx = (extra: Partial<ServiceContext> = {}): ServiceContext => ({
   actor: { userId: USER, organizationId: ORG, roles: ["owner"] },
-  db: createClient(url!),
+  db: testDb(url!),
   ...extra,
 });
 

@@ -5,6 +5,7 @@ import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
+  fieldOps, dispatch,
 } from "../services/index";
 
 /**
@@ -104,6 +105,19 @@ export const handlers = {
   viewPortalJob: portal.viewJob,
   issuePortalGrant: portal.issueGrant,
   revokePortalGrant: portal.revokeGrant,
+
+  // The field. The phone carries field:sync; the board is office side.
+  registerDevice: fieldOps.register,
+  syncOperations: fieldOps.sync,
+  getFieldSnapshot: dispatch.snapshot,
+  listConflicts: fieldOps.conflicts,
+  resolveConflict: fieldOps.resolve,
+
+  // Dispatch
+  getDispatchBoard: dispatch.board,
+  assignVisit: dispatch.assign,
+  reorderRoute: dispatch.reorder,
+  sendArrivalNotice: dispatch.onMyWay,
 
   // Public
   listBookableServices: booking.listServices,

@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import { createClient } from "@opentradesos/db";
 import type { Actor } from "@opentradesos/core";
 import { PermissionError } from "@opentradesos/core";
 import * as deposits from "../src/services/deposits";
 import * as estimates from "../src/services/estimates";
 import * as billing from "../src/services/billing";
 import { ConflictError, type ServiceContext } from "../src/services/context";
-import { seedOrg, fixtureId } from "./helpers";
+import { seedOrg, fixtureId, testDb } from "./helpers";
 
 /**
  * Deposits against a real ledger.
@@ -29,7 +28,7 @@ const ORG = fixtureId("deposits/org");
 const USER = fixtureId("deposits/user");
 
 let raw: postgres.Sql;
-const db = () => createClient(url!);
+const db = () => testDb(url!);
 const ctxFor = (roles: Actor["roles"]): ServiceContext => ({
   actor: { userId: USER, organizationId: ORG, roles }, db: db(),
 });

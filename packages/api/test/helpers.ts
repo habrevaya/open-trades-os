@@ -1,5 +1,6 @@
 import type postgres from "postgres";
 import { createHash } from "node:crypto";
+import { createClient, type Database } from "@opentradesos/db";
 
 /**
  * Cleaning up between integration tests.
@@ -31,6 +32,8 @@ const ORDER = [
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
   "timeclock_entry", "wage_scale",
+  "field_upload", "field_operation", "device_snapshot", "device",
+  "arrival_notice",
   "portal_event", "portal_grant",
   "booking_request", "bookable_service", "arrival_window",
   "portal_block", "portal_layout", "service_report_template",
@@ -142,4 +145,24 @@ export function fixtureId(name: string): string {
     ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
     h.slice(20, 32),
   ].join("-");
+}
+
+/**
+ * One client for the whole test run.
+ *
+ * `createClient` opens a fresh pool of ten connections every time it is
+ * called, which is right for a migration and wrong for a test helper that
+ * builds a ServiceContext. Each file was calling it once per context, so the
+ * suite opened a pool per assertion and eventually Postgres refused with
+ * "sorry, too many clients already" from a test that had nothing to do with
+ * connections.
+ *
+ * The same mistake, in the request path, is what apps/web/src/lib/db.ts
+ * exists to prevent.
+ */
+let shared: Database | undefined;
+
+export function testDb(url: string): Database {
+  shared ??= createClient(url);
+  return shared;
 }

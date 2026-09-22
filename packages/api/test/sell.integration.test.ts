@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
-import { createClient } from "@opentradesos/db";
 import type { Actor } from "@opentradesos/core";
 import { PermissionError } from "@opentradesos/core";
 import * as estimates from "../src/services/estimates";
 import * as portal from "../src/services/portal";
 import * as booking from "../src/services/booking";
 import { ConflictError, type ServiceContext } from "../src/services/context";
-import { seedOrg, fixtureId } from "./helpers";
+import { seedOrg, fixtureId, testDb } from "./helpers";
 
 /**
  * Phase 2 against a real database.
@@ -33,7 +32,7 @@ const USER_A = fixtureId("sell/user-a");
 const USER_B = fixtureId("sell/user-b");
 
 let raw: postgres.Sql;
-const db = () => createClient(url!);
+const db = () => testDb(url!);
 
 const ctxFor = (
   organizationId: string, userId: string, roles: Actor["roles"],

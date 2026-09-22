@@ -1,0 +1,2 @@
+ALTER TABLE "service_report" ADD COLUMN "submitted_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "service_report_review_idx" ON "service_report" USING btree ("organization_id","submitted_at","published_at");
