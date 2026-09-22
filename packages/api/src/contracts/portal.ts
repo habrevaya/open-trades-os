@@ -21,7 +21,7 @@ import { Estimate } from "./estimates";
  * product and their contract is part of the promise.
  */
 
-export const PortalScope = z.enum(["estimate", "job", "invoice", "customer"]);
+export const PortalScope = z.enum(["estimate", "job", "invoice", "customer", "booking"]);
 
 export const PortalSession = z.object({
   organizationName: z.string(),

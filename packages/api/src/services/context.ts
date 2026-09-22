@@ -31,6 +31,12 @@ export interface ServiceContext {
   idempotencyKey?: string;
   /** Set when an AI agent is acting, recorded on every audit entry it causes. */
   agentId?: string;
+  /**
+   * Set when the caller is a customer holding a link rather than a user with
+   * a session. There is no `actor.userId` to record in that case, so the audit
+   * trail names the grant instead.
+   */
+  portalGrantId?: string;
 }
 
 export class NotFoundError extends Error {

@@ -1,0 +1,1 @@
+ALTER TABLE "audit_log" ADD COLUMN "actor_portal_grant_id" uuid;

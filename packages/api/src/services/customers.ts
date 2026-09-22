@@ -176,7 +176,11 @@ async function audit(
 ): Promise<void> {
   await tx.insert(schema.auditLog).values({
     organizationId: ctx.actor.organizationId,
-    actorUserId: ctx.actor.userId,
+    // A portal caller has no user. Writing the synthetic id into a uuid column
+    // fails loudly, which is better than a column of fake users, but the real
+    // answer is to name the grant.
+    actorUserId: ctx.portalGrantId ? null : ctx.actor.userId,
+    actorPortalGrantId: ctx.portalGrantId ?? null,
     actorAgentId: ctx.agentId ?? ctx.actor.agentId ?? null,
     action,
     entityType,

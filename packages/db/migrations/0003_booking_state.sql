@@ -1,0 +1,1 @@
+ALTER TABLE "booking_request" RENAME COLUMN "region" TO "state";

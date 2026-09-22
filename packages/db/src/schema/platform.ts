@@ -17,6 +17,13 @@ export const auditLog = pgTable("audit_log", {
   actorUserId: uuid("actor_user_id").references(() => user.id, { onDelete: "set null" }),
   /** Set when an AI agent took the action rather than a person. Always attributable. */
   actorAgentId: text("actor_agent_id"),
+  /**
+   * Set when the customer took the action themselves, through a link rather
+   * than an account. There is no user to name, and naming nobody would be
+   * worse than naming the grant: "approved by the holder of this link, from
+   * this address, at this time" is the whole record of a customer decision.
+   */
+  actorPortalGrantId: uuid("actor_portal_grant_id"),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: uuid("entity_id"),

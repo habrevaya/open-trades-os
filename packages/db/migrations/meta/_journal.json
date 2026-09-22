@@ -22,6 +22,27 @@
       "when": 1790094239274,
       "tag": "0002_sloppy_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790094987679,
+      "tag": "0003_booking_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790095197891,
+      "tag": "0004_booking_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790095398360,
+      "tag": "0005_portal_audit",
+      "breakpoints": true
     }
   ]
 }

@@ -77,7 +77,7 @@ export function effectiveScope(actor: Actor, resource: ScopedResource): Scope {
  * that cannot happen pushes noise into every consumer.
  */
 export type RedactableField =
-  | "cost" | "unitCost" | "grossMargin" | "laborCost" | "materialCost"
+  | "cost" | "unitCost" | "margin" | "grossMargin" | "laborCost" | "materialCost"
   | "creditLimit" | "balance" | "discountRate"
   | "payRate" | "loadedRate" | "commissionRate"
   | "productionRatePerDay" | "payoutExpected" | "purchaseCost";
@@ -90,6 +90,12 @@ export const FIELD_PERMISSIONS: Record<string, Permission> = {
   "priceBookItemVersion.cost": "pricebook.cost:read",
   "priceBookItemVersion.commissionRate": "commission:read",
   "invoiceLine.unitCost": "pricebook.cost:read",
+  // An option's cost and margin are the whole reason a technician must not see
+  // the estimate's cost side: they quote in the driveway and the customer can
+  // read their screen.
+  "estimateOption.cost": "job.cost:read",
+  "estimateOption.margin": "job.cost:read",
+  "estimateLine.unitCost": "pricebook.cost:read",
   "job.cost": "job.cost:read",
   "job.grossMargin": "job.cost:read",
   "job.laborCost": "job.cost:read",

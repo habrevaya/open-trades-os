@@ -1,4 +1,5 @@
 import type postgres from "postgres";
+import { createHash } from "node:crypto";
 
 /**
  * Cleaning up between integration tests.
@@ -16,8 +17,10 @@ const ORDER = [
   // Money first, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "invoice_delivery", "invoice_line", "invoice",
+  "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
   // Then work.
+  "delivery",
   "obligation", "authorization", "external_work_order",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "visit", "entitlement", "job_party", "job", "job_type",
@@ -28,6 +31,8 @@ const ORDER = [
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
   "timeclock_entry", "wage_scale",
+  "portal_event", "portal_grant",
+  "booking_request", "bookable_service", "arrival_window",
   "portal_block", "portal_layout", "service_report_template",
   "retention_policy", "regulatory_submission",
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
@@ -35,6 +40,7 @@ const ORDER = [
   "lead_offer", "lead_source_connector", "sync_run", "integration_connection",
   "attachment", "audit_log", "integration_event", "webhook_endpoint",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",
+  "network_grant", "regulatory_constant",
   "membership", "business_unit", "location",
 ] as const;
 
@@ -68,7 +74,28 @@ export async function seedOrg(
   opts: { organizationId: string; userId: string; name: string; slug: string },
 ): Promise<void> {
   await resetOrg(sql, opts.organizationId);
-  await sql.unsafe(`delete from public."user" where id = $1`, [opts.userId]);
+
+  /**
+   * The slug is unique across the database, so a stale organization still
+   * holding it blocks this insert with a message about an index rather than
+   * about the fixture. That happens whenever a suite's ids change and the old
+   * rows survive, which is exactly when a clear error matters most.
+   */
+  const stale = await sql.unsafe<{ id: string }[]>(
+    `select id from public.organization where slug = $1 and id <> $2`,
+    [opts.slug, opts.organizationId],
+  );
+  for (const row of stale) await resetOrg(sql, row.id);
+
+  /**
+   * Users are not tenant scoped, so `resetOrg` does not reach them, and the
+   * email is unique. Clear both the id this fixture wants and anyone still
+   * holding the address, for the same reason as the slug above.
+   */
+  await sql.unsafe(
+    `delete from public."user" where id = $1 or email = $2`,
+    [opts.userId, `${opts.slug}@test.local`],
+  );
   await sql.unsafe(
     `insert into public.organization (id, name, slug) values ($1, $2, $3)`,
     [opts.organizationId, opts.name, opts.slug],
@@ -81,4 +108,38 @@ export async function seedOrg(
     `insert into public.membership (organization_id, user_id, role) values ($1, $2, 'owner')`,
     [opts.organizationId, opts.userId],
   );
+}
+
+/**
+ * Every tenant table this helper knows how to delete.
+ *
+ * Exported so a test can assert that the list is complete. It has been
+ * incomplete before: a table added to the schema and not added here is not
+ * caught by the compiler, and it surfaces as a foreign key failure in some
+ * other file's beforeAll, which vitest then reports as SKIPPED rather than
+ * failed. The cost is a whole suite silently not running.
+ */
+export const TEARDOWN_ORDER: readonly string[] = ORDER;
+
+/**
+ * A fixture id derived from a name.
+ *
+ * Hand-picked uuids collide. Two files in this directory independently chose
+ * `eeee1111-1111-1111-1111-111111111111`, and because `seedOrg` resets the
+ * organization it is about to seed, one file's beforeAll deleted the other
+ * file's fixtures halfway through the run. Each file passed on its own and the
+ * pair failed together, which is the worst way to find out.
+ *
+ * Deriving the id from a name makes a collision require picking the same name,
+ * which is visible rather than arithmetic.
+ */
+export function fixtureId(name: string): string {
+  const h = createHash("sha256").update(name).digest("hex");
+  return [
+    h.slice(0, 8), h.slice(8, 12),
+    // Version 4 and the RFC variant bits, so it is a well formed uuid.
+    `4${h.slice(13, 16)}`,
+    ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
+    h.slice(20, 32),
+  ].join("-");
 }

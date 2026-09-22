@@ -29,6 +29,13 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
   "invoice",
   /** The full customer view: visit timeline, documents, agreements, history. */
   "customer",
+  /**
+   * A booking request, before anyone has confirmed it and therefore before
+   * there is a customer to attach it to. The requester still wants to see that
+   * something happened, and the gap between booking and a human looking at it
+   * is exactly when they want it most.
+   */
+  "booking",
 ]);
 
 /**
@@ -46,7 +53,12 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
 export const portalGrant = pgTable("portal_grant", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
-  customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /**
+   * Null only while the grant precedes its customer, which happens exactly
+   * once: a booking request issues a tracking link before anyone has confirmed
+   * it into a customer. Confirmation fills this in.
+   */
+  customerId: uuid("customer_id").references(() => customer.id, { onDelete: "cascade" }),
   scope: portalGrantScope("scope").notNull(),
   /** The single record this grant reaches. Null only for the customer scope. */
   subjectId: uuid("subject_id"),
@@ -167,7 +179,7 @@ export const bookingRequest = pgTable("booking_request", {
   addressLine1: text("address_line1"),
   addressLine2: text("address_line2"),
   city: text("city"),
-  region: text("region"),
+  state: text("state"),
   postalCode: text("postal_code"),
 
   requestedDate: date("requested_date").notNull(),
