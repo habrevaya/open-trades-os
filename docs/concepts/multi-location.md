@@ -34,7 +34,8 @@ covers. It is not an organizational wall and it is not in scope here.
 | `Actor` carries `businessUnitId` and `locationId`, resolved with the session | Yes |
 | Scope ladder includes `business_unit` and `location` | Yes |
 | Job reads filter by branch or shop when the scope asks for it | Yes, `services/scope.ts` |
-| Any shipped role that USES those scopes | **No** |
+| Any shipped role that USES those scopes | **No**, and it needs custom roles, since `member_role` is a fixed enum |
+| Per-membership scope overrides | Yes, and they can only narrow |
 | Scope applied to customer, invoice and estimate reads | Yes |
 | Scope applied to visits, service reports and timesheets | **No** |
 | Numbering, sequences and documents per branch | **No** |

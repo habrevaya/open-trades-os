@@ -56,3 +56,19 @@ export const DEFAULT_SCOPES: Record<RoleId, Partial<Record<ScopedResource, Scope
 export function scopeFor(role: RoleId, resource: ScopedResource): Scope {
   return DEFAULT_SCOPES[role][resource] ?? "all";
 }
+
+export const SCOPES: readonly Scope[] = ORDER;
+
+export const isScope = (value: string): value is Scope =>
+  (ORDER as readonly string[]).includes(value);
+
+/**
+ * The NARROWER of two scopes. The counterpart to `widest`.
+ *
+ * Roles combine by widening, because holding two roles means holding both
+ * sets. An override narrows, because an administrator setting one is taking
+ * access away from a particular person, and an override that could widen
+ * would be a way to grant yourself scope your role never had.
+ */
+export const narrowest = (a: Scope, b: Scope): Scope =>
+  ORDER.indexOf(a) <= ORDER.indexOf(b) ? a : b;
