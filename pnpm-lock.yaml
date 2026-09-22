@@ -32,6 +32,9 @@ importers:
       '@opentradesos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@opentradesos/trade-packs':
+        specifier: workspace:*
+        version: link:../../packages/trade-packs
       '@opentradesos/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -87,6 +90,9 @@ importers:
       '@opentradesos/db':
         specifier: workspace:*
         version: link:../db
+      '@opentradesos/trade-packs':
+        specifier: workspace:*
+        version: link:../trade-packs
       drizzle-orm:
         specifier: ^0.36.4
         version: 0.36.4(@types/react@19.3.0)(postgres@3.4.9)(react@19.3.0)

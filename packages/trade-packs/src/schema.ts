@@ -177,8 +177,17 @@ export const TradePack = z.object({
   /** How this trade primarily sells capacity. */
   capacityModel: CapacityModel,
   summary: z.string().max(500),
-  /** Honest about what the pack does not cover yet. */
-  status: z.string().max(500).optional(),
+  /**
+   * What the pack does NOT cover yet, in the author's own words.
+   *
+   * Generously sized on purpose. The first cap here was 500 characters and a
+   * pack failed validation for being thorough about its gaps, which is exactly
+   * the behaviour this field exists to encourage. A contractor reading "no
+   * per-authority submission formatter, no sewer takeoff, medical gas is out
+   * of scope" knows where they stand. A cap that forces that down to one vague
+   * sentence produces a worse product and a less honest one.
+   */
+  status: z.string().max(2000).optional(),
 
   priceBook: z.array(PriceBookSeedItem),
   jobTypes: z.array(JobTypeSeed),

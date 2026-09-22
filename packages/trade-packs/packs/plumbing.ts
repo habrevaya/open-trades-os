@@ -49,7 +49,6 @@ export const plumbing: TradePackInput = {
     { code: "DRAIN-MAIN", name: "Main line clearing", category: "Drains", price: "489.00", cost: "36.00", laborMinutes: 150, taxClass: "service", warrantyMonths: 1 },
     { code: "HYDRO-JET", name: "Hydro jetting, main line", category: "Drains", price: "949.00", cost: "180.00", laborMinutes: 240, taxClass: "service", description: "High pressure cleaning of the full line, with a camera pass before and after so you can see what came out." },
     { code: "CAMERA-INSPECT", name: "Sewer camera inspection with recording", category: "Drains", price: "329.00", cost: "18.00", laborMinutes: 90, taxClass: "service" },
-    { code: "LINE-LOCATE", name: "Line locate and depth marking", category: "Drains", price: "249.00", laborMinutes: 60, taxClass: "service" },
 
     { code: "WH-40-GAS", name: "40 gallon gas water heater, installed", kind: "equipment", category: "Water heaters", price: "2190.00", cost: "890.00", laborMinutes: 240, taxClass: "equipment", warrantyMonths: 72, description: "New heater, new flex connectors, new shutoff, expansion tank where the system needs one, haul away of the old unit, permit where the jurisdiction requires one." },
     { code: "WH-50-GAS", name: "50 gallon gas water heater, installed", kind: "equipment", category: "Water heaters", price: "2490.00", cost: "1020.00", laborMinutes: 240, taxClass: "equipment", warrantyMonths: 72 },
@@ -69,7 +68,6 @@ export const plumbing: TradePackInput = {
     { code: "ANGLE-STOP", name: "Angle stop replacement", category: "Fixtures", price: "189.00", cost: "12.00", laborMinutes: 45, taxClass: "material", warrantyMonths: 12 },
     { code: "SHOWER-CART", name: "Shower valve cartridge replacement", category: "Fixtures", price: "349.00", cost: "42.00", laborMinutes: 90, taxClass: "material", warrantyMonths: 12 },
     { code: "GARB-DISP", name: "Garbage disposal supplied and installed", category: "Fixtures", price: "549.00", cost: "168.00", laborMinutes: 90, taxClass: "material", warrantyMonths: 24 },
-    { code: "PTRAP-REBUILD", name: "Sink trap and drain assembly rebuild", category: "Fixtures", price: "249.00", cost: "26.00", laborMinutes: 60, taxClass: "material" },
 
     { code: "PRV-REPL", name: "Pressure reducing valve replacement", category: "Water supply", price: "689.00", cost: "148.00", laborMinutes: 150, taxClass: "material", warrantyMonths: 12, description: "Replaces the valve that holds house pressure at a safe level. High incoming pressure is the most common cause of repeat fixture leaks." },
     { code: "SHUTOFF-MAIN", name: "Main shutoff valve replacement", category: "Water supply", price: "789.00", cost: "118.00", laborMinutes: 180, taxClass: "material", warrantyMonths: 12 },

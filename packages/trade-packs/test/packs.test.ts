@@ -6,6 +6,31 @@ import { TradePack } from "../src/schema";
  * Packs are contributed by people who run shops rather than by engineers, so
  * these check the honest mistakes rather than the typos.
  */
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+
+describe("the registry", () => {
+  /**
+   * A pack file that nobody registered is a pack that silently does not
+   * exist, and the author has no way to notice. Cheaper to assert than to
+   * discover.
+   */
+  it("registers every pack file in the folder", () => {
+    const files = readdirSync(join(__dirname, "..", "packs"))
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => f.replace(/\.ts$/, ""));
+    const registered = new Set(packs.map((p) => p.id));
+    for (const file of files) {
+      expect(registered.has(file), `packs/${file}.ts exists but is not registered in src/index.ts`).toBe(true);
+    }
+  });
+
+  it("gives every pack a unique id", () => {
+    const ids = packs.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
 describe("every pack", () => {
   it("is structurally valid", () => {
     for (const pack of packs) expect(TradePack.safeParse(pack).success, pack.id).toBe(true);
@@ -49,15 +74,42 @@ describe("every pack", () => {
   /**
    * A pack that ships an item priced below its cost teaches a new company to
    * lose money on every one of them, which is worse than shipping no pricing.
+   *
+   * Zero is the deliberate exception, and the pest control pack is what
+   * surfaced it: a warranty re-service is free to the customer and still costs
+   * the company money. That is not a pricing error, it is the whole reason
+   * coverage source exists. Those items carry real cost so agreement and
+   * warranty profitability reporting works, and they must never be caught by
+   * this check.
+   *
+   * What the check still catches is the actual mistake: an item priced above
+   * zero but under its cost, which is margin quietly leaking on every sale.
    */
-  it("never prices an item below its cost", () => {
+  it("never prices an item above zero but below its cost", () => {
     for (const pack of packs) {
       for (const item of pack.priceBook) {
         if (!item.cost) continue;
+        const price = Number(item.price);
+        if (price === 0) continue;
         expect(
-          Number(item.price) >= Number(item.cost),
+          price >= Number(item.cost),
           `${pack.id}: ${item.code} is priced at ${item.price} against a cost of ${item.cost}`,
         ).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * The flip side: a zero priced item with a real cost is only sane if it is
+   * covered by something. Flag any that carry no cost either, since those are
+   * usually an unfinished row rather than a deliberate freebie.
+   */
+  it("gives a zero priced item either a cost or a reason to be free", () => {
+    for (const pack of packs) {
+      for (const item of pack.priceBook) {
+        if (Number(item.price) !== 0) continue;
+        const explained = item.cost != null || item.description != null || item.kind === "discount" || item.kind === "fee";
+        expect(explained, `${pack.id}: ${item.code} is free with no cost and no explanation`).toBe(true);
       }
     }
   });

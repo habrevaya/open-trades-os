@@ -54,18 +54,18 @@ export const serviceReportTemplate = pgTable("service_report_template", {
     key: string;
     label: string;
     kind: "numeric" | "text" | "boolean" | "select" | "photo" | "signature" | "chemical" | "measurement";
-    unit?: string;
-    options?: string[];
-    required?: boolean;
+    unit?: string | undefined;
+    options?: string[] | undefined;
+    required?: boolean | undefined;
     /** Show on the customer portal. Some readings are internal only. */
-    customerVisible?: boolean;
+    customerVisible?: boolean | undefined;
     /** Chart this across visits. Only meaningful for numeric and measurement. */
-    trend?: boolean;
+    trend?: boolean | undefined;
     /** Acceptable range. Outside it, the portal flags the reading. */
-    min?: number;
-    max?: number;
+    min?: number | undefined;
+    max?: number | undefined;
     /** Regulatory: EPA registration, applicator licence, target pest. */
-    regulated?: boolean;
+    regulated?: boolean | undefined;
   }>>().notNull().default([]),
   version: integer("version").notNull().default(1),
   active: boolean("active").notNull().default(true),

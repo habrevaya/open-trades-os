@@ -19,7 +19,8 @@
     "@asteasolutions/zod-to-openapi": "^7.3.0",
     "@opentradesos/db": "workspace:*",
     "@opentradesos/core": "workspace:*",
-    "drizzle-orm": "^0.36.4"
+    "drizzle-orm": "^0.36.4",
+    "@opentradesos/trade-packs": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

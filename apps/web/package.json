@@ -20,7 +20,8 @@
     "react-dom": "^19.0.0",
     "zod": "^3.24.1",
     "drizzle-orm": "^0.36.4",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "@opentradesos/trade-packs": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

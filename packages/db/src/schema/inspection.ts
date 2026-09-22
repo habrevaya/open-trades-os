@@ -52,14 +52,26 @@ export const inspectionProgram = pgTable("inspection_program", {
   authorityName: text("authority_name"),
   frequencyMonths: integer("frequency_months"),
   /** Ordered checkpoints, shipped with the pack and versioned with it. */
+  /**
+   * Severity mirrors the deficiency_severity enum, advisory included. The
+   * first version of this type omitted advisory and a trade pack using it
+   * failed to compile, which is the type system doing its job: a checkpoint
+   * that can only ever be critical, major or minor forces every "worth knowing
+   * about, not a defect" finding to be overstated as minor, and a backlog
+   * where everything is a defect is a backlog nobody works.
+   *
+   * Optionals allow undefined explicitly because the project runs with
+   * exactOptionalPropertyTypes, and a pack author writing `{ key, label }` is
+   * the normal case.
+   */
   checkpoints: jsonb("checkpoints").$type<Array<{
     key: string;
     label: string;
-    assetCategory?: string;
-    requiresReading?: boolean;
-    unit?: string;
-    failIsDeficiency?: boolean;
-    severityOnFail?: "critical" | "major" | "minor";
+    assetCategory?: string | undefined;
+    requiresReading?: boolean | undefined;
+    unit?: string | undefined;
+    failIsDeficiency?: boolean | undefined;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
   }>>().notNull().default([]),
   version: integer("version").notNull().default(1),
   active: boolean("active").notNull().default(true),
