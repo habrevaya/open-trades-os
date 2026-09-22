@@ -11,17 +11,22 @@
 
 ## Where we are
 
+**Phases 0 through 3 are done. Phase 4 is in progress.**
+
 | | State |
 |---|---|
 | Schema | 14 files. Residential through commercial, franchise, regulated inspection, commodity delivery |
-| Domain logic | Access control, money |
-| API | Not started |
-| Web app | Not started |
-| Mobile | Not started |
+| Domain logic | Access control, money, estimates, the ledger, the field operation model |
+| API | Services and contracts for the booked-to-paid path, the sell path, dispatch and field sync. 8 declared routes still unimplemented, listed in `PENDING_ROUTES` |
+| Web app | Dispatch board, a technician's day, the customer portal: proposal, tracking, booking |
+| Mobile | The technician's day runs as a web page on the phone they already have. The Expo app is not built |
 | Worker | Not started |
+| Trade packs | 8 shipped: HVAC, plumbing, electrical, lawn and landscape, pest control, cleaning, dumpster rental, trash bin cleaning |
+| Migration | Jobber and Housecall Pro read. Extract, profile and reconcile work. Nothing writes to a target yet |
+| Demo | `pnpm db:seed` builds a company with a day of work in it, and the product screenshots come from it |
 
-The foundation is broad and nothing runs. The next milestone is deliberately
-narrow: one slice, end to end, through a real API and a real UI.
+A company cannot yet be run on this. The gap to Phase 4 done is not a feature
+list, it is three design partners willing to put real jobs through it.
 
 ---
 

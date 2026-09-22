@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { todayIn } from "@/lib/dates";
 import { dispatch, fieldOps } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Day } from "./Day";
@@ -52,7 +53,7 @@ export default async function MyDayPage({
   }
 
   const params = await searchParams;
-  const date = params.date ?? new Date().toISOString().slice(0, 10);
+  const date = params.date ?? todayIn(user.organizationTimezone);
 
   /**
    * Registered here rather than on a settings screen. A technician opening
@@ -79,6 +80,7 @@ export default async function MyDayPage({
       visits={snapshot.visits}
       openTimeEntry={snapshot.openTimeEntry}
       technicianName={user.name ?? user.email}
+      timezone={user.organizationTimezone}
     />
   );
 }

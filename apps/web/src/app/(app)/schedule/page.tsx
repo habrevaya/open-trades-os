@@ -1,5 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { todayIn } from "@/lib/dates";
 import { dispatch } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Board } from "./Board";
@@ -25,7 +26,9 @@ export default async function SchedulePage({
   const user = await requireSetupUser();
   const params = await searchParams;
 
-  const date = params.date ?? new Date().toISOString().slice(0, 10);
+  // The company's today, not the server's. See lib/dates.ts.
+  const today = todayIn(user.organizationTimezone);
+  const date = params.date ?? today;
 
   const board = await dispatch.board(
     { actor: user.actor, db: getDb() },
@@ -38,6 +41,8 @@ export default async function SchedulePage({
       date={date}
       canDispatch={can(user.actor, "visit:dispatch")}
       canReorder={can(user.actor, "visit:reschedule")}
+      today={today}
+      timezone={user.organizationTimezone}
     />
   );
 }

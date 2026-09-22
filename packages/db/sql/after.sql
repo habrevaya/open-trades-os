@@ -241,7 +241,22 @@ revoke all on function app.credential_for_login(text) from public;
 -- already hold. It returns one row or none, and it cannot be used to enumerate
 -- anything.
 
-create or replace function app.resolve_session(p_token_hash text)
+/**
+ * Dropped before it is created, rather than replaced.
+ *
+ * `create or replace function` cannot change the return type of a set
+ * returning function, so adding one column to this signature fails the
+ * migration on every database that already has the old one, which is every
+ * deployed one. The error names the function and not the reason, and the
+ * migration is the last place anybody wants to be debugging that.
+ *
+ * Safe here because this file is idempotent by design and re-run on every
+ * migration: nothing depends on the function surviving the gap, and the
+ * create follows immediately in the same transaction.
+ */
+drop function if exists app.resolve_session(text);
+
+create function app.resolve_session(p_token_hash text)
   returns table (
     session_id uuid,
     user_id uuid,
@@ -250,6 +265,14 @@ create or replace function app.resolve_session(p_token_hash text)
     organization_id uuid,
     organization_name text,
     organization_slug text,
+    /**
+     * The company's timezone, resolved with the session rather than fetched
+     * separately, because every screen that shows a time needs it on the
+     * first render. A dispatcher in Denver looking at a Texas company must
+     * see the window the Texas customer was given, and formatting in the
+     * viewer's timezone silently shows them a different appointment.
+     */
+    organization_timezone text,
     setup_completed_at timestamptz,
     role text,
     grants jsonb,
@@ -264,7 +287,7 @@ create or replace function app.resolve_session(p_token_hash text)
   as $$
     select
       s.id, u.id, u.email, u.name,
-      o.id, o.name, o.slug, o.setup_completed_at,
+      o.id, o.name, o.slug, o.timezone, o.setup_completed_at,
       m.role::text, m.grants, m.revocations, m.business_unit_id, m.location_id
     from public.session s
     join public."user" u on u.id = s.user_id

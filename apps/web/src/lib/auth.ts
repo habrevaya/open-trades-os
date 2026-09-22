@@ -28,6 +28,8 @@ export interface CurrentUser {
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
+  /** The company's timezone. Every rendered time is formatted in it. */
+  organizationTimezone: string;
   setupCompleted: boolean;
 }
 
@@ -54,6 +56,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     organization_id: string;
     organization_name: string;
     organization_slug: string;
+    organization_timezone: string | null;
     setup_completed_at: Date | null;
     role: string;
     grants: string[] | null;
@@ -72,6 +75,10 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     organizationId: row.organization_id,
     organizationName: row.organization_name,
     organizationSlug: row.organization_slug,
+    // A company created before the column existed has no timezone. Falling
+    // back to the server's is wrong in the same way the browser's is, but it
+    // is at least stable across a hydration, and setup asks for a real one.
+    organizationTimezone: row.organization_timezone ?? "America/Chicago",
     setupCompleted: row.setup_completed_at != null,
     actor: {
       userId: row.user_id,

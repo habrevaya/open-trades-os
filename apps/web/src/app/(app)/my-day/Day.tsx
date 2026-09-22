@@ -23,7 +23,7 @@ type Visit = Snapshot["visits"][number];
  * does nothing.
  */
 export function Day({
-  date, deviceId, lastSequence, visits, openTimeEntry, technicianName,
+  date, deviceId, lastSequence, visits, openTimeEntry, technicianName, timezone,
 }: {
   date: string;
   deviceId: string;
@@ -31,6 +31,8 @@ export function Day({
   visits: Visit[];
   openTimeEntry: Snapshot["openTimeEntry"];
   technicianName: string;
+  /** The company's timezone. Every time on this screen is rendered in it. */
+  timezone: string;
 }) {
   const queueRef = useRef<FieldQueue | null>(null);
   const [queued, setQueued] = useState(0);
@@ -138,6 +140,7 @@ export function Day({
         <div className="flex items-baseline justify-between">
           <h1 className="text-lg font-semibold">
             {new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
+              timeZone: "UTC",
               weekday: "long", month: "short", day: "numeric",
             })}
           </h1>
@@ -173,7 +176,7 @@ export function Day({
       )}
 
       <div className="px-4 py-4">
-        <TimeClock openEntry={openTimeEntry} onPunch={(kind) => void record(kind)} />
+        <TimeClock openEntry={openTimeEntry} zone={timezone} onPunch={(kind) => void record(kind)} />
       </div>
 
       {ordered.length === 0 ? (
@@ -189,6 +192,7 @@ export function Day({
                 expanded={open === v.id}
                 onToggle={() => setOpen(open === v.id ? null : v.id)}
                 onRecord={(kind, payload) => void record(kind, v.id, payload)}
+                timezone={timezone}
               />
             </li>
           ))}
@@ -199,13 +203,15 @@ export function Day({
 }
 
 function TimeClock({
-  openEntry, onPunch,
+  openEntry, onPunch, zone,
 }: {
   openEntry: Snapshot["openTimeEntry"];
   onPunch: (kind: "timeclock.punch_in" | "timeclock.punch_out") => void;
+  zone: string;
 }) {
   const since = openEntry
     ? new Date(openEntry.startedAt).toLocaleTimeString("en-US", {
+        timeZone: zone,
         hour: "numeric", minute: "2-digit",
       })
     : null;
@@ -236,15 +242,26 @@ function TimeClock({
 /**
  * The window as a technician reads it off a card at a glance.
  *
- * Rendered from the visit's own timestamps rather than from a preformatted
- * string, because the same payload feeds a phone that may be in a different
- * timezone from the office that scheduled it, and the technician wants the
- * time where they are standing.
+ * Formatted in the COMPANY's timezone, which is passed in, rather than in
+ * whatever the device happens to be set to.
+ *
+ * It is tempting to use the technician's own device zone, and it is wrong: a
+ * window is a promise made to a customer at a particular address, and a phone
+ * that has not caught up after a drive across a state line would quietly show
+ * a different hour than the one the customer was given. The company's zone is
+ * the one both of them agreed on.
+ *
+ * It also has to be explicit because this component renders on the server and
+ * then hydrates. With no zone named, the server formats in the server's and
+ * the browser reformats in the browser's, and any deployment where those
+ * differ rewrites every time on the screen after the technician has read it.
  */
-function arrivalWindow(start: string | null, end: string | null): string | null {
+function arrivalWindow(start: string | null, end: string | null, zone: string): string | null {
   if (!start) return null;
   const time = (iso: string) =>
-    new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    new Date(iso).toLocaleTimeString("en-US", {
+      hour: "numeric", minute: "2-digit", timeZone: zone,
+    });
   const from = time(start);
   return end ? `${from} to ${time(end)}` : from;
 }
@@ -262,11 +279,12 @@ const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "v
 };
 
 function VisitCard({
-  visit, index, status, expanded, onToggle, onRecord,
+  visit, index, status, expanded, onToggle, onRecord, timezone,
 }: {
   visit: Visit;
   index: number;
   status: string;
+  timezone: string;
   expanded: boolean;
   onToggle: () => void;
   onRecord: (
@@ -278,7 +296,7 @@ function VisitCard({
   const [sendingEta, setSendingEta] = useState(false);
   const next = NEXT_ACTION[status] ?? null;
   const address = `${visit.property.addressLine1}, ${visit.property.city} ${visit.property.postalCode}`;
-  const window = arrivalWindow(visit.windowStart, visit.windowEnd);
+  const window = arrivalWindow(visit.windowStart, visit.windowEnd, timezone);
 
   return (
     <article className={`rounded-md border ${

@@ -30,7 +30,15 @@ export default async function TodayPage() {
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-xl font-semibold">Today</h1>
         <span className="text-sm text-ink-500">
-          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          {/*
+            The company's date, not the server's. A shop in Austin looking at
+            a server in UTC at nine in the evening would otherwise be told it
+            is already tomorrow.
+          */}
+          {new Date().toLocaleDateString("en-US", {
+            weekday: "long", month: "long", day: "numeric",
+            timeZone: user.organizationTimezone,
+          })}
         </span>
       </div>
 

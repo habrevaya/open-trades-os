@@ -57,10 +57,47 @@ const ORG = id("org");
  * hours, because a day centred on 3am would run past midnight and split
  * across two dates, and the board is a single date.
  */
+function now(): Date {
+  /**
+   * `SEED_NOW` pins the clock, for two reasons.
+   *
+   * The product screenshots have to be reproducible: run the seed at nine in
+   * the evening and every visit falls behind its window, so the board renders
+   * three jobs running late and looks like a company in trouble rather than a
+   * company at work. Pinning the hour means the same command produces the same
+   * picture on anyone's machine.
+   *
+   * It is also how you look at the board on a day that is not today without
+   * editing this file.
+   */
+  const pinned = process.env["SEED_NOW"];
+  if (!pinned) return new Date();
+  const parsed = new Date(pinned);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`SEED_NOW is not a date: ${JSON.stringify(pinned)}`);
+  }
+  return parsed;
+}
+
+/**
+ * The hour the demo day is built around.
+ *
+ * Clamped only as far as it must be to keep the whole day inside one calendar
+ * date, because the board shows one date and a day that runs past midnight
+ * loses half of itself.
+ *
+ * The ceiling was 5pm first, which was wrong in a way that took a screenshot
+ * to see: seeded at nine in the evening, the anchor snapped back four hours
+ * and every visit after it fell behind a window that had already closed, so
+ * the board rendered "3 running late" and looked like a company in trouble.
+ * The lateness was real, and it was an artefact of the seed rather than
+ * anything the product did. Anchoring near the actual hour means the day in
+ * progress is genuinely in progress whenever you run it.
+ */
 function anchor(): Date {
-  const d = new Date();
-  const hour = d.getHours();
-  d.setHours(Math.min(17, Math.max(10, hour)), 0, 0, 0);
+  const d = now();
+  // The day spans anchor minus 4.5 hours to anchor plus 3.5 hours.
+  d.setHours(Math.min(20, Math.max(10, d.getHours())), 0, 0, 0);
   return d;
 }
 
@@ -394,7 +431,7 @@ async function work(
      * thing the product does look like an empty card.
      */
     if (spec.visitStatus === "en_route") {
-      const sent = new Date(Date.now() - 6 * 60_000);
+      const sent = new Date(now().getTime() - 6 * 60_000);
       await sql`
         insert into public.arrival_notice (id, organization_id, visit_id, channel, sent_at, eta_minutes, delivered_at)
         values (${id(`notice:${spec.key}`)}, ${ORG}, ${visitId}, 'sms', ${sent}, 25, ${sent})
@@ -435,8 +472,8 @@ async function invoices(sql: postgres.Sql, customers: Map<string, { customer: st
   for (const row of rows) {
     const link = customers.get(row.customer);
     if (!link) continue;
-    const issued = new Date(); issued.setDate(issued.getDate() + row.issued);
-    const due = new Date(); due.setDate(due.getDate() + row.due);
+    const issued = now(); issued.setDate(issued.getDate() + row.issued);
+    const due = now(); due.setDate(due.getDate() + row.due);
 
     await sql`
       insert into public.invoice
@@ -463,7 +500,7 @@ async function estimate(sql: postgres.Sql, customers: Map<string, { customer: st
   if (!link) return;
 
   const estimateId = id("est:delgado");
-  const expires = new Date();
+  const expires = now();
   expires.setDate(expires.getDate() + 14);
 
   await sql`

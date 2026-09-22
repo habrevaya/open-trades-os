@@ -9,9 +9,29 @@ type Column = BoardData["technicians"][number];
 type Card = Column["visits"][number];
 type Unassigned = BoardData["unassigned"][number];
 
-const time = (iso: string | null) =>
+/**
+ * Formatted in the COMPANY's timezone, passed in, not the viewer's.
+ *
+ * Two reasons, and the second one is a bug that was live.
+ *
+ * A window is a promise made to a customer standing in a particular house. A
+ * dispatcher covering from another state, or an owner checking the board from
+ * a hotel, has to see the time that customer was given, not the same instant
+ * translated into where they happen to be sitting.
+ *
+ * And this is a client component that also renders on the server. With no
+ * explicit zone, the server formatted in the server's and the browser
+ * reformatted in the browser's, so any deployment where those differ threw a
+ * hydration mismatch and silently rewrote every time on the board after the
+ * page had already been read.
+ */
+type TimeFormatter = (iso: string | null) => string | null;
+
+const timeIn = (zone: string): TimeFormatter => (iso: string | null) =>
   iso
-    ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    ? new Date(iso).toLocaleTimeString("en-US", {
+        hour: "numeric", minute: "2-digit", timeZone: zone,
+      })
     : null;
 
 const shiftDate = (date: string, days: number) =>
@@ -26,13 +46,24 @@ const shiftDate = (date: string, days: number) =>
  * a full day look half empty, which is how a dispatcher over-books somebody.
  */
 export function Board({
-  board, date, canDispatch, canReorder,
+  board, date, today, canDispatch, canReorder, timezone,
 }: {
   board: BoardData;
   date: string;
+  /**
+   * The company's today, resolved on the server.
+   *
+   * Computed here it would be the BROWSER's today, which differs from the
+   * company's for any dispatcher in another timezone and differs from the
+   * server's render during hydration. Both of those show up as the Today
+   * button pointing at the wrong day.
+   */
+  today: string;
   canDispatch: boolean;
   canReorder: boolean;
+  timezone: string;
 }) {
+  const time = timeIn(timezone);
   const [dragging, setDragging] = useState<{ id: string; from: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -71,7 +102,7 @@ export function Board({
    * late" is the wrong word for a day that is over: nothing is running. The
    * server's `isLate` is accurate either way, so this is only the wording.
    */
-  const isPast = date < new Date().toISOString().slice(0, 10);
+  const isPast = date < today;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
@@ -88,12 +119,16 @@ export function Board({
         </div>
 
         <h1 className="text-base font-semibold">
+          {/*
+            Noon UTC, so the date cannot slip a day in either direction, then
+            formatted in UTC for the same reason the times are pinned above.
+          */}
           {new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
-            weekday: "long", month: "long", day: "numeric",
+            weekday: "long", month: "long", day: "numeric", timeZone: "UTC",
           })}
         </h1>
 
-        <a href={`/schedule?date=${new Date().toISOString().slice(0, 10)}`}
+        <a href={`/schedule?date=${today}`}
            className="rounded border border-steel-300 px-2.5 py-1 text-sm">
           Today
         </a>
@@ -136,7 +171,7 @@ export function Board({
             <ul className="space-y-2">
               {board.unassigned.map((v) => (
                 <li key={v.id}>
-                  <UnassignedCard visit={v} draggable={canDispatch} onDragStart={() =>
+                  <UnassignedCard visit={v} draggable={canDispatch} time={time} onDragStart={() =>
                     setDragging({ id: v.id, from: null })} />
                 </li>
               ))}
@@ -153,6 +188,7 @@ export function Board({
               dragging={dragging !== null}
               onDragStart={(id) => setDragging({ id, from: t.id })}
               onDrop={(beforeVisitId) => drop(t.id, beforeVisitId)}
+              time={time}
             />
           ))}
           {board.technicians.length === 0 && (
@@ -167,13 +203,14 @@ export function Board({
 }
 
 function TechnicianColumn({
-  technician, canDispatch, dragging, onDragStart, onDrop,
+  technician, canDispatch, dragging, onDragStart, onDrop, time,
 }: {
   technician: Column;
   canDispatch: boolean;
   dragging: boolean;
   onDragStart: (visitId: string) => void;
   onDrop: (beforeVisitId?: string) => void;
+  time: TimeFormatter;
 }) {
   const [over, setOver] = useState(false);
   const minutes = technician.visits.reduce((n, v) => n + v.estimatedDurationMinutes, 0);
@@ -236,7 +273,7 @@ function TechnicianColumn({
               onDragOver={(e) => { if (canDispatch && dragging) e.preventDefault(); }}
               onDrop={(e) => { e.stopPropagation(); setOver(false); onDrop(v.id); }}
             >
-              <VisitCard visit={v} draggable={canDispatch} onDragStart={() => onDragStart(v.id)} />
+              <VisitCard visit={v} draggable={canDispatch} time={time} onDragStart={() => onDragStart(v.id)} />
             </li>
           ))}
         </ol>
@@ -246,11 +283,12 @@ function TechnicianColumn({
 }
 
 function VisitCard({
-  visit, draggable, onDragStart,
+  visit, draggable, onDragStart, time,
 }: {
   visit: Card;
   draggable: boolean;
   onDragStart: () => void;
+  time: TimeFormatter;
 }) {
   return (
     <article
@@ -291,11 +329,12 @@ function VisitCard({
 }
 
 function UnassignedCard({
-  visit, draggable, onDragStart,
+  visit, draggable, onDragStart, time,
 }: {
   visit: Unassigned;
   draggable: boolean;
   onDragStart: () => void;
+  time: TimeFormatter;
 }) {
   return (
     <article
