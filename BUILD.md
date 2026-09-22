@@ -17,7 +17,7 @@
 |---|---|
 | Schema | 14 files. Residential through commercial, franchise, regulated inspection, commodity delivery |
 | Domain logic | Access control, money, estimates, the ledger, the field operation model |
-| API | Every declared route is served. Booked-to-paid, the sell path, dispatch, field sync, properties, the price book and job editing |
+| API | Every declared route is served, over HTTP, at `/api/v1`. Booked-to-paid, the sell path, dispatch, field sync, properties, the price book and job editing |
 | Web app | Dispatch board, a technician's day, the customer portal: proposal, tracking, booking |
 | Mobile | The technician's day runs as a web page on the phone they already have. The Expo app is not built |
 | Worker | Not started |
