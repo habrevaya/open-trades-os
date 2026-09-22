@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root { color-scheme: light; }
+  body { @apply bg-canvas text-ink-900 font-sans text-base antialiased; }
+
+  /* Focus is never removed. Dispatchers keyboard through the board all day. */
+  :focus-visible { outline: 2px solid theme("colors.blue.300"); outline-offset: 2px; }
+
+  /* Money and identifiers are tabular everywhere. */
+  .tnum { font-variant-numeric: tabular-nums; }
+}

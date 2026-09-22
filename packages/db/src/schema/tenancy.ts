@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { pk, timestamps } from "./_shared";
 
 /**
@@ -177,6 +177,48 @@ export const membership = pgTable("membership", {
   uniq: uniqueIndex("membership_org_user_idx").on(t.organizationId, t.userId),
   userIdx: index("membership_user_idx").on(t.userId),
 }));
+
+/**
+ * Sessions are a table, not a signed stateless token.
+ *
+ * A stateless JWT cannot be revoked, and in this product revocation is a real
+ * requirement rather than a checkbox: an owner firing a technician needs that
+ * technician out of the system before they reach the truck, not whenever the
+ * token happens to expire. The cost is a lookup per request, which is one
+ * indexed read.
+ *
+ * The session carries the active organization, so a user who belongs to
+ * several switches context without re-authenticating, and every request
+ * resolves its tenant from here rather than from anything the client sends.
+ */
+export const session = pgTable("session", {
+  id: pk(),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  /** SHA-256 of the cookie value. The raw token is never stored. */
+  tokenHash: text("token_hash").notNull(),
+  activeOrganizationId: uuid("active_organization_id").references(() => organization.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+}, (t) => ({
+  tokenIdx: uniqueIndex("session_token_idx").on(t.tokenHash),
+  userIdx: index("session_user_idx").on(t.userId, t.expiresAt),
+}));
+
+/** Password credentials, separate from the user so SSO users simply have none. */
+export const credential = pgTable("credential", {
+  id: pk(),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  /** scrypt. Never reversible, never logged, never returned. */
+  passwordHash: text("password_hash").notNull(),
+  passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }).notNull().defaultNow(),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({ userIdx: uniqueIndex("credential_user_idx").on(t.userId) }));
 
 /** Technician-specific profile. Separate from membership so office staff rows stay clean. */
 export const technician = pgTable("technician", {
