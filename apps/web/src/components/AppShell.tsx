@@ -12,6 +12,12 @@ import { can, type Permission } from "@opentradesos/core";
  * and it also leaks the shape of the system to people who should not have it.
  */
 const NAV: { href: string; label: string; permission: Permission }[] = [
+  /**
+   * A technician's own day, first. For the person who holds this permission it
+   * is the only screen they open, and on a phone the row scrolls, so anything
+   * ahead of it is a swipe they should not have to make.
+   */
+  { href: "/my-day", label: "My day", permission: "field:sync" },
   { href: "/", label: "Today", permission: "job:read" },
   { href: "/schedule", label: "Schedule", permission: "visit:read" },
   { href: "/jobs", label: "Jobs", permission: "job:read" },

@@ -44,6 +44,9 @@ importers:
       '@opentradesos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@opentradesos/field-client':
+        specifier: workspace:*
+        version: link:../../packages/field-client
       '@opentradesos/trade-packs':
         specifier: workspace:*
         version: link:../../packages/trade-packs

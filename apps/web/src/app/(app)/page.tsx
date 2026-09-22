@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
@@ -9,6 +10,19 @@ import { Chip } from "@opentradesos/ui";
  */
 export default async function TodayPage() {
   const user = await requireSetupUser();
+
+  /**
+   * Field staff land on their own day, not on this.
+   *
+   * Somebody who can use the field app and cannot dispatch is a technician or
+   * a crew lead, and for them this screen is a summary of a business they do
+   * not run. They open the app standing in a driveway wanting to know which
+   * house is next, and making them find a second link first is the difference
+   * between an app they use and one they are told to use.
+   */
+  if (can(user.actor, "field:sync") && !can(user.actor, "visit:dispatch")) {
+    redirect("/my-day");
+  }
   const seesMoney = can(user.actor, "report.financial:read");
 
   return (

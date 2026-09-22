@@ -22,7 +22,8 @@
     "zod": "^3.24.1",
     "drizzle-orm": "^0.36.4",
     "server-only": "^0.0.1",
-    "@opentradesos/trade-packs": "workspace:*"
+    "@opentradesos/trade-packs": "workspace:*",
+    "@opentradesos/field-client": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
