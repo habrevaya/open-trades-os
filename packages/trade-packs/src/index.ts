@@ -6,6 +6,7 @@ import { lawnAndLandscape } from "../packs/lawn-and-landscape";
 import { pestControl } from "../packs/pest-control";
 import { cleaning } from "../packs/cleaning";
 import { dumpsterRental } from "../packs/dumpster-rental";
+import { trashBinCleaning } from "../packs/trash-bin-cleaning";
 
 export * from "./schema";
 
@@ -16,7 +17,7 @@ export * from "./schema";
  * setup time, which is when a contractor would otherwise discover it, halfway
  * through their first hour with the product.
  */
-const raw: TradePackInput[] = [hvac, plumbing, electrical, lawnAndLandscape, pestControl, cleaning, dumpsterRental];
+const raw: TradePackInput[] = [hvac, plumbing, electrical, lawnAndLandscape, pestControl, cleaning, dumpsterRental, trashBinCleaning];
 
 export const packs: TradePack[] = raw.map((p) => {
   const parsed = TradePackSchema.safeParse(p);
