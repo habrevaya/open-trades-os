@@ -7,6 +7,7 @@ export * from "./work";
 export * from "./commercial";
 export * from "./entitlement";
 export * from "./inspection";
+export * from "./compliance";
 export * from "./service-reports";
 export * from "./billing";
 export * from "./workforce";

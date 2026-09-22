@@ -27,6 +27,19 @@ create or replace function app.current_user_id() returns uuid
 -- with an organization_id column is protected the moment it is created and
 -- nobody has to remember to add it.
 
+-- Three things happen per table, and the second and third are not cosmetic.
+-- Measured effects, from Supabase's own RLS performance guidance:
+--
+--   indexing the column the policy filters on   171 ms  ->  under 0.1 ms
+--   wrapping the function in a subselect        178 s   ->  12 ms
+--   restricting the policy with TO authenticated 170 ms ->  under 0.1 ms
+--
+-- The subselect is the one that looks like a typo and is not. Written bare,
+-- app.current_organization_id() is evaluated PER ROW. Wrapped as
+-- (select app.current_organization_id()) the planner hoists it into an
+-- InitPlan and evaluates it once for the whole query. Same result, four
+-- orders of magnitude apart on a large table.
+
 do $$
 declare
   t record;
@@ -44,11 +57,18 @@ begin
     execute format('alter table public.%I enable row level security', t.table_name);
     execute format('alter table public.%I force row level security', t.table_name);
 
+    -- Every policy filters on organization_id, so every table needs it indexed.
+    -- Without this the policy forces a sequential scan on every query.
+    execute format(
+      'create index if not exists %I on public.%I (organization_id)',
+      t.table_name || '_org_rls_idx', t.table_name);
+
     execute format('drop policy if exists tenant_isolation on public.%I', t.table_name);
     execute format($p$
       create policy tenant_isolation on public.%I
-        using (organization_id = app.current_organization_id())
-        with check (organization_id = app.current_organization_id())
+        to authenticated
+        using (organization_id = (select app.current_organization_id()))
+        with check (organization_id = (select app.current_organization_id()))
     $p$, t.table_name);
   end loop;
 end
@@ -59,7 +79,8 @@ alter table public.organization enable row level security;
 alter table public.organization force row level security;
 drop policy if exists organization_member_access on public.organization;
 create policy organization_member_access on public.organization
-  using (id = app.current_organization_id());
+  to authenticated
+  using (id = (select app.current_organization_id()));
 
 -- ---- The layer ABOVE the tenant ----------------------------------------
 -- `network` deliberately has no organization_id, so the catalog driven loop
@@ -78,11 +99,12 @@ alter table public.network enable row level security;
 alter table public.network force row level security;
 drop policy if exists network_member_access on public.network;
 create policy network_member_access on public.network
+  to authenticated
   using (
     id = (
       select o.network_id
       from public.organization o
-      where o.id = app.current_organization_id()
+      where o.id = (select app.current_organization_id())
     )
   );
 
@@ -92,7 +114,8 @@ alter table public."user" enable row level security;
 alter table public."user" force row level security;
 drop policy if exists user_self_access on public."user";
 create policy user_self_access on public."user"
-  using (id = app.current_user_id());
+  to authenticated
+  using (id = (select app.current_user_id()));
 
 -- ---- Ledger is append only ---------------------------------------------
 -- No UPDATE. No DELETE. Ever. A correction is a new reversing entry.
@@ -150,3 +173,35 @@ create index if not exists customer_name_trgm_idx
   on public.customer using gin (name gin_trgm_ops);
 create index if not exists property_address_trgm_idx
   on public.property using gin (address_line1 gin_trgm_ops);
+
+-- =========================================================================
+-- COVERAGE ASSERTION
+--
+-- Fails the migration if any table carrying organization_id ended up without
+-- row level security. The loop above should make that impossible, but the
+-- failure mode is a silent cross tenant leak, so it gets an assertion rather
+-- than trust. A table that is deliberately exempt must be named here, in the
+-- open, with a reason.
+-- =========================================================================
+
+do $$
+declare
+  unprotected text;
+begin
+  select string_agg(c.relname, ', ')
+    into unprotected
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_attribute a on a.attrelid = c.oid
+   where n.nspname = 'public'
+     and c.relkind = 'r'
+     and a.attname = 'organization_id'
+     and not a.attisdropped
+     and not c.relrowsecurity;
+
+  if unprotected is not null then
+    raise exception
+      'Tables carry organization_id without row level security: %', unprotected;
+  end if;
+end
+$$;

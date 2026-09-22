@@ -22,9 +22,28 @@ export const jobStatus = pgEnum("job_status", [
   "completed", "invoiced", "paid", "cancelled",
 ]);
 
+/**
+ * Note `completed_after_cancellation`, which looks like a contradiction and is
+ * the most important state in this enum.
+ *
+ * A technician works offline. Dispatch cancels the visit while they are in a
+ * crawlspace with no signal. The technician completes the work and syncs.
+ *
+ * The naive resolution is to reject their write, because the server is
+ * authoritative and the visit is cancelled. That is wrong, and expensively so:
+ * rejecting it destroys the labour record, the photos, the signature, the
+ * readings and, in a regulated trade, a compliance record that legally has to
+ * exist. The work physically happened. Deleting the evidence does not undo it.
+ *
+ * So the write is ACCEPTED into a distinguished state and a dispatcher
+ * exception is raised for a human to resolve. The general rule, applied
+ * everywhere in the sync layer: never reject a field write that records
+ * something that actually happened.
+ */
 export const visitStatus = pgEnum("visit_status", [
   "unassigned", "scheduled", "dispatched", "en_route",
   "working", "completed", "cancelled", "no_show",
+  "completed_after_cancellation",
 ]);
 
 export const jobType = pgTable("job_type", {

@@ -86,6 +86,17 @@ export const timeclockEntry = pgTable("timeclock_entry", {
   /** THE FIELD THIS TABLE EXISTS FOR. */
   wageScaleId: uuid("wage_scale_id").references(() => wageScale.id, { onDelete: "set null" }),
   classification: text("classification"),
+  /**
+   * Workers compensation class code, which is NOT the same as the wage
+   * classification and is captured on the same entry for the same reason.
+   *
+   * Comp premium is rated per class code, and the split payroll rules let a
+   * worker's hours be divided across codes when the work genuinely differs.
+   * Capture it at the punch and the annual audit export falls out of payroll
+   * for free. Do not capture it and the audit is a reconstruction exercise
+   * with real money attached, which is a quantifiable reason to switch.
+   */
+  workClassCode: text("work_class_code"),
   /** Frozen at close. The scale can change; this entry's cost must not. */
   appliedBaseRate: money("applied_base_rate"),
   appliedFringeRate: money("applied_fringe_rate"),
