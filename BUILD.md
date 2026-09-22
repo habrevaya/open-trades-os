@@ -24,6 +24,7 @@
 | Trade packs | 8 shipped: HVAC, plumbing, electrical, lawn and landscape, pest control, cleaning, dumpster rental, trash bin cleaning |
 | Migration | Jobber and Housecall Pro read. Extract, profile and reconcile work. Nothing writes to a target yet |
 | Demo | `pnpm db:seed` builds a company with a day of work in it, and the product screenshots come from it |
+| Multi location | Tables, columns and scope filters exist. No shipped role uses a branch or shop scope yet, and scope is applied to job reads only. `docs/concepts/multi-location.md` |
 
 A company cannot yet be run on this. The gap to Phase 4 done is not a feature
 list, it is three design partners willing to put real jobs through it.

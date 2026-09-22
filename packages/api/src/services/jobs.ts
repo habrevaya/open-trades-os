@@ -6,6 +6,7 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
 } from "./context";
 import { audit } from "./customers";
+import { jobScopeFilter } from "./scope";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -54,13 +55,10 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.customerId ? eq(schema.job.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.job.propertyId, input.propertyId) : undefined,
         cursor ? lt(schema.job.createdAt, new Date(cursor)) : undefined,
-        scope === "own" && ctx.actor.technicianId
-          ? sql`exists (
-              select 1 from public.visit v
-              join public.visit_assignment va on va.visit_id = v.id
-              where v.job_id = ${schema.job.id} and va.technician_id = ${ctx.actor.technicianId}
-            )`
-          : undefined,
+        // Every scope, not just `own`. An unhandled one used to fall through
+        // to no filter, which turned a role written to be limited into one
+        // that read the whole organization. See services/scope.ts.
+        jobScopeFilter(scope, ctx.actor),
       ))
       .orderBy(desc(schema.job.createdAt))
       .limit(input.limit + 1);
