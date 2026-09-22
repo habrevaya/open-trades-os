@@ -6,7 +6,9 @@ import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
+  scopeOf,
 } from "./context";
+import { estimateScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 import type {
@@ -182,6 +184,8 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
       .from(schema.estimate)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.estimate.customerId))
       .where(and(
+        // A technician sees estimates for work they did. See services/scope.ts.
+        estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor),
         input.status ? inArray(schema.estimate.status, input.status) : undefined,
         input.customerId ? eq(schema.estimate.customerId, input.customerId) : undefined,
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,

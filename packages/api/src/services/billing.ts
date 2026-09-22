@@ -5,7 +5,9 @@ import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
+  scopeOf,
 } from "./context";
+import { invoiceScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { writePosting } from "./ledger";
 import { nextNumber } from "./jobs";
@@ -190,6 +192,9 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
       .from(schema.invoice)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.invoice.customerId))
       .where(and(
+        // A technician sees invoices for work they did, not the company's
+        // receivables. See services/scope.ts.
+        invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor),
         input.status ? inArray(schema.invoice.status, input.status) : undefined,
         input.customerId ? eq(schema.invoice.customerId, input.customerId) : undefined,
         input.payerCustomerId ? eq(schema.invoice.payerCustomerId, input.payerCustomerId) : undefined,

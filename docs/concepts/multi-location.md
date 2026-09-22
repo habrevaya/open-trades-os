@@ -35,7 +35,8 @@ covers. It is not an organizational wall and it is not in scope here.
 | Scope ladder includes `business_unit` and `location` | Yes |
 | Job reads filter by branch or shop when the scope asks for it | Yes, `services/scope.ts` |
 | Any shipped role that USES those scopes | **No** |
-| Scope applied to reads other than jobs | **No** |
+| Scope applied to customer, invoice and estimate reads | Yes |
+| Scope applied to visits, service reports and timesheets | **No** |
 | Numbering, sequences and documents per branch | **No** |
 | Cross branch reporting and elimination | **No** |
 
@@ -45,10 +46,15 @@ covers. It is not an organizational wall and it is not in scope here.
 other scope fell through to no filter at all, which meant the whole
 organization.
 
-That was not hypothetical. `crew_lead` ships with `job: "crew"`, so a crew
-lead was reading every job in the company, and a technician whose account had
-no technician record was too. The permission tests all passed, because the
-permission was never the problem.
+Worse, `customers`, `billing` and `estimates` resolved no scope at all, while
+the comment on the technician row in `core/access/scopes.ts` said customer
+scope was "what stops a departing technician walking out with the customer
+list". It was not stopping anything: a technician could page the entire
+customer book, every invoice and every estimate.
+
+None of that was hypothetical. `technician` and `crew_lead` are both shipped
+roles. The permission tests all passed, because the permission was never the
+problem.
 
 The fix is in `services/scope.ts` and the rule it enforces is **fail closed**:
 a scope that cannot be turned into a filter matches nothing. An account that
@@ -98,3 +104,14 @@ permission test still passes.
 So any read that can be scoped resolves its scope through `scopeOf` and turns
 it into a filter through `services/scope.ts`, and any scope that file cannot
 satisfy matches nothing.
+
+Everything in that file reduces to one predicate, `jobVisibility`, because
+"which customers" and "which invoices" are both "which jobs did this person
+actually work". Writing the reduction once is what stops the four filters
+disagreeing about what `own` means, which is how this kind of code usually
+rots: the job filter gets tightened and the invoice filter does not.
+
+`visit`, `servicereport` and `timesheet` are declared scopable and are still
+unscoped. They are reachable through the field sync path, which is already
+keyed to a device and therefore a technician, so the exposure is narrower.
+It is not nothing.

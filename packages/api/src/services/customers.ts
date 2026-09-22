@@ -3,8 +3,9 @@ import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
-  decodeCursor, paginate, NotFoundError,
+  decodeCursor, paginate, NotFoundError, scopeOf,
 } from "./context";
+import { customerScopeFilter } from "./scope";
 import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
 
 type ListInput = z.infer<typeof listCustomers.input>;
@@ -16,7 +17,14 @@ type CreateInput = z.infer<typeof CustomerCreate>;
 export async function list(ctx: ServiceContext, input: ListInput) {
   return guardedRead(ctx, "customer:read", async (tx) => {
     const cursor = decodeCursor(input.cursor);
+    /**
+     * A technician sees the people they have been sent to, not the company's
+     * book. This is the filter the comment on the technician row in
+     * `core/access/scopes.ts` has been promising, and until it existed a
+     * departing technician could page through every customer.
+     */
     const where = and(
+      customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor),
       isNull(schema.customer.deletedAt),
       input.type ? eq(schema.customer.type, input.type) : undefined,
       // Trigram search across the three things a CSR actually types while

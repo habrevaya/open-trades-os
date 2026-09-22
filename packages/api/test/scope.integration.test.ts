@@ -4,6 +4,8 @@ import type { Actor } from "@opentradesos/core";
 import { effectiveScope } from "@opentradesos/core";
 import * as jobs from "../src/services/jobs";
 import * as customers from "../src/services/customers";
+import * as billing from "../src/services/billing";
+import * as estimates from "../src/services/estimates";
 import * as properties from "../src/services/properties";
 import { inTenant, type ServiceContext } from "../src/services/context";
 import { jobScopeFilter, type ScopeContext } from "../src/services/scope";
@@ -43,6 +45,11 @@ const ctxFor = (roles: Actor["roles"], extra: Partial<Actor> = {}): ServiceConte
 
 let mine = "";
 let theirs = "";
+let myInvoice = "";
+let theirInvoice = "";
+let myEstimate = "";
+let theirEstimate = "";
+let otherCustomer = "";
 const MY_TECH = fixtureId("scope:tech-mine");
 const MY_CREW = fixtureId("scope:crew-mine");
 
@@ -80,11 +87,46 @@ beforeAll(async () => {
   await raw`insert into public.crew_member (id, organization_id, crew_id, technician_id, is_lead)
             values (${fixtureId("scope:cm")}, ${ORG}, ${MY_CREW}, ${MY_TECH}, true)`;
 
+  /**
+   * A second customer the technician has never been sent to, with an invoice
+   * and an estimate of their own. This is the record that must not be
+   * readable, and without it every assertion below passes vacuously.
+   */
+  const stranger = await customers.create(owner, {
+    type: "residential", name: "Never Visited", paymentTermsDays: 0,
+    taxExempt: false, tags: [], customFields: {},
+  });
+  otherCustomer = stranger.id;
+
   const visitId = fixtureId("scope:visit");
   await raw`insert into public.visit (id, organization_id, job_id, sequence, status, crew_id)
             values (${visitId}, ${ORG}, ${mine}, 1, 'scheduled', ${MY_CREW})`;
   await raw`insert into public.visit_assignment (id, organization_id, visit_id, technician_id, is_lead)
             values (${fixtureId("scope:va")}, ${ORG}, ${visitId}, ${MY_TECH}, true)`;
+
+  /**
+   * An invoice and an estimate on each side: one hanging off the job the
+   * technician worked, one off the customer they have never met.
+   */
+  const money = async (table: "invoice" | "estimate", id: string, number: number, customerId: string, jobId: string | null) => {
+    if (table === "invoice") {
+      await raw`insert into public.invoice (id, organization_id, number, customer_id, job_id, status, subtotal, tax_total, total, balance)
+                values (${id}, ${ORG}, ${number}, ${customerId}, ${jobId}, 'open', '100', '0', '100', '100')`;
+    } else {
+      await raw`insert into public.estimate (id, organization_id, number, customer_id, property_id, job_id, status)
+                values (${id}, ${ORG}, ${number}, ${customerId}, ${property.id}, ${jobId}, 'sent')`;
+    }
+  };
+
+  myInvoice = fixtureId("scope:inv-mine");
+  theirInvoice = fixtureId("scope:inv-theirs");
+  myEstimate = fixtureId("scope:est-mine");
+  theirEstimate = fixtureId("scope:est-theirs");
+
+  await money("invoice", myInvoice, 9001, customer.id, mine);
+  await money("invoice", theirInvoice, 9002, otherCustomer, null);
+  await money("estimate", myEstimate, 9101, customer.id, mine);
+  await money("estimate", theirEstimate, 9102, otherCustomer, null);
 });
 
 afterAll(async () => { if (raw) await raw.end(); });
@@ -232,6 +274,48 @@ run("branches and shops", () => {
     // reach the default and match nothing, rather than falling out of the
     // function and matching everything.
     expect(await jobsAtScope("invented" as never, { businessUnitId: BU_AUSTIN })).toEqual([]);
+  });
+});
+
+/**
+ * The reads that are not jobs.
+ *
+ * `scopes.ts` says, in a comment on the technician row, that customer scope
+ * is "what stops a departing technician walking out with the customer list".
+ * That is the claim these tests check.
+ */
+run("customers, invoices and estimates", () => {
+  const tech = () => ctxFor(["technician"], { technicianId: MY_TECH });
+
+  it("shows a technician only customers they have been sent to", async () => {
+    const page = await customers.list(tech(), { limit: 100, includeInactive: false });
+    const names = page.data.map((c) => c.name);
+    expect(names).toContain("Scope Customer");
+    expect(names).not.toContain("Never Visited");
+  });
+
+  it("shows an owner every customer", async () => {
+    const page = await customers.list(ctxFor(["owner"]), { limit: 100, includeInactive: false });
+    expect(page.data.map((c) => c.name)).toContain("Never Visited");
+  });
+
+  it("shows a technician with no technician record no customers at all", async () => {
+    const page = await customers.list(ctxFor(["technician"]), { limit: 100, includeInactive: false });
+    expect(page.data).toEqual([]);
+  });
+
+  it("shows a technician only invoices for work they did", async () => {
+    const page = await billing.list(tech(), { limit: 100 });
+    const ids = page.data.map((i) => i.id);
+    expect(ids).toContain(myInvoice);
+    expect(ids).not.toContain(theirInvoice);
+  });
+
+  it("shows a technician only estimates for work they did", async () => {
+    const page = await estimates.list(tech(), { limit: 100 });
+    const ids = page.data.map((e) => e.id);
+    expect(ids).toContain(myEstimate);
+    expect(ids).not.toContain(theirEstimate);
   });
 });
 
