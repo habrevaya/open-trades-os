@@ -70,13 +70,22 @@ export const user = pgTable("user", {
   ...timestamps,
 }, (t) => ({ emailIdx: uniqueIndex("user_email_idx").on(t.email) }));
 
+/**
+ * Mirrors the role presets in @opentradesos/core access/roles.ts, which are
+ * the authority. A role is a named set of permissions and nothing more, so a
+ * change here without a change there is a bug.
+ *
+ * back office = office_manager, finance = accountant, field = technician and
+ * crew_lead.
+ */
 export const memberRole = pgEnum("member_role", [
   "owner",
   "admin",
-  "manager",
+  "office_manager",
   "dispatcher",
   "csr",
   "technician",
+  "crew_lead",
   "accountant",
   "readonly",
 ]);
@@ -91,8 +100,20 @@ export const membership = pgTable("membership", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   role: memberRole("role").notNull().default("technician"),
-  /** Granular overrides on top of the role. Role is the default, this is the exception. */
-  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  /**
+   * Overrides on top of the preset. Grants add, revocations remove, and
+   * revocation always beats a grant so taking access away is never ambiguous.
+   * Resolved by permissionsFor() in @opentradesos/core.
+   */
+  grants: jsonb("grants").$type<string[]>().notNull().default([]),
+  revocations: jsonb("revocations").$type<string[]>().notNull().default([]),
+  /**
+   * Narrows WHICH records, within the tenant boundary that row level security
+   * already guarantees unconditionally. Scope is a privacy control inside one
+   * company; RLS is the cross tenant control. Two mechanisms on purpose, so the
+   * catastrophic one stays simple.
+   */
+  scopeOverrides: jsonb("scope_overrides").$type<Record<string, string>>().notNull().default({}),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
   active: boolean("active").notNull().default(true),
