@@ -10,6 +10,7 @@ export * from "./inspection";
 export * from "./compliance";
 export * from "./service-reports";
 export * from "./billing";
+export * from "./agreements";
 export * from "./workforce";
 export * from "./integrations";
 export * from "./platform";
