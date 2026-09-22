@@ -1,0 +1,25 @@
+name: Trade pack
+description: Contribute or correct pricing, checklists or forms for a trade
+title: "[trade-pack] "
+labels: ["trade-pack", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Trade packs are the seeded price book, checklists, forms and KPIs that
+        make hour one useful instead of an empty database. You do not need to
+        write code to contribute one. If you have run a shop in this trade,
+        you know more than we do.
+  - type: input
+    attributes: { label: Trade, placeholder: "HVAC, plumbing, electrical, lawn, pest, roofing..." }
+    validations: { required: true }
+  - type: dropdown
+    attributes:
+      label: What are you contributing
+      options: [New trade pack, Pricing correction, New checklist or form, KPI or dashboard, Other]
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: Details
+      description: For pricing, say which region it reflects and roughly when it was current.
+    validations: { required: true }

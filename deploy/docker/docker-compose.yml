@@ -1,0 +1,76 @@
+# Self-host quickstart. The Phase 0 bar is that this file alone gets someone
+# from `git clone` to a working login, because self-hosting that is hard is
+# self-hosting nobody does.
+#
+#   cp .env.example .env
+#   docker compose -f deploy/docker/docker-compose.yml up
+#   open http://localhost:3000
+
+name: opentradesos
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: opentradesos
+      POSTGRES_PASSWORD: opentradesos
+      POSTGRES_DB: opentradesos
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opentradesos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: ["redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # S3-compatible storage for job photos, signatures and documents.
+  # Swap for Supabase Storage, R2 or S3 by changing STORAGE_* in .env.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["miniodata:/data"]
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.web
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgresql://opentradesos:opentradesos@postgres:5432/opentradesos
+      REDIS_URL: redis://redis:6379
+      STORAGE_ENDPOINT: http://minio:9000
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgresql://opentradesos:opentradesos@postgres:5432/opentradesos
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

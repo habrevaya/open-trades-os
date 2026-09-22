@@ -1,0 +1,25 @@
+{
+  "name": "open-trades-os",
+  "private": true,
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @opentradesos/db generate",
+    "db:migrate": "pnpm --filter @opentradesos/db migrate",
+    "db:seed": "pnpm --filter @opentradesos/db seed",
+    "db:test": "pnpm --filter @opentradesos/db test:rls"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.9",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.2",
+    "prettier": "^3.4.1"
+  }
+}
