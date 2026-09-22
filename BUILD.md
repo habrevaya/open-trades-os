@@ -125,6 +125,25 @@ service reports. The dispatch board. Route ordering. On my way notifications.
 **Done means:** a technician runs a full day from a phone with no signal in a
 basement, and everything they did is in the system when they surface.
 
+**Mostly done.** The offline model is built and tested: writes are named
+intents rather than row diffs, ordered per device, clamped for clock drift and
+reconciled per kind, so work done against a visit the office cancelled is
+recorded AND flagged instead of silently winning or silently lost. The queue on
+the client is its own package with an injected storage backend, so the app
+being killed, the battery dying mid-write and a response truncated by a dropped
+connection are all tested in a millisecond rather than staged on a device.
+
+The technician's day runs in a browser, which is what a self hoster can deploy
+today without an app store. The dispatch board, route ordering, assignment and
+on-my-way are built. Every operation kind writes something outside the log, and
+a test fails if one stops.
+
+Not done, and named so nobody assumes otherwise: the Expo app, which adds
+background sync, reliable camera capture and a home screen icon; photo and
+signature bytes, which are recorded and queued but have no upload path yet; and
+true offline page loads, which need a service worker. A technician with no
+signal can record a day on a page already open; they cannot open the page.
+
 ---
 
 ## Phase 4: Alpha
