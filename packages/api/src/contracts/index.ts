@@ -3,6 +3,9 @@ import { propertyRoutes } from "./properties";
 import { jobRoutes } from "./jobs";
 import { priceBookRoutes } from "./pricebook";
 import { billingRoutes } from "./billing";
+import { estimateRoutes } from "./estimates";
+import { portalRoutes } from "./portal";
+import { bookingRoutes } from "./booking";
 
 export * from "./common";
 export * from "./customers";
@@ -10,6 +13,9 @@ export * from "./properties";
 export * from "./jobs";
 export * from "./pricebook";
 export * from "./billing";
+export * from "./estimates";
+export * from "./portal";
+export * from "./booking";
 
 /**
  * Every route in the product. The web app consumes this, the OpenAPI document
@@ -22,6 +28,9 @@ export const routes = {
   ...jobRoutes,
   ...priceBookRoutes,
   ...billingRoutes,
+  ...estimateRoutes,
+  ...portalRoutes,
+  ...bookingRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

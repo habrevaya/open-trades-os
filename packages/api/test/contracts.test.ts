@@ -20,11 +20,54 @@ describe("permissions", () => {
     }
   });
 
-  it("every non-GET route declares at least one permission", () => {
+  /**
+   * A write with no permissions is either a hole or a deliberate decision, and
+   * the two look identical in the code. So the decision has to be written
+   * down: a route reachable without a session says which of the two other
+   * things it is, and anything that says nothing must be guarded.
+   */
+  it("every non-GET route is either permissioned or explicitly not session authorized", () => {
     for (const route of routeList) {
       if (route.method === "get" || route.internal) continue;
+      const auth = route.authorization ?? "session";
+      if (auth !== "session") continue;
       expect(route.permissions.length, `${route.path} is unguarded`).toBeGreaterThan(0);
     }
+  });
+
+  it("a route reachable without a session declares no permissions to hold", () => {
+    for (const route of routeList) {
+      const auth = route.authorization ?? "session";
+      if (auth === "session") continue;
+      expect(
+        route.permissions,
+        `${route.path} is authorized by ${auth} but expects permissions nobody without a session can hold`,
+      ).toHaveLength(0);
+    }
+  });
+
+  /**
+   * The portal and booking surface is the only part of the product a stranger
+   * can reach, so the count of routes in it is worth pinning. A route that
+   * quietly joins this set should be a deliberate change, visible in a diff,
+   * not something noticed later.
+   */
+  it("only the customer facing surface is reachable without a session", () => {
+    const open = routeList
+      .filter((r) => (r.authorization ?? "session") !== "session")
+      .map((r) => `${r.method.toUpperCase()} ${r.path}`)
+      .sort();
+
+    expect(open).toEqual([
+      "GET /v1/portal/estimate",
+      "GET /v1/portal/job",
+      "GET /v1/portal/session",
+      "GET /v1/public/availability",
+      "GET /v1/public/services",
+      "POST /v1/portal/estimate/approve",
+      "POST /v1/portal/estimate/decline",
+      "POST /v1/public/bookings",
+    ]);
   });
 });
 
