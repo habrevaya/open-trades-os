@@ -195,6 +195,26 @@ describe("every route has something behind it", () => {
     ).toEqual([]);
   });
 
+  /**
+   * A ratchet. Every declared route is served, and this is what keeps it that
+   * way.
+   *
+   * PENDING_ROUTES exists so that a deliberately deferred route is visible
+   * rather than a silent 404, and it worked: eight names sat in it across two
+   * phases and all eight are now implemented. Empty, it is one line away from
+   * becoming a convenient place to park a contract somebody did not finish.
+   *
+   * Adding a name here again should require editing this test, which makes it
+   * a decision with a reviewer rather than an import away.
+   */
+  it("has nothing deferred", () => {
+    expect(
+      PENDING_ROUTES,
+      `PENDING_ROUTES is empty and should stay that way. If a route genuinely ` +
+      `has to ship declared and unserved, say why here as well as there.`,
+    ).toEqual([]);
+  });
+
   it("does not defer a route it actually implements", () => {
     const implemented = new Set<string>(Object.keys(handlers));
     const stale = PENDING_ROUTES.filter((n) => implemented.has(n));

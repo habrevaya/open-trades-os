@@ -5,7 +5,7 @@ import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
-  fieldOps, dispatch,
+  fieldOps, dispatch, properties, priceBook,
 } from "../services/index";
 
 /**
@@ -71,10 +71,22 @@ export const handlers = {
   listCustomers: customers.list,
   updateCustomer: customers.update,
 
+  // Properties
+  createProperty: properties.create,
+  getProperty: properties.get,
+  listProperties: properties.list,
+  linkCustomerToProperty: properties.link,
+
+  // Price book
+  listPriceBook: priceBook.list,
+  createPriceBookItem: priceBook.create,
+  revisePriceBookItem: priceBook.revise,
+
   // Work
   createJob: jobs.create,
   getJob: jobs.get,
   listJobs: jobs.list,
+  updateJob: jobs.update,
   scheduleVisit: jobs.addVisit,
   completeVisit: jobs.complete,
 
@@ -138,21 +150,9 @@ export type ImplementedRoute = keyof typeof handlers;
  * so the list is not a backlog: it is the thing the test below prints when it
  * fails, and it should only ever shrink. Adding a route to the contracts
  * without adding it here or to `handlers` turns the suite red.
+ *
+ * It is empty. Every declared route is served.
  */
-export const PENDING_ROUTES: readonly RouteName[] = [
-  // Properties. The tables and the row level security exist; the service does
-  // not, so the contract currently promises four endpoints that answer
-  // nothing. Phase 3, with the dispatch board that needs them.
-  "createProperty", "getProperty", "listProperties", "linkCustomerToProperty",
-  // Editing a job after it is booked. Phase 3.
-  "updateJob",
-  // Authoring the price book by hand, rather than applying a trade pack.
-  // Phase 4, when the first design partners need prices we did not ship.
-  "createPriceBookItem", "revisePriceBookItem",
-  // Reading the price book. The trade-pack service writes one and nothing
-  // reads it back yet; mapping this to applyTradePack, which is what the first
-  // draft of this file did, is a different endpoint wearing the right name.
-  "listPriceBook",
-] as const;
+export const PENDING_ROUTES: readonly RouteName[] = [] as const;
 
 export const routeNames = Object.keys(routes) as RouteName[];

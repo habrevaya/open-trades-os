@@ -9,4 +9,6 @@ export * as fieldOps from "./field";
 export * as dispatch from "./dispatch";
 export * as booking from "./booking";
 export * as tradePacks from "./trade-pack";
+export * as properties from "./properties";
+export * as priceBook from "./pricebook";
 export { writePosting } from "./ledger";

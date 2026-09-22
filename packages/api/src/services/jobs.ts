@@ -3,10 +3,10 @@ import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
-  decodeCursor, paginate, NotFoundError, scopeOf,
+  decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
 } from "./context";
 import { audit } from "./customers";
-import type { JobCreate, listJobs, getJob, scheduleVisit, completeVisit } from "../contracts/jobs";
+import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
 
@@ -191,6 +191,86 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
 
     await audit(tx, ctx, "job.created", "job", job!.id, null, job!);
     return clean(ctx, "job", job!);
+  });
+}
+
+/**
+ * A job's status is a lifecycle, not a field, and this is where that is
+ * enforced.
+ *
+ * The office genuinely does edit a booked job: the customer describes the
+ * problem better on the second call, dispatch moves it to a different job
+ * type, somebody puts it on hold. All of that is an ordinary update.
+ *
+ * What is not an ordinary update is walking the status backwards. A job that
+ * has been invoiced cannot return to "lead", and one that has been paid is
+ * finished. Those transitions do not fail loudly in a permissive system: they
+ * succeed, and the money the job produced is still sitting in the ledger
+ * pointing at work the board now says has not started.
+ */
+const REACHABLE: Record<string, readonly string[]> = {
+  lead: ["lead", "estimating", "scheduled", "cancelled"],
+  estimating: ["estimating", "lead", "scheduled", "cancelled"],
+  scheduled: ["scheduled", "in_progress", "on_hold", "completed", "cancelled"],
+  in_progress: ["in_progress", "on_hold", "completed", "cancelled"],
+  on_hold: ["on_hold", "scheduled", "in_progress", "cancelled"],
+  completed: ["completed", "in_progress", "invoiced", "cancelled"],
+  // Invoiced is where the ledger has entries, so the only ways out are
+  // forward to paid or, if the invoice is voided, back to completed.
+  invoiced: ["invoiced", "paid", "completed"],
+  paid: ["paid"],
+  cancelled: ["cancelled"],
+};
+
+export function canTransition(from: string, to: string): boolean {
+  return (REACHABLE[from] ?? []).includes(to);
+}
+
+export async function update(ctx: ServiceContext, input: z.infer<typeof updateJob.input>) {
+  return guardedWrite(ctx, "job:write", async (tx) => {
+    const [before] = await tx.select().from(schema.job)
+      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
+    if (!before) throw new NotFoundError("Job");
+
+    if (input.status !== undefined && !canTransition(before.status, input.status)) {
+      throw new ConflictError(
+        `A job cannot move from "${before.status}" to "${input.status}".`,
+      );
+    }
+
+    /**
+     * Moving a job to a different customer or property is deliberately not
+     * possible here. It sounds like an edit and it is a re-parenting: the
+     * visits, the invoice, the equipment history and the portal links all
+     * point at the old pair, and changing one of them silently strands the
+     * rest. When it is genuinely needed it wants its own endpoint that moves
+     * all of it together.
+     */
+    const [after] = await tx.update(schema.job).set({
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.customerComplaint !== undefined ? { customerComplaint: input.customerComplaint } : {}),
+      ...(input.jobTypeId !== undefined ? { jobTypeId: input.jobTypeId } : {}),
+      ...(input.leadSource !== undefined ? { leadSource: input.leadSource } : {}),
+      ...(input.purchaseOrderNumber !== undefined ? { purchaseOrderNumber: input.purchaseOrderNumber } : {}),
+      ...(input.costCode !== undefined ? { costCode: input.costCode } : {}),
+      ...(input.tags !== undefined ? { tags: input.tags } : {}),
+      ...(input.customFields !== undefined ? { customFields: input.customFields } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      // Completion is a timestamp as well as a status, and a job that reaches
+      // "completed" without one is invisible to every report that asks what
+      // was finished this week.
+      ...(input.status === "completed" && before.completedAt === null
+        ? { completedAt: new Date() }
+        : {}),
+      ...(input.status === "cancelled" && before.cancelledAt === null
+        ? { cancelledAt: new Date() }
+        : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.job.id, input.id)).returning();
+
+    await audit(tx, ctx, "job.updated", "job", input.id, before, after!);
+    return clean(ctx, "job", after!);
   });
 }
 

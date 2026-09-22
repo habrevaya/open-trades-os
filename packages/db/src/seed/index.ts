@@ -26,6 +26,17 @@ import postgres from "postgres";
  *
  * Every id is derived from a name rather than random, so re-running updates
  * the same company instead of accumulating a new one each time.
+ *
+ * It writes raw SQL rather than calling the service layer, and that is a
+ * layering constraint rather than a shortcut: `api` depends on `db`, so a
+ * seed here that called the services would close a cycle. It also means the
+ * seed keeps working when a service is mid-refactor, which is exactly when
+ * somebody wants a database with data in it.
+ *
+ * The cost is that this file has to be kept honest by hand. The enum values
+ * and the foreign keys are checked by Postgres on every run, which has caught
+ * three mistakes so far, but nothing here knows about a business rule the
+ * service layer enforces.
  */
 
 const URL = process.env.DATABASE_URL ?? "postgresql://opentradesos:opentradesos@localhost:5432/opentradesos";
