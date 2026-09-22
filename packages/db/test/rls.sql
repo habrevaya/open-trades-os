@@ -4,7 +4,7 @@
 -- leak that shipped to production if it fails.
 
 begin;
-select plan(9);
+select plan(12);
 
 -- Two tenants, one row each.
 insert into organization (id, name, slug) values
@@ -69,6 +69,29 @@ select throws_ok(
   null, null,
   'an unbalanced ledger transaction is rejected at commit'
 );
+
+-- ---- The network layer must not widen the tenant boundary ---------------
+-- This is the assertion that matters most on the whole file. A franchise or a
+-- holding company brings several organizations under one owner, and the
+-- temptation is to let the parent read across them. It must not, except
+-- through an explicit grant for a named aggregate.
+
+insert into network (id, kind, name, slug)
+values ('66666666-6666-6666-6666-666666666666', 'franchise', 'Acme Brands', 'acme-brands');
+
+update organization set network_id = '66666666-6666-6666-6666-666666666666'
+where id in ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222');
+
+select set_config('app.organization_id', '11111111-1111-1111-1111-111111111111', true);
+
+select is((select count(*) from network)::int, 1,
+  'a member sees the network it belongs to');
+
+select is((select count(*) from customer)::int, 1,
+  'sharing a network does NOT let tenant A read tenant B customers');
+
+select is((select count(*) from organization)::int, 1,
+  'sharing a network does NOT let tenant A read tenant B organization rows');
 
 select * from finish();
 rollback;

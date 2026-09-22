@@ -80,6 +80,22 @@ export const invoice = pgTable("invoice", {
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   status: invoiceStatus("status").notNull().default("draft"),
+
+  /**
+   * The payer is frequently not the customer: a warranty company, an insurance
+   * carrier, a property owner behind a manager, a builder paying on draws.
+   * AR ages by PAYER, not by customer, or a commercial book is unreadable.
+   */
+  payerCustomerId: uuid("payer_customer_id").references(() => customer.id),
+  payerExternalName: text("payer_external_name"),
+  payerReference: text("payer_reference"),
+
+  purchaseOrderNumber: text("purchase_order_number"),
+  costCode: text("cost_code"),
+  contractId: uuid("contract_id"),
+  /** Set when a ceiling governs this invoice, so a breach is checkable. */
+  authorizationId: uuid("authorization_id"),
+
   issuedOn: date("issued_on"),
   dueOn: date("due_on"),
   currency: currency(),
@@ -99,6 +115,8 @@ export const invoice = pgTable("invoice", {
 }, (t) => ({
   /** AR aging: open invoices by due date. The report every owner opens first. */
   agingIdx: index("invoice_aging_idx").on(t.organizationId, t.status, t.dueOn),
+  /** AR aging by payer, which is the only readable view on a commercial book. */
+  payerIdx: index("invoice_payer_idx").on(t.organizationId, t.payerCustomerId, t.status),
   customerIdx: index("invoice_customer_idx").on(t.customerId),
   jobIdx: index("invoice_job_idx").on(t.jobId),
 }));
@@ -122,6 +140,10 @@ export const invoiceLine = pgTable("invoice_line", {
   taxRate: rate("tax_rate").notNull().default("0"),
   taxAmount: money("tax_amount").notNull().default("0"),
   lineTotal: money("line_total").notNull().default("0"),
+  /** Commercial and builder clients require cost coding at the line. */
+  costCode: text("cost_code"),
+  /** Set when the price came from a rate card rather than our own price book. */
+  rateCardLineId: uuid("rate_card_line_id"),
   ...timestamps,
 }, (t) => ({ invoiceIdx: index("invoice_line_invoice_idx").on(t.invoiceId) }));
 

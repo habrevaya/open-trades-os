@@ -61,6 +61,31 @@ drop policy if exists organization_member_access on public.organization;
 create policy organization_member_access on public.organization
   using (id = app.current_organization_id());
 
+-- ---- The layer ABOVE the tenant ----------------------------------------
+-- `network` deliberately has no organization_id, so the catalog driven loop
+-- above does not cover it. That is not an oversight: it is the one table that
+-- spans tenants, and it therefore gets an explicit, narrow policy rather than
+-- the generic one.
+--
+-- A network row is visible only to a member of an organization inside it.
+-- Crucially this does NOT widen access to anything owned by those
+-- organizations. Cross-organization reads go through network_grant, which IS
+-- tenant scoped and therefore covered by the generic policy, and are checked
+-- in the application against a named aggregate and written to the audit log.
+-- The tenant boundary stays absolute; the network layer only ever describes it.
+
+alter table public.network enable row level security;
+alter table public.network force row level security;
+drop policy if exists network_member_access on public.network;
+create policy network_member_access on public.network
+  using (
+    id = (
+      select o.network_id
+      from public.organization o
+      where o.id = app.current_organization_id()
+    )
+  );
+
 -- A user row is visible to that user only. Cross-user reads go through
 -- membership joins inside the tenant boundary, never through this table.
 alter table public."user" enable row level security;

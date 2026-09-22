@@ -72,6 +72,25 @@ export const job = pgTable("job", {
   equipmentId: uuid("equipment_id").references(() => equipment.id, { onDelete: "set null" }),
   leadSource: text("lead_source"),
   campaignId: uuid("campaign_id"),
+
+  /**
+   * WHOSE PRICE GOVERNS. Our price book is not the authority in five segments:
+   * a commercial contract rate card, a warranty network schedule, a
+   * manufacturer labour allowance, an insurance price list, or a bid we
+   * submitted. Cost tracking stays ours regardless, which is what keeps margin
+   * reporting honest even on work we did not price.
+   */
+  priceSource: text("price_source").notNull().default("price_book"),
+  rateCardId: uuid("rate_card_id"),
+  contractId: uuid("contract_id"),
+
+  /**
+   * Required on the invoice by most commercial and property management
+   * clients, and by every builder. Trivial to add now, painful to backfill
+   * across a migrated data set later.
+   */
+  purchaseOrderNumber: text("purchase_order_number"),
+  costCode: text("cost_code"),
   /** Set when this job is warranty rework on a previous one. Drives callback rate. */
   parentJobId: uuid("parent_job_id"),
   isWarranty: boolean("is_warranty").notNull().default(false),

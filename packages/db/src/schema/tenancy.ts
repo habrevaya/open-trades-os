@@ -15,6 +15,37 @@ import { pk, timestamps } from "./_shared";
  * 2 business units, and conflating them makes job costing unusable later.
  */
 
+/**
+ * THE LAYER ABOVE THE TENANT
+ *
+ * `organization` stays the tenant root and row level security does not change.
+ * What was missing is the layer above it, and it is the single most expensive
+ * thing on the list to retrofit, because RLS design is foundational.
+ *
+ * Franchise systems and private equity roll-ups are the same requirement in
+ * different clothes: several organizations under one owner, who needs defined,
+ * auditable, granular read access to aggregates across them, plus real
+ * cross-organization transactions (royalties, referral fees, shared services
+ * allocations).
+ *
+ * The rule that keeps this safe: a network grant NEVER widens the RLS policy.
+ * Cross-organization reads go through an explicit grant checked in the
+ * application and recorded in the audit log, against a named aggregate, never
+ * by relaxing the tenant boundary. The boundary stays absolute.
+ */
+export const networkKind = pgEnum("network_kind", ["franchise", "holding", "cooperative"]);
+
+export const network = pgTable("network", {
+  id: pk(),
+  kind: networkKind("kind").notNull().default("holding"),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  /** The organization that operates the network itself, if it operates at all. */
+  operatorOrganizationId: uuid("operator_organization_id"),
+  settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  ...timestamps,
+}, (t) => ({ slugIdx: uniqueIndex("network_slug_idx").on(t.slug) }));
+
 export const organization = pgTable("organization", {
   id: pk(),
   name: text("name").notNull(),
@@ -29,9 +60,33 @@ export const organization = pgTable("organization", {
   primaryTrade: text("primary_trade"),
   setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),
   settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  /** Set when this organization belongs to a franchise or holding network. */
+  networkId: uuid("network_id").references(() => network.id, { onDelete: "set null" }),
+  /** The franchisee's territory or the acquired brand's identifier. */
+  networkMemberCode: text("network_member_code"),
   ...timestamps,
 }, (t) => ({
   slugIdx: uniqueIndex("organization_slug_idx").on(t.slug),
+  networkIdx: index("organization_network_idx").on(t.networkId),
+}));
+
+/**
+ * An explicit, auditable grant of one named aggregate from one organization to
+ * a network. Never a blanket read. The grantee sees the aggregate, not the
+ * underlying rows, unless a separate grant says otherwise.
+ */
+export const networkGrant = pgTable("network_grant", {
+  id: pk(),
+  networkId: uuid("network_id").notNull().references(() => network.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** "revenue_summary", "job_counts", "kpi_scorecard", "gl_summary". */
+  aggregate: text("aggregate").notNull(),
+  grantedByUserId: uuid("granted_by_user_id"),
+  grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  uniq: uniqueIndex("network_grant_uniq_idx").on(t.networkId, t.organizationId, t.aggregate),
 }));
 
 export const businessUnit = pgTable("business_unit", {
