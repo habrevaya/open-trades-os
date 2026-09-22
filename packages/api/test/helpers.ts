@@ -24,6 +24,7 @@ const ORDER = [
   "delivery",
   "obligation", "authorization", "external_work_order",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
+  "job_line",
   "visit", "entitlement", "job_party", "job", "job_type",
   // Then the things work points at.
   "deficiency", "inspection", "inspection_program",

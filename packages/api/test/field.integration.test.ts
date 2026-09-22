@@ -582,3 +582,284 @@ run("on my way", () => {
     expect(notice!.includes_tracking).toBe(false);
   });
 });
+
+run("every operation does something", () => {
+  /**
+   * The gap this closes was real and silent. Three kinds fell through to a
+   * default branch whose comment claimed another path applied them. No such
+   * path existed, the server marked them applied, and the phone deletes an
+   * applied operation from its queue on the strength of that word. A chemical
+   * application recorded in a crawl space was accepted, acknowledged and gone.
+   *
+   * So: every kind in the catalogue either changes something outside the log,
+   * or is named in LOG_ONLY_OPERATIONS, and this proves the first by running
+   * each one and watching a row appear.
+   */
+  /**
+   * Every kind in the catalogue, run for real, with the rest of the schema
+   * counted before and after. A kind that changes nothing outside the log is
+   * a kind the server calls applied while discarding the work.
+   *
+   * Table driven rather than one test each, because the point is COVERAGE:
+   * adding a kind without an effect has to fail here, and a per-kind test that
+   * somebody forgets to write proves nothing.
+   */
+  const SIDE_EFFECT_TABLES = [
+    "visit", "job_line", "equipment", "timeclock_entry",
+    "service_report", "service_report_field", "field_upload", "portal_event",
+  ] as const;
+
+  async function fingerprint(): Promise<string> {
+    const parts: string[] = [];
+    for (const table of SIDE_EFFECT_TABLES) {
+      const rows = await raw.unsafe(
+        `select count(*)::int as n, coalesce(max(updated_at)::text, '') as t
+         from public.${table} where organization_id = $1`,
+        [ORG],
+      );
+      parts.push(`${table}:${rows[0]!.n}:${rows[0]!.t}`);
+    }
+    return parts.join("|");
+  }
+
+  it("changes something outside the log, for every kind", async () => {
+    const { visitId, jobId } = await makeVisit();
+    const [report] = await raw`insert into public.service_report
+      (organization_id, visit_id, job_id, customer_id, property_id)
+      values (${ORG}, ${visitId}, ${jobId}, ${customerId}, ${propertyId}) returning id`;
+
+    const cases: Array<{
+      kind: (typeof field.OPERATION_KINDS)[number];
+      subjectId?: string;
+      payload: Record<string, unknown>;
+    }> = [
+      { kind: "visit.en_route", subjectId: visitId, payload: {} },
+      { kind: "visit.arrive", subjectId: visitId, payload: {} },
+      { kind: "visit.start", subjectId: visitId, payload: {} },
+      { kind: "visit.pause", subjectId: visitId, payload: {} },
+      { kind: "visit.note", subjectId: visitId, payload: { text: "A note" } },
+      { kind: "timeclock.punch_in", payload: { technicianId, classification: "apprentice" } },
+      { kind: "timeclock.punch_out", payload: { technicianId } },
+      { kind: "service_report.set_field", subjectId: report!.id,
+        payload: { field: "ambient_temp", value: 94, unit: "F" } },
+      { kind: "visit.checklist_item", subjectId: visitId, payload: { itemId: "x", done: true } },
+      { kind: "visit.add_line", subjectId: visitId,
+        payload: { name: "Filter", quantity: "1", unitPrice: "24.00" } },
+      { kind: "equipment.record",
+        payload: { propertyId, category: "air_handler", serialNumber: `E-${uuid().slice(0, 8)}` } },
+      { kind: "attachment.attach", subjectId: visitId,
+        payload: { uploadId: uuid(), contentType: "image/jpeg" } },
+      { kind: "signature.capture", subjectId: visitId,
+        payload: { uploadId: uuid(), contentType: "image/png" } },
+      { kind: "service_report.submit", subjectId: report!.id, payload: {} },
+      { kind: "visit.complete", subjectId: visitId, payload: {} },
+    ];
+
+    // Every kind in the catalogue is exercised, or this test is not what it
+    // says it is.
+    const covered = new Set(cases.map((c) => c.kind));
+    const missing = field.OPERATION_KINDS.filter((k) => !covered.has(k));
+    expect(missing, `Not exercised: ${missing.join(", ")}`).toEqual([]);
+
+    const device = await freshDevice();
+    const inert: string[] = [];
+
+    for (const [i, testCase] of cases.entries()) {
+      const before = await fingerprint();
+
+      const result = await fieldOps.sync(tech(), {
+        deviceId: device,
+        operations: [{
+          clientId: uuid(),
+          sequence: i + 1,
+          kind: testCase.kind,
+          ...(testCase.subjectId ? { subjectId: testCase.subjectId } : {}),
+          occurredAt: new Date(Date.now() + i * 60_000).toISOString(),
+          payload: testCase.payload,
+        }],
+      });
+
+      const status = result.results[0]!.status;
+      if (status !== "applied" && status !== "conflicted") continue;
+
+      if ((await fingerprint()) === before) inert.push(testCase.kind);
+    }
+
+    const logOnly = new Set<string>(fieldOps.LOG_ONLY_OPERATIONS);
+    const silent = inert.filter((k) => !logOnly.has(k));
+
+    expect(
+      silent,
+      `These kinds were marked applied and changed nothing. The phone deletes ` +
+      `an applied operation from its queue, so this is work being discarded: ` +
+      `${silent.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("writes a reading when a technician fills in a form field", async () => {
+    const { visitId, jobId } = await makeVisit();
+    const [report] = await raw`insert into public.service_report
+      (organization_id, visit_id, job_id, customer_id, property_id)
+      values (${ORG}, ${visitId}, ${jobId}, ${customerId}, ${propertyId}) returning id`;
+
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "service_report.set_field",
+        subjectId: report!.id, occurredAt: new Date().toISOString(),
+        payload: { field: "suction_pressure", label: "Suction pressure", value: 118, unit: "psi" },
+      }],
+    });
+
+    const [row] = await raw`select key, value_numeric, unit from public.service_report_field
+      where report_id = ${report!.id}`;
+    expect(row!.key).toBe("suction_pressure");
+    expect(Number(row!.value_numeric)).toBe(118);
+    expect(row!.unit).toBe("psi");
+  });
+
+  it("keeps the regulated columns a chemical application needs", async () => {
+    const { visitId, jobId } = await makeVisit();
+    const [report] = await raw`insert into public.service_report
+      (organization_id, visit_id, job_id, customer_id, property_id)
+      values (${ORG}, ${visitId}, ${jobId}, ${customerId}, ${propertyId}) returning id`;
+
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "service_report.set_field",
+        subjectId: report!.id, occurredAt: new Date().toISOString(),
+        payload: {
+          field: "perimeter_treatment", kind: "chemical", value: "Applied",
+          productName: "Termidor SC", epaRegistrationNumber: "432-1278",
+          quantityApplied: "1.5", applicationUnit: "gal",
+          applicatorLicense: "TX-PMT-44812", targetPest: "Subterranean termite",
+        },
+      }],
+    });
+
+    // Reconstructing any of this later is the exercise these columns exist to
+    // avoid, and it has a real number attached.
+    const [row] = await raw`select product_name, epa_registration_number,
+      applicator_license, target_pest from public.service_report_field
+      where report_id = ${report!.id}`;
+    expect(row!.product_name).toBe("Termidor SC");
+    expect(row!.epa_registration_number).toBe("432-1278");
+    expect(row!.applicator_license).toBe("TX-PMT-44812");
+    expect(row!.target_pest).toBe("Subterranean termite");
+  });
+
+  it("records a part used as a job line, not an invoice line", async () => {
+    const { visitId, jobId } = await makeVisit();
+
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "visit.add_line",
+        subjectId: visitId, occurredAt: new Date().toISOString(),
+        payload: {
+          kind: "part", name: "Dual run capacitor 45/5",
+          quantity: "1", unitPrice: "189.00", unitCost: "22.40",
+        },
+      }],
+    });
+
+    const [line] = await raw`select name, unit_price, unit_cost, source, invoice_line_id
+      from public.job_line where job_id = ${jobId}`;
+    expect(line!.name).toBe("Dual run capacitor 45/5");
+    expect(Number(line!.unit_cost)).toBe(22.4);
+    expect(line!.source).toBe("field");
+    // Unbilled until something bills it, which is how unbilled work becomes a
+    // query rather than a discovery at the end of the month.
+    expect(line!.invoice_line_id).toBeNull();
+  });
+
+  it("attributes a field line to the technician whose phone it came from", async () => {
+    const { visitId, jobId } = await makeVisit();
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "visit.add_line",
+        subjectId: visitId, occurredAt: new Date().toISOString(),
+        payload: { name: "Two hours labour", kind: "labor", quantity: "2", unitPrice: "150.00" },
+      }],
+    });
+
+    const [line] = await raw`select technician_id from public.job_line where job_id = ${jobId}`;
+    expect(line!.technician_id).toBe(technicianId);
+  });
+
+  it("keeps a warranty line with a cost and no price", async () => {
+    // A zero dollar line under a warranty and a zero dollar line that is our
+    // own callback look identical on a revenue report and mean opposite
+    // things. The cost is what tells them apart.
+    const { visitId, jobId } = await makeVisit();
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "visit.add_line",
+        subjectId: visitId, occurredAt: new Date().toISOString(),
+        payload: {
+          name: "Compressor, under warranty", quantity: "1",
+          unitPrice: "0", unitCost: "870.00", nonBillableReason: "manufacturer_warranty",
+        },
+      }],
+    });
+
+    const [line] = await raw`select unit_price, unit_cost, non_billable_reason
+      from public.job_line where job_id = ${jobId}`;
+    expect(Number(line!.unit_price)).toBe(0);
+    expect(Number(line!.unit_cost)).toBe(870);
+    expect(line!.non_billable_reason).toBe("manufacturer_warranty");
+  });
+
+  it("records equipment a technician found on site", async () => {
+    // Scoped to this unit's serial. A property accumulates equipment across
+    // tests as it does across ten years, and selecting by property alone
+    // returns whichever furnace happened to be inserted first.
+    const serial = `4218E-${uuid().slice(0, 8)}`;
+
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "equipment.record",
+        occurredAt: new Date().toISOString(),
+        payload: {
+          propertyId, category: "condenser", manufacturer: "Carrier",
+          model: "24ACC636A003", serialNumber: serial, location: "South side",
+        },
+      }],
+    });
+
+    const [row] = await raw`select manufacturer, model, serial_number
+      from public.equipment where property_id = ${propertyId} and serial_number = ${serial}`;
+    expect(row!.manufacturer).toBe("Carrier");
+    expect(row!.model).toBe("24ACC636A003");
+  });
+
+  it("updates the same unit rather than creating a second one", async () => {
+    /**
+     * Matched on serial number, because that is the only identifier that
+     * survives the customer moving out and the next owner calling. Matching on
+     * anything softer splits ten years of history down the middle.
+     */
+    const device = await freshDevice();
+    const serial = `SN-${uuid().slice(0, 8)}`;
+
+    for (const [i, location] of ["Attic", "Attic, north end"].entries()) {
+      await fieldOps.sync(tech(), {
+        deviceId: device,
+        operations: [{
+          clientId: uuid(), sequence: i + 1, kind: "equipment.record",
+          occurredAt: new Date().toISOString(),
+          payload: { propertyId, category: "furnace", serialNumber: serial, location },
+        }],
+      });
+    }
+
+    const rows = await raw`select location from public.equipment
+      where property_id = ${propertyId} and serial_number = ${serial}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.location).toBe("Attic, north end");
+  });
+});

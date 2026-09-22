@@ -185,3 +185,69 @@ export const visitAssignment = pgTable("visit_assignment", {
   visitIdx: index("visit_assignment_visit_idx").on(t.visitId),
   techIdx: index("visit_assignment_tech_idx").on(t.technicianId),
 }));
+
+export const jobLineKind = pgEnum("job_line_kind", [
+  "part", "labor", "equipment", "subcontractor", "disposal", "permit", "other",
+]);
+
+export const jobLineSource = pgEnum("job_line_source", ["field", "office", "import"]);
+
+/**
+ * WHAT WAS ACTUALLY DONE, AS OPPOSED TO WHAT WAS BILLED
+ *
+ * A job line and an invoice line are not the same thing, and collapsing them
+ * is what makes job costing impossible.
+ *
+ * Warranty work has job lines and no invoice lines: the labour and the part
+ * were real and the customer paid nothing. A flat rate job is the opposite,
+ * one invoice line and a dozen job lines underneath it, because the customer
+ * bought an outcome and the company needs to know what the outcome cost. A
+ * callback has job lines that must never reach an invoice and must absolutely
+ * reach the margin on the original job.
+ *
+ * So this table is the record of consumption, and invoice_line is the record
+ * of billing. `invoiceLineId` connects them where they connect, and stays null
+ * where they do not, which is how unbilled work becomes a query rather than a
+ * discovery at the end of the month.
+ */
+export const jobLine = pgTable("job_line", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id").notNull().references(() => job.id, { onDelete: "cascade" }),
+  /** Which visit consumed it. Null for something the office added centrally. */
+  visitId: uuid("visit_id").references(() => visit.id, { onDelete: "set null" }),
+  kind: jobLineKind("kind").notNull().default("part"),
+  source: jobLineSource("source").notNull().default("office"),
+
+  /** Frozen reference, never the live item. The same rule as invoice_line. */
+  priceBookItemVersionId: uuid("price_book_item_version_id"),
+  name: text("name").notNull(),
+  description: text("description"),
+  quantity: money("quantity").notNull().default("1"),
+  /** What it would bill at. Zero on warranty and on our own rework. */
+  unitPrice: money("unit_price").notNull().default("0"),
+  /**
+   * What it cost us. The reason this table exists.
+   *
+   * A zero dollar line under a warranty and a zero dollar line that is our own
+   * callback look identical on a revenue report and mean opposite things about
+   * the business. The cost is what tells them apart.
+   */
+  unitCost: money("unit_cost"),
+  taxable: boolean("taxable").notNull().default(true),
+
+  /** Who recorded it, which for anything from the field is the technician. */
+  technicianId: uuid("technician_id").references(() => technician.id, { onDelete: "set null" }),
+  /** Set once it has been billed. Null means unbilled, which is a query. */
+  invoiceLineId: uuid("invoice_line_id"),
+  /** Set when the line is deliberately not billable: warranty, goodwill, rework. */
+  nonBillableReason: text("non_billable_reason"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  ...sourceRef,
+  ...timestamps,
+}, (t) => ({
+  jobIdx: index("job_line_job_idx").on(t.jobId),
+  visitIdx: index("job_line_visit_idx").on(t.visitId),
+  /** Everything consumed and not yet billed. The month end query. */
+  unbilledIdx: index("job_line_unbilled_idx").on(t.organizationId, t.invoiceLineId),
+}));

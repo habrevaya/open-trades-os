@@ -262,6 +262,21 @@ async function applyOne(
 }
 
 /**
+ * Operation kinds that deliberately change nothing beyond the log itself.
+ *
+ * Exported so a test can assert that everything NOT in this list has a real
+ * effect. The gap this closes was real: three kinds fell through to a default
+ * branch with a comment claiming another path applied them, no such path
+ * existed, and the server marked them applied anyway. The phone deletes an
+ * applied operation from its queue, so a chemical application recorded in a
+ * crawl space was accepted, acknowledged, and gone.
+ *
+ * A name belongs here only when the log IS the record. Nothing currently
+ * qualifies, which is the correct state for this list to be in.
+ */
+export const LOG_ONLY_OPERATIONS: readonly field.OperationKind[] = [] as const;
+
+/**
  * What the operation actually does to the rest of the schema.
  *
  * Kept in one place so that adding an operation kind means adding one case
@@ -416,11 +431,148 @@ async function effect(
       return;
     }
 
+    case "service_report.set_field": {
+      /**
+       * One row per captured field, not a blob on the report.
+       *
+       * These get trended, range checked and exported to regulators. A
+       * refrigerant weight and a chemical application are the same shape here
+       * and both have real consequences attached, which is why the regulated
+       * columns are first class rather than living in a JSON bag.
+       */
+      if (!op.subjectId) return;
+      const key = String(op.payload["field"] ?? "");
+      if (!key) return;
+
+      const [report] = await tx.select({
+        propertyId: schema.serviceReport.propertyId,
+      }).from(schema.serviceReport).where(eq(schema.serviceReport.id, op.subjectId)).limit(1);
+      if (!report) return;
+
+      const value = op.payload["value"];
+
+      await tx.insert(schema.serviceReportField).values({
+        organizationId: org,
+        reportId: op.subjectId,
+        propertyId: report.propertyId,
+        equipmentId: (op.payload["equipmentId"] as string) ?? null,
+        key,
+        label: (op.payload["label"] as string) ?? key,
+        // Defaults to numeric, which is what a reading is. A chemical
+        // application and a signature are their own kinds because the columns
+        // they fill are different and regulators ask about them by name.
+        kind: (op.payload["kind"] as "numeric") ?? "numeric",
+        valueNumeric: typeof value === "number" ? String(value) : null,
+        valueText: typeof value === "string" ? value : null,
+        valueBoolean: typeof value === "boolean" ? value : null,
+        unit: (op.payload["unit"] as string) ?? null,
+        // The regulated set. Captured at the moment or reconstructed never.
+        productName: (op.payload["productName"] as string) ?? null,
+        epaRegistrationNumber: (op.payload["epaRegistrationNumber"] as string) ?? null,
+        quantityApplied: (op.payload["quantityApplied"] as string) ?? null,
+        applicationUnit: (op.payload["applicationUnit"] as string) ?? null,
+        applicatorLicense: (op.payload["applicatorLicense"] as string) ?? null,
+        targetPest: (op.payload["targetPest"] as string) ?? null,
+        recordedAt: op.occurredAt,
+      });
+      return;
+    }
+
+    case "visit.add_line": {
+      /**
+       * A part or an hour consumed on the job.
+       *
+       * Recorded as a JOB line, not an invoice line. The two are different:
+       * warranty work has job lines and no invoice lines, a flat rate job has
+       * one invoice line and a dozen job lines beneath it, and a callback has
+       * lines that must never reach an invoice and must absolutely reach the
+       * margin on the original job.
+       */
+      if (!op.subjectId) return;
+      const [visit] = await tx.select({
+        jobId: schema.visit.jobId,
+      }).from(schema.visit).where(eq(schema.visit.id, op.subjectId)).limit(1);
+      if (!visit) return;
+
+      const technicianId = await technicianForDevice(tx, op.deviceId);
+
+      await tx.insert(schema.jobLine).values({
+        organizationId: org,
+        jobId: visit.jobId,
+        visitId: op.subjectId,
+        kind: (op.payload["kind"] as "part") ?? "part",
+        source: "field",
+        priceBookItemVersionId: (op.payload["priceBookItemVersionId"] as string) ?? null,
+        name: String(op.payload["name"] ?? "Unnamed line"),
+        description: (op.payload["description"] as string) ?? null,
+        quantity: String(op.payload["quantity"] ?? "1"),
+        unitPrice: String(op.payload["unitPrice"] ?? "0"),
+        unitCost: (op.payload["unitCost"] as string) ?? null,
+        taxable: op.payload["taxable"] !== false,
+        technicianId,
+        nonBillableReason: (op.payload["nonBillableReason"] as string) ?? null,
+        occurredAt: op.occurredAt,
+      });
+      return;
+    }
+
+    case "equipment.record": {
+      /**
+       * The equipment at the property, found or updated on site.
+       *
+       * Matched on serial number where there is one, because that is the only
+       * identifier that survives a customer moving out and the next owner
+       * calling. Matching on anything softer produces a second record for the
+       * same furnace and splits ten years of history down the middle.
+       */
+      const propertyId = op.payload["propertyId"] as string | undefined;
+      if (!propertyId) return;
+
+      const serial = (op.payload["serialNumber"] as string) ?? null;
+
+      if (serial) {
+        const [existing] = await tx.select({ id: schema.equipment.id })
+          .from(schema.equipment)
+          .where(and(
+            eq(schema.equipment.organizationId, org),
+            eq(schema.equipment.propertyId, propertyId),
+            eq(schema.equipment.serialNumber, serial),
+          )).limit(1);
+
+        if (existing) {
+          await tx.update(schema.equipment).set({
+            manufacturer: (op.payload["manufacturer"] as string) ?? undefined,
+            model: (op.payload["model"] as string) ?? undefined,
+            location: (op.payload["location"] as string) ?? undefined,
+            updatedAt: new Date(),
+          }).where(eq(schema.equipment.id, existing.id));
+          return;
+        }
+      }
+
+      await tx.insert(schema.equipment).values({
+        organizationId: org,
+        propertyId,
+        category: String(op.payload["category"] ?? "other"),
+        manufacturer: (op.payload["manufacturer"] as string) ?? null,
+        model: (op.payload["model"] as string) ?? null,
+        serialNumber: serial,
+        location: (op.payload["location"] as string) ?? null,
+        attributes: (op.payload["attributes"] as Record<string, unknown>) ?? {},
+      });
+      return;
+    }
+
     default:
-      // service_report.set_field, visit.add_line and equipment.record are recorded in
-      // the log and applied by the service report and billing paths, which
-      // own those tables. Writing them from here would put the same rules in
-      // two places.
+      /**
+       * Nothing here. An operation kind reaching this branch is accepted,
+       * marked applied, and does nothing, which is worse than rejecting it:
+       * the phone deletes it from the queue on the strength of that word.
+       *
+       * A test asserts this branch is unreachable for every kind in the
+       * catalogue, so adding one without an effect fails rather than
+       * silently discarding a technician's work.
+       */
       return;
   }
 }
@@ -538,6 +690,13 @@ async function lastEditFor(
     ));
 
   return row?.at ?? null;
+}
+
+/** The technician a device belongs to, for attributing what came off it. */
+async function technicianForDevice(tx: Database, deviceId: string): Promise<string | null> {
+  const [row] = await tx.select({ technicianId: schema.device.technicianId })
+    .from(schema.device).where(eq(schema.device.id, deviceId)).limit(1);
+  return row?.technicianId ?? null;
 }
 
 async function technicianFor(tx: Database, ctx: ServiceContext): Promise<string> {
