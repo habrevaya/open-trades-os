@@ -15,6 +15,17 @@ import { seedOrg } from "./helpers";
  * the cent. Everything else in this file exists to prove that one sentence.
  */
 const url = process.env.DATABASE_URL;
+
+// A contributor without a database still gets a green suite. CI does not get
+// that privilege: these tests are the only thing standing between a schema
+// change and a cross tenant leak, and a run that quietly skips them reads
+// green while proving nothing.
+if (!url && process.env.CI) {
+  throw new Error(
+    "DATABASE_URL is not set. These tests must run in CI, not skip.",
+  );
+}
+
 const run = url ? describe : describe.skip;
 
 const ORG = "b0000001-0000-0000-0000-000000000001";

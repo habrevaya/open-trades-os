@@ -14,26 +14,82 @@ import postgres from "postgres";
  * database still gets a green suite.
  */
 const url = process.env.DATABASE_URL;
+
+// A contributor without a database still gets a green suite. CI does not get
+// that privilege: these tests are the only thing standing between a schema
+// change and a cross tenant leak, and a run that quietly skips them reads
+// green while proving nothing.
+if (!url && process.env.CI) {
+  throw new Error(
+    "DATABASE_URL is not set. These tests must run in CI, not skip.",
+  );
+}
+
 const run = url ? describe : describe.skip;
 
 let sql: postgres.Sql;
 const ORG_A = "aaaa1111-1111-1111-1111-111111111111";
 const ORG_B = "bbbb2222-2222-2222-2222-222222222222";
 
+// Every user this file creates is at one of these domains, which is what lets
+// the reset below stay scoped. Users are not tenant scoped, so deleting the
+// organizations does not reach them.
+const EMAIL_DOMAINS = ["%@acme.test", "%@beta.test"];
+
+/**
+ * Deletes only what this file owns.
+ *
+ * The earlier version of this truncated `customer`, `user` and `organization`
+ * outright. That is wrong for two reasons. It destroys fixtures belonging to
+ * any suite sharing the database, and it trips over foreign keys from the
+ * seventy odd tables this file has never heard of, which is exactly what
+ * happened: a `job` row left by another suite made the `customer` delete fail.
+ *
+ * The failure mode matters more than the failure. Vitest reports a thrown
+ * `beforeAll` as SKIPPED, not failed, so all eleven tests below stopped
+ * running and the suite still read green. Scoping the reset to the two
+ * organizations this file creates removes the collision; the organization
+ * cascade does the rest.
+ */
+async function reset(): Promise<void> {
+  const orgs = [ORG_A, ORG_B];
+
+  /**
+   * `ledger_entry` refuses a DELETE by trigger, on purpose, and it is the only
+   * table in the schema that does. `session_replication_role = replica`
+   * suspends user triggers for this session only and is restored immediately;
+   * see the longer note in packages/api/test/helpers.ts. Test teardown only.
+   *
+   * The window is kept this narrow deliberately. `replica` also disables the
+   * internal referential integrity triggers, which means ON DELETE CASCADE
+   * does not fire while it is set. Deleting the organization inside the window
+   * removes the parent row and silently orphans every child, so the cascade
+   * below is run with triggers back on.
+   */
+  await sql.unsafe(`set session_replication_role = replica`);
+  try {
+    await sql`delete from public.ledger_entry where organization_id = any(${orgs})`;
+  } finally {
+    await sql.unsafe(`set session_replication_role = origin`);
+  }
+
+  await sql`delete from public.organization where id = any(${orgs})`;
+  await sql`delete from public."user" where email like any(${EMAIL_DOMAINS})`;
+}
+
 beforeAll(async () => {
   if (!url) return;
   sql = postgres(url, { max: 1, onnotice: () => {} });
-  await sql`delete from public.session`;
-  await sql`delete from public.credential`;
-  await sql`delete from public.membership`;
-  await sql`delete from public.customer`;
-  await sql`delete from public."user"`;
-  await sql`delete from public.organization`;
+  await reset();
   await sql`insert into public.organization (id, name, slug) values
     (${ORG_A}, 'Acme HVAC', 'acme-test'), (${ORG_B}, 'Beta Plumbing', 'beta-test')`;
 });
 
-afterAll(async () => { if (sql) await sql.end(); });
+afterAll(async () => {
+  if (!sql) return;
+  await reset();
+  await sql.end();
+});
 
 run("session resolution", () => {
   it("resolves a valid session into a user, org and role", async () => {

@@ -1,11 +1,11 @@
-import { and, eq, desc, lt, or, ilike, sql, isNull } from "drizzle-orm";
+import { and, eq, desc, lt, or, ilike, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
-  decodeCursor, paginate, NotFoundError, ConflictError,
+  decodeCursor, paginate, NotFoundError,
 } from "./context";
-import type { CustomerCreate, listCustomers, getCustomer, createCustomer } from "../contracts/customers";
+import type { CustomerCreate, listCustomers, getCustomer } from "../contracts/customers";
 
 type ListInput = z.infer<typeof listCustomers.input>;
 type CreateInput = z.infer<typeof CustomerCreate>;

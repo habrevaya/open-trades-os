@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, integer, index, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, money, rate } from "./_shared";
 import { organization, technician, businessUnit } from "./tenancy";
 import { job, visit } from "./work";

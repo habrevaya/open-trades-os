@@ -1,7 +1,7 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { packById, type TradePack } from "@opentradesos/trade-packs";
-import { type ServiceContext, guardedWrite, ConflictError, NotFoundError } from "./context";
+import { type ServiceContext, guardedWrite, NotFoundError } from "./context";
 import { audit } from "./customers";
 
 /**

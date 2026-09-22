@@ -243,7 +243,7 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
     const amount = usd(input.amount);
     const tip = usd(input.tipAmount);
 
-    let allocations = input.allocations?.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) })) ?? [];
+    const allocations = input.allocations?.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) })) ?? [];
 
     if (allocations.length === 0) {
       // Oldest balance first.

@@ -14,7 +14,6 @@
     "push": "drizzle-kit push",
     "studio": "drizzle-kit studio",
     "seed": "tsx src/seed/index.ts",
-    "test:rls": "pg_prove -d $DATABASE_URL test/*.sql",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

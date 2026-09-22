@@ -1,9 +1,9 @@
 import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
-import { schema } from "@opentradesos/db";
+import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
-  decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
+  type ServiceContext, guardedRead, guardedWrite, clean,
+  decodeCursor, paginate, NotFoundError, scopeOf,
 } from "./context";
 import { audit } from "./customers";
 import type { JobCreate, listJobs, getJob, scheduleVisit, completeVisit } from "../contracts/jobs";
@@ -18,7 +18,9 @@ type CreateInput = z.infer<typeof JobCreate>;
  * A duplicate job number is the kind of thing a contractor notices immediately
  * and never quite trusts you about afterwards.
  */
-async function nextNumber(tx: any, organizationId: string, table: "job" | "invoice" | "estimate"): Promise<number> {
+async function nextNumber(
+  tx: Database, organizationId: string, table: "job" | "invoice" | "estimate",
+): Promise<number> {
   const [row] = await tx.execute(sql`
     select coalesce(max(number), 0) + 1 as next
     from ${sql.raw(`public.${table}`)}

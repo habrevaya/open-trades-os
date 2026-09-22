@@ -1,7 +1,7 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, integer, index, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, money, rate } from "./_shared";
 import { organization } from "./tenancy";
-import { customer, property, equipment } from "./crm";
+import { property, equipment } from "./crm";
 import { job, visit } from "./work";
 
 /**

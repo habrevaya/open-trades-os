@@ -19,6 +19,7 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm build
 
   # Tenant isolation, the SECURITY DEFINER boundaries and the ledger guards are
@@ -61,6 +62,15 @@ jobs:
       - name: Database tests
         run: pnpm --filter @opentradesos/db test
 
+      # The service layer tests live here rather than in the unit job because
+      # most of them need a real database. Run without one they do not fail,
+      # they skip, and the job still reads green: forty three tenant isolation
+      # and ledger tests can stop running without anyone noticing. The guard in
+      # the test files turns that silence into a failure; this step is what
+      # gives them the database they need.
+      - name: Service layer tests
+        run: pnpm --filter @opentradesos/api test
+
   unit:
     runs-on: ubuntu-latest
     steps:
@@ -71,4 +81,4 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @opentradesos/core test
-      - run: pnpm --filter @opentradesos/api test
+      - run: pnpm --filter @opentradesos/trade-packs test

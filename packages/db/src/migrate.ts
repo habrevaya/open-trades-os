@@ -33,16 +33,16 @@ export async function runMigrations(connectionString = process.env.DATABASE_URL)
   const sql = postgres(connectionString, { max: 1, onnotice: () => {} });
 
   try {
-    console.log("  before   schema and extensions");
+    console.info("  before   schema and extensions");
     await sql.unsafe(await readFile(join(here, "../sql/before.sql"), "utf8"));
 
-    console.log("  drizzle  generated table migrations");
+    console.info("  drizzle  generated table migrations");
     await drizzleMigrate(drizzle(sql), { migrationsFolder: join(here, "../migrations") });
 
-    console.log("  after    row level security, ledger guards, coverage assertion");
+    console.info("  after    row level security, ledger guards, coverage assertion");
     await sql.unsafe(await readFile(join(here, "../sql/after.sql"), "utf8"));
 
-    console.log("  done");
+    console.info("  done");
   } finally {
     await sql.end();
   }
