@@ -699,6 +699,27 @@ async function technicianForDevice(tx: Database, deviceId: string): Promise<stri
   return row?.technicianId ?? null;
 }
 
+/**
+ * Whether this account has a technician record at all.
+ *
+ * Separate from the `field:sync` permission and deliberately so. The
+ * permission says the account is allowed to sync; this says there is a person
+ * with a route. An owner holds the permission and usually has no route, and
+ * conflating the two produced a five hundred on the technician's own screen.
+ */
+export async function isTechnician(ctx: ServiceContext): Promise<boolean> {
+  return guardedRead(ctx, "visit:read", async (tx) => {
+    const [row] = await tx.select({ id: schema.technician.id })
+      .from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(and(
+        eq(schema.technician.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.userId, ctx.actor.userId),
+      )).limit(1);
+    return row !== undefined;
+  });
+}
+
 async function technicianFor(tx: Database, ctx: ServiceContext): Promise<string> {
   const [row] = await tx.select({ id: schema.technician.id })
     .from(schema.technician)

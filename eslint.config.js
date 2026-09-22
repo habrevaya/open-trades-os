@@ -91,4 +91,14 @@ export default tseslint.config(
       "no-console": "off",
     },
   },
+
+  /**
+   * Scripts a person runs and reads the output of. Printing to stdout is the
+   * whole job, and routing it through console.info to satisfy a lint rule
+   * aimed at stray debugging would make the output worse for no gain.
+   */
+  {
+    files: ["packages/db/src/seed/**/*.ts", "packages/db/src/migrate.ts"],
+    rules: { "no-console": "off" },
+  },
 );

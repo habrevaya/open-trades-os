@@ -32,7 +32,11 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
 
       <div className="rounded-md border border-steel-200 bg-canvas p-6 text-center">
         <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Status</p>
-        <p className="mt-2 text-lg font-medium capitalize">{job.status.replace(/_/g, " ")}</p>
+        {/*
+          Rendered as the service worded it. Capitalizing here title-cased
+          every word, so "On the way" read "On The Way".
+        */}
+        <p className="mt-2 text-lg font-medium">{job.status}</p>
         {job.scheduledDate && (
           <p className="mt-2 text-sm text-ink-700">
             {new Date(`${job.scheduledDate}T12:00:00Z`).toLocaleDateString("en-US", {

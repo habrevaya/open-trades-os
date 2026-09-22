@@ -157,6 +157,9 @@ importers:
         specifier: ^3.4.5
         version: 3.4.9
     devDependencies:
+      '@opentradesos/trade-packs':
+        specifier: workspace:*
+        version: link:../trade-packs
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2

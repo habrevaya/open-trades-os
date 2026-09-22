@@ -29,12 +29,28 @@ export default async function MyDayPage({
 }) {
   const user = await requireSetupUser();
 
-  if (!can(user.actor, "field:sync")) {
-    // Not a technician. The board is the screen they want.
+  /**
+   * The guard is "does this account have a technician record", not "does it
+   * hold field:sync".
+   *
+   * An owner holds every permission, including field:sync, so a permission
+   * check let the owner through and then the page threw five hundred from
+   * inside device registration. The permission answers whether the account is
+   * ALLOWED to sync; only the technician record answers whether there is a
+   * person with a route, and that is the question this screen is asking.
+   *
+   * It is not the same as "owners cannot use this page". In a two truck shop
+   * the owner runs calls too. Give them a technician record and this screen is
+   * theirs, which is the correct behaviour and the one a permission check
+   * could not express.
+   */
+  const ctx = { actor: user.actor, db: getDb() };
+
+  if (!can(user.actor, "field:sync") || !(await fieldOps.isTechnician(ctx))) {
+    // No route to show. The board is the screen they want.
     redirect("/schedule");
   }
 
-  const ctx = { actor: user.actor, db: getDb() };
   const params = await searchParams;
   const date = params.date ?? new Date().toISOString().slice(0, 10);
 

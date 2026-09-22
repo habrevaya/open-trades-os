@@ -1,4 +1,4 @@
-import { and, eq, desc, sql, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
@@ -311,6 +311,65 @@ export async function viewJob(
       state: schema.property.state,
     }).from(schema.property).where(eq(schema.property.id, job.propertyId)).limit(1);
 
+    /**
+     * The visit the customer is actually waiting on.
+     *
+     * Not the first visit and not the last: the one in progress if there is
+     * one, otherwise the next one still to come, otherwise the most recent.
+     * A four visit maintenance agreement must not show the customer the date
+     * of visit one in March when they are asking about the technician outside
+     * their house today.
+     */
+    const visits = await tx.select({
+      visit: schema.visit,
+      technicianName: schema.technician.displayName,
+    })
+      .from(schema.visit)
+      .leftJoin(schema.visitAssignment, and(
+        eq(schema.visitAssignment.visitId, schema.visit.id),
+        eq(schema.visitAssignment.isLead, true),
+      ))
+      .leftJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
+      .where(eq(schema.visit.jobId, jobId))
+      .orderBy(asc(schema.visit.windowStart));
+
+    const current = pickVisit(visits.map((v) => ({
+      id: v.visit.id,
+      status: v.visit.status,
+      windowStart: v.visit.windowStart,
+      windowEnd: v.visit.windowEnd,
+      technicianName: v.technicianName,
+    })));
+
+    /**
+     * The estimate is only shown while it is still an estimate.
+     *
+     * A notice sent an hour ago saying "twenty minutes away" is worse than no
+     * notice at all, because the customer stops watching the door. So the most
+     * recent notice counts only while the technician is still en route and the
+     * window it promised has not already passed.
+     */
+    let etaMinutes: number | null = null;
+    if (current && current.status === "en_route") {
+      const [notice] = await tx.select({
+        etaMinutes: schema.arrivalNotice.etaMinutes,
+        sentAt: schema.arrivalNotice.sentAt,
+      })
+        .from(schema.arrivalNotice)
+        .where(and(
+          eq(schema.arrivalNotice.visitId, current.id),
+          isNull(schema.arrivalNotice.arrivedAt),
+        ))
+        .orderBy(desc(schema.arrivalNotice.sentAt))
+        .limit(1);
+
+      if (notice?.etaMinutes != null) {
+        const elapsed = Math.floor((Date.now() - notice.sentAt.getTime()) / 60_000);
+        const remaining = notice.etaMinutes - elapsed;
+        etaMinutes = remaining > 0 ? remaining : null;
+      }
+    }
+
     const events = await tx.select({
       kind: schema.portalEvent.kind,
       headline: schema.portalEvent.headline,
@@ -327,23 +386,31 @@ export async function viewJob(
     return {
       organizationName: org?.name ?? "",
       jobNumber: job.number,
-      status: job.status,
+      /**
+       * The VISIT's state, not the job's.
+       *
+       * A job stays "scheduled" while a technician is six minutes from the
+       * door, so the page read "Scheduled" directly above "About 19 minutes
+       * away", which is the page contradicting itself on the one screen a
+       * customer refreshes while they wait.
+       */
+      status: current ? customerStatus(current.status) : sentenceCase(job.status),
       summary: job.summary ?? null,
       propertyAddress: [property?.line1, property?.city, property?.state].filter(Boolean).join(", "),
       /**
-       * Scheduling, assignment and the en route estimate all come from the
-       * dispatch board, which is Phase 3. The shape is fixed now because the
-       * customer-facing contract should not change when the board lands; the
-       * page already renders these when they are present.
+       * A first name only, and no photo unless the technician uploaded one.
        *
-       * When a technician does appear here it is a first name and a photo.
-       * A last name and a phone number are not the customer's to have, and a
-       * technician cannot opt out of a tracking page.
+       * A last name and a phone number are not the customer's to have. A
+       * technician cannot opt out of appearing on a tracking page, so the page
+       * gives out the least that still makes a stranger at the door feel like
+       * an expected visitor.
        */
-      scheduledDate: null,
-      arrivalWindow: null,
-      technician: null,
-      etaMinutes: null,
+      scheduledDate: current?.windowStart ? localDate(current.windowStart) : null,
+      arrivalWindow: current ? formatWindow(current.windowStart, current.windowEnd) : null,
+      technician: current?.technicianName
+        ? { firstName: firstNameOf(current.technicianName), photoUrl: null }
+        : null,
+      etaMinutes,
       timeline: events.map((e) => ({
         kind: e.kind,
         headline: e.headline,
@@ -511,4 +578,97 @@ async function depositFor(
   if (!m.isPositive(outstanding)) return { due: null, url: null };
 
   return { due: m.toString(outstanding), url: `${PORTAL_BASE}/pay/${existing.id}` };
+}
+
+
+/**
+ * Which visit the customer is asking about.
+ *
+ * In progress beats upcoming beats most recently finished. Ordering by date
+ * alone answers a different question from the one somebody standing at their
+ * window is asking.
+ */
+interface VisitLike {
+  id: string;
+  status: string;
+  windowStart: Date | null;
+  windowEnd: Date | null;
+  technicianName: string | null;
+}
+
+export function pickVisit(visits: readonly VisitLike[], now = new Date()): VisitLike | null {
+  if (visits.length === 0) return null;
+
+  const active = visits.find((v) => v.status === "en_route" || v.status === "working" || v.status === "dispatched");
+  if (active) return active;
+
+  const upcoming = visits
+    .filter((v) => v.status !== "cancelled" && v.windowStart !== null && v.windowStart.getTime() >= now.getTime())
+    .sort((a, b) => (a.windowStart?.getTime() ?? 0) - (b.windowStart?.getTime() ?? 0));
+  if (upcoming[0]) return upcoming[0];
+
+  const past = visits
+    .filter((v) => v.windowStart !== null)
+    .sort((a, b) => (b.windowStart?.getTime() ?? 0) - (a.windowStart?.getTime() ?? 0));
+  return past[0] ?? visits[0] ?? null;
+}
+
+/**
+ * The calendar date in the SERVER's timezone, which is the company's.
+ *
+ * `toISOString().slice(0, 10)` looks equivalent and is not: a 7pm Central
+ * appointment is the next day in UTC, so a customer would be told their
+ * technician is coming tomorrow.
+ */
+function localDate(when: Date): string {
+  const offset = when.getTimezoneOffset() * 60_000;
+  return new Date(when.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function formatWindow(start: Date | null, end: Date | null): string | null {
+  if (!start) return null;
+  const time = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return end ? `${time(start)} to ${time(end)}` : time(start);
+}
+
+/** Enough for a customer to greet the person at the door, and no more. */
+function firstNameOf(displayName: string): string {
+  return displayName.trim().split(/\s+/)[0] ?? displayName;
+}
+
+/**
+ * Visit states in the words a customer uses.
+ *
+ * The internal names are for dispatchers. "Unassigned" tells a homeowner
+ * their job is unwanted, and "completed after cancellation" is an accounting
+ * distinction that is none of their business: from their side the work
+ * happened.
+ */
+export const CUSTOMER_VISIT_STATUS: Record<string, string> = {
+  unassigned: "Scheduled",
+  scheduled: "Scheduled",
+  dispatched: "Scheduled",
+  en_route: "On the way",
+  working: "In progress",
+  completed: "Completed",
+  completed_after_cancellation: "Completed",
+  cancelled: "Cancelled",
+  no_show: "Rescheduling",
+};
+
+/**
+ * Already cased for display, rather than left lowercase for the page to
+ * capitalize.
+ *
+ * A CSS `capitalize` title-cases every word, so "on the way" rendered as "On
+ * The Way". Sentence case is a property of the wording, and the wording lives
+ * here.
+ */
+function customerStatus(status: string): string {
+  return CUSTOMER_VISIT_STATUS[status] ?? sentenceCase(status);
+}
+
+function sentenceCase(status: string): string {
+  const words = status.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }

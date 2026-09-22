@@ -233,6 +233,22 @@ function TimeClock({
   );
 }
 
+/**
+ * The window as a technician reads it off a card at a glance.
+ *
+ * Rendered from the visit's own timestamps rather than from a preformatted
+ * string, because the same payload feeds a phone that may be in a different
+ * timezone from the office that scheduled it, and the technician wants the
+ * time where they are standing.
+ */
+function arrivalWindow(start: string | null, end: string | null): string | null {
+  if (!start) return null;
+  const time = (iso: string) =>
+    new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const from = time(start);
+  return end ? `${from} to ${time(end)}` : from;
+}
+
 const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete"; label: string } | null> = {
   unassigned: { kind: "visit.en_route", label: "On my way" },
   scheduled: { kind: "visit.en_route", label: "On my way" },
@@ -262,6 +278,7 @@ function VisitCard({
   const [sendingEta, setSendingEta] = useState(false);
   const next = NEXT_ACTION[status] ?? null;
   const address = `${visit.property.addressLine1}, ${visit.property.city} ${visit.property.postalCode}`;
+  const window = arrivalWindow(visit.windowStart, visit.windowEnd);
 
   return (
     <article className={`rounded-md border ${
@@ -275,9 +292,20 @@ function VisitCard({
           <span className="block font-medium">{visit.customer.name}</span>
           <span className="block text-ink-700">{visit.summary}</span>
           <span className="block text-sm text-ink-500">{address}</span>
+          {/*
+            The window goes under the address rather than in the corner beside
+            the status. "When am I due there" is the first question a
+            technician asks of this list, so it has to be on the collapsed
+            card. Putting it in the corner cost the summary enough width to
+            wrap onto three lines at phone width, and the summary is the
+            second question.
+          */}
+          {window && (
+            <span className="mt-1 block text-sm font-medium tabular-nums text-ink-900">{window}</span>
+          )}
         </span>
-        <span className="shrink-0 text-right text-sm text-ink-500">
-          <span className="block capitalize">{status.replace(/_/g, " ")}</span>
+        <span className="shrink-0 text-right text-sm capitalize text-ink-500">
+          {status.replace(/_/g, " ")}
         </span>
       </button>
 
