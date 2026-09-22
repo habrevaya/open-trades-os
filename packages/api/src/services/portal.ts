@@ -291,7 +291,9 @@ export async function declineEstimate(db: Database, input: z.infer<typeof declin
  * a dozen tables, because a customer refreshes this through a four hour
  * arrival window and it has to stay one indexed read.
  */
-export async function viewJob(db: Database, input: z.infer<typeof viewPortalJob.input>) {
+export async function viewJob(
+  db: Database, input: z.infer<typeof viewPortalJob.input>,
+): Promise<z.infer<typeof viewPortalJob.output>> {
   const grant = await peek(db, input.token);
   const jobId = requireScope(grant, "job");
 
@@ -328,10 +330,18 @@ export async function viewJob(db: Database, input: z.infer<typeof viewPortalJob.
       status: job.status,
       summary: job.summary ?? null,
       propertyAddress: [property?.line1, property?.city, property?.state].filter(Boolean).join(", "),
+      /**
+       * Scheduling, assignment and the en route estimate all come from the
+       * dispatch board, which is Phase 3. The shape is fixed now because the
+       * customer-facing contract should not change when the board lands; the
+       * page already renders these when they are present.
+       *
+       * When a technician does appear here it is a first name and a photo.
+       * A last name and a phone number are not the customer's to have, and a
+       * technician cannot opt out of a tracking page.
+       */
       scheduledDate: null,
       arrivalWindow: null,
-      // First name and photo only. A last name and a phone number are not the
-      // customer's to have, and a technician cannot opt out of a tracking page.
       technician: null,
       etaMinutes: null,
       timeline: events.map((e) => ({
