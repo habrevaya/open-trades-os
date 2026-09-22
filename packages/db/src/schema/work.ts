@@ -2,6 +2,7 @@ import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp 
 import { pk, timestamps, sourceRef, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
+import { capacityModel, crew, route, routeStop, rental, territory } from "./scheduling";
 
 /**
  * WORK
@@ -31,6 +32,16 @@ export const jobType = pgTable("job_type", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code"),
+  /**
+   * Which capacity model schedules this work. See schema/scheduling.ts.
+   * Set per job type rather than per organization, because a landscape company
+   * genuinely runs crew_production for installs and route for maintenance, and
+   * a plumbing company that starts renting portable toilets should not need a
+   * second system.
+   */
+  capacityModel: capacityModel("capacity_model").notNull().default("technician_dispatch"),
+  /** Units of production for crew_production. Square feet, linear feet, yards. */
+  productionUnit: text("production_unit"),
   defaultDurationMinutes: integer("default_duration_minutes").notNull().default(60),
   /** Skills a technician must hold to be assignable. Enforced by the scheduling engine. */
   requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
@@ -49,6 +60,9 @@ export const job = pgTable("job", {
   customerId: uuid("customer_id").notNull().references(() => customer.id),
   propertyId: uuid("property_id").notNull().references(() => property.id),
   jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),
+  territoryId: uuid("territory_id").references(() => territory.id, { onDelete: "set null" }),
+  /** Size of the work in the job type's production unit, for crew scheduling. */
+  productionQuantity: money("production_quantity"),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   status: jobStatus("status").notNull().default("lead"),
   summary: text("summary").notNull(),
@@ -95,6 +109,17 @@ export const visit = pgTable("visit", {
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
   /** Ordering within a technician's day, set by the dispatch board and route pass. */
   routeOrder: integer("route_order"),
+
+  /**
+   * Exactly one of these is set, determined by the job type's capacity model.
+   * technician_dispatch uses visit_assignment, the other three use these.
+   */
+  crewId: uuid("crew_id").references(() => crew.id, { onDelete: "set null" }),
+  routeId: uuid("route_id").references(() => route.id, { onDelete: "set null" }),
+  routeStopId: uuid("route_stop_id").references(() => routeStop.id, { onDelete: "set null" }),
+  rentalId: uuid("rental_id").references(() => rental.id, { onDelete: "set null" }),
+  /** delivery or pickup, for asset_rental work where the two are separate events. */
+  rentalEvent: text("rental_event"),
   dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
   enRouteAt: timestamp("en_route_at", { withTimezone: true }),
   arrivedAt: timestamp("arrived_at", { withTimezone: true }),
