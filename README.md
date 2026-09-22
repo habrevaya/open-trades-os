@@ -22,9 +22,24 @@ them treat your customer list, price book and job history as a retention lever.
 
 CRM has Twenty. Scheduling has Cal.com. Billing has Lago. E-signature has
 Documenso. Support has Chatwoot. Field service management for the trades, a
-multi billion dollar category, has nothing.
+multi billion dollar category, has no equivalent.
 
-This is that.
+Not nothing, and it is worth being precise about that. [OCA/field-service](https://github.com/OCA/field-service)
+is real, actively maintained and good, and Dolibarr and Axelor both ship an
+interventions module. But they model the *intervention document*, not the
+dispatched job, and the Odoo dispatch board and mobile app that would complete
+the picture are Enterprise only. That is the honest shape of the gap: the back
+office exists in open source, the front line does not.
+
+Worth knowing why, because it is not that people tried and failed. Searching
+the archives turns up no graveyard of serious attempts, only solo projects
+abandoned before their second user. Open source usually survives on a loop
+where users are developers who file issues and become contributors. HVAC owners
+are not developers, so the loop never closes. For calibration: the ServiceTitan
+S-1, documenting a multi billion dollar outcome in this exact market, got 5
+points and no comments on Hacker News.
+
+That is the actual risk here, and it is distribution rather than engineering.
 
 ## What it does
 

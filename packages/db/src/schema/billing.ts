@@ -121,10 +121,27 @@ export const invoice = pgTable("invoice", {
   jobIdx: index("invoice_job_idx").on(t.jobId),
 }));
 
+/**
+ * Where a line came from. Not every line originates from a job: a propane
+ * delivery bills on metered quantity, a dumpster bills on elapsed rental
+ * period, and a service contract bills on its own schedule whether or not
+ * anyone visited. Without this, each of those becomes a separate product
+ * rather than a trade pack.
+ */
+export const lineOrigin = pgEnum("line_origin", [
+  "job", "delivery", "rental_period", "contract_schedule", "membership", "manual", "fee",
+]);
+
 export const invoiceLine = pgTable("invoice_line", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   invoiceId: uuid("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  origin: lineOrigin("origin").notNull().default("job"),
+  originId: uuid("origin_id"),
+  /** Resolved coverage. A zero dollar line under an agreement and a zero dollar
+   *  line that is our own rework look identical on a revenue report and mean
+   *  opposite things about the business. See schema/entitlement.ts. */
+  entitlementId: uuid("entitlement_id"),
   /** Frozen reference. Never the live item, always the version that was priced. */
   priceBookItemVersionId: uuid("price_book_item_version_id").references(() => priceBookItemVersion.id),
   sortOrder: integer("sort_order").notNull().default(0),

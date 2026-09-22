@@ -132,6 +132,14 @@ export const equipment = pgTable("equipment", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   propertyId: uuid("property_id").notNull().references(() => property.id, { onDelete: "cascade" }),
+  /**
+   * Assets nest. A riser has valves, a rooftop unit has a compressor, a panel
+   * has circuits. Commercial inspection work is unusable without this, and
+   * adding it after readings exist is a results-table migration.
+   */
+  parentEquipmentId: uuid("parent_equipment_id"),
+  /** Label the customer and the inspector both use: "RTU-4", "Riser 2". */
+  tag: text("tag"),
   category: text("category").notNull(),
   manufacturer: text("manufacturer"),
   model: text("model"),
@@ -148,4 +156,6 @@ export const equipment = pgTable("equipment", {
 }, (t) => ({
   propIdx: index("equipment_property_idx").on(t.propertyId),
   serialIdx: index("equipment_serial_idx").on(t.organizationId, t.serialNumber),
+  parentIdx: index("equipment_parent_idx").on(t.parentEquipmentId),
+  tagIdx: index("equipment_tag_idx").on(t.organizationId, t.propertyId, t.tag),
 }));

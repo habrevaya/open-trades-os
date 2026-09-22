@@ -5,6 +5,8 @@ export * from "./pricebook";
 export * from "./scheduling";
 export * from "./work";
 export * from "./commercial";
+export * from "./entitlement";
+export * from "./inspection";
 export * from "./service-reports";
 export * from "./billing";
 export * from "./workforce";
