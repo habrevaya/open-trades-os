@@ -67,6 +67,25 @@ export function effectiveScope(actor: Actor, resource: ScopedResource): Scope {
  * Doing it in the UI means the data already crossed the wire, which is not a
  * permission, it is a suggestion.
  */
+/**
+ * The field names redaction can ever remove.
+ *
+ * Declared as a type so `redact` can return something honest. Returning
+ * `Partial<T>` was the first version and it was over-broad in a way that
+ * spreads: every caller then has to assert that `id` might be missing, when
+ * `id` is never redacted and never could be. Widening a type to cover a case
+ * that cannot happen pushes noise into every consumer.
+ */
+export type RedactableField =
+  | "cost" | "unitCost" | "grossMargin" | "laborCost" | "materialCost"
+  | "creditLimit" | "balance" | "discountRate"
+  | "payRate" | "loadedRate" | "commissionRate"
+  | "productionRatePerDay" | "payoutExpected" | "purchaseCost";
+
+/** What survives redaction: everything, with the redactable fields optional. */
+export type Redacted<T> = Omit<T, RedactableField> &
+  Partial<Pick<T, Extract<keyof T, RedactableField>>>;
+
 export const FIELD_PERMISSIONS: Record<string, Permission> = {
   "priceBookItemVersion.cost": "pricebook.cost:read",
   "priceBookItemVersion.commissionRate": "commission:read",
@@ -93,7 +112,7 @@ export function redact<T extends Record<string, unknown>>(
   actor: Actor,
   entity: string,
   record: T,
-): Partial<T> {
+): Redacted<T> {
   const held = permissionsFor(actor);
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
@@ -101,14 +120,14 @@ export function redact<T extends Record<string, unknown>>(
     if (required && !held.has(required)) continue;
     out[key] = value;
   }
-  return out as Partial<T>;
+  return out as Redacted<T>;
 }
 
 export function redactMany<T extends Record<string, unknown>>(
   actor: Actor,
   entity: string,
   records: T[],
-): Partial<T>[] {
+): Redacted<T>[] {
   return records.map((r) => redact(actor, entity, r));
 }
 

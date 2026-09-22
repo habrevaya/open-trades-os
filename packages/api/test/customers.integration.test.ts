@@ -5,6 +5,7 @@ import type { Actor } from "@opentradesos/core";
 import * as customers from "../src/services/customers";
 import { PermissionError } from "@opentradesos/core";
 import { NotFoundError, type ServiceContext } from "../src/services/context";
+import { seedOrg } from "./helpers";
 
 /**
  * Service layer against a real database.
@@ -33,20 +34,8 @@ const ctxFor = (organizationId: string, userId: string, roles: Actor["roles"], e
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
-  await raw`delete from public.audit_log`;
-  await raw`delete from public.integration_event`;
-  await raw`delete from public.customer_property`;
-  await raw`delete from public.property`;
-  await raw`delete from public.customer`;
-  await raw`delete from public.membership`;
-  await raw`delete from public."user" where id in (${USER_A}, ${USER_B})`;
-  await raw`delete from public.organization where id in (${ORG_A}, ${ORG_B})`;
-  await raw`insert into public.organization (id, name, slug) values
-    (${ORG_A}, 'Acme HVAC', 'acme-svc'), (${ORG_B}, 'Beta Plumbing', 'beta-svc')`;
-  await raw`insert into public."user" (id, email) values
-    (${USER_A}, 'a@svc.test'), (${USER_B}, 'b@svc.test')`;
-  await raw`insert into public.membership (organization_id, user_id, role) values
-    (${ORG_A}, ${USER_A}, 'owner'), (${ORG_B}, ${USER_B}, 'owner')`;
+  await seedOrg(raw, { organizationId: ORG_A, userId: USER_A, name: "Acme HVAC", slug: "acme-svc" });
+  await seedOrg(raw, { organizationId: ORG_B, userId: USER_B, name: "Beta Plumbing", slug: "beta-svc" });
 });
 
 afterAll(async () => { if (raw) await raw.end(); });
@@ -90,14 +79,17 @@ run("creating a customer", () => {
     });
 
     expect(created.name).toBe("Delacroix");
-    const props = await raw`select count(*)::int as n from public.property`;
+    // Scoped. Counting unscoped means another test file's rows land here, and
+    // the failure looks like a bug in this code rather than in the assertion.
+    const props = await raw`select count(*)::int as n from public.property where organization_id = ${ORG_A}`;
     expect(props[0]!.n).toBe(1);
-    const links = await raw`select count(*)::int as n from public.customer_property`;
+    const links = await raw`select count(*)::int as n from public.customer_property where organization_id = ${ORG_A}`;
     expect(links[0]!.n).toBe(1);
   });
 
   it("writes an audit entry", async () => {
-    const rows = await raw`select action, actor_user_id from public.audit_log where action = 'customer.created'`;
+    const rows = await raw`select action, actor_user_id from public.audit_log
+      where organization_id = ${ORG_A} and action = 'customer.created'`;
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0]!.actor_user_id).toBe(USER_A);
   });
@@ -112,7 +104,8 @@ run("creating a customer", () => {
     const second = await customers.create(ctxFor(ORG_A, USER_A, ["owner"], { idempotencyKey: key }), input);
 
     expect(second.id).toBe(first.id);
-    const rows = await raw`select count(*)::int as n from public.customer where name = 'Retried Once'`;
+    const rows = await raw`select count(*)::int as n from public.customer
+      where organization_id = ${ORG_A} and name = 'Retried Once'`;
     expect(rows[0]!.n).toBe(1);
   });
 
@@ -122,7 +115,7 @@ run("creating a customer", () => {
       { type: "residential", name: "Booked By Agent", paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {} },
     );
     const rows = await raw`select actor_agent_id from public.audit_log
-      where action = 'customer.created' and actor_agent_id is not null`;
+      where organization_id = ${ORG_A} and action = 'customer.created' and actor_agent_id is not null`;
     expect(rows[0]!.actor_agent_id).toBe("intake-agent");
   });
 });
@@ -141,7 +134,8 @@ run("tenant isolation through the service", () => {
   });
 
   it("returns not found, not another tenant's row, on a direct id lookup", async () => {
-    const [betaCustomer] = await raw`select id from public.customer where name = 'Beta Only'`;
+    const [betaCustomer] = await raw`select id from public.customer
+      where organization_id = ${ORG_B} and name = 'Beta Only'`;
     await expect(
       customers.get(ctxFor(ORG_A, USER_A, ["owner"]), { id: betaCustomer!.id }),
     ).rejects.toThrow(NotFoundError);

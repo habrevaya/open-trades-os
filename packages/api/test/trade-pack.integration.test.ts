@@ -5,6 +5,7 @@ import { PermissionError } from "@opentradesos/core";
 import { packById, packs } from "@opentradesos/trade-packs";
 import { applyTradePack } from "../src/services/trade-pack";
 import { NotFoundError, type ServiceContext } from "../src/services/context";
+import { seedOrg, resetOrg } from "./helpers";
 
 const url = process.env.DATABASE_URL;
 const run = url ? describe : describe.skip;
@@ -21,21 +22,7 @@ const ctx = (roles: ServiceContext["actor"]["roles"]): ServiceContext => ({
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
-  await raw`delete from public.portal_block`;
-  await raw`delete from public.portal_layout`;
-  await raw`delete from public.retention_policy`;
-  await raw`delete from public.inspection_program`;
-  await raw`delete from public.service_report_template`;
-  await raw`delete from public.price_book_item_version`;
-  await raw`delete from public.price_book_item`;
-  await raw`delete from public.price_book_category`;
-  await raw`delete from public.job_type`;
-  await raw`delete from public.membership where organization_id = ${ORG}`;
-  await raw`delete from public."user" where id = ${USER}`;
-  await raw`delete from public.organization where id = ${ORG}`;
-  await raw`insert into public.organization (id, name, slug) values (${ORG}, 'Pack Test', 'pack-test')`;
-  await raw`insert into public."user" (id, email) values (${USER}, 'pack@test.local')`;
-  await raw`insert into public.membership (organization_id, user_id, role) values (${ORG}, ${USER}, 'owner')`;
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Pack Test", slug: "pack-test" });
 });
 
 afterAll(async () => { if (raw) await raw.end(); });
@@ -147,10 +134,11 @@ run("every shipped pack applies cleanly", () => {
 
   it.each(packs.map((p, i) => [p.id, i] as const))("applies %s to a fresh company", async (packId, index) => {
     const org = orgFor(index);
+    await resetOrg(raw, org);
     await raw`insert into public.organization (id, name, slug)
-      values (${org}, ${packId}, ${`t-${packId}`}) on conflict (id) do nothing`;
+      values (${org}, ${packId}, ${`t-${packId}`})`;
     await raw`insert into public.membership (organization_id, user_id, role)
-      values (${org}, ${USER}, 'owner') on conflict do nothing`;
+      values (${org}, ${USER}, 'owner')`;
 
     const result = await applyTradePack(
       { actor: { userId: USER, organizationId: org, roles: ["owner"] }, db: createClient(url!) },
