@@ -11,7 +11,7 @@ import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
-  approveEstimate, declineEstimate,
+  approveEstimate, declineEstimate, convertEstimate,
 } from "../contracts/estimates";
 
 const usd = (v: string) => m.money(v, "USD");
@@ -23,8 +23,14 @@ const usd = (v: string) => m.money(v, "USD");
  * cliff, and a company that would happily honour a three week old quote should
  * not have to rebuild it because a timestamp passed on a Sunday. What expiry
  * does is stop the estimate counting as open pipeline.
+ *
+ * `draft` is in it for the sale that happens at the kitchen table. A
+ * technician builds the options on a tablet, turns it around, and the customer
+ * says yes; nothing was ever sent, and requiring a send first would mean
+ * recording a fake one. The portal cannot reach a draft in any case, because
+ * sending is what issues the grant, so this only widens the office path.
  */
-const DECIDABLE = ["sent", "viewed", "expired"] as const;
+const DECIDABLE = ["draft", "sent", "viewed", "expired"] as const;
 
 /**
  * Creating an estimate.
@@ -345,6 +351,149 @@ export async function decline(ctx: ServiceContext, input: z.infer<typeof decline
       { status: current.status }, { status: "declined", reason: input.reason ?? null });
     return loadEstimate(tx, ctx, input.id);
   });
+}
+
+/**
+ * Turning an approved option into work and a bill.
+ *
+ * The conversion is a COPY, not a re-price. Every line carries its frozen
+ * price book version and the tax rate as applied straight onto the invoice,
+ * and nothing is looked up again. An invoice that disagrees with the approved
+ * quote, even by a cent from a rate that changed overnight, is the fastest way
+ * to lose a customer who was, a moment ago, happy.
+ *
+ * Only the lines the customer actually took are copied. An optional line they
+ * left unticked was priced and shown and declined, and billing it is the worst
+ * version of this mistake.
+ */
+export async function convert(ctx: ServiceContext, input: z.infer<typeof convertEstimate.input>) {
+  return guardedWrite(ctx, "estimate:write", async (tx) => {
+    if (ctx.idempotencyKey) {
+      const seen = await seenBefore(tx, ctx.idempotencyKey, "estimate_conversion");
+      if (seen) return loadConversion(tx, ctx, input.id);
+    }
+
+    const current = await loadEstimate(tx, ctx, input.id);
+
+    if (current.status === "converted") return loadConversion(tx, ctx, input.id);
+    if (current.status !== "approved") {
+      throw new ConflictError(
+        `Estimate ${current.number} is ${current.status}. Only an approved estimate converts.`,
+      );
+    }
+
+    const optionId = current.selectedOptionId as string | null;
+    if (!optionId) throw new ConflictError("No option was selected on this estimate.");
+
+    const option = (current.options as Array<Record<string, unknown>>)
+      .find((o) => o["id"] === optionId);
+    if (!option) throw new NotFoundError("Estimate option");
+
+    const lines = (option["lines"] as Array<Record<string, unknown>>)
+      .filter((l) => !l["isOptional"] || l["isSelected"] === true);
+
+    let jobId: string | null = current.jobId as string | null;
+    if (input.createJob && !jobId) {
+      const number = await nextNumber(tx, ctx.actor.organizationId, "job");
+      const [job] = await tx.insert(schema.job).values({
+        organizationId: ctx.actor.organizationId,
+        number,
+        customerId: current.customerId as string,
+        propertyId: current.propertyId as string,
+        jobTypeId: input.jobTypeId ?? null,
+        status: "scheduled",
+        summary: (current.title as string | null) ?? `${option["name"]}`,
+        leadSource: "estimate",
+      }).returning({ id: schema.job.id });
+      jobId = job!.id;
+    }
+
+    let invoiceId: string | null = null;
+    if (input.createInvoice) {
+      const number = await nextNumber(tx, ctx.actor.organizationId, "invoice");
+      const [invoice] = await tx.insert(schema.invoice).values({
+        organizationId: ctx.actor.organizationId,
+        number,
+        customerId: current.customerId as string,
+        propertyId: current.propertyId as string,
+        jobId,
+        status: "draft",
+        subtotal: option["subtotal"] as string,
+        taxTotal: option["taxTotal"] as string,
+        total: option["total"] as string,
+        balance: option["total"] as string,
+      }).returning({ id: schema.invoice.id });
+      invoiceId = invoice!.id;
+
+      await tx.insert(schema.invoiceLine).values(lines.map((l, i) => ({
+        organizationId: ctx.actor.organizationId,
+        invoiceId: invoiceId!,
+        origin: "job" as const,
+        originId: jobId,
+        // Frozen on the estimate, carried across untouched.
+        priceBookItemVersionId: (l["priceBookItemVersionId"] ?? null) as string | null,
+        sortOrder: i,
+        name: l["name"] as string,
+        description: (l["description"] ?? null) as string | null,
+        quantity: l["quantity"] as string,
+        unitPrice: l["unitPrice"] as string,
+        unitCost: (l["unitCost"] ?? null) as string | null,
+        discountAmount: l["discountAmount"] as string,
+        taxable: l["taxable"] as boolean,
+        taxRate: l["taxRate"] as string,
+        taxAmount: l["taxAmount"] as string,
+        lineTotal: l["lineTotal"] as string,
+        costCode: (l["costCode"] ?? null) as string | null,
+      })));
+    }
+
+    await tx.update(schema.estimate).set({
+      status: "converted",
+      jobId,
+      updatedAt: new Date(),
+    }).where(eq(schema.estimate.id, input.id));
+
+    const [deposit] = await tx.select({ id: schema.deposit.id })
+      .from(schema.deposit).where(eq(schema.deposit.estimateId, input.id)).limit(1);
+
+    // The deposit follows the work, so it can be applied to the invoice that
+    // comes out of it without anyone hunting for the original estimate.
+    if (deposit && jobId) {
+      await tx.update(schema.deposit).set({ jobId, updatedAt: new Date() })
+        .where(eq(schema.deposit.id, deposit.id));
+    }
+
+    await recordIdempotency(tx, ctx, "estimate_conversion", input.id);
+    await audit(tx, ctx, "estimate.converted", "estimate", input.id,
+      { status: "approved" }, { status: "converted", jobId, invoiceId });
+
+    return {
+      estimate: await loadEstimate(tx, ctx, input.id),
+      jobId,
+      invoiceId,
+      depositId: deposit?.id ?? null,
+    };
+  });
+}
+
+/** The result of a conversion that already happened, for a retry. */
+async function loadConversion(tx: Database, ctx: ServiceContext, estimateId: string) {
+  const estimate = await loadEstimate(tx, ctx, estimateId);
+  const [invoice] = await tx.select({ id: schema.invoice.id })
+    .from(schema.invoice)
+    .where(and(
+      eq(schema.invoice.jobId, (estimate.jobId ?? "") as string),
+      eq(schema.invoice.organizationId, ctx.actor.organizationId),
+    )).limit(1);
+  const [deposit] = await tx.select({ id: schema.deposit.id })
+    .from(schema.deposit).where(eq(schema.deposit.estimateId, estimateId)).limit(1);
+
+  return {
+    estimate,
+    jobId: (estimate.jobId ?? null) as string | null,
+    invoiceId: invoice?.id ?? null,
+    depositId: deposit?.id ?? null,
+  };
 }
 
 /**

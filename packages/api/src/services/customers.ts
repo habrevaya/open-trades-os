@@ -5,7 +5,7 @@ import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
   decodeCursor, paginate, NotFoundError,
 } from "./context";
-import type { CustomerCreate, listCustomers, getCustomer } from "../contracts/customers";
+import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
 
 type ListInput = z.infer<typeof listCustomers.input>;
 type CreateInput = z.infer<typeof CustomerCreate>;
@@ -142,7 +142,14 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
   });
 }
 
-export async function update(ctx: ServiceContext, input: Partial<CreateInput> & { id: string }) {
+/**
+ * Takes the contract's own input type rather than a hand-rolled
+ * `Partial<CreateInput>`. Under exactOptionalPropertyTypes those are different
+ * types: `Partial<T>` makes a field optional without allowing `undefined`,
+ * while the contract's optional fields allow it, so the hand-rolled version
+ * silently rejects exactly the shape the API validates and accepts.
+ */
+export async function update(ctx: ServiceContext, input: z.infer<typeof updateCustomer.input>) {
   return guardedWrite(ctx, "customer:write", async (tx) => {
     const [before] = await tx.select().from(schema.customer)
       .where(and(eq(schema.customer.id, input.id), isNull(schema.customer.deletedAt))).limit(1);

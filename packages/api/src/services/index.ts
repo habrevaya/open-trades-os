@@ -4,6 +4,7 @@ export * as jobs from "./jobs";
 export * as billing from "./billing";
 export * as estimates from "./estimates";
 export * as portal from "./portal";
+export * as deposits from "./deposits";
 export * as booking from "./booking";
 export * as tradePacks from "./trade-pack";
 export { writePosting } from "./ledger";

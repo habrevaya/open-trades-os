@@ -300,6 +300,24 @@ run("sending and approving", () => {
       .resolves.toBeDefined();
   });
 
+  /**
+   * The office can approve a draft, for the sale that happens at the kitchen
+   * table. The customer side must not be able to, and the reason it cannot is
+   * structural rather than a check: sending is what issues the grant, so a
+   * draft has no token pointing at it. This pins that, because the day someone
+   * issues a grant from somewhere other than send(), the structure is gone and
+   * nothing else would notice.
+   */
+  it("has no way to reach a draft from the customer side", async () => {
+    const created = await estimates.create(office(), threeOptions()) as Record<string, unknown>;
+
+    const grants = await raw`select count(*)::int as n from public.portal_grant
+      where organization_id = ${ORG_A} and scope = 'estimate'
+        and subject_id = ${created["id"] as string}`;
+    expect(grants[0]!.n).toBe(0);
+    expect(created["status"]).toBe("draft");
+  });
+
   it("rejects a token that was never issued", async () => {
     await expect(portal.viewEstimate(db(), { token: "a".repeat(43) }))
       .rejects.toThrow(portal.InvalidGrantError);

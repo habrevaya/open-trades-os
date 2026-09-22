@@ -39,6 +39,7 @@ export type Authorization = "session" | "grant" | "public";
 export interface RouteDefinition<
   TInput extends z.ZodTypeAny = z.ZodTypeAny,
   TOutput extends z.ZodTypeAny = z.ZodTypeAny,
+  TAuth extends Authorization = Authorization,
 > {
   method: Method;
   path: string;
@@ -48,8 +49,17 @@ export interface RouteDefinition<
   module: string;
   /** Every permission the caller must hold. Checked before the handler runs. */
   permissions: readonly string[];
-  /** Defaults to `session`. See the type for why this is declared, not inferred. */
-  authorization?: Authorization;
+  /**
+   * Defaults to `session`. See the type for why this is declared rather than
+   * inferred.
+   *
+   * Carried in the route's TYPE, not only its value, so the handler registry
+   * in src/routes can demand a different function shape for a route a stranger
+   * can reach. Widening it to the plain union here would make every route look
+   * identical to the compiler, and wiring an open handler onto an
+   * authenticated route would be a runtime problem instead of a build error.
+   */
+  authorization?: TAuth;
   input: TInput;
   output: TOutput;
   /**
@@ -61,9 +71,13 @@ export interface RouteDefinition<
   internal?: boolean;
 }
 
-export function defineRoute<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
-  def: RouteDefinition<TInput, TOutput>,
-): RouteDefinition<TInput, TOutput> {
+export function defineRoute<
+  TInput extends z.ZodTypeAny,
+  TOutput extends z.ZodTypeAny,
+  TAuth extends Authorization = "session",
+>(
+  def: RouteDefinition<TInput, TOutput, TAuth>,
+): RouteDefinition<TInput, TOutput, TAuth> {
   const auth = def.authorization ?? "session";
 
   if (def.method !== "get" && def.permissions.length === 0 && auth === "session" && !def.internal) {
@@ -87,5 +101,8 @@ export function defineRoute<TInput extends z.ZodTypeAny, TOutput extends z.ZodTy
   return def;
 }
 
-export type InputOf<R> = R extends RouteDefinition<infer I, z.ZodTypeAny> ? z.infer<I> : never;
-export type OutputOf<R> = R extends RouteDefinition<z.ZodTypeAny, infer O> ? z.infer<O> : never;
+export type InputOf<R> = R extends RouteDefinition<infer I, z.ZodTypeAny, Authorization> ? z.infer<I> : never;
+export type OutputOf<R> = R extends RouteDefinition<z.ZodTypeAny, infer O, Authorization> ? z.infer<O> : never;
+
+/** How a route is reached, with `session` filled in where it was left out. */
+export type AuthOf<R> = R extends RouteDefinition<z.ZodTypeAny, z.ZodTypeAny, infer A> ? A : "session";

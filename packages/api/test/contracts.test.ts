@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { routes, routeList } from "../src/contracts/index.js";
+import { handlers, PENDING_ROUTES, routeNames } from "../src/routes/index";
 import { ALL_PERMISSIONS } from "../../core/src/access/permissions.js";
 
 /**
@@ -167,5 +168,44 @@ describe("the contracts describe the domain correctly", () => {
       technicianNotes: "Replaced capacitor, unit running",
     });
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe("every route has something behind it", () => {
+  /**
+   * A contract with no implementation is worse than no contract. The OpenAPI
+   * document, the generated SDK and the MCP tool list are all built from
+   * `routes`, so a declared route with nothing serving it is an endpoint three
+   * separate consumers will offer and none of them can call.
+   *
+   * PENDING_ROUTES is the escape hatch and it is deliberately loud: a name in
+   * it is a promise the code does not keep, so it should only ever shrink.
+   */
+  it("implements or explicitly defers every route", () => {
+    const implemented = new Set(Object.keys(handlers));
+    const deferred = new Set(PENDING_ROUTES);
+
+    const orphans = routeNames.filter((n) => !implemented.has(n) && !deferred.has(n));
+
+    expect(
+      orphans,
+      `These routes are declared and nothing serves them. Add a handler in ` +
+      `src/routes/index.ts, or list them in PENDING_ROUTES with the phase ` +
+      `they are waiting on: ${orphans.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("does not defer a route it actually implements", () => {
+    const implemented = new Set<string>(Object.keys(handlers));
+    const stale = PENDING_ROUTES.filter((n) => implemented.has(n));
+    expect(stale, `PENDING_ROUTES still lists routes that are now built: ${stale.join(", ")}`)
+      .toEqual([]);
+  });
+
+  it("does not name a route that no longer exists", () => {
+    const real = new Set<string>(routeNames);
+    const ghosts = PENDING_ROUTES.filter((n) => !real.has(n));
+    expect(ghosts, `PENDING_ROUTES names routes that were removed: ${ghosts.join(", ")}`)
+      .toEqual([]);
   });
 });
