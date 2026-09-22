@@ -230,7 +230,7 @@ function DetailsForm({
       </label>
 
       {error && (
-        <p className="rounded bg-alert-100 px-3 py-2 text-sm text-alert-700">{error}</p>
+        <p className="rounded bg-red-tint px-3 py-2 text-sm text-red-600">{error}</p>
       )}
 
       <button

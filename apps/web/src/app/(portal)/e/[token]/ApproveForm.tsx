@@ -190,7 +190,7 @@ export function ApproveForm({ token, estimate }: { token: string; estimate: Esti
           </p>
 
           {error && (
-            <p className="mt-3 rounded bg-alert-100 px-3 py-2 text-sm text-alert-700">{error}</p>
+            <p className="mt-3 rounded bg-red-tint px-3 py-2 text-sm text-red-600">{error}</p>
           )}
 
           <button

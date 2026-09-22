@@ -79,3 +79,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @opentradesos/core test
       - run: pnpm --filter @opentradesos/trade-packs test
+      # The offline queue. Crash recovery, restarts and dropped connections,
+      # none of which need a device and all of which are miserable to
+      # reproduce on one.
+      - run: pnpm --filter @opentradesos/field-client test
+      # Tailwind classes that do not exist. The silent failure in this stack:
+      # no rule, no warning, no build error, just an unstyled element.
+      - run: pnpm --filter web test

@@ -1,0 +1,11 @@
+{
+  "name": "@opentradesos/field-client",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "dependencies": { "@opentradesos/core": "workspace:*" },
+  "devDependencies": { "typescript": "^5.7.2", "vitest": "^2.1.8", "@types/node": "^22.10.1" }
+}

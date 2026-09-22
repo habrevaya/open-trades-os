@@ -90,6 +90,9 @@ importers:
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.4)
 
   packages/api:
     dependencies:
@@ -166,6 +169,22 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@26.6.2)
+
+  packages/field-client:
+    dependencies:
+      '@opentradesos/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.20.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.4)
 
   packages/trade-packs:
     dependencies:
