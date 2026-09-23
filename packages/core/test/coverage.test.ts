@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { coverage, money as m } from "../src/index";
+import { coverage, money as m, work } from "../src/index";
 
 /**
  * WHO IS PAYING, AND WHY
@@ -167,5 +167,45 @@ describe("what it cost us", () => {
       expect(coverage.COVERAGE[source].label.length, source).toBeGreaterThan(0);
       expect(coverage.COVERAGE[source].description.length, source).toBeGreaterThan(20);
     }
+  });
+});
+
+describe("how urgent a job is", () => {
+  /**
+   * `job.priority` was an integer defaulting to zero, written by nothing and
+   * read by two things that could not say what it meant: the job screen
+   * rendered a bare "0", and a report dimension called Priority grouped every
+   * job in the company into a bucket named "0".
+   */
+  it("names every level", () => {
+    for (const level of work.JOB_PRIORITY) {
+      expect(level.label.length, String(level.value)).toBeGreaterThan(0);
+      // The meaning is on the screen because a scale of bare words is one
+      // every office interprets differently by the second week.
+      expect(level.meaning.length, level.label).toBeGreaterThan(15);
+    }
+  });
+
+  it("treats zero as normal, which is the default the column has", () => {
+    expect(work.NORMAL_PRIORITY).toBe(0);
+    expect(work.priorityLabel(0)).toBe("Normal");
+  });
+
+  it("shows a number outside the scale rather than hiding it", () => {
+    // It came from somewhere, probably an import, and a reader deciding what
+    // to do with the job is better served by "Priority 7" than by silence.
+    expect(work.priorityLabel(7)).toBe("Priority 7");
+  });
+
+  it("builds the same scale as SQL, from the same list", () => {
+    /**
+     * Two copies of a scale is how a report ends up disagreeing with the
+     * screen about what a job is.
+     */
+    const sql = work.prioritySql("job.priority");
+    for (const level of work.JOB_PRIORITY) {
+      expect(sql).toContain(`= ${level.value} then '${level.label}'`);
+    }
+    expect(sql).toContain("else 'Priority '");
   });
 });

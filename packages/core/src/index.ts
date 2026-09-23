@@ -10,3 +10,4 @@ export * as reporting from "./reporting/index.js";
 export * as time from "./time/index.js";
 export * as coverage from "./coverage/index.js";
 export * as authorization from "./authorization/index.js";
+export * as work from "./work/index.js";

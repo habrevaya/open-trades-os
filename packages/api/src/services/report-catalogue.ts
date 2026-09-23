@@ -1,4 +1,4 @@
-import type { reporting } from "@opentradesos/core";
+import { work, type reporting } from "@opentradesos/core";
 
 /**
  * THE CATALOGUE
@@ -26,7 +26,15 @@ export const CATALOGUE: reporting.Dataset[] = [
     dateColumn: "job.created_at",
     dimensions: [
       { key: "status", label: "Status", sql: "job.status::text", type: "text" },
-      { key: "priority", label: "Priority", sql: "job.priority::text", type: "text" },
+      {
+        key: "priority", label: "Priority", type: "text",
+        /**
+         * Labelled from the scale core declares, rather than grouped by the
+         * raw integer. "Jobs by priority" answering with a bucket called "0"
+         * is a report that looks broken.
+         */
+        sql: work.prioritySql("job.priority"),
+      },
       {
         key: "month", label: "Month", type: "date",
         // Truncated in the database rather than grouped in JavaScript, which

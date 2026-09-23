@@ -86,6 +86,11 @@ export const JobCreate = z.object({
   leadSource: z.string().max(100).optional(),
   purchaseOrderNumber: z.string().max(100).optional(),
   costCode: z.string().max(50).optional(),
+  /**
+   * How urgent, on the scale core declares. Zero is normal and is the
+   * absence of urgency rather than a choice.
+   */
+  priority: z.number().int().min(0).max(2).optional(),
   tags: z.array(z.string()).default([]),
   customFields: z.record(z.unknown()).default({}),
   /**

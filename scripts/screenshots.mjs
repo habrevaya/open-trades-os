@@ -129,6 +129,16 @@ const SHOTS = [
    * the two schedules side by side, which is the claim that would otherwise
    * be a sentence nobody can check.
    */
+  /**
+   * A job, including the two decisions that stop an invoice: who is paying,
+   * and what they authorised. Both are made before anybody invoices and
+   * usually by somebody else, so the job has to say so.
+   */
+  {
+    name: "job", path: "/jobs", token: OWNER, ...DESK, height: 1100,
+    click: "main table tbody tr:first-child a",
+    lands: "/jobs/",
+  },
   { name: "agreements", path: "/agreements", token: OWNER, ...DESK, height: 900 },
   {
     name: "agreement", path: "/agreements", token: OWNER, ...DESK, height: 1100,
