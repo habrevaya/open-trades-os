@@ -14,4 +14,7 @@ export * as priceBook from "./pricebook";
 export * as events from "./events";
 export * as workflowRunner from "./workflow-runner";
 export * as workflowSteps from "./workflow-steps";
+export * as roles from "./roles";
+export * as session from "./session";
+export { resolveSession, type ResolvedSession } from "./session";
 export { writePosting } from "./ledger";

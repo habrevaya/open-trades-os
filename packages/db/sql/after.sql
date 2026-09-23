@@ -254,6 +254,11 @@ revoke all on function app.credential_for_login(text) from public;
  * migration: nothing depends on the function surviving the gap, and the
  * create follows immediately in the same transaction.
  */
+-- The return type changes when the actor gains a field, and `create or
+-- replace` cannot change a return type, so this is dropped first rather than
+-- replaced. Every addition below has the same cause: a value the actor needs
+-- that was resolved nowhere, so the permission or scope that depends on it
+-- silently did nothing.
 drop function if exists app.resolve_session(text);
 
 create function app.resolve_session(p_token_hash text)
@@ -277,8 +282,32 @@ create function app.resolve_session(p_token_hash text)
     role text,
     grants jsonb,
     revocations jsonb,
+    /**
+     * The per-membership narrowing. Read by `effectiveScope` as a ceiling
+     * over whatever the roles resolved to. It was written by an
+     * administrator, stored, and then never loaded onto an actor, so setting
+     * one restricted nobody.
+     */
+    scope_overrides jsonb,
     business_unit_id uuid,
-    location_id uuid
+    location_id uuid,
+    /**
+     * The technician this membership IS, and the crews they belong to.
+     *
+     * Every `own` and `crew` scope compares against these two values, and
+     * without them those scopes match nothing at all. That is the right way
+     * round to fail, and it still meant a technician signing in saw an empty
+     * job list and read it as "no work assigned".
+     */
+    technician_id uuid,
+    crew_ids uuid[],
+    /**
+     * A custom role REPLACES the preset. Returned as the definition rather
+     * than as an id so that resolving a session stays one round trip, which
+     * is the whole reason this function exists.
+     */
+    custom_role_permissions jsonb,
+    custom_role_scopes jsonb
   )
   language sql
   stable
@@ -288,13 +317,27 @@ create function app.resolve_session(p_token_hash text)
     select
       s.id, u.id, u.email, u.name,
       o.id, o.name, o.slug, o.timezone, o.setup_completed_at,
-      m.role::text, m.grants, m.revocations, m.business_unit_id, m.location_id
+      m.role::text, m.grants, m.revocations, m.scope_overrides,
+      m.business_unit_id, m.location_id,
+      t.id,
+      coalesce(
+        (select array_agg(cm.crew_id) from public.crew_member cm where cm.technician_id = t.id),
+        '{}'::uuid[]
+      ),
+      r.permissions, r.scopes
     from public.session s
     join public."user" u on u.id = s.user_id
     join public.organization o on o.id = s.active_organization_id
     join public.membership m
       on m.user_id = s.user_id
      and m.organization_id = s.active_organization_id
+    -- Left joins, both of them. An office manager is not a technician and a
+    -- membership on a preset has no custom role; neither is a reason to fail
+    -- to resolve a session.
+    left join public.technician t
+      on t.membership_id = m.id and t.active
+    left join public.role r
+      on r.id = m.role_id and r.deleted_at is null
     where s.token_hash = p_token_hash
       and s.expires_at > now()
       and s.revoked_at is null

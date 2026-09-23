@@ -1,9 +1,8 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { sql } from "drizzle-orm";
+import { resolveSession, type ResolvedSession } from "@opentradesos/api/services";
 import { createClient } from "@opentradesos/db";
-import type { Actor, RoleId } from "@opentradesos/core";
 import { SESSION_COOKIE, hashToken } from "./session";
 
 /**
@@ -19,77 +18,21 @@ import { SESSION_COOKIE, hashToken } from "./session";
  *    fired technician's access to the customer list.
  * 3. The result is an Actor, the same type an AI agent gets. There is no
  *    separate path with different rules.
+ *
+ * The mapping itself lives in @opentradesos/api rather than here, and that
+ * move was not tidiness. While it lived in this file it was the only code
+ * that built a real actor and no test could reach it, so every scope test
+ * constructed its own by hand with `technicianId` filled in. The signed in
+ * path produced one without, the `own` scope matched nothing, and a
+ * technician saw an empty job list. Reading the cookie stays here, because
+ * that genuinely is the framework's job.
  */
-export interface CurrentUser {
-  actor: Actor;
-  userId: string;
-  email: string;
-  name: string | null;
-  organizationId: string;
-  organizationName: string;
-  organizationSlug: string;
-  /** The company's timezone. Every rendered time is formatted in it. */
-  organizationTimezone: string;
-  setupCompleted: boolean;
-}
+export type CurrentUser = ResolvedSession;
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
-
-  const db = createClient();
-
-  /**
-   * Resolution goes through app.resolve_session rather than a select.
-   *
-   * Session lookup happens before we know who the user is, which is the point
-   * of the lookup, so a row level security policy keyed on the current user id
-   * can never match on that first read. The alternative would be connecting as
-   * a role that bypasses RLS, and the service role is never reachable from a
-   * request path. So a SECURITY DEFINER function takes the token hash, which
-   * the caller must already hold, and returns one row or none.
-   */
-  const rows = await db.execute<{
-    user_id: string;
-    email: string;
-    name: string | null;
-    organization_id: string;
-    organization_name: string;
-    organization_slug: string;
-    organization_timezone: string | null;
-    setup_completed_at: Date | null;
-    role: string;
-    grants: string[] | null;
-    revocations: string[] | null;
-    business_unit_id: string | null;
-    location_id: string | null;
-  }>(sql`select * from app.resolve_session(${hashToken(token)})`);
-
-  const row = rows[0];
-  if (!row) return null;
-
-  return {
-    userId: row.user_id,
-    email: row.email,
-    name: row.name,
-    organizationId: row.organization_id,
-    organizationName: row.organization_name,
-    organizationSlug: row.organization_slug,
-    // A company created before the column existed has no timezone. Falling
-    // back to the server's is wrong in the same way the browser's is, but it
-    // is at least stable across a hydration, and setup asks for a real one.
-    organizationTimezone: row.organization_timezone ?? "America/Chicago",
-    setupCompleted: row.setup_completed_at != null,
-    actor: {
-      userId: row.user_id,
-      organizationId: row.organization_id,
-      roles: [row.role as RoleId],
-      grants: (row.grants ?? []) as Actor["grants"],
-      revocations: (row.revocations ?? []) as Actor["revocations"],
-      ...(row.business_unit_id ? { businessUnitId: row.business_unit_id } : {}),
-      ...(row.location_id ? { locationId: row.location_id } : {}),
-    },
-  };
+  return resolveSession(createClient(), hashToken(token));
 }
 
 /** For a page that must not render to a signed out visitor. */

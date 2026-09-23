@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { pk, timestamps } from "./_shared";
 
@@ -146,6 +147,47 @@ export const memberRole = pgEnum("member_role", [
 ]);
 
 /**
+ * A role a company defined for itself.
+ *
+ * The nine presets are starting points, not a taxonomy. A company with four
+ * branches wants a branch manager, and one with a warehouse wants somebody
+ * who reads inventory and nothing else, and neither is a preset with extras
+ * bolted on.
+ *
+ * What makes this safe to expose is enforced in core, not here:
+ * `canDefineRole` refuses a permission the author does not hold and refuses a
+ * scope wider than their own. Without it `role:write` is quietly equivalent
+ * to every permission in the catalogue, because a role is a container for
+ * permissions and anyone who can write one can write `owner` into it.
+ *
+ * `basedOn` is a record of where the definition started, kept because "which
+ * preset was this before somebody edited it" is the first question asked when
+ * a role behaves unexpectedly. It has no effect on resolution: a custom role
+ * REPLACES the preset rather than adding to it.
+ */
+export const role = pgTable("role", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  basedOn: memberRole("based_on"),
+  /** Permission keys from the catalogue in @opentradesos/core. */
+  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  /** Per resource scope, same shape and same meaning as on a membership. */
+  scopes: jsonb("scopes").$type<Record<string, string>>().notNull().default({}),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  /**
+   * Names are how people refer to a role out loud, so two roles called
+   * "Branch Manager" in one company is a support call waiting to happen.
+   * Scoped to the organization, and only among the live ones, so a deleted
+   * role does not hold its name hostage.
+   */
+  nameIdx: uniqueIndex("role_name_idx").on(t.organizationId, t.name).where(sql`${t.deletedAt} is null`),
+}));
+
+/**
  * Membership is the join that RLS reads. `current_org_id()` in the policies
  * resolves through this table, so a leak here is a cross-tenant data leak.
  * It gets its own pgTAP tests.
@@ -155,6 +197,14 @@ export const membership = pgTable("membership", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   role: memberRole("role").notNull().default("technician"),
+  /**
+   * A custom role, when the company defined one. It REPLACES the preset above
+   * rather than adding to it, because a company that has defined its own role
+   * means that role and not a preset with unexplained extras. `role` stays
+   * populated so a membership always has a readable label and so removing the
+   * custom role falls back to something sane rather than to nothing.
+   */
+  roleId: uuid("role_id").references(() => role.id, { onDelete: "set null" }),
   /**
    * Overrides on top of the preset. Grants add, revocations remove, and
    * revocation always beats a grant so taking access away is never ambiguous.

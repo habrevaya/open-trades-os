@@ -55,6 +55,13 @@ const ORDER = [
   "attachment", "audit_log", "integration_event", "webhook_endpoint",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",
+  /**
+   * Roles before memberships. The foreign key is ON DELETE SET NULL so the
+   * order does not strictly matter, but a custom role outliving the
+   * organization that defined it is the kind of fixture leftover that makes
+   * the next run fail on a unique name rather than on anything real.
+   */
+  "role",
   "membership", "business_unit", "location",
 ] as const;
 
