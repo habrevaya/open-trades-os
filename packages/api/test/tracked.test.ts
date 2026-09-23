@@ -52,12 +52,18 @@ describe("the working tree and the repository agree", () => {
   it("has nothing under src that git is ignoring", () => {
     const files = sources();
     /**
-     * `git check-ignore` exits 1 when nothing matches, which is the success
-     * case here, so a non-zero exit is not an error to throw on.
+     * `--no-index`, which is the difference between a test and a shape that
+     * looks like one. Without it `git check-ignore` skips anything already
+     * tracked, so the guard only sees a file that has never been committed,
+     * and a pattern that would swallow a module somebody commits tomorrow
+     * reports nothing today.
+     *
+     * It exits 1 when nothing matches, which is the success case here, so a
+     * non-zero exit is not an error to throw on.
      */
     let ignored = "";
     try {
-      ignored = execFileSync("git", ["check-ignore", "--stdin"], {
+      ignored = execFileSync("git", ["check-ignore", "--no-index", "--stdin"], {
         cwd: ROOT, input: files.join("\n"), encoding: "utf8",
       });
     } catch (error) {
