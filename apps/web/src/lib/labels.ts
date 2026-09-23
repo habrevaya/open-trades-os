@@ -73,6 +73,20 @@ export const PRICE_BOOK_KIND: Record<string, string> = {
   discount: "Discount",
 };
 
+export const TASK_PRIORITY: Record<string, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+  urgent: "Urgent",
+};
+
+export const TASK_STATUS: Record<string, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  done: "Done",
+  dismissed: "Dismissed",
+};
+
 export const PHONE_PURPOSE: Record<string, string> = {
   main: "Main line",
   tracking: "Campaign tracking",

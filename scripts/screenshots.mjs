@@ -107,6 +107,7 @@ const SHOTS = [
    * which are different screens doing different jobs.
    */
   { name: "inbox", path: "/inbox", token: OWNER, ...DESK, height: 380 },
+  { name: "tasks", path: "/tasks", token: OWNER, ...DESK, height: 620 },
   {
     name: "inbox-thread", path: "/inbox", token: OWNER, ...DESK, height: 640,
     click: "ul li:first-child a",

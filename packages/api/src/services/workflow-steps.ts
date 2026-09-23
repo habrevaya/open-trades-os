@@ -2,6 +2,7 @@ import { and, eq, isNull, desc } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
+import { raise } from "./tasks";
 
 /**
  * WHAT A WORKFLOW STEP ACTUALLY DOES
@@ -226,4 +227,48 @@ async function threadFor(tx: Database, input: {
     status: "open",
   }).returning({ id: schema.conversation.id });
   return created!.id;
+}
+
+
+/**
+ * Raise a task from a workflow.
+ *
+ * The step that turns an event into something a person actually sees.
+ * Relying on somebody to notice that an estimate went unanswered for five
+ * days is relying on a report nobody runs; the event is already in the log,
+ * and this is what makes it visible.
+ *
+ * Idempotent on (run, entity), so a workflow that fires repeatedly does not
+ * raise the same task every hour until somebody turns the automation off.
+ */
+export async function createTask(
+  tx: Database,
+  ctx: ServiceContext,
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+  runId: string,
+): Promise<StepResult> {
+  const payload = event.payload as Record<string, unknown>;
+  const title = render(String(config["title"] ?? ""), payload).trim();
+  if (title === "") return { ok: false, reason: "step has no title" };
+
+  const dueInHours = Number(config["dueInHours"] ?? 0);
+  const entityId = (config["entityId"] as string | undefined)
+    ?? (event.entityId ?? undefined);
+
+  const result = await raise(tx, ctx.actor.organizationId, runId, {
+    title,
+    body: config["body"] ? render(String(config["body"]), payload) : undefined,
+    priority: (config["priority"] as "low" | "normal" | "high" | "urgent" | undefined),
+    entityType: (config["entityType"] as string | undefined) ?? event.entityType,
+    entityId,
+    queue: config["queue"] as string | undefined,
+    ...(dueInHours > 0 ? { dueAt: new Date(Date.now() + dueInHours * 3_600_000) } : {}),
+  });
+
+  /**
+   * A duplicate is a successful step, not a failed one. The workflow did what
+   * it should: it checked and did not raise a second copy.
+   */
+  return { ok: true, output: { taskId: result.id, created: result.created } };
 }

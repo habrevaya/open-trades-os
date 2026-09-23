@@ -236,3 +236,96 @@ export const eventCursor = pgTable("event_cursor", {
 }, (t) => ({
   pk: primaryKey({ columns: [t.organizationId, t.consumer] }),
 }));
+
+// ---------------------------------------------------------------------------
+// Tasks: the office work queue
+// ---------------------------------------------------------------------------
+
+export const taskStatus = pgEnum("task_status", [
+  "open",
+  "in_progress",
+  "done",
+  /** Decided against rather than forgotten, which is a different fact. */
+  "dismissed",
+]);
+
+export const taskPriority = pgEnum("task_priority", ["low", "normal", "high", "urgent"]);
+
+/**
+ * THE WORK THAT IS NOT A JOB
+ *
+ * Call this customer back. Chase this approval. This invoice needs a purchase
+ * order before it can be sent. Somebody promised a quote on Friday.
+ *
+ * Every contractor runs this on sticky notes, a shared inbox and one person's
+ * memory, and it is where the money quietly leaks: an unapproved estimate
+ * nobody followed up is a sale that did not happen and leaves no record that
+ * it existed.
+ *
+ * A task hangs off the RECORD IT IS ABOUT rather than describing it. A to-do
+ * list of sentences makes somebody reconstruct the context before they can
+ * act, and the reconstruction is most of the work. Following up an estimate
+ * should open the estimate.
+ */
+export const task = pgTable("task", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body"),
+  status: taskStatus("status").notNull().default("open"),
+  priority: taskPriority("priority").notNull().default("normal"),
+
+  /**
+   * What it is about. Deliberately a loose reference rather than a column per
+   * entity: a task can be about anything the product has, including things
+   * added later, and eight nullable foreign keys would need a ninth every
+   * time. The tradeoff is no referential integrity, which is acceptable
+   * because a task pointing at a deleted record is still a record of what
+   * somebody was asked to do.
+   */
+  entityType: text("entity_type"),
+  entityId: uuid("entity_id"),
+
+  /**
+   * A person or a queue, and not both. Unassigned is a real and common state:
+   * somebody raised it and nobody has picked it up, which is exactly what a
+   * team queue is for.
+   */
+  assigneeUserId: uuid("assignee_user_id").references(() => user.id, { onDelete: "set null" }),
+  queue: text("queue"),
+
+  dueAt: timestamp("due_at", { withTimezone: true }),
+  /** Set when the due date passes and nothing has happened. */
+  escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * The run that raised it, when an automation did.
+   *
+   * Kept so "why is this in my queue" has an answer, and so a workflow that
+   * raises a hundred tasks a day is attributable rather than mysterious.
+   */
+  raisedByRunId: uuid("raised_by_run_id").references(() => workflowRun.id, { onDelete: "set null" }),
+
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  completedByUserId: uuid("completed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Why it was dismissed. A queue full of silently dropped work is noise. */
+  outcome: text("outcome"),
+  ...timestamps,
+}, (t) => ({
+  /** The three views: mine, the queue's, and what is late. */
+  mineIdx: index("task_assignee_idx").on(t.organizationId, t.assigneeUserId, t.status),
+  queueIdx: index("task_queue_idx").on(t.organizationId, t.queue, t.status),
+  dueIdx: index("task_due_idx").on(t.organizationId, t.status, t.dueAt),
+  entityIdx: index("task_entity_idx").on(t.entityType, t.entityId),
+  /**
+   * One open task per workflow run per entity.
+   *
+   * A workflow that fires on every event would otherwise raise the same
+   * "chase this estimate" task every hour until somebody turns the automation
+   * off, which is how an inbox becomes something people stop opening.
+   */
+  automationIdx: uniqueIndex("task_automation_idx")
+    .on(t.organizationId, t.raisedByRunId, t.entityType, t.entityId)
+    .where(sql`${t.raisedByRunId} is not null`),
+}));

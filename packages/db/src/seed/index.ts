@@ -524,6 +524,67 @@ async function communications(
   await sql`update public.workflow set active_version_id = ${versionId} where id = ${workflowId}`;
 
   /**
+   * An office queue with the two shapes in it: something a person raised, and
+   * something an automation did.
+   *
+   * A seeded queue with nothing late cannot show the one thing this screen
+   * exists to answer, so one of them is a day past its due date.
+   */
+  /**
+   * A due time an office actually works to, rather than an offset from
+   * whenever the seed ran. "Due at 2:42am" reads as generated data, which is
+   * the one thing this demo company is not supposed to look like.
+   */
+  const dueAt = (dayOffset: number, hour: number): Date => {
+    const d = new Date(now());
+    d.setDate(d.getDate() + dayOffset);
+    d.setHours(hour, 0, 0, 0);
+    return d;
+  };
+
+  const brazos = customers.get("brazos");
+  const okafor = customers.get("okafor");
+  const taskRows = [
+    {
+      key: "po",
+      title: "Brazos needs a PO number before invoice 2203 can go out",
+      body: "Their AP portal rejects anything without one. Ask Priya in facilities.",
+      priority: "high",
+      dueDay: -1, dueHour: 16,
+      entity: brazos ? { type: "customer", id: brazos.customer } : null,
+      queue: "office",
+    },
+    {
+      key: "quote",
+      title: "Send Tolu the duct sealing quote we promised",
+      body: null,
+      priority: "normal",
+      dueDay: 0, dueHour: 17,
+      entity: okafor ? { type: "customer", id: okafor.customer } : null,
+      queue: "office",
+    },
+    {
+      key: "callback",
+      title: "Call Marisol back about the condenser warranty",
+      body: "She left a voicemail asking whether the compressor is still covered.",
+      priority: "normal",
+      dueDay: 1, dueHour: 9,
+      entity: null,
+      queue: "office",
+    },
+  ];
+  for (const t of taskRows) {
+    await sql`
+      insert into public.task
+        (id, organization_id, title, body, priority, queue, due_at, entity_type, entity_id, created_by_user_id)
+      values (${id(`task:${t.key}`)}, ${ORG}, ${t.title}, ${t.body},
+              ${t.priority}::task_priority, ${t.queue},
+              ${dueAt(t.dueDay, t.dueHour)},
+              ${t.entity?.type ?? null}, ${t.entity?.id ?? null}, ${id("user:owner")})
+    `;
+  }
+
+  /**
    * A conversation with an unanswered reply in it.
    *
    * The inbox exists to answer one question, "which of these is waiting on

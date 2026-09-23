@@ -29,6 +29,7 @@ export type RoleId =
   | "technician" | "crew_lead" | "accountant" | "readonly";
 
 const OFFICE_BASE: Permission[] = [
+  "task:read", "task:write",
   "customer:read", "customer:write", "property:read", "property:write",
   "equipment:read", "equipment:write",
   "pricebook:read",
@@ -48,6 +49,14 @@ const OFFICE_BASE: Permission[] = [
 ];
 
 const TECHNICIAN_BASE: Permission[] = [
+  /**
+   * Reads tasks, does not create them.
+   *
+   * A technician can be handed a task and complete it. Letting them create
+   * work for other people is a different thing, and a queue anybody can add
+   * to stops being a queue anybody reads.
+   */
+  "task:read",
   // Reads the customer and the property, but never their financial standing.
   "customer:read", "property:read",
   "equipment:read", "equipment:write",

@@ -3,7 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { automation, comms, type Actor, type Permission } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
-import { sendMessage, type StepResult } from "./workflow-steps";
+import { sendMessage, createTask, type StepResult } from "./workflow-steps";
 
 /**
  * THE RUNNER
@@ -241,6 +241,8 @@ async function perform(
   switch (step.kind) {
     case "send_message":
       return sendMessage(tx, ctx, step.config ?? {}, event, runId);
+    case "create_task":
+      return createTask(tx, ctx, step.config ?? {}, event, runId);
     case "wait":
       // A no-op here. Durable waits need the scheduler, and pretending
       // otherwise would make a workflow look like it paused when it did not.

@@ -130,6 +130,13 @@ export const PERMISSIONS = {
   "user:invite": "Invite users",
   "user:write": "Edit users and assign roles",
   "role:write": "Create and edit custom roles",
+  /**
+   * The office work queue. Read is separate from write because a technician
+   * can be given a task without being able to create work for other people,
+   * and a queue anybody can add to stops being a queue anybody reads.
+   */
+  "task:read": "View tasks and the office queue",
+  "task:write": "Create, assign and complete tasks",
   "settings:read": "View company settings",
   "settings:write": "Edit company settings",
   "integration:read": "View connected integrations",

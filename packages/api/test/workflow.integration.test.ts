@@ -65,6 +65,7 @@ afterAll(async () => { if (raw) await raw.end(); });
 beforeEach(async () => {
   if (!url) return;
   // Each test defines its own workflow and asserts on its own messages.
+  await raw`delete from public.task where organization_id = ${ORG}`;
   await raw`delete from public.workflow_step_run where organization_id = ${ORG}`;
   await raw`delete from public.workflow_run where organization_id = ${ORG}`;
   await raw`delete from public.workflow_version where organization_id = ${ORG}`;
@@ -370,5 +371,67 @@ describe("rendering a template", () => {
     // A template language that executes is arbitrary code execution wearing
     // a friendly name.
     expect(render("{{ 1 + 1 }}", {})).toBe("{{ 1 + 1 }}");
+  });
+});
+
+run("a workflow raising a task", () => {
+  /**
+   * The second step executor, and the one that proves the engine is not a
+   * messaging feature wearing a general name. An event becomes something a
+   * person sees in a queue.
+   */
+  it("puts a task in the queue when a job completes", async () => {
+    await defineWorkflow({
+      steps: [{
+        kind: "create_task",
+        config: {
+          title: "Follow up on job {{ job.number }}",
+          body: "They had us out today. Check they are happy.",
+          queue: "office",
+          dueInHours: 24,
+        },
+      }],
+      permissions: ["task:write"],
+    });
+    const job = await completeAJob();
+    const summaries = await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    expect(summaries[0]).toMatchObject({ status: "succeeded", steps: 1 });
+    const rows = await raw<{ title: string; queue: string; entity_id: string }[]>`
+      select title, queue, entity_id from public.task where organization_id = ${ORG}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.title).toBe(`Follow up on job ${job.number}`);
+    expect(rows[0]!.queue).toBe("office");
+    // Attached to the job, so following it up opens the job rather than a
+    // sentence describing it.
+    expect(rows[0]!.entity_id).toBe(job.id);
+  });
+
+  it("refuses the step when the version did not declare task:write", async () => {
+    // The same rule as every other step: a run acts with what its version
+    // declared and its publisher held.
+    await defineWorkflow({
+      steps: [{ kind: "create_task", config: { title: "Sneak one in" } }],
+      permissions: [],
+    });
+    await completeAJob();
+    const summaries = await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    expect(summaries[0]).toMatchObject({ status: "failed" });
+    expect(summaries[0]!.reason).toMatch(/task:write/);
+    expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(0);
+  });
+
+  it("does not raise a second copy when the same run is retried", async () => {
+    await defineWorkflow({
+      steps: [{ kind: "create_task", config: { title: "Once only" } }],
+      permissions: ["task:write"],
+    });
+    await completeAJob();
+    const eventId = (await latestEventNamed("job.completed"))!;
+    await handleEvent(owner(), eventId);
+    await handleEvent(owner(), eventId);
+
+    expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(1);
   });
 });

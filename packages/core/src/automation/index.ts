@@ -248,6 +248,12 @@ export const STEP_PERMISSIONS: Record<string, Permission[]> = {
   record_payment: ["payment:collect"],
   issue_portal_link: ["portal:grant"],
   add_note: ["job:write"],
+  /**
+   * The step that turns an event into something a person actually sees.
+   * Relying on somebody to notice an estimate went unanswered for five days
+   * is relying on a report nobody runs.
+   */
+  create_task: ["task:write"],
   call_webhook: ["settings:write"],
   wait: [],
   branch: [],

@@ -23,6 +23,7 @@ const NAV: { href: string; label: string; permission: Permission }[] = [
   { href: "/jobs", label: "Jobs", permission: "job:read" },
   { href: "/customers", label: "Customers", permission: "customer:read" },
   { href: "/inbox", label: "Inbox", permission: "message:read" },
+  { href: "/tasks", label: "Tasks", permission: "task:read" },
   { href: "/pricebook", label: "Price book", permission: "pricebook:read" },
   { href: "/invoices", label: "Invoices", permission: "invoice:read" },
   /**
