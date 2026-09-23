@@ -52,6 +52,9 @@ const ORDER = [
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   "rental", "rentable_asset", "territory", "business_hours",
   "lead_offer", "lead_source_connector", "sync_run", "integration_connection",
+  // An app's tokens, then the app. Both cascade from the organization, but a
+  // scoped reset deletes rows rather than the tenant, so they need naming.
+  "app_token", "connected_app",
   "attachment", "audit_log", "integration_event", "webhook_endpoint",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",

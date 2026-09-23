@@ -274,7 +274,33 @@ run("a custom role", () => {
     // A dispatcher can dispatch. This role says two permissions and is two
     // permissions: a custom role replaces the preset rather than adding to it.
     expect(held.has("visit:write")).toBe(false);
-    expect(actor.scopeOverrides).toMatchObject({ job: "own" });
+    /**
+     * `scopes`, not `scopeOverrides`. A custom role STATES the scope, because
+     * it replaces the preset and there is no role left to narrow. Folding it
+     * into the overrides clamped it against the roleless default of `own`, so
+     * a role granting `job: "all"` saw no jobs at all: the widening half of a
+     * custom role silently did nothing.
+     */
+    expect(actor.scopes).toMatchObject({ job: "own" });
+  });
+
+  it("can be granted a scope WIDER than the preset it replaces", async () => {
+    // The half that was broken. A branch manager reading every job in their
+    // branch is the ordinary case for a custom role, and it read nothing.
+    const wide = await roles.create(owner(), {
+      name: "Reads everything", permissions: ["job:read"], scopes: { job: "all" },
+    });
+    const [m] = await raw<{ id: string }[]>`
+      select id from public.membership where user_id = ${TECH_USER} and organization_id = ${ORG}`;
+    await roles.assign(owner(), { membershipId: m!.id, roleId: wide.id });
+
+    const actor = await actorFor(techToken);
+    const result = await jobs.list({ actor, db: db() }, { limit: 50 });
+    const ids = result.data.map((j) => j.id);
+    expect(ids).toContain(mineId);
+    expect(ids).toContain(theirsId);
+
+    await roles.remove(owner(), { id: wide.id });
   });
 
   it("falls back to the preset rather than locking people out when deleted", async () => {

@@ -5,6 +5,7 @@ import { customer, property } from "./crm";
 import { job, jobType } from "./work";
 import { territory } from "./scheduling";
 import { estimate } from "./billing";
+import { connectedApp } from "./integrations";
 
 /**
  * SELF SERVE
@@ -191,6 +192,16 @@ export const bookingRequest = pgTable("booking_request", {
   sourceUrl: text("source_url"),
   referrer: text("referrer"),
   utm: jsonb("utm").$type<Record<string, string>>().notNull().default({}),
+  /**
+   * The connected application that sent this, when one did.
+   *
+   * A booking arriving through a partner is attributable the same way a
+   * booking from a landing page is, and for the same reason: an operator
+   * deciding whether a channel is worth keeping needs to know which ones
+   * actually produced work. Without it a partner's bookings are
+   * indistinguishable from the widget's.
+   */
+  connectedAppId: uuid("connected_app_id").references(() => connectedApp.id, { onDelete: "set null" }),
 
   depositId: uuid("deposit_id"),
   declineReason: text("decline_reason"),

@@ -135,15 +135,22 @@ export async function resolveSession(
 
   /**
    * The custom role's scopes and the membership's overrides are different
-   * questions, and both narrow. The role says what this kind of person sees;
-   * the override says what THIS person sees, and is applied by
-   * `effectiveScope` as a ceiling over whatever the roles produced.
+   * questions and they go in different places.
+   *
+   * A custom role STATES the scope, because it replaces the preset and there
+   * is no role left to narrow. Folding it into the overrides clamped it
+   * against the roleless default of `own`, so a branch manager role granting
+   * `job: "all"` saw no jobs: the widening half of a custom role silently did
+   * nothing, and only the narrowing half worked.
+   *
+   * An override is a ceiling over whatever the base turned out to be, set by
+   * an administrator about one particular person.
    */
-  const scopeOverrides = {
-    ...(row.custom_role_permissions ? resolved.scopes : {}),
-    ...cleanScopes(row.scope_overrides),
-  };
-  if (Object.keys(scopeOverrides).length > 0) actor.scopeOverrides = scopeOverrides;
+  if (row.custom_role_permissions && Object.keys(resolved.scopes).length > 0) {
+    actor.scopes = resolved.scopes;
+  }
+  const overrides = cleanScopes(row.scope_overrides);
+  if (Object.keys(overrides).length > 0) actor.scopeOverrides = overrides;
 
   /**
    * The two fields every `own` and `crew` filter compares against. Absent,

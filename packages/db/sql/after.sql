@@ -580,6 +580,62 @@ create or replace function app.messaging_webhook_connection(p_token text)
 revoke all on function app.messaging_webhook_connection(text) from public;
 grant execute on function app.messaging_webhook_connection(text) to authenticated;
 
+-- -------------------------------------------------------------------------
+-- RESOLVING AN APPLICATION TOKEN
+--
+-- Same shape as a session, and for the same reason: the tenant is not known
+-- until the lookup has happened, so no policy keyed on the current
+-- organization can match on that first read.
+--
+-- Every condition here is a revocation path, and all of them have to be in
+-- the WHERE clause rather than checked afterwards in application code. An
+-- operator who revokes an app at 4pm means 4pm, not "at next token refresh",
+-- and a check that lives in TypeScript is one a future caller can forget to
+-- make.
+create or replace function app.resolve_app_token(p_token_hash text)
+  returns table (
+    app_id uuid,
+    organization_id uuid,
+    app_name text,
+    permissions jsonb,
+    scopes jsonb,
+    token_id uuid
+  )
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.id, a.organization_id, a.name, a.permissions, a.scopes, t.id
+    from public.app_token t
+    join public.connected_app a on a.id = t.app_id
+    where t.token_hash = p_token_hash
+      and t.revoked_at is null
+      and t.expires_at > now()
+      and a.status = 'active'
+      and a.revoked_at is null
+    limit 1
+  $$;
+
+revoke all on function app.resolve_app_token(text) from public;
+grant execute on function app.resolve_app_token(text) to authenticated;
+
+-- Recording use is a write, so it cannot ride along on a stable function.
+-- Separate, and deliberately best effort: "when did this app last read
+-- anything" is the first thing an operator looks at before revoking
+-- something they no longer recognise.
+create or replace function app.touch_app_token(p_token_id uuid)
+  returns void
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with t as (
+      update public.app_token set last_used_at = now()
+      where id = p_token_id returning app_id
+    )
+    update public.connected_app set last_used_at = now()
+    where id in (select app_id from t)
+  $$;
+
+revoke all on function app.touch_app_token(uuid) from public;
+grant execute on function app.touch_app_token(uuid) to authenticated;
+
 -- =========================================================================
 -- THE BACKGROUND ROLE
 --

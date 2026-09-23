@@ -68,21 +68,25 @@ going to audit a partner's code.
 
 ## Two things that are genuinely new work
 
-### Publishing what a company sells, and for how much
+### A publishable catalogue: it already exists
 
-A partner quoting work needs the price book, and the price book is the most
-commercially sensitive table in the product. Handing over `pricebook:read`
-gives away every cost and margin, and the redaction layer already stops the
-cost and the margin specifically, which is most of the way there.
+This was going to be a `publishable` flag on price book items, and building
+it would have been a mistake.
 
-What is missing is the other direction: an operator deciding **which items
-are publishable at all**. A shop has four hundred price book items and wants
-to expose eleven. That is a flag on the item and a filtered read, not a new
-subsystem, and it belongs in the price book rather than in a partner
-integration.
+`bookable_service` is already the operator-curated, customer-facing subset. It
+carries a public name, a public description, a display price, a deposit, the
+notice required and the territory, and `listServices` already serves it to an
+unauthenticated caller. A shop with four hundred price book items exposes the
+eleven it has made bookable, which is the same curation the flag was for.
 
-The same flag serves online booking, which already needs it, and any future
-marketplace. Building it for one partner would mean building it twice.
+A second flag would be a second source of truth about what a stranger may see,
+and two of those disagree eventually. The disagreement would be a price shown
+to a partner that the company does not honour, or an item exposed that the
+operator thought they had unpublished.
+
+What genuinely does not exist is attribution: a booking arriving through a
+partner was indistinguishable from one off the widget. That is a column on
+`booking_request` naming the app, not a new catalogue.
 
 ### Availability without exposing the schedule
 
@@ -102,8 +106,8 @@ Neighbrium turns neighbourhoods into buying groups for home services. What it
 needs from a contractor's instance is small and it is all reads plus one
 write:
 
-1. **Which services this company offers, and the price.** The publishable
-   subset of the price book, above.
+1. **Which services this company offers, and the price.** `listServices`,
+   which already returns exactly this and nothing more.
 2. **Whether they serve this address.** Territory and business hours, both of
    which exist.
 3. **Whether a slot is open.** `getAvailability`.
@@ -127,10 +131,12 @@ whatever you like to it.
 
 ## Order
 
-1. The publishable flag on price book items. Small, useful on its own,
-   unblocks online booking too.
-2. The app registry and scoped tokens, reusing `canDefineRole`.
-3. The consent screen.
+1. ~~The publishable flag on price book items.~~ Not needed:
+   `bookable_service` already is that subset. See above.
+2. The app registry and scoped tokens, reusing `canDefineRole`. **Built.**
+3. The consent screen. Still to do: the registry records what was approved
+   and by whom, and an operator approving an install still does it through
+   the API rather than a screen that names the permissions in plain words.
 4. The first integration, against the same public API any other partner gets.
 
 None of it is scheduled yet. The licensing decision gates step four and only

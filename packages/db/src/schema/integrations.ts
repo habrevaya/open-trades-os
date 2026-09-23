@@ -1,6 +1,6 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { pk, timestamps, money } from "./_shared";
-import { organization } from "./tenancy";
+import { organization, user } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
 
@@ -175,4 +175,96 @@ export const leadOffer = pgTable("lead_offer", {
   openIdx: index("lead_offer_open_idx").on(t.organizationId, t.status, t.expiresAt),
   /** Unreconciled payouts on completed work. The report an owner wants monthly. */
   payoutIdx: index("lead_offer_payout_idx").on(t.organizationId, t.payoutReconciledAt),
+}));
+
+// ---------------------------------------------------------------------------
+// Connected applications
+// ---------------------------------------------------------------------------
+
+export const connectedAppStatus = pgEnum("connected_app_status", [
+  /** Requested, not yet approved by somebody who can approve it. */
+  "pending",
+  "active",
+  /** Turned off, permanently. A reinstall is a new row with a new grant. */
+  "revoked",
+]);
+
+/**
+ * A third party that may act against this company's instance.
+ *
+ * The thing this must never become is a list of API keys with no provenance.
+ * "Which integration is reading my customer list" is the question an operator
+ * asks, and a bare key cannot answer it: the row records who the app is, what
+ * it asked for, who approved it, and when.
+ *
+ * The permissions and scopes are stored HERE rather than on the token, so
+ * changing what an app may do does not require reissuing a credential, and so
+ * two tokens belonging to one app cannot drift apart into different powers.
+ *
+ * The rule that makes this safe is the same one that governs custom roles:
+ * YOU CANNOT GRANT WHAT YOU DO NOT HOLD. Installing is checked with
+ * `canDefineRole` rather than a second implementation, because two versions of
+ * "may you grant this" disagree eventually and the disagreement is silent.
+ */
+export const connectedApp = pgTable("connected_app", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** What the operator sees in the list. The app's own name for itself. */
+  name: text("name").notNull(),
+  publisher: text("publisher"),
+  description: text("description"),
+  /** Where an operator goes to find out what this is. */
+  homepageUrl: text("homepage_url"),
+  status: connectedAppStatus("status").notNull().default("pending"),
+  /** Permission keys from the catalogue in @opentradesos/core. */
+  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  /** Per resource scope, same shape and meaning as on a membership. */
+  scopes: jsonb("scopes").$type<Record<string, string>>().notNull().default({}),
+  requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * Who approved it, and therefore whose authority it borrowed. Kept for the
+   * question that follows an incident: not "what could this app do" but "who
+   * decided it could".
+   */
+  approvedByUserId: uuid("approved_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedByUserId: uuid("revoked_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  revokedReason: text("revoked_reason"),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: index("connected_app_org_idx").on(t.organizationId, t.status),
+}));
+
+/**
+ * A credential for an app. Several, because rotation without downtime needs
+ * two valid at once.
+ *
+ * Only the hash is stored. The token is shown once, at creation, and cannot
+ * be recovered: a credential a support engineer can read out of a table is a
+ * credential the company does not really control.
+ *
+ * `expiresAt` is NOT NULL on purpose. A partner integration holding a
+ * permanent credential is a permanent liability on both sides, and an expiry
+ * that has to be opted into is one nobody sets.
+ */
+export const appToken = pgTable("app_token", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  appId: uuid("app_id").notNull().references(() => connectedApp.id, { onDelete: "cascade" }),
+  /** SHA-256 of the token. The raw value is never stored. */
+  tokenHash: text("token_hash").notNull(),
+  /** So an operator rotating can tell which one is which. */
+  label: text("label"),
+  /** The last four characters, for the same reason. Not enough to use. */
+  hint: text("hint"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  hashIdx: uniqueIndex("app_token_hash_idx").on(t.tokenHash),
+  appIdx: index("app_token_app_idx").on(t.appId),
 }));

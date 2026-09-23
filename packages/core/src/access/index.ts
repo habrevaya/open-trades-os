@@ -25,6 +25,23 @@ export interface Actor {
   businessUnitId?: string;
   locationId?: string;
   /**
+   * The scope this actor's authority STATES, for an actor whose authority
+   * does not come from a role: a connected application, a membership on a
+   * custom role, anything else granted a permission set directly.
+   *
+   * Distinct from `scopeOverrides` because the two do opposite things, and
+   * conflating them was a bug. An override narrows and only narrows, so
+   * putting an app's grant there clamped it against the roleless default of
+   * `own`, and an app is not a technician: `own` matches nothing, so an app
+   * granted `customer:read` with scope `all` read zero customers. Fail
+   * closed, and useless.
+   *
+   * It cannot be used to exceed whoever granted it: `canDefineRole` refuses a
+   * scope wider than the granter's own, and every path that writes one goes
+   * through it.
+   */
+  scopes?: Partial<Record<ScopedResource, Scope>>;
+  /**
    * Per resource narrowing, set on the membership by an administrator.
    *
    * It can only ever take access away. The column existed for a while,
@@ -69,12 +86,27 @@ export function canAll(actor: Actor, permissions: Permission[]): boolean {
  * adding a dispatcher role quietly undid it.
  */
 export function effectiveScope(actor: Actor, resource: ScopedResource): Scope {
-  const fromRoles = actor.roles.length === 0
-    ? "own"
+  /**
+   * Where the base comes from, in order.
+   *
+   * Roles decide when the actor has any. An actor with none has its scope
+   * STATED (`scopes`), which is how a connected app and a custom role work,
+   * and `own` is the fallback when nothing says otherwise, because the
+   * narrowest default is the only safe one.
+   *
+   * `scopes` is deliberately consulted only when `roles` is empty rather than
+   * merged with them. Merging by widening would make it a way to add reach to
+   * a role, which is the opposite of everything else here; merging by
+   * narrowing would duplicate `scopeOverrides`. Every path that sets both
+   * today sets `roles: []`, and the precedence is asserted in the tests so it
+   * is stated rather than discovered.
+   */
+  const base = actor.roles.length === 0
+    ? actor.scopes?.[resource] ?? "own"
     : actor.roles.map((r) => scopeFor(r, resource)).reduce((a, b) => widest(a, b));
 
   const override = actor.scopeOverrides?.[resource];
-  return override ? narrowest(fromRoles, override) : fromRoles;
+  return override ? narrowest(base, override) : base;
 }
 
 /**

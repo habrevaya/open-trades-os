@@ -168,3 +168,37 @@ describe("what a membership resolves to", () => {
     expect(resolveMembership({ role: "owner" }).scopes).toEqual({});
   });
 });
+
+describe("a stated scope", () => {
+  /**
+   * The bug this covers shipped and was found by a connected app reading
+   * nothing.
+   *
+   * An actor with no roles falls to `own`, and an override only ever narrows,
+   * so a grant of `all` written into `scopeOverrides` was clamped straight
+   * back to `own`. For an app, which is not a technician, `own` matches
+   * nothing: a grant that said "read every customer" read zero. A custom role
+   * had it too, so the widening half of one silently did nothing.
+   */
+  it("gives a roleless actor the scope it was granted", () => {
+    const app = actor({ roles: [], scopes: { customer: "all" } });
+    expect(effectiveScope(app, "customer")).toBe("all");
+  });
+
+  it("still falls to the narrowest scope when nothing states one", () => {
+    expect(effectiveScope(actor({ roles: [] }), "customer")).toBe("own");
+  });
+
+  it("is still narrowed by an override", () => {
+    // An administrator restricting one app or one person beats the grant.
+    const app = actor({ roles: [], scopes: { job: "all" }, scopeOverrides: { job: "own" } });
+    expect(effectiveScope(app, "job")).toBe("own");
+  });
+
+  it("cannot widen a role, because roles decide when there are any", () => {
+    // Otherwise a stated scope would be a way to add reach to a preset,
+    // which is the opposite of everything else here.
+    const tech = actor({ roles: ["technician"], scopes: { job: "all" } });
+    expect(effectiveScope(tech, "job")).toBe("own");
+  });
+});
