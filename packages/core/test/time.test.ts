@@ -115,3 +115,77 @@ describe("the date an instant falls on", () => {
     expect(time.dateIn(instant, "UTC")).toBe("2026-09-23");
   });
 });
+
+/**
+ * AN HOUR THAT HAPPENS TWICE
+ *
+ * `instantOfLocal` iterated from a single seed and returned wherever it
+ * settled. An ambiguous wall time has two fixed points, and which one it
+ * settled on depended on where the seed landed relative to the transition,
+ * which depends on the sign of the zone's offset. So it returned the earlier
+ * occurrence in America and the LATER one everywhere at or east of
+ * Greenwich, while its own comment promised the earlier everywhere.
+ *
+ * The two real instants are found by brute force rather than written down,
+ * so this cannot drift out of date with the zone database and cannot be
+ * satisfied by a constant somebody pasted in from a failing run.
+ */
+describe("an hour that happens twice", () => {
+  function bothInstants(date: string, minutes: number, zone: string): string[] {
+    const midnight = Date.parse(`${date}T00:00:00Z`);
+    const want = `${date} ${String(Math.floor(minutes / 60)).padStart(2, "0")}`
+      + `:${String(minutes % 60).padStart(2, "0")}`;
+    const found: string[] = [];
+
+    for (let offsetHours = -14; offsetHours <= 14; offsetHours += 0.25) {
+      const candidate = new Date(midnight + minutes * 60_000 - offsetHours * 3600_000);
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: zone, hour12: false, hour: "2-digit", minute: "2-digit",
+        year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(candidate);
+      const get = (type: string) => parts.find((p) => p.type === type)!.value;
+      const wall = `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+      if (wall === want && !found.includes(candidate.toISOString())) {
+        found.push(candidate.toISOString());
+      }
+    }
+    return found.sort();
+  }
+
+  const CASES = [
+    { zone: "America/New_York", date: "2026-11-01", minutes: 90 },
+    { zone: "Europe/London", date: "2026-10-25", minutes: 90 },
+    { zone: "Europe/Berlin", date: "2026-10-25", minutes: 150 },
+    { zone: "Australia/Sydney", date: "2026-04-05", minutes: 150 },
+  ];
+
+  it("picks the earlier of the two, in every zone and not only in America", () => {
+    const wrong: string[] = [];
+    for (const c of CASES) {
+      const both = bothInstants(c.date, c.minutes, c.zone);
+      // A fixture that found one instant would make the assertion vacuous.
+      expect(both, `${c.zone} should have two readings`).toHaveLength(2);
+
+      const got = time.instantOfLocal(c.date, c.minutes, c.zone).toISOString();
+      if (got !== both[0]) {
+        wrong.push(`${c.zone}: chose ${got}, the later of ${both.join(" and ")}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("still answers an ordinary wall time, where there is only one", () => {
+    const summer = time.instantOfLocal("2026-07-01", 90, "Europe/London");
+    expect(summer.toISOString()).toBe("2026-07-01T00:30:00.000Z");
+  });
+
+  it("returns something for a wall time that never happened", () => {
+    /**
+     * The spring gap. `wallTimeExists` is the function that says so; this one
+     * returns the naive reading rather than throwing, which is what it always
+     * did and what every caller is written against.
+     */
+    expect(time.wallTimeExists("2026-03-29", 90, "Europe/London")).toBe(false);
+    expect(() => time.instantOfLocal("2026-03-29", 90, "Europe/London")).not.toThrow();
+  });
+});

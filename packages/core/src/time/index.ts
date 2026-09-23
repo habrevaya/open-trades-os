@@ -67,11 +67,60 @@ export function instantOfLocal(
   if (Number.isNaN(midnight)) throw new Error(`Not a calendar date: ${date}`);
   const asIfUtc = midnight + minutesPastMidnight * 60_000;
 
-  let instant = new Date(asIfUtc);
-  for (let pass = 0; pass < 2; pass += 1) {
-    instant = new Date(asIfUtc - offsetAt(instant, timeZone));
+  /**
+   * TWO CANDIDATES, AND THE EARLIER ONE WINS.
+   *
+   * The previous version iterated `instant = asIfUtc - offsetAt(instant)`
+   * twice from a single seed and returned wherever it settled. On an
+   * ambiguous wall time that has two fixed points, and WHICH ONE it settles
+   * on depends on where the seed landed relative to the transition, which
+   * depends on the sign of the zone's offset. So it returned the earlier
+   * occurrence in America and the LATER one everywhere at or east of
+   * Greenwich, while the comment above promised the earlier everywhere.
+   *
+   * What that cost: `wallEntry` in the labour module builds a timesheet
+   * correction from this. A technician in London who worked 01:30 to 09:30
+   * on the clocks-back Sunday stood there for nine hours, and the entry paid
+   * eight. The `ambiguous` flag that exists to catch exactly that was false
+   * too, because `isRepeatedHour` asks whether one real hour later reads the
+   * same wall clock, which is only true when you are sitting on the FIRST of
+   * the pair. The bug disarmed its own safety net.
+   *
+   * Both candidate offsets are tried explicitly now, and each is kept only if
+   * it actually round trips to the wall time asked for. An ambiguous time
+   * yields two valid answers and takes the smaller; an ordinary time yields
+   * one; a time in the spring gap yields none, and the fallback keeps the old
+   * behaviour of returning something rather than throwing, because
+   * `wallTimeExists` is the function that answers that question.
+   */
+  const seed = new Date(asIfUtc);
+  const candidates: number[] = [];
+  for (const reference of [
+    // Before the transition and after it. An hour either side of the naive
+    // reading covers every real world transition, which are all one hour
+    // except Lord Howe Island, which is thirty minutes.
+    new Date(asIfUtc - 86_400_000),
+    seed,
+    new Date(asIfUtc + 86_400_000),
+  ]) {
+    const instant = asIfUtc - offsetAt(reference, timeZone);
+    // Kept only if reading it back in the zone gives the wall time asked for.
+    if (asIfUtc - offsetAt(new Date(instant), timeZone) === instant) {
+      if (!candidates.includes(instant)) candidates.push(instant);
+    }
   }
-  return instant;
+
+  if (candidates.length === 0) {
+    // A wall time that never happened. `wallTimeExists` says so; this returns
+    // the naive reading rather than throwing, which is what it always did.
+    let instant = seed;
+    for (let pass = 0; pass < 2; pass += 1) {
+      instant = new Date(asIfUtc - offsetAt(instant, timeZone));
+    }
+    return instant;
+  }
+
+  return new Date(Math.min(...candidates));
 }
 
 /**

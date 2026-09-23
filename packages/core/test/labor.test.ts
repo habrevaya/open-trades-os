@@ -1134,3 +1134,97 @@ describe("a commission belongs to the period it happened in", () => {
     expect(result.refusals[0]!.code).toBe("currency_mismatch");
   });
 });
+
+/**
+ * THE NIGHT THE CLOCKS GO BACK, OUTSIDE AMERICA
+ *
+ * `wallEntry` builds a timesheet correction from `instantOfLocal`, which
+ * resolved an ambiguous wall time to the LATER occurrence everywhere at or
+ * east of Greenwich. A technician in London who worked 01:30 to 09:30 on the
+ * clocks-back Sunday stood there for nine hours and the entry paid eight.
+ *
+ * The `ambiguous` flag that exists to catch exactly that was false as well,
+ * because `isRepeatedHour` asks whether one real hour later reads the same
+ * wall clock, which is only true when sitting on the FIRST of the pair. The
+ * bug disarmed its own safety net, which is why nothing reported it.
+ */
+describe("a shift through an hour that happens twice", () => {
+  const cases = [
+    { zone: "Europe/London", date: "2026-10-25" },
+    { zone: "Europe/Berlin", date: "2026-10-25" },
+    { zone: "America/New_York", date: "2026-11-01" },
+    { zone: "Australia/Sydney", date: "2026-04-05" },
+  ];
+
+  it("pays the hours the shift actually lasted, in every zone", () => {
+    for (const { zone, date } of cases) {
+      /**
+       * Starting BEFORE the transition in each zone, so the repeated hour is
+       * inside the shift. Sydney goes back at 03:00 local, the others at
+       * 02:00 or 03:00, and one thirty is before all of them.
+       */
+      const verdict = labor.wallEntry({
+        date, startMinutes: 90, endMinutes: 570, timeZone: zone,
+      });
+      if (!verdict.ok) throw new Error(`${zone}: ${verdict.reason}`);
+
+      const hours = (verdict.endedAt.getTime() - verdict.startedAt.getTime()) / 3600_000;
+      expect([zone, hours], `${zone} paid the wrong number of hours`)
+        .toEqual([zone, 9]);
+    }
+  });
+
+  it("flags an entry whose START is one of the two readings", () => {
+    /**
+     * The safety net, which the bug had silently disarmed everywhere the
+     * wrong reading was returned.
+     *
+     * Each zone needs its own start time, and getting that wrong is how this
+     * test first failed. The repeated hour is 01:00 to 02:00 in London and
+     * New York, and 02:00 to 03:00 in Berlin and Sydney, where the clocks go
+     * back at three rather than at two. Asking about 01:30 in Berlin asks
+     * about an ordinary unambiguous half past one, and `ambiguous: false` was
+     * the right answer to a question I had not meant to ask.
+     */
+    const ambiguousStarts = [
+      { zone: "Europe/London", date: "2026-10-25", startMinutes: 90 },
+      { zone: "Europe/Berlin", date: "2026-10-25", startMinutes: 150 },
+      { zone: "America/New_York", date: "2026-11-01", startMinutes: 90 },
+      { zone: "Australia/Sydney", date: "2026-04-05", startMinutes: 150 },
+    ];
+
+    for (const { zone, date, startMinutes } of ambiguousStarts) {
+      const verdict = labor.wallEntry({
+        date, startMinutes, endMinutes: startMinutes + 480, timeZone: zone,
+      });
+      if (!verdict.ok) throw new Error(`${zone}: ${verdict.reason}`);
+      expect([zone, verdict.ambiguous]).toEqual([zone, true]);
+      // And it says so in words, because the flag alone is not on a payslip.
+      expect(verdict.note.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not flag a shift that merely crosses the repeated hour", () => {
+    /**
+     * Half past one in Berlin is an ordinary time. The shift is still nine
+     * hours long, because the repeat happens inside it, and the START is not
+     * the thing a person needs to check.
+     */
+    const verdict = labor.wallEntry({
+      date: "2026-10-25", startMinutes: 90, endMinutes: 570, timeZone: "Europe/Berlin",
+    });
+    if (!verdict.ok) throw new Error(verdict.reason);
+    const hours = (verdict.endedAt.getTime() - verdict.startedAt.getTime()) / 3600_000;
+    expect([hours, verdict.ambiguous]).toEqual([9, false]);
+  });
+
+  it("leaves an ordinary shift alone", () => {
+    // Eight hours in July is eight hours, with nothing to flag.
+    const verdict = labor.wallEntry({
+      date: "2026-07-14", startMinutes: 480, endMinutes: 960, timeZone: "Europe/London",
+    });
+    if (!verdict.ok) throw new Error(verdict.reason);
+    const hours = (verdict.endedAt.getTime() - verdict.startedAt.getTime()) / 3600_000;
+    expect([hours, verdict.ambiguous]).toEqual([8, false]);
+  });
+});
