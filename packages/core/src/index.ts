@@ -18,3 +18,7 @@ export * as telephony from "./telephony/index.js";
 export * as transcript from "./transcript/index.js";
 export * as marketing from "./marketing/index.js";
 export * as inventory from "./inventory/index.js";
+export * as inspection from "./inspection/index.js";
+export * as reviews from "./reviews/index.js";
+export * as labor from "./labor/index.js";
+export * as assets from "./assets/index.js";
