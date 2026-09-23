@@ -26,7 +26,6 @@ export const cleaning: TradePackInput = {
   id: "cleaning",
   name: "Cleaning, residential and commercial",
   version: 1,
-  capacityModel: "route",
   summary:
     "Recurring residential and commercial cleaning run as routes with density economics, plus deep cleans, move in and move out, post construction and periodic floor work priced by the square foot.",
   status:

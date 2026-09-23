@@ -29,7 +29,6 @@ export const lawnAndLandscape: TradePackInput = {
   id: "lawn-and-landscape",
   name: "Lawn care and landscaping",
   version: 1,
-  capacityModel: "crew_production",
   summary:
     "Maintenance routes, fertilisation and weed control programmes, irrigation, and landscape and hardscape install. Route work and crew production live side by side because the business genuinely runs both.",
   status:

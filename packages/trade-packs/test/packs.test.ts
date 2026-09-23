@@ -150,10 +150,29 @@ describe("every pack", () => {
     }
   });
 
-  it("uses a capacity model its job types agree with", () => {
+  it("declares no capacity model of its own", () => {
+    /**
+     * A pack used to carry one, and it labelled the whole trade as dispatch,
+     * crew, route or rental. It drove nothing and it was not true: a lawn
+     * company runs routes and sells installs, an electrician dispatches
+     * service and runs crews on a rough in. One word on a trade tells the
+     * owner who does both that half their business is not what this is for.
+     *
+     * Asserted rather than deleted, because the field is easy to put back by
+     * habit: it reads like something a pack ought to say about itself.
+     */
     for (const pack of packs) {
-      const models = new Set(pack.jobTypes.map((j) => j.capacityModel));
-      expect(models.has(pack.capacityModel), `${pack.id} claims ${pack.capacityModel} but no job type uses it`).toBe(true);
+      expect(pack, pack.id).not.toHaveProperty("capacityModel");
+    }
+  });
+
+  it("still sets one per job type, where the difference is real", () => {
+    // Removing the label is not removing the setting. A route stop and a
+    // crew day schedule differently, and that is decided per job type.
+    for (const pack of packs) {
+      for (const jobType of pack.jobTypes) {
+        expect(jobType.capacityModel, `${pack.id}/${jobType.code}`).toBeTruthy();
+      }
     }
   });
 });

@@ -41,6 +41,30 @@ import postgres from "postgres";
 
 const URL = process.env.DATABASE_URL ?? "postgresql://opentradesos:opentradesos@localhost:5432/opentradesos";
 
+/**
+ * WHICH TRADE THE DEMO COMPANY IS IN
+ *
+ * `pnpm db:seed --pack electrical` seeds an electrical shop instead of an
+ * HVAC one. The price book, the job types and the company's name come from
+ * the pack, and the day's work does not: the jobs, customers and invoices
+ * are written as HVAC and would be nonsense on an electrician's board.
+ *
+ * So a non default pack seeds the CATALOGUE ONLY and stops there. That is a
+ * real screen rather than a compromise: the price book is the single most
+ * trade specific thing in the product, it is the first thing a contractor
+ * looks at to decide whether anybody understood their trade, and it comes
+ * straight out of the pack with no fixtures in between.
+ *
+ * Writing a day's work for eight trades is the alternative and it is not a
+ * better one: eight sets of invented job summaries, by somebody who has run
+ * none of those trades, is how a demo starts lying.
+ */
+const PACK = (() => {
+  const flag = process.argv.indexOf("--pack");
+  return flag === -1 ? "hvac" : (process.argv[flag + 1] ?? "hvac");
+})();
+const CATALOGUE_ONLY = PACK !== "hvac";
+
 /** Stable ids from names. Re-running the seed must not duplicate anything. */
 function id(name: string): string {
   const h = createHash("sha256").update(`opentradesos:seed:${name}`).digest("hex");
@@ -225,6 +249,11 @@ async function main(): Promise<void> {
     await organization(sql);
     const technicians = await people(sql);
     const jobTypes = await tradePack(sql);
+    if (CATALOGUE_ONLY) {
+      const owner = await session(sql, "owner");
+      catalogueReport(owner);
+      return;
+    }
     const customers = await customersAndProperties(sql);
     await work(sql, customers, technicians, jobTypes);
     await estimate(sql, customers);
@@ -278,10 +307,16 @@ async function wipe(sql: postgres.Sql): Promise<void> {
 }
 
 async function organization(sql: postgres.Sql): Promise<void> {
+  /**
+   * Ridgeline is the HVAC shop the whole demo is written around. Another
+   * pack gets a name of its own, because a price book full of panels and
+   * conduit under a company called Ridgeline Mechanical reads as a bug.
+   */
+  const name = CATALOGUE_ONLY ? `Ridgeline ${titleOf(PACK)}` : "Ridgeline Mechanical";
   await sql`
     insert into public.organization (id, name, slug, legal_name, timezone, primary_trade, brand_color, setup_completed_at)
-    values (${ORG}, 'Ridgeline Mechanical', 'ridgeline', 'Ridgeline Mechanical LLC',
-            'America/Chicago', 'hvac', '#1D4ED8', now())
+    values (${ORG}, ${name}, 'ridgeline', ${`${name} LLC`},
+            'America/Chicago', ${PACK}, '#1D4ED8', now())
   `;
   await sql`
     insert into public.location (id, organization_id, name, address_line1, city, state, postal_code, timezone, is_warehouse)
@@ -321,9 +356,13 @@ async function people(sql: postgres.Sql): Promise<Map<string, string>> {
  * demonstrating the product.
  */
 async function tradePack(sql: postgres.Sql): Promise<Map<string, string>> {
-  const { packById } = await import("@opentradesos/trade-packs");
-  const pack = packById("hvac");
-  if (!pack) throw new Error("The hvac trade pack is missing");
+  const { packById, packIds } = await import("@opentradesos/trade-packs");
+  const pack = packById(PACK);
+  if (!pack) {
+    // Named, with the list, because a typo here otherwise seeds an empty
+    // price book and the first sign of it is a screen with nothing on it.
+    throw new Error(`There is no trade pack called "${PACK}". There is: ${packIds.join(", ")}`);
+  }
 
   const categories = new Map<string, string>();
   for (const item of pack.priceBook) {
@@ -1109,6 +1148,34 @@ function report(tokens: { owner: string; tech: string }, links: { estimate: stri
   console.log("");
   line("proposal", `/e/${links.estimate}`);
   line("job tracking", `/j/${links.job}`);
+  console.log("");
+}
+
+/** "lawn-and-landscape" is a pack id, and a company is not called that. */
+function titleOf(packId: string): string {
+  return packId
+    .split("-")
+    .map((word) => (word === "and" ? "and" : word[0]!.toUpperCase() + word.slice(1)))
+    .join(" ");
+}
+
+/**
+ * What a catalogue only seed says.
+ *
+ * Deliberately says what is NOT there. A contributor who runs this and finds
+ * an empty dispatch board should be told why in the output rather than left
+ * to work out whether they broke something.
+ */
+function catalogueReport(token: string): void {
+  console.log("");
+  console.log(`  Ridgeline ${titleOf(PACK)} is seeded, price book and job types only.`);
+  console.log("");
+  console.log("  No jobs, customers, invoices or agreements: the day's work in this");
+  console.log("  seed is written as HVAC and would be nonsense on another trade's");
+  console.log("  board. Run `pnpm db:seed` with no arguments for the full company.");
+  console.log("");
+  console.log("  Hollis Grant, owner. The price book at /pricebook");
+  console.log(`    document.cookie = "ots_session=${token}; path=/"`);
   console.log("");
 }
 

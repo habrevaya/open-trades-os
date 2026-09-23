@@ -2,16 +2,8 @@ import { requireUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { can } from "@opentradesos/core";
 import { packSummaries } from "@opentradesos/trade-packs";
-import { Chip } from "@opentradesos/ui";
 import { Logo } from "@/components/Logo";
 import { chooseTrade } from "../actions";
-
-const MODEL_LABEL: Record<string, string> = {
-  technician_dispatch: "Technician dispatch",
-  crew_production: "Crew production",
-  route: "Route based",
-  asset_rental: "Asset rental",
-};
 
 /**
  * Step two, and deliberately early.
@@ -52,10 +44,17 @@ export default async function TradeStep() {
               value={pack.id}
               className="group rounded-md border border-steel-200 bg-canvas p-5 text-left transition-colors hover:border-blue-600 hover:bg-blue-100/30"
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-base font-medium group-hover:text-blue-600">{pack.name}</span>
-                <Chip tone="neutral">{MODEL_LABEL[pack.capacityModel] ?? pack.capacityModel}</Chip>
-              </div>
+              {/*
+                No category chip. Each trade used to carry one reading
+                "Route based" or "Crew production", and it was the first
+                thing an owner saw about their own trade. A lawn company
+                runs routes and sells installs; an electrician dispatches
+                service and runs crews. Being told which one you are, before
+                you have entered anything, is the product deciding what kind
+                of business you have. The job types underneath still carry
+                it, where it is a setting rather than a verdict.
+              */}
+              <span className="text-base font-medium group-hover:text-blue-600">{pack.name}</span>
               <p className="mt-2 text-sm text-ink-700">{pack.summary}</p>
               <p className="mt-3 text-xs text-ink-500 tnum">
                 {pack.priceBookItems} price book items, {pack.jobTypes} job types

@@ -35,7 +35,6 @@ export const dumpsterRental: TradePackInput = {
   id: "dumpster-rental",
   name: "Dumpster rental",
   version: 1,
-  capacityModel: "asset_rental",
   summary:
     "Roll off container rental. The container is the unit of capacity, delivery and pickup are separate events on one rental, and billing runs on elapsed rental period plus disposal weight from the scale ticket.",
   status:

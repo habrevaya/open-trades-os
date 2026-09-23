@@ -16,7 +16,6 @@ export const hvac: TradePackInput = {
   id: "hvac",
   name: "HVAC",
   version: 1,
-  capacityModel: "technician_dispatch",
   summary:
     "Heating, ventilation and air conditioning. Service, maintenance agreements and replacement, with equipment history that follows the unit rather than the owner.",
   status:

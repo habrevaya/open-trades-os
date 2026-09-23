@@ -19,7 +19,6 @@ export const plumbing: TradePackInput = {
   id: "plumbing",
   name: "Plumbing",
   version: 1,
-  capacityModel: "technician_dispatch",
   summary:
     "Residential and light commercial plumbing. Service, drains and sewer, water heaters, water treatment and backflow testing, with fixture and appliance history that follows the property.",
   status:

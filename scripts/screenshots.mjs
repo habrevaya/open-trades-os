@@ -33,6 +33,7 @@
 import { chromium } from "playwright-core";
 import { readFileSync, mkdirSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { HIDE_DEV } from "./hide-dev.mjs";
 
 const { values } = parseArgs({
   options: {
@@ -219,14 +220,6 @@ const SHOTS = [
  * every capture until somebody looked at one. Anything whose name starts
  * `nextjs-` is the toolchain rather than the application.
  */
-const HIDE_DEV = `
-  nextjs-portal,
-  [id^="__next"],
-  [data-nextjs-toast],
-  [data-nextjs-dev-tools-button],
-  [data-next-badge-root],
-  [class*="dev-tools-indicator"] { display: none !important; }
-`;
 
 mkdirSync(values.out, { recursive: true });
 

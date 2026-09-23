@@ -31,7 +31,6 @@ export const pestControl: TradePackInput = {
   id: "pest-control",
   name: "Pest control",
   version: 1,
-  capacityModel: "route",
   summary:
     "General pest, termite, rodent and targeted pest work sold as recurring programs and run as routes, with a pesticide application record on every visit and device history per station.",
   status:

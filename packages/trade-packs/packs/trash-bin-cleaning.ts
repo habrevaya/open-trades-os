@@ -29,7 +29,6 @@ export const trashBinCleaning: TradePackInput = {
   id: "trash-bin-cleaning",
   name: "Trash bin cleaning",
   version: 1,
-  capacityModel: "route",
   summary:
     "Curbside bin and cart cleaning. Routes keyed to the municipal collection calendar rather than to customer preference, priced per bin, and sold street by street because density is the entire margin.",
   status:

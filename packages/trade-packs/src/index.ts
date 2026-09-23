@@ -35,7 +35,6 @@ export const packSummaries = packs.map((p) => ({
   id: p.id,
   name: p.name,
   summary: p.summary,
-  capacityModel: p.capacityModel,
   priceBookItems: p.priceBook.length,
   jobTypes: p.jobTypes.length,
 }));

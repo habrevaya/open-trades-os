@@ -22,7 +22,6 @@ export const electrical: TradePackInput = {
   id: "electrical",
   name: "Electrical",
   version: 1,
-  capacityModel: "technician_dispatch",
   summary:
     "Residential and light commercial electrical. Troubleshooting, device and lighting work, panel and service upgrades, EV charging and standby power, with a panel and circuit register that lives with the property.",
   status:

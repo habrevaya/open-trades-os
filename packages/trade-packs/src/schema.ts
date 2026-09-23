@@ -174,8 +174,24 @@ export const TradePack = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(100),
   version: z.number().int().min(1),
-  /** How this trade primarily sells capacity. */
-  capacityModel: CapacityModel,
+  /*
+   * NO CAPACITY MODEL ON THE PACK.
+   *
+   * There was one, and it labelled each trade as dispatch, crew, route or
+   * rental. It drove nothing: it was a chip on the setup screen, and the
+   * only test on it checked the label matched a job type underneath.
+   *
+   * It is gone because the claim it made was false. A lawn company runs
+   * routes AND sells installs. An electrician dispatches service AND runs
+   * crews on a rough in. Stamping one word on a trade tells the owner their
+   * business is a category, and the ones who do two things are being told
+   * that one half of what they do is not what this product is for.
+   *
+   * The per JOB TYPE model stays, because that one decides real behaviour
+   * and is set where the difference actually exists. A pack ships sensible
+   * defaults for its job types and the owner changes them. That is the
+   * setting, and it needs no summary above it.
+   */
   summary: z.string().max(500),
   /**
    * What the pack does NOT cover yet, in the author's own words.
