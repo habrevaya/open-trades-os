@@ -100,6 +100,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Step one of the documented quickstart, run rather than assumed.
+      #
+      # The compose file's own header says to do this first, and the first
+      # version of this job skipped it and failed on a clean checkout with
+      # "env file .env not found". That was a flaw in the test rather than in
+      # the product: a job that claims to run the quickstart has to run all of
+      # it, starting from what a stranger with a fresh clone actually has.
+      - name: Configure, the way the quickstart says to
+        run: cp .env.example .env
+
       # Parses the compose file and resolves every path in it, which is what
       # catches a service pointing at a file nobody wrote.
       - name: The compose file resolves
