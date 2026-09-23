@@ -30,6 +30,26 @@ export default function SignUpPage() {
                  invalid={!!state.fields?.email} />
         </Field>
 
+        {/*
+          THE COMPANY'S TIME ZONE, CAPTURED HERE BECAUSE NOTHING ELSE EVER SET IT.
+
+          `organization.timezone` defaults to America/Chicago and no code path
+          wrote it, so every company that has ever signed up is permanently in
+          Chicago. That is not cosmetic: the booking widget publishes arrival
+          windows in this zone, so a contractor in Phoenix who configures an
+          8am window has it offered to customers at 6am, silently and forever,
+          and there is no setting anywhere that would let them discover why.
+
+          Read from the browser rather than asked, because the browser already
+          knows and a dropdown of six hundred zones on a signup form is how
+          somebody picks the wrong one. It is editable in settings afterwards.
+        */}
+        <input
+          type="hidden"
+          name="timezone"
+          value={Intl.DateTimeFormat().resolvedOptions().timeZone}
+        />
+
         <Field label="Password" htmlFor="password" required error={state.fields?.password}
                hint="At least 12 characters. Length beats complexity.">
           <Input id="password" name="password" type="password" autoComplete="new-password"

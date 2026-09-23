@@ -8,6 +8,7 @@ import { Chip, Phone } from "@opentradesos/ui";
 import { PHONE_PURPOSE, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { Branding } from "./Branding";
+import { Timezone } from "./Timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,9 @@ export default async function SettingsPage() {
         isNull(schema.role.deletedAt),
       ))
       .where(eq(schema.membership.active, true)),
+    organization: (await tx.select({ timezone: schema.organization.timezone })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, user.actor.organizationId)).limit(1))[0],
   }));
 
   const customRoles = can(user.actor, "role:write") ? await roleService.list(ctx) : [];
@@ -74,6 +78,8 @@ export default async function SettingsPage() {
           hasLogo={brand.hasLogo} hasFavicon={brand.hasFavicon} version={brand.version}
         />
       )}
+
+      {writes && data.organization && <Timezone current={data.organization.timezone} />}
 
       <Section
         title="Phone numbers"

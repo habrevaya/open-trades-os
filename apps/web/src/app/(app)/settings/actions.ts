@@ -66,3 +66,32 @@ export async function clearBrandAsset(_previous: unknown, form: FormData) {
   refresh();
   return { done: true };
 }
+
+/**
+ * The company's time zone.
+ *
+ * Every screen that turns a calendar day into a pair of instants reads it:
+ * the dispatch board, the booking page's arrival windows, agreement dates,
+ * workflow schedules. Until now nothing could write it, so every company was
+ * permanently in Chicago and had no way to find out that was why their
+ * booking page offered the wrong hours.
+ */
+export async function setTimezone(_previous: unknown, form: FormData) {
+  try {
+    const result = await branding.setTimezone(await ctx(), {
+      timezone: String(form.get("timezone") ?? ""),
+    });
+    refresh();
+    /**
+     * The previous value is echoed back, because this setting silently moves
+     * every published arrival window. Somebody who changes it by accident
+     * should be able to read what it was without going to the audit log.
+     */
+    return result.previous && result.previous !== result.timezone
+      ? { done: true, note: `Now ${result.timezone}, was ${result.previous}. Published arrival windows move with it.` }
+      : { done: true };
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+}

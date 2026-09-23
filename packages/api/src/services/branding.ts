@@ -202,3 +202,76 @@ export async function assetBytes(
   if (!found) throw new NotFoundError("Brand asset");
   return { bytes: found.bytes, contentType: found.contentType };
 }
+
+/**
+ * THE COMPANY'S OWN TIME ZONE.
+ *
+ * It sits in this file because it is the same kind of setting as a colour:
+ * one column on the organization, changed from one screen, read by half the
+ * product.
+ *
+ * It had no setter at all. `organization.timezone` defaults to
+ * America/Chicago and nothing ever wrote it, so every company that has ever
+ * signed up is permanently in Chicago. That is not cosmetic. The public
+ * booking page resolves its arrival windows in this zone, so a contractor in
+ * Phoenix who configures an 8am to 10am window has it offered to their
+ * customers as 6am to 8am, silently, forever. The same wrong zone then dates
+ * agreement terms, decides which technician is away today, and bounds every
+ * workflow schedule.
+ */
+export async function setTimezone(ctx: ServiceContext, input: { timezone: string }) {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const zone = input.timezone.trim();
+
+    /**
+     * Validated against the runtime's own zone database rather than a regex.
+     *
+     * `Intl.DateTimeFormat` throws a RangeError on a zone it does not know,
+     * and the readers of this column call it on the public booking page. An
+     * unchecked string moves a crash from this settings form, where it is one
+     * person's problem, to a page every one of that company's customers
+     * loads.
+     */
+    let known = false;
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: zone });
+      known = true;
+    } catch {
+      known = false;
+    }
+
+    /**
+     * The empty string is left to the constructor, which throws on it.
+     *
+     * An earlier version of this had an explicit `zone !== ""` clause, and a
+     * test that deleted the clause stayed green: the constructor rejects ""
+     * and " " with a RangeError on its own, so the clause could never be the
+     * thing that decided. A guard that cannot fail is not a guard, and
+     * keeping one reads as protection that is not there.
+     */
+
+    if (!known) {
+      throw new ConflictError(
+        `${zone || "That"} is not a time zone this server knows. `
+        + "Use an IANA name such as America/Phoenix.",
+      );
+    }
+
+    const [before] = await tx.select({ timezone: schema.organization.timezone })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
+
+    await tx.update(schema.organization).set({ timezone: zone, updatedAt: new Date() })
+      .where(eq(schema.organization.id, ctx.actor.organizationId));
+
+    /**
+     * The OLD value is in the audit entry, which matters more here than on
+     * most settings: changing a zone moves every published arrival window,
+     * and the question afterwards is "what was it before Tuesday".
+     */
+    await audit(tx, ctx, "organization.timezone_set", "organization",
+      ctx.actor.organizationId, { timezone: before?.timezone ?? null }, { timezone: zone });
+
+    return { timezone: zone, previous: before?.timezone ?? null };
+  });
+}

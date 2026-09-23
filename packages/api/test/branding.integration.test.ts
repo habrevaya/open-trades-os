@@ -335,3 +335,58 @@ async function someCustomer(org: string): Promise<string> {
     values (${org}, 'residential', 'A Customer') returning id`;
   return made!.id;
 }
+
+run("the company's own time zone", () => {
+  /**
+   * `organization.timezone` defaults to America/Chicago and had no setter at
+   * all, so every company that ever signed up was permanently in Chicago. The
+   * public booking page resolves its arrival windows in this zone, so a
+   * contractor in Phoenix publishing an 8am window had it offered to their
+   * customers as 6am, silently, with nothing anywhere that would explain why.
+   */
+  it("changes it, and says what it was", async () => {
+    const result = await branding.setTimezone(owner(), { timezone: "America/Phoenix" });
+
+    expect(result.timezone).toBe("America/Phoenix");
+    // Echoed back because this silently moves every published arrival window.
+    expect(result.previous).toBe("America/Chicago");
+
+    const [row] = await raw`select timezone from public.organization where id = ${ORG}`;
+    expect(row!.timezone).toBe("America/Phoenix");
+  });
+
+  it("refuses a zone this server cannot resolve", async () => {
+    /**
+     * `Intl.DateTimeFormat` throws on an unknown zone, and the readers of
+     * this column call it on the public booking page. An unchecked string
+     * moves a crash from this form, where it is one person's problem, to a
+     * page every one of that company's customers loads.
+     */
+    await expect(branding.setTimezone(owner(), { timezone: "America/Not_A_Place" }))
+      .rejects.toThrow(/not a time zone/i);
+    await expect(branding.setTimezone(owner(), { timezone: "" }))
+      .rejects.toThrow(/not a time zone/i);
+  });
+
+  it("leaves the stored zone alone when it refuses", async () => {
+    await branding.setTimezone(owner(), { timezone: "America/Denver" });
+    await expect(branding.setTimezone(owner(), { timezone: "Mars/Olympus" })).rejects.toThrow();
+
+    const [row] = await raw`select timezone from public.organization where id = ${ORG}`;
+    expect(row!.timezone).toBe("America/Denver");
+  });
+
+  it("records the old value in the audit trail", async () => {
+    // The question after somebody changes this is "what was it before
+    // Tuesday", because every published window moved with it.
+    await raw`update public.organization set timezone = 'America/Chicago' where id = ${ORG}`;
+    await raw`delete from public.audit_log where organization_id = ${ORG}`;
+    await branding.setTimezone(owner(), { timezone: "Pacific/Honolulu" });
+
+    const [entry] = await raw<{ before: unknown; after: unknown }[]>`
+      select before, after from public.audit_log
+      where organization_id = ${ORG} and action = 'organization.timezone_set'`;
+    expect((entry!.before as { timezone: string }).timezone).toBe("America/Chicago");
+    expect((entry!.after as { timezone: string }).timezone).toBe("Pacific/Honolulu");
+  });
+});

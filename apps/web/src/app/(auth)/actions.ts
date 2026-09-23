@@ -15,6 +15,25 @@ import { hashPassword, verifyPassword, issueToken, SESSION_COOKIE, SESSION_TTL_D
  * The window restarts on every further attempt, so somebody hammering the
  * form keeps extending their own lock rather than waiting it out.
  */
+/**
+ * Whether this is a zone this runtime actually knows.
+ *
+ * `Intl.DateTimeFormat` throws a RangeError on an unrecognised zone, and the
+ * places that read this column call it on every booking page. Storing an
+ * unchecked string would move a crash from the signup form, where it is one
+ * person's problem, to the customer facing booking page, where it is every
+ * one of that company's customers.
+ */
+function knownZone(zone: string | undefined): zone is string {
+  if (!zone) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 import { getDb } from "@/lib/db";
@@ -26,6 +45,16 @@ const SignUp = z.object({
   email: z.string().email("That does not look like an email address"),
   password: z.string().min(12, "Use at least 12 characters"),
   companyName: z.string().min(1, "Your company needs a name").max(200),
+  /**
+   * The browser's own zone, validated rather than trusted.
+   *
+   * It arrives from a hidden field, so it is a value a caller chooses, and an
+   * unchecked one reaches `Intl.DateTimeFormat` on every booking page and
+   * every agreement date. Optional because a client with scripting off sends
+   * nothing, and a company in the default zone is the behaviour that already
+   * existed rather than a regression.
+   */
+  timezone: z.string().max(64).optional(),
 });
 
 const slugify = (s: string) =>
@@ -41,7 +70,7 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
     }
     return { fields };
   }
-  const { name, email, password, companyName } = parsed.data;
+  const { name, email, password, companyName, timezone } = parsed.data;
   const db = getDb();
 
   const existing = await db.select({ id: schema.user.id }).from(schema.user)
@@ -64,7 +93,10 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
     if (taken.length > 0) slug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
 
     const [org] = await tx.insert(schema.organization)
-      .values({ name: companyName, slug, legalName: companyName })
+      .values({
+        name: companyName, slug, legalName: companyName,
+        ...(knownZone(timezone) ? { timezone } : {}),
+      })
       .returning({ id: schema.organization.id });
 
     const [created] = await tx.insert(schema.user)
