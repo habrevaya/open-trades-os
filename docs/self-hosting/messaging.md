@@ -35,7 +35,26 @@ keyed on the customer's address.
    the message.
 3. Put the auth token where your deployment keeps secrets and set
    `credentialRef` to its name. The token never goes in the database.
-4. Point Twilio's inbound and status callbacks at your webhook endpoint.
+4. Put a random token of at least 32 characters in `settings.webhookToken`.
+   Anything shorter is refused, so a weak one means no webhooks rather than an
+   open endpoint.
+5. Set `PUBLIC_URL` to the address the carrier reaches you on. The signature is
+   computed over it.
+6. Point Twilio's inbound and status callbacks at:
+
+   ```
+   https://your-host/api/webhooks/messaging/<webhookToken>
+   ```
+
+One endpoint serves every provider, because what differs between them is
+parsing and signing and both are the adapter's job.
+
+The token in the path is what identifies the tenant. Not the `To` number: a
+company's phone number is printed on their truck, and routing on it would let
+anyone aim a forged message at a tenant they picked. Not a header or a query
+parameter either, since both are things the caller chooses. The token is a
+secret the carrier must already hold, and it is inside the URL the signature
+covers, so it cannot be moved to a URL an attacker controls.
 
 ## The webhook signature is not optional
 

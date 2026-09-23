@@ -1,9 +1,10 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import type { InboundMessage, MessagingProvider, WebhookRequest } from "../comms/provider";
 import { recordDelivery } from "./comms-outbox";
+import { createProvider } from "../comms/provider";
 
 /**
  * WHAT ARRIVES
@@ -194,4 +195,47 @@ async function threadFor(tx: Database, input: {
     status: "open",
   }).returning({ id: schema.conversation.id });
   return created!.id;
+}
+
+
+export interface WebhookConnection {
+  connectionId: string;
+  organizationId: string;
+  provider: MessagingProvider;
+}
+
+/**
+ * Which tenant this webhook belongs to.
+ *
+ * From a secret in the URL, not from a header, a query parameter naming an
+ * organization, or the `To` number. The first two are things an attacker
+ * chooses. The third is not secret: a company's phone number is on their
+ * truck, and anyone could use it to aim a forged message at a tenant they
+ * picked.
+ *
+ * Resolved before the tenant is known, so it goes through a SECURITY DEFINER
+ * function, exactly as a session does.
+ */
+export async function resolveWebhook(
+  db: Database,
+  token: string,
+  readSecret: (ref: string) => Promise<string>,
+): Promise<WebhookConnection | null> {
+  const rows = await db.execute<{
+    connection_id: string;
+    organization_id: string;
+    provider: string;
+    settings: Record<string, unknown>;
+    credential_ref: string | null;
+  }>(sql`select * from app.messaging_webhook_connection(${token})`);
+
+  const row = rows[0];
+  if (!row) return null;
+
+  const secret = row.credential_ref ? await readSecret(row.credential_ref) : "";
+  return {
+    connectionId: row.connection_id,
+    organizationId: row.organization_id,
+    provider: createProvider(row.provider, row.settings, secret),
+  };
 }

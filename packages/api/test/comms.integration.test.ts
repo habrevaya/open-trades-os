@@ -4,7 +4,7 @@ import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as customers from "../src/services/customers";
 import { flush, recordDelivery, recoverStuck, claimOne } from "../src/services/comms-outbox";
-import { receive, store } from "../src/services/comms-inbound";
+import { receive, store, resolveWebhook } from "../src/services/comms-inbound";
 import { createTwilioProvider, twilioSignature } from "../src/comms/twilio";
 import type {
   MessagingProvider, OutboundMessage, SendResult, WebhookRequest,
@@ -374,5 +374,54 @@ run("proving the webhook came from the carrier", () => {
     const fields = { MessageSid: "SM1", MessageStatus: "accepted" };
     const result = await receive(db(), provider(), signed(fields), ORG);
     expect(result).toMatchObject({ kind: "rejected", reason: "unparseable" });
+  });
+});
+
+run("routing a webhook to the right tenant", () => {
+  const TOKEN = "wh_" + "a".repeat(40);
+  const TOKEN_REF = "TEST_TWILIO_TOKEN";
+
+  beforeAll(async () => {
+    if (!url) return;
+    process.env[TOKEN_REF] = "test-auth-token";
+    await raw`delete from public.integration_connection
+              where organization_id = ${ORG} and capability = 'messaging'`;
+    await raw`insert into public.integration_connection
+                (organization_id, capability, provider, status, credential_ref, settings)
+              values (${ORG}, 'messaging', 'twilio', 'connected', ${TOKEN_REF},
+                      ${raw.json({ accountSid: "AC123", webhookToken: TOKEN })})`;
+    await import("../src/comms/twilio");
+  });
+
+  const read = async (ref: string) => process.env[ref] ?? "";
+
+  it("finds the connection from the secret in the URL", async () => {
+    const found = await resolveWebhook(db(), TOKEN, read);
+    expect(found?.organizationId).toBe(ORG);
+    expect(found?.provider.name).toBe("twilio");
+  });
+
+  it("finds nothing for a token that does not match", async () => {
+    expect(await resolveWebhook(db(), "wh_" + "b".repeat(40), read)).toBeNull();
+  });
+
+  it("refuses a token short enough to guess", async () => {
+    // A deployment that configures a weak token gets no webhooks rather than
+    // an open endpoint.
+    await raw`update public.integration_connection
+              set settings = ${raw.json({ accountSid: "AC123", webhookToken: "short" })}
+              where organization_id = ${ORG} and capability = 'messaging'`;
+    expect(await resolveWebhook(db(), "short", read)).toBeNull();
+    await raw`update public.integration_connection
+              set settings = ${raw.json({ accountSid: "AC123", webhookToken: TOKEN })}
+              where organization_id = ${ORG} and capability = 'messaging'`;
+  });
+
+  it("finds nothing for a connection that is not connected", async () => {
+    await raw`update public.integration_connection set status = 'needs_reauth'
+              where organization_id = ${ORG} and capability = 'messaging'`;
+    expect(await resolveWebhook(db(), TOKEN, read)).toBeNull();
+    await raw`update public.integration_connection set status = 'connected'
+              where organization_id = ${ORG} and capability = 'messaging'`;
   });
 });

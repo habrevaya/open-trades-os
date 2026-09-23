@@ -541,6 +541,45 @@ grant execute on function app.revoke_portal_grant(text) to authenticated;
 grant execute on function app.revoke_session(text) to authenticated;
 grant execute on function app.credential_for_login(text) to authenticated;
 
+-- -------------------------------------------------------------------------
+-- RESOLVING A CARRIER WEBHOOK
+--
+-- A text arriving from a carrier has the same problem a session does: the
+-- tenant is not known until after the lookup, so no policy keyed on the
+-- current organization can match on that first read.
+--
+-- The webhook URL carries a secret per connection, which means the caller
+-- must already hold it, exactly as with a session token. It is also inside
+-- the URL the carrier signs, so a token in a URL an attacker chooses does not
+-- survive the signature check either.
+--
+-- Returns the connection and nothing else. It does not return the credential,
+-- only the reference, because the secret store is the deployment's business.
+create or replace function app.messaging_webhook_connection(p_token text)
+  returns table (
+    connection_id uuid,
+    organization_id uuid,
+    provider text,
+    settings jsonb,
+    credential_ref text
+  )
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.id, c.organization_id, c.provider, c.settings, c.credential_ref
+    from public.integration_connection c
+    where c.capability = 'messaging'
+      and c.status = 'connected'
+      and c.settings ->> 'webhookToken' = p_token
+      -- A token short enough to guess is not a token. Refusing here rather
+      -- than trusting whatever was configured means a deployment that sets a
+      -- weak one gets no webhooks rather than an open endpoint.
+      and length(p_token) >= 32
+    limit 1
+  $$;
+
+revoke all on function app.messaging_webhook_connection(text) from public;
+grant execute on function app.messaging_webhook_connection(text) to authenticated;
+
 -- =========================================================================
 -- THE BACKGROUND ROLE
 --
