@@ -38,6 +38,9 @@ const ORDER = [
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.
   // Tasks before runs: a task points at the run that raised it.
+  // Inventory, in dependency order: movements reference orders and lines,
+  // lines reference an order, and a reorder policy references a vendor.
+  "stock_movement", "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.

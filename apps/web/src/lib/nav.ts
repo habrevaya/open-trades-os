@@ -82,6 +82,7 @@ export const NAV: NavGroup[] = [
       { href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices" },
       { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
       { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
+      { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
     ],
   },
   {

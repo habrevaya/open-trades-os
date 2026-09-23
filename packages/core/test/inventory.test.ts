@@ -958,3 +958,98 @@ describe("every movement kind and every refusal can be shown to a person", () =>
     }
   });
 });
+
+/**
+ * A RESERVATION BELONGS TO A JOB
+ *
+ * The first version of this module held `committed` as one number per item
+ * per location. Every test above passed against it, because every one of them
+ * had a single job in it, which is the fixture mistake this file warns about
+ * at the top and then made anyway.
+ *
+ * The bug only appears when the shop is busy, which is the only time it
+ * matters: two jobs reserve the last compressor, one technician collects
+ * theirs, the single counter drops, and the other job's reservation is now
+ * held against an empty shelf. Nobody finds out until a second technician
+ * arrives at a property.
+ */
+describe("a reservation belongs to a job", () => {
+  const twoJobsOneCompressor = () => [
+    mv("r1", 1, at(1), "receipt", "2", { totalCost: usd("240.00") }),
+    mv("c1", 2, at(2), "commit", "1", { jobId: "J-1" }),
+    mv("c2", 3, at(3), "commit", "1", { jobId: "J-2" }),
+  ];
+
+  it("holds one reservation per job rather than one counter", () => {
+    const open = inv.deriveCommitments(twoJobsOneCompressor());
+    expect(open.map((c) => [c.jobId, qs(c.quantity)]).sort())
+      .toEqual([["J-1", "1.0000"], ["J-2", "1.0000"]]);
+  });
+
+  it("still reports the total as the sum of the parts", () => {
+    // One place a reservation exists, so the total and the parts cannot
+    // disagree. It is derived from them rather than counted separately.
+    const level = inv.deriveLevel(twoJobsOneCompressor(), COMP, WAREHOUSE);
+    expect(qs(level.committed)).toBe("2.0000");
+    expect(qs(inv.available(level))).toBe("0.0000");
+  });
+
+  it("discharges the reservation of the job the stock was issued for", () => {
+    const history = [
+      ...twoJobsOneCompressor(),
+      mv("i1", 4, at(4), "issue", "1", { jobId: "J-1" }),
+    ];
+
+    // J-1 took theirs and holds nothing. J-2 still holds theirs.
+    expect(qs(inv.commitmentFor(history, COMP, WAREHOUSE, "J-1"))).toBe("0.0000");
+    expect(qs(inv.commitmentFor(history, COMP, WAREHOUSE, "J-2"))).toBe("1.0000");
+  });
+
+  it("never lets one job's issue eat another job's reservation", () => {
+    /**
+     * THE TEST THIS SECTION EXISTS FOR. J-1 takes two, which is more than
+     * they reserved. Against a single counter, the extra one silently came
+     * out of J-2's reservation and J-2 was left holding nothing with no
+     * record of why.
+     */
+    const history = [
+      ...twoJobsOneCompressor(),
+      mv("i1", 4, at(4), "issue", "2", { jobId: "J-1" }),
+    ];
+
+    expect(qs(inv.commitmentFor(history, COMP, WAREHOUSE, "J-2"))).toBe("1.0000");
+    expect(qs(inv.deriveLevel(history, COMP, WAREHOUSE).committed)).toBe("1.0000");
+  });
+
+  it("does not discharge anybody's reservation for a shop consumable", () => {
+    // An issue with no job is a part coming off the shelf for nobody in
+    // particular. It reduces on hand and reserves nothing, which is right:
+    // nobody had reserved it.
+    const history = [
+      ...twoJobsOneCompressor(),
+      mv("i1", 4, at(4), "issue", "1"),
+    ];
+
+    expect(qs(inv.deriveLevel(history, COMP, WAREHOUSE).committed)).toBe("2.0000");
+    expect(qs(inv.deriveLevel(history, COMP, WAREHOUSE).onHand)).toBe("1.0000");
+  });
+
+  it("forgets a reservation that has been released in full", () => {
+    const history = [
+      ...twoJobsOneCompressor(),
+      mv("rel", 4, at(4), "release", "1", { jobId: "J-2" }),
+    ];
+    expect(inv.deriveCommitments(history).map((c) => c.jobId)).toEqual(["J-1"]);
+  });
+
+  it("never lets a release take a job below nothing", () => {
+    // A duplicated release event, which is what a retried write looks like.
+    const history = [
+      ...twoJobsOneCompressor(),
+      mv("rel", 4, at(4), "release", "1", { jobId: "J-2" }),
+      mv("rel2", 5, at(5), "release", "1", { jobId: "J-2" }),
+    ];
+    expect(qs(inv.commitmentFor(history, COMP, WAREHOUSE, "J-2"))).toBe("0.0000");
+    expect(qs(inv.deriveLevel(history, COMP, WAREHOUSE).committed)).toBe("1.0000");
+  });
+});

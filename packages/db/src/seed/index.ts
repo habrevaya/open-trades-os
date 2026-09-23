@@ -268,6 +268,7 @@ async function main(): Promise<void> {
      */
     await savedReporting(sql);
     await brand(sql);
+    await stock(sql, jobTypes);
     const links = await portalLinks(sql, customers);
     const owner = await session(sql, "owner");
     const tech = await session(sql, "ray");
@@ -1151,6 +1152,81 @@ function report(tokens: { owner: string; tech: string }, links: { estimate: stri
   line("proposal", `/e/${links.estimate}`);
   line("job tracking", `/j/${links.job}`);
   console.log("");
+}
+
+/**
+ * WHAT IS ON THE SHELF AND ON THE VAN
+ *
+ * Three parts, in two places, with one of them reserved for a job that has
+ * not happened yet. That last one is the whole point of the module and the
+ * only way to show it: a level screen where nothing is reserved looks exactly
+ * like a product that tracks one number.
+ *
+ * Written as MOVEMENTS rather than as levels, because there is no level to
+ * write. Every number on that screen is folded from these rows, which is also
+ * the cheapest possible demonstration that it is.
+ */
+async function stock(sql: postgres.Sql, jobTypes: Map<string, string>): Promise<void> {
+  void jobTypes;
+  const [van] = await sql<{ id: string }[]>`
+    insert into public.location (id, organization_id, name, address_line1, city, state, postal_code, timezone)
+    values (${id("loc:van")}, ${ORG}, 'Van 4', '2400 Cullen Ave', 'Austin', 'TX', '78757', 'America/Chicago')
+    returning id`;
+
+  /**
+   * Real part numbers out of the HVAC pack, so the screen shows what the
+   * price book shows. An inventory demo full of "Widget A" is one nobody
+   * believes.
+   */
+  const parts = [
+    { code: "CAP-RUN", warehouse: "12", van: "4", cost: "18.00" },
+    { code: "CONT-2P", warehouse: "6", van: "2", cost: "34.00" },
+    { code: "R410A-LB", warehouse: "25", van: "6", cost: "31.00" },
+  ];
+
+  let sequence = 1;
+  const move = async (
+    code: string, locationId: string, kind: string, quantity: string,
+    extra: { totalCost?: string; jobId?: string; daysAgo?: number } = {},
+  ) => {
+    const item = id(`pb:${code}`);
+    const occurred = now();
+    occurred.setDate(occurred.getDate() - (extra.daysAgo ?? 30));
+    await sql`
+      insert into public.stock_movement
+        (id, organization_id, item_id, location_id, kind, quantity, total_cost, job_id, sequence, occurred_at)
+      values (${id(`mv:${code}:${kind}:${locationId}:${sequence}`)}, ${ORG}, ${item}, ${locationId},
+              ${kind}::stock_movement_kind, ${quantity}, ${extra.totalCost ?? null},
+              ${extra.jobId ?? null}, ${sequence}, ${occurred})
+    `;
+    sequence += 1;
+  };
+
+  for (const part of parts) {
+    const total = (Number(part.cost) * Number(part.warehouse)).toFixed(2);
+    await move(part.code, id("loc"), "receipt", part.warehouse, { totalCost: total, daysAgo: 45 });
+    await move(part.code, id("loc"), "transfer_out", part.van, { daysAgo: 40 });
+    await move(part.code, van!.id, "transfer_in", part.van, { daysAgo: 40 });
+  }
+
+  /**
+   * One capacitor is spoken for, on the callback that is already on the
+   * board. It is the row that shows a reservation belongs to a job rather
+   * than to a counter.
+   */
+  await move("CAP-RUN", id("loc"), "commit", "1", {
+    jobId: id("job:whitfield-followup"), daysAgo: 1,
+  });
+
+  /**
+   * One part below its reorder point, so the screen has something to act on.
+   * A worth-ordering table with nothing in it demonstrates nothing.
+   */
+  await sql`
+    insert into public.reorder_policy
+      (id, organization_id, item_id, location_id, reorder_point, reorder_quantity)
+    values (${id("rp:cont")}, ${ORG}, ${id("pb:CONT-2P")}, ${id("loc")}, '8', '12')
+  `;
 }
 
 /**

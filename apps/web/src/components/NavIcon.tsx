@@ -19,7 +19,7 @@ export type IconName =
   | "day" | "today" | "schedule" | "jobs" | "tasks"
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
-  | "dashboards" | "reports" | "automations" | "settings";
+  | "dashboards" | "reports" | "automations" | "settings" | "inventory";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // A sun. One technician's own day, and the only screen they open.
@@ -108,6 +108,16 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M4 3.8v16.4h16.2" />
       <path d="M8 16.8V11M12.2 16.8V6.6M16.4 16.8v-3.6" />
+    </>
+  ),
+  // Stacked boxes on a shelf. Deliberately not a van and not a box on its
+  // own: this screen answers where a part IS, and a van is one of the places.
+  inventory: (
+    <>
+      <path d="M3.2 20.4V9.6M20.8 9.6v10.8M3.2 20.4h17.6" />
+      <path d="M2.4 9.6 12 4.2l9.6 5.4" />
+      <rect x="7.4" y="12.6" width="4.2" height="4" rx="0.6" />
+      <rect x="13.2" y="12.6" width="3.4" height="4" rx="0.6" />
     </>
   ),
   automations: <path d="M13.4 2.6 5.2 13.2h5.4l-.9 8.2 8.2-10.6h-5.4l.9-8.2Z" />,

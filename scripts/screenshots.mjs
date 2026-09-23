@@ -102,6 +102,13 @@ const SHOTS = [
     // technician does not get, and a screenshot without it cannot show that.
     name: "price-book", path: "/pricebook", token: OWNER, ...DESK, height: 760,
   },
+  /*
+    Inventory, which is three questions in the order a person asks them:
+    what should we buy, what have we got, and what is spoken for. The last
+    one is the interesting row, because a reservation belongs to a job and
+    a screen that cannot show that is a screen tracking one number.
+  */
+  { name: "inventory", path: "/inventory", token: OWNER, ...DESK, height: 1100 },
   /**
    * Settings as the owner, because it is the screen that shows the state of
    * the things a reader is most likely to disbelieve: whether a number is

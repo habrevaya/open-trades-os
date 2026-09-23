@@ -18,3 +18,4 @@ export * from "./integrations";
 export * from "./platform";
 export * from "./comms";
 export * from "./automation";
+export * from "./inventory";

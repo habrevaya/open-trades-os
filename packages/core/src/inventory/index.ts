@@ -414,24 +414,122 @@ const levelKey = (itemId: string, locationId: string) => `${itemId}@${locationId
  *   negative here, the decision functions below refuse to CREATE a movement
  *   that would do it, and the costing refuses to put a price on it.
  */
+/**
+ * ONE OPEN RESERVATION, FOR ONE JOB.
+ *
+ * A quantity of one item, held at one location, for one job. Derived from the
+ * movements exactly as a level is, and never stored.
+ */
+export interface Commitment {
+  readonly itemId: string;
+  readonly locationId: string;
+  readonly jobId: string;
+  readonly quantity: Quantity;
+}
+
+const commitmentKey = (itemId: string, locationId: string, jobId: string) =>
+  `${itemId}\u0000${locationId}\u0000${jobId}`;
+
+/**
+ * WHAT IS RESERVED, AND FOR WHOM.
+ *
+ * The first version of this module held `committed` as one number per item
+ * per location, and it was wrong in a way that only shows up when the shop is
+ * busy. Two jobs each reserve the last compressor. One technician collects
+ * theirs. The single counter drops by one, and now the OTHER job's
+ * reservation is what is left, sitting against a shelf with nothing on it.
+ * Nobody finds out until the second technician arrives at a property.
+ *
+ * So a reservation belongs to a job. An issue discharges the commitment OF
+ * THE JOB IT WAS ISSUED FOR and cannot touch anybody else's, which means the
+ * clamp that used to hide the problem is not needed: taking more than a job
+ * reserved consumes that job's reservation and stops.
+ *
+ * An issue with no job on it, which is a shop consumable coming off the
+ * shelf, discharges nothing. That is correct rather than a gap: nobody
+ * reserved it.
+ */
+export function deriveCommitments(movements: readonly Movement[]): Commitment[] {
+  const open = new Map<string, Commitment>();
+
+  for (const movement of orderedMovements(movements)) {
+    const effect = MOVEMENT_EFFECTS[movement.kind];
+    if (effect.committed === 0) continue;
+    // A commit or a release with no job is a reservation for nobody, which
+    // is not a reservation. Refused when the movement is planned; ignored
+    // here, because a history that already contains one must still derive.
+    if (movement.jobId === undefined) continue;
+
+    const key = commitmentKey(movement.itemId, movement.locationId, movement.jobId);
+    const current = open.get(key);
+    const held = current?.quantity ?? ZERO_QUANTITY;
+    const change = effect.committed === 1
+      ? movement.quantity
+      // Never past zero. A job cannot release, or consume, more than it held.
+      : -qtyMin(held, movement.quantity);
+
+    const next = held + change;
+    if (next <= ZERO_QUANTITY) {
+      open.delete(key);
+      continue;
+    }
+    open.set(key, {
+      itemId: movement.itemId,
+      locationId: movement.locationId,
+      jobId: movement.jobId,
+      quantity: next,
+    });
+  }
+
+  return [...open.values()];
+}
+
+/** What one job is holding of one item at one location. */
+export function commitmentFor(
+  movements: readonly Movement[], itemId: string, locationId: string, jobId: string,
+): Quantity {
+  return deriveCommitments(movements)
+    .find((c) => c.itemId === itemId && c.locationId === locationId && c.jobId === jobId)
+    ?.quantity ?? ZERO_QUANTITY;
+}
+
 export function deriveLevels(movements: readonly Movement[]): StockLevel[] {
-  const levels = new Map<string, { itemId: string; locationId: string; onHand: Quantity; committed: Quantity }>();
+  const onHand = new Map<string, { itemId: string; locationId: string; onHand: Quantity }>();
 
   for (const movement of orderedMovements(movements)) {
     const key = levelKey(movement.itemId, movement.locationId);
-    const current = levels.get(key) ?? {
+    const current = onHand.get(key) ?? {
       itemId: movement.itemId,
       locationId: movement.locationId,
       onHand: ZERO_QUANTITY,
-      committed: ZERO_QUANTITY,
     };
-    const effect = effectOf(movement.kind, movement.quantity);
-    levels.set(key, {
+    onHand.set(key, {
       itemId: current.itemId,
       locationId: current.locationId,
-      onHand: current.onHand + effect.onHand,
-      committed: qtyMax(ZERO_QUANTITY, current.committed + effect.committed),
+      // Deliberately NOT clamped. A negative on hand is evidence of a broken
+      // history, and hiding it at zero destroys the only signal.
+      onHand: current.onHand + effectOf(movement.kind, movement.quantity).onHand,
     });
+  }
+
+  /**
+   * Committed is the SUM of the open per job reservations, rather than a
+   * counter of its own. There is one place a reservation exists, so the
+   * total and the parts cannot disagree.
+   */
+  const levels = new Map<string, StockLevel>();
+  for (const [key, row] of onHand) {
+    levels.set(key, { ...row, committed: ZERO_QUANTITY });
+  }
+  for (const commitment of deriveCommitments(movements)) {
+    const key = levelKey(commitment.itemId, commitment.locationId);
+    const current = levels.get(key) ?? {
+      itemId: commitment.itemId,
+      locationId: commitment.locationId,
+      onHand: ZERO_QUANTITY,
+      committed: ZERO_QUANTITY,
+    };
+    levels.set(key, { ...current, committed: current.committed + commitment.quantity });
   }
 
   return [...levels.values()];
