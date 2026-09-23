@@ -14,3 +14,5 @@ export * as work from "./work/index.js";
 export * as parties from "./parties/index.js";
 export * as dashboard from "./dashboard/index.js";
 export * as branding from "./branding/index.js";
+export * as telephony from "./telephony/index.js";
+export * as transcript from "./transcript/index.js";
