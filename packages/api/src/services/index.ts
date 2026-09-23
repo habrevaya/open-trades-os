@@ -36,3 +36,4 @@ export { resolveSession, type ResolvedSession } from "./session";
 export { writePosting } from "./ledger";
 export * as labor from "./labor";
 export * as telephony from "./telephony";
+export * as obligations from "./obligations";

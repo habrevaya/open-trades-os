@@ -6,6 +6,7 @@ import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
+  obligations,
 } from "../services/index";
 
 /**
@@ -124,6 +125,13 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Deadlines. Overdue is computed on read, never taken from the stored
+  // state, so the sweep going quiet delays a stamp and never hides work.
+  listObligations: obligations.handlers.listObligations,
+  satisfyObligation: obligations.handlers.satisfyObligation,
+  waiveObligation: obligations.handlers.waiveObligation,
+  sweepObligations: obligations.handlers.sweepObligations,
 
   // Stock. Every write appends a movement; no route sets a level, because
   // levels are a fold over the movements and a setter destroys the evidence.

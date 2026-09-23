@@ -10,6 +10,7 @@ import { fieldRoutes } from "./field";
 import { telephonyRoutes } from "./telephony";
 import { inventoryRoutes } from "./inventory";
 import { laborRoutes } from "./labor";
+import { obligationRoutes } from "./obligations";
 
 export * from "./common";
 export * from "./customers";
@@ -24,6 +25,7 @@ export * from "./field";
 export * from "./telephony";
 export * from "./inventory";
 export * from "./labor";
+export * from "./obligations";
 
 /**
  * Every route in the product, and the only description of them.
@@ -56,6 +58,7 @@ export const routes = {
   ...telephonyRoutes,
   ...inventoryRoutes,
   ...laborRoutes,
+  ...obligationRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

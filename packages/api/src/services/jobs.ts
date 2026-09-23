@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { audit } from "./customers";
 import { releaseAllFor } from "./inventory";
+import * as obligations from "./obligations";
 import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit } from "../contracts/jobs";
@@ -414,15 +415,24 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
     if (wasCancelled) {
       /**
        * Not an error on the write, an obligation on a dispatcher. It shows up
-       * in the same place every other approaching deadline does.
+       * in the same place every other approaching deadline does: the
+       * deadlines section of the task queue, which now exists.
+       *
+       * Keyed by the VISIT, not the job. A job can carry several visits and
+       * only one of them was done after the cancellation; collapsing it to
+       * the job loses which, and the decision is about that one piece of
+       * work. The screen resolves the visit's job for the link rather than
+       * the obligation giving up the precision to make linking easier.
        */
-      await tx.insert(schema.obligation).values({
-        organizationId: ctx.actor.organizationId,
+      await obligations.raise(tx, ctx.actor.organizationId, {
         kind: "dispatch.completed_after_cancellation",
         entityType: "visit",
         entityId: input.id,
         dueAt: new Date(),
-        consequence: "A technician completed work on a cancelled visit. Confirm whether to bill it.",
+        consequence:
+          "A technician completed work on a cancelled visit"
+          + (visit.windowStart ? ` from ${visit.windowStart.toISOString().slice(0, 10)}` : "")
+          + ". Confirm whether to bill it.",
       });
     }
 
