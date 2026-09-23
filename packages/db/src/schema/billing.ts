@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, money, currency, rate } from "./_shared";
 import { organization, businessUnit } from "./tenancy";
 import { customer, property } from "./crm";
@@ -48,6 +48,8 @@ export const estimate = pgTable("estimate", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  /** UNIQUE for the same reason as job_number_idx: see services/jobs.ts. */
+  numberIdx: uniqueIndex("estimate_number_idx").on(t.organizationId, t.number),
   orgIdx: index("estimate_org_idx").on(t.organizationId, t.status),
   customerIdx: index("estimate_customer_idx").on(t.customerId),
 }));
@@ -234,6 +236,8 @@ export const invoice = pgTable("invoice", {
   ...timestamps,
 }, (t) => ({
   /** AR aging: open invoices by due date. The report every owner opens first. */
+  /** UNIQUE for the same reason as job_number_idx: see services/jobs.ts. */
+  numberIdx: uniqueIndex("invoice_number_idx").on(t.organizationId, t.number),
   agingIdx: index("invoice_aging_idx").on(t.organizationId, t.status, t.dueOn),
   /** AR aging by payer, which is the only readable view on a commercial book. */
   payerIdx: index("invoice_payer_idx").on(t.organizationId, t.payerCustomerId, t.status),

@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
@@ -128,7 +128,12 @@ export const job = pgTable("job", {
   orgStatusIdx: index("job_org_status_idx").on(t.organizationId, t.status),
   customerIdx: index("job_customer_idx").on(t.customerId),
   propertyIdx: index("job_property_idx").on(t.propertyId),
-  numberIdx: index("job_number_idx").on(t.organizationId, t.number),
+  /**
+   * UNIQUE, not merely indexed. The number is allocated as max + 1 under an
+   * advisory lock in services/jobs.ts, and the lock is a convention a future
+   * insert can forget. This is the part that cannot be forgotten.
+   */
+  numberIdx: uniqueIndex("job_number_idx").on(t.organizationId, t.number),
 }));
 
 export const visit = pgTable("visit", {

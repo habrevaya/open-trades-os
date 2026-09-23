@@ -13,16 +13,38 @@ import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVis
 type CreateInput = z.infer<typeof JobCreate>;
 
 /**
- * The next job number for an organization.
+ * The next human-facing number for an organization.
  *
- * Taken inside the caller's transaction with a row lock on the organization,
- * so two people booking at the same moment cannot be handed the same number.
- * A duplicate job number is the kind of thing a contractor notices immediately
- * and never quite trusts you about afterwards.
+ * `max(number) + 1` is only correct if nobody else is doing it at the same
+ * time, and this comment used to claim a row lock on the organization that
+ * the code never took. Two people booking in the same second both read the
+ * same maximum and both got job 41. A duplicate job number is the kind of
+ * thing a contractor notices immediately and never quite trusts you about
+ * afterwards, and it is invisible in testing because it needs concurrency to
+ * appear at all.
+ *
+ * Two things now hold it, and the second is the one that actually guarantees
+ * it:
+ *
+ *   The advisory lock serialises allocation per (organization, table) for
+ *   the rest of the transaction. It is transaction scoped, so it is released
+ *   on commit or rollback without anything having to remember to.
+ *
+ *   The unique index on (organization_id, number) makes a duplicate
+ *   impossible rather than merely unlikely. A lock can be skipped by a future
+ *   code path that inserts a number of its own; the index cannot.
+ *
+ * Sequences were the obvious alternative and are wrong here: numbering is per
+ * organization, so it would mean a sequence per tenant per table, created and
+ * dropped with the tenant, and gaps on every rolled back transaction. Invoice
+ * numbering with gaps is a real problem in several jurisdictions.
  */
 async function nextNumber(
   tx: Database, organizationId: string, table: "job" | "invoice" | "estimate",
 ): Promise<number> {
+  await tx.execute(sql`
+    select pg_advisory_xact_lock(hashtext(${`number:${table}:${organizationId}`}))
+  `);
   const [row] = await tx.execute(sql`
     select coalesce(max(number), 0) + 1 as next
     from ${sql.raw(`public.${table}`)}
