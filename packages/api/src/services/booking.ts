@@ -10,6 +10,7 @@ import {
 } from "./context";
 import { audit } from "./customers";
 import { nextNumber } from "./jobs";
+import * as marketingService from "./marketing";
 import type {
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
@@ -368,6 +369,8 @@ export async function createRequest(
       sourceUrl: input.sourceUrl ?? null,
       referrer: input.referrer ?? null,
       utm: input.utm,
+      landingQuery: input.landingQuery ?? null,
+      visitorId: input.visitorId ?? null,
       /**
        * Taken from the credential on the request, never from the body. A
        * source a caller can name is a source a caller can claim, and
@@ -381,6 +384,36 @@ export async function createRequest(
       direction: "inbound", provider: "booking", eventType: "booking.request",
       idempotencyKey: fingerprint, status: "succeeded",
       entityType: "booking_request", entityId: row!.id,
+    });
+
+    /**
+     * THE TOUCH IS KEPT, NOT REDUCED TO A WORD.
+     *
+     * This used to be one call to `parseTouch` whose result was thrown away
+     * except for `.source`, written onto the job as a string. That single
+     * line is why nothing else in the marketing module could work:
+     * attribution is a property of a sequence of touches and the product was
+     * keeping one word per lead, so every model in core had no possible
+     * caller.
+     *
+     * Written in the same transaction as the request. A touch that outlived
+     * a rolled back booking would be a lead in the report that nobody can
+     * find, and a report with more leads than the CRM is a report nobody
+     * trusts twice.
+     */
+    await marketingService.recordTouch(tx, org.id, {
+      at: row!.createdAt,
+      visitorId: input.visitorId ?? null,
+      /**
+       * The raw query when the widget sent one, falling back to the utm bag
+       * rebuilt as a query string. The fallback loses the click id, because
+       * `gclid` is not a utm_ key, and that is precisely the loss the
+       * `landingQuery` column exists to stop.
+       */
+      query: input.landingQuery ?? utmAsQuery(input.utm),
+      referrer: input.referrer ?? null,
+      landingPath: pathOf(input.sourceUrl),
+      ownHosts: [new URL(PORTAL_BASE).host],
     });
 
     const deposit = depositDue(service, service.displayPrice);
@@ -485,6 +518,39 @@ export async function confirm(ctx: ServiceContext, input: z.infer<typeof confirm
       decidedAt: new Date(),
       updatedAt: new Date(),
     }).where(eq(schema.bookingRequest.id, input.id));
+
+    /**
+     * THE MOMENT AN ANONYMOUS HISTORY BECOMES SOMEBODY'S.
+     *
+     * Everything this visitor did before filling the form is joined to the
+     * customer here, in one write. Without it the five touches before the
+     * conversion belong to nobody and only the sixth belongs to the
+     * customer, which is last touch attribution arrived at by accident
+     * rather than chosen by a reader.
+     */
+    if (request.visitorId) {
+      await marketingService.identify(tx, ctx.actor.organizationId, {
+        visitorId: request.visitorId,
+        customerId,
+      });
+    }
+
+    /**
+     * And the touches this customer made are tagged with the work they
+     * produced, so a channel's booked value can be counted without walking
+     * back through every job the customer has ever had. Only the ones not
+     * already credited to an earlier job: a repeat customer's first visit
+     * belongs to their first job, and re-tagging it here would move the
+     * credit for last year's work onto this one.
+     */
+    await tx.update(schema.marketingTouch).set({
+      jobId: job!.id,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(schema.marketingTouch.organizationId, ctx.actor.organizationId),
+      eq(schema.marketingTouch.customerId, customerId),
+      isNull(schema.marketingTouch.jobId),
+    ));
 
     // The tracking link the requester already has now points at a real job and
     // a real customer, so it keeps working rather than dead-ending the moment
@@ -1026,24 +1092,49 @@ export async function setHours(
  * already written, tested, and unused, and reimplementing it produced
  * something worse that looked the same from outside.
  */
-function sourceOf(request: typeof schema.bookingRequest.$inferSelect): string {
-  const utm = (request.utm ?? {}) as Record<string, string | undefined>;
-
-  /**
-   * The utm bag is rebuilt into a query string because that is what
-   * `parseTouch` reads, and it is what the booking widget had in the first
-   * place. Carrying the raw landing page query on the request instead would
-   * be better and is a schema change: the click id is the field that gets
-   * lost in the round trip, since the widget only stores utm_ keys today.
-   */
-  const query = Object.entries(utm)
+/**
+ * The utm bag as a query string.
+ *
+ * A fallback for requests that arrived before `landing_query` existed, and
+ * for a widget that has not been updated to send it. It loses the click id
+ * by construction, because `gclid`, `msclkid` and `fbclid` are not utm_
+ * keys: that loss is the reason the column was added, and naming it here is
+ * how the next person finds out why two paths exist.
+ */
+function utmAsQuery(utm: Record<string, string | undefined>): string {
+  return Object.entries(utm)
     .filter(([, value]) => value !== undefined && value !== "")
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value!)}`)
     .join("&");
+}
 
+/** The path a visitor landed on, without the host or the query. */
+function pathOf(sourceUrl: string | null | undefined): string | null {
+  if (!sourceUrl) return null;
+  try {
+    return new URL(sourceUrl).pathname;
+  } catch {
+    /**
+     * A landing page URL is whatever an email client, a scanner or a QR code
+     * put in the address bar. Refusing to record the touch because the URL
+     * will not parse would throw away the lead to keep a field tidy.
+     */
+    return null;
+  }
+}
+
+/**
+ * The single word that goes on the job, for the screens that show one.
+ *
+ * Still written, and still only one word, because a job list has one column
+ * for it. It is no longer the ONLY thing kept: the full touch went into
+ * `marketing_touch` when the request arrived, so this is a convenience
+ * denormalisation rather than the whole of the company's attribution.
+ */
+function sourceOf(request: typeof schema.bookingRequest.$inferSelect): string {
   const touch = marketing.parseTouch({
     at: request.createdAt,
-    query,
+    query: request.landingQuery ?? utmAsQuery((request.utm ?? {}) as Record<string, string | undefined>),
     referrer: request.referrer,
     /**
      * Our own pages are not a referral. Somebody moving from the pricing page

@@ -150,6 +150,16 @@ export const createBookingRequest = defineRoute({
     sourceUrl: z.string().max(2000).optional(),
     referrer: z.string().max(2000).optional(),
     utm: z.record(z.string()).default({}),
+    /**
+     * The landing page query string, raw. Send this rather than only `utm`:
+     * the click id an ads platform matches a conversion back to (`gclid`,
+     * `msclkid`, `fbclid`) is not a utm_ key, so a widget sending only the
+     * utm bag loses the one value that lets a booked job be reported to the
+     * account that paid for it.
+     */
+    landingQuery: z.string().max(4000).optional(),
+    /** The anonymous thread, so touches made before this form are joined to it. */
+    visitorId: z.string().max(200).optional(),
   }).refine((v) => v.contactEmail !== undefined || v.contactPhone !== undefined, {
     message: "An email address or a phone number is required to confirm the booking",
   }),

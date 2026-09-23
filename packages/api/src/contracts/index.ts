@@ -12,6 +12,7 @@ import { inventoryRoutes } from "./inventory";
 import { laborRoutes } from "./labor";
 import { obligationRoutes } from "./obligations";
 import { fileRoutes } from "./files";
+import { marketingRoutes } from "./marketing";
 
 export * from "./common";
 export * from "./customers";
@@ -28,6 +29,7 @@ export * from "./inventory";
 export * from "./labor";
 export * from "./obligations";
 export * from "./files";
+export * from "./marketing";
 
 /**
  * Every route in the product, and the only description of them.
@@ -62,6 +64,7 @@ export const routes = {
   ...laborRoutes,
   ...obligationRoutes,
   ...fileRoutes,
+  ...marketingRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

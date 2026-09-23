@@ -19,3 +19,4 @@ export * from "./platform";
 export * from "./comms";
 export * from "./automation";
 export * from "./inventory";
+export * from "./marketing";

@@ -6,6 +6,7 @@ import {
   type ServiceContext,
 } from "./context";
 import { audit } from "./customers";
+import * as marketingService from "./marketing";
 
 /**
  * CALLS, RECORDING PERMISSION, AND WHAT A TRANSCRIPT IS ALLOWED TO CONTAIN
@@ -215,6 +216,27 @@ export async function logCall(ctx: ServiceContext, input: LogCallInput) {
       attributionSource: input.attributionSource ?? null,
       providerCallId: input.providerCallId ?? null,
     }).returning();
+
+    /**
+     * AN INBOUND CALL ON A TRACKED NUMBER IS A TOUCH, AND IT IS THE ONLY
+     * KIND OF TOUCH MOST TRADES MARKETING EVER PRODUCES.
+     *
+     * A yard sign, a van, a fridge magnet, a direct mail piece and a radio
+     * spot carry no query string and set no referrer. The number itself is
+     * the tag, and a number with a source declared against it is the only
+     * way any of that spend appears in a report at all.
+     *
+     * Only inbound. An outbound call is the company ringing the customer,
+     * and counting it as a marketing touch would credit the channel on the
+     * number the office happened to dial out from.
+     */
+    if (input.direction === "inbound" && input.receivedOnE164) {
+      await marketingService.recordTouch(tx, ctx.actor.organizationId, {
+        at: row!.startedAt ?? new Date(),
+        customerId: input.customerId ?? null,
+        trackedNumber: input.receivedOnE164,
+      });
+    }
 
     return row!;
   });

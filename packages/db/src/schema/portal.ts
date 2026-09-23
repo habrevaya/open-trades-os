@@ -193,6 +193,24 @@ export const bookingRequest = pgTable("booking_request", {
   referrer: text("referrer"),
   utm: jsonb("utm").$type<Record<string, string>>().notNull().default({}),
   /**
+   * The landing page query string, exactly as it arrived.
+   *
+   * Kept alongside `utm` rather than instead of it, because the two answer
+   * different questions: `utm` is the tidy bag a screen reads, and this is
+   * the evidence. The field it saves is the CLICK ID. `gclid`, `msclkid`
+   * and `fbclid` are not utm_ keys, so a widget that stored only utm_ lost
+   * them, and the click id is the one value an ads platform will match a
+   * conversion back to. Without it a booked job can never be reported to
+   * the account that bought it.
+   */
+  landingQuery: text("landing_query"),
+  /**
+   * The anonymous thread this request came from, so the touches somebody
+   * made before filling the form can be joined to them afterwards. A
+   * cookie or a device id, never a fingerprint.
+   */
+  visitorId: text("visitor_id"),
+  /**
    * The connected application that sent this, when one did.
    *
    * A booking arriving through a partner is attributable the same way a

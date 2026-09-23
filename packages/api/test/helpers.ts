@@ -76,6 +76,13 @@ const ORDER = [
    * reader, and because a stored file outliving every reference to it is
    * exactly the leftover this list exists to prevent.
    */
+  /**
+   * Marketing, in dependency order: a submission points at a form and at a
+   * touch, a touch points at a customer and a job. Spend points at nothing,
+   * which is the whole reason it can be imported before anybody has been
+   * matched to it.
+   */
+  "form_submission", "web_form", "marketing_touch", "ad_spend",
   "attachment", "stored_file",
   "audit_log", "integration_event", "webhook_endpoint",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",

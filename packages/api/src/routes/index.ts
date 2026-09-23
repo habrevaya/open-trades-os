@@ -6,7 +6,7 @@ import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
-  obligations, files,
+  obligations, files, marketing,
 } from "../services/index";
 
 /**
@@ -125,6 +125,14 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Marketing. The touch is kept whole, and no model is the house model.
+  listTouches: marketing.handlers.listTouches,
+  getJobAttribution: marketing.handlers.getJobAttribution,
+  recordSpend: marketing.handlers.recordSpend,
+  importSpend: marketing.handlers.importSpend,
+  getPerformance: marketing.handlers.getPerformance,
+  listUnplacedSources: marketing.handlers.listUnplacedSources,
 
   // Files. Content addressed, so a phone retrying over a metered connection
   // lands on the key it already occupies.
