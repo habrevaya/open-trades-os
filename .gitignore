@@ -3,7 +3,15 @@ node_modules/
 dist/
 out/
 .turbo/
-coverage/
+# Test coverage reports, anchored to where they actually land.
+#
+# A bare `coverage/` matches any directory of that name at any depth, and it
+# swallowed packages/core/src/coverage: a whole module was silently not
+# committed, every local check passed because the files were on disk, and CI
+# failed three commits later on "Does the file exist?".
+/coverage/
+packages/*/coverage/
+apps/*/coverage/
 *.tsbuildinfo
 .env
 .env.*
