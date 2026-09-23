@@ -2,6 +2,7 @@ export * from "./context";
 export * as customers from "./customers";
 export * as jobs from "./jobs";
 export * as billing from "./billing";
+export * as branding from "./branding";
 export * as estimates from "./estimates";
 export * as portal from "./portal";
 export * as deposits from "./deposits";

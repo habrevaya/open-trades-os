@@ -42,6 +42,8 @@ const ORDER = [
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.
   "dashboard", "report",
+  // The company's own logo and favicon, which are bytes rather than a key.
+  "brand_asset",
   "task",
   "workflow_step_run", "workflow_run", "workflow_schedule", "workflow_version", "workflow",
   "event_cursor", "domain_event",

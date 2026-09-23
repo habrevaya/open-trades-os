@@ -1,12 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inTenant, roles as roleService } from "@opentradesos/api/services";
+import { inTenant, roles as roleService, branding as brandingService } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { Chip, Phone } from "@opentradesos/ui";
 import { PHONE_PURPOSE, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
+import { Branding } from "./Branding";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,9 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
+
+  const writes = can(user.actor, "settings:write");
+  const brand = await brandingService.current(ctx).catch(() => null);
 
   const data = await inTenant(ctx, async (tx) => ({
     numbers: await tx.select().from(schema.phoneNumber)
@@ -54,9 +58,22 @@ export default async function SettingsPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Settings" />
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
-        {user.organizationName}. Everything here is read only in this build;
-        changes go through the API.
+        {user.organizationName}. The look of the product is editable here.
+        Everything below it is read only in this build and changes go through
+        the API.
       </p>
+
+      {/*
+        First, because it is the only thing on this screen somebody can
+        actually change, and a page that opens on four read only tables
+        teaches people it is not worth visiting.
+      */}
+      {writes && brand && (
+        <Branding
+          color={brand.color} on={brand.on} text={brand.text}
+          hasLogo={brand.hasLogo} hasFavicon={brand.hasFavicon} version={brand.version}
+        />
+      )}
 
       <Section
         title="Phone numbers"

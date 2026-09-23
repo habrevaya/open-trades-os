@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, customType } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -95,6 +95,46 @@ export const customFieldDefinition = pgTable("custom_field_definition", {
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps,
 }, (t) => ({ orgIdx: index("custom_field_definition_org_idx").on(t.organizationId, t.entityType) }));
+
+/**
+ * A COMPANY'S LOGO AND FAVICON, AS BYTES IN THE DATABASE
+ *
+ * Not a storage key, deliberately, and this is the one place in the schema
+ * that holds a file directly.
+ *
+ * A contractor self hosting this should not have to stand up an object store
+ * to put their own logo on their own invoice. That is the single most basic
+ * thing anybody does with a product like this, and making it the first thing
+ * that requires S3, a bucket policy and a signed URL is how a self hosted
+ * product becomes one nobody actually self hosts.
+ *
+ * The bytes are small and capped in core: half a megabyte for a logo, sixty
+ * four kilobytes for a favicon. Photographs and documents do NOT belong here
+ * and keep using `attachment`, which holds a key rather than a file.
+ *
+ * One row per kind per organization, so setting a logo replaces the logo
+ * rather than adding a second one nothing chooses between.
+ */
+export const brandAsset = pgTable("brand_asset", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** `logo` or `favicon`. */
+  kind: text("kind").notNull(),
+  /**
+   * Decided from the BYTES rather than from what the upload claimed, because
+   * the claimed type is a string the client chose and this is served back
+   * from the application's own origin.
+   */
+  contentType: text("content_type").notNull(),
+  bytes: customType<{ data: Buffer; driverData: Buffer }>({
+    dataType: () => "bytea",
+  })("bytes").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedByUserId: uuid("uploaded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  kindIdx: uniqueIndex("brand_asset_kind_idx").on(t.organizationId, t.kind),
+}));
 
 export const attachment = pgTable("attachment", {
   id: pk(),

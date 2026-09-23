@@ -4,6 +4,7 @@ import { NavIcon } from "./NavIcon";
 import { signOut } from "@/app/(auth)/actions";
 import { setRail } from "@/app/(app)/actions";
 import type { CurrentUser } from "@/lib/auth";
+import type { branding } from "@opentradesos/api/services";
 import { railCollapsed } from "@/lib/rail";
 import { NAV, isActive, isOpen, activeChild, type NavGroup, type NavItem } from "@/lib/nav";
 import { can } from "@opentradesos/core";
@@ -32,8 +33,12 @@ import { can } from "@opentradesos/core";
  * and it leaks the shape of the system to people who should not have it.
  */
 export async function AppShell({
-  user, children,
-}: { user: CurrentUser; children: React.ReactNode }) {
+  user, brand, children,
+}: {
+  user: CurrentUser;
+  brand: branding.Branding | null;
+  children: React.ReactNode;
+}) {
   // Set by middleware, because a server component cannot ask for its own URL.
   const pathname = (await headers()).get("x-pathname") ?? "/";
   const collapsed = await railCollapsed();
@@ -43,8 +48,30 @@ export async function AppShell({
     // A heading with nothing under it is a section somebody was refused.
     .filter((group) => group.items.length > 0);
 
+  /**
+   * THE COMPANY'S COLOURS, AS THREE CSS VARIABLES
+   *
+   * Variables rather than classes, because the value is a hex code out of a
+   * database and Tailwind classes are generated at build time. A `bg-[#...]`
+   * assembled from a row is a class that does not exist in the stylesheet.
+   *
+   * All three are derived from the one colour they chose: the fill, what is
+   * readable on that fill, and a darkened form for text. Nothing is applied
+   * when they have not chosen one, so the product keeps its own look rather
+   * than getting a half branded one.
+   */
+  const palette = brand?.color
+    ? {
+        "--brand": brand.color,
+        "--brand-on": brand.on ?? "#ffffff",
+        "--brand-text": brand.text ?? brand.color,
+      } as React.CSSProperties
+    : undefined;
+
+  const logo = brand?.hasLogo ? `/brand/logo?v=${brand.version}` : null;
+
   return (
-    <div className="min-h-screen lg:flex">
+    <div className="min-h-screen lg:flex" style={palette}>
       {/*
         The rail. Fixed height and its own scroll, so a long list does not
         push the sign out button off the bottom and the main column scrolls
@@ -64,7 +91,16 @@ export async function AppShell({
             collapsed ? "justify-center px-0" : "px-5"
           }`}
         >
-          <Logo className="h-6 w-6 shrink-0" />
+          {/*
+            Their mark if they have one, ours if they do not. Never both: two
+            logos side by side is a product that has not decided whose
+            application this is.
+          */}
+          {logo ? (
+            <img src={logo} alt={user.organizationName} className="h-6 w-6 shrink-0 object-contain" />
+          ) : (
+            <Logo className="h-6 w-6 shrink-0" style={brand?.color ? { color: "var(--brand-text)" } : undefined} />
+          )}
           {!collapsed && (
             <span className="truncate text-base font-semibold tracking-[-0.01em]">
               {user.organizationName}
@@ -176,7 +212,11 @@ export async function AppShell({
         <header className="sticky top-0 z-40 border-b border-steel-200 bg-canvas lg:hidden">
           <details className="group">
             <summary className="flex h-14 cursor-pointer list-none items-center gap-3 px-4">
-              <Logo className="h-6 w-6 shrink-0" />
+              {logo ? (
+                <img src={logo} alt={user.organizationName} className="h-6 w-6 shrink-0 object-contain" />
+              ) : (
+                <Logo className="h-6 w-6 shrink-0" />
+              )}
               <span className="truncate text-base font-semibold">{user.organizationName}</span>
               <span className="ml-auto text-sm text-ink-500 group-open:hidden">Menu</span>
               <span className="ml-auto hidden text-sm text-ink-500 group-open:inline">Close</span>
@@ -258,6 +298,13 @@ function RailLink({ item, pathname, collapsed }: {
       className={`flex items-center gap-2.5 rounded py-1.5 text-sm transition-colors ${
         collapsed ? "justify-center px-0" : "px-2"
       } ${active ? "bg-steel-100 font-medium text-ink-900" : "text-ink-700 hover:bg-steel-100"}`}
+      /*
+        The icon on the current item takes the company's colour, and nothing
+        else in the rail does. One accent is a rail that looks like theirs; a
+        rail painted throughout is one where nothing stands out, which is the
+        job the highlight was doing.
+      */
+      style={active ? { color: "var(--brand-text, inherit)" } : undefined}
     >
       <NavIcon name={item.icon} />
       {!collapsed && <span className="truncate">{item.label}</span>}

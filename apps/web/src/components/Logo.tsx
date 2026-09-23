@@ -11,9 +11,13 @@
  * vertical edge is the same length on all three sides, which is what stops it
  * reading as a flattened hexagon.
  */
-export function Logo({ className = "h-6 w-6" }: { className?: string }) {
+export function Logo({ className = "h-6 w-6", style }: {
+  className?: string;
+  /** So the shell can tint it with the company's own colour. */
+  style?: React.CSSProperties;
+}) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style} aria-hidden>
       <path
         d="M12 3.5 20 7.5v8.5L12 20 4 16V7.5L12 3.5Z"
         stroke="currentColor"

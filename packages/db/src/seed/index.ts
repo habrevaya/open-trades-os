@@ -267,6 +267,7 @@ async function main(): Promise<void> {
      * nobody notices.
      */
     await savedReporting(sql);
+    await brand(sql);
     const links = await portalLinks(sql, customers);
     const owner = await session(sql, "owner");
     const tech = await session(sql, "ray");
@@ -1151,6 +1152,31 @@ function report(tokens: { owner: string; tech: string }, links: { estimate: stri
   line("job tracking", `/j/${links.job}`);
   console.log("");
 }
+
+/**
+ * THE DEMO COMPANY'S OWN MARK
+ *
+ * `brand_color` has been set by this seed since the beginning and was read by
+ * nothing. Now it reaches the screen, and a logo goes with it, because a
+ * colour on its own is half the feature: the interesting claim is that the
+ * product wears somebody else's name.
+ *
+ * A generated ring rather than a real logo. It is 371 bytes, it is obviously
+ * not the OpenTradesOS mark, and it makes the point at a glance. Shipping a
+ * borrowed logo in a seed would be shipping somebody else's trademark in an
+ * open source repository.
+ */
+async function brand(sql: postgres.Sql): Promise<void> {
+  const png = Buffer.from(LOGO_PNG, "base64");
+  await sql`
+    insert into public.brand_asset
+      (id, organization_id, kind, content_type, bytes, size_bytes)
+    values (${id("brand:logo")}, ${ORG}, 'logo', 'image/png', ${png}, ${png.length})
+  `;
+}
+
+/** A blue ring on transparency, 64 by 64. Generated, not drawn. */
+const LOGO_PNG = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABOklEQVR4nO2UwRECMQwDrxFaon66CQ3wSGxZkoMfenLeXW7uWWs9/zw5gHpyAPXkAOpRj73en7WzawLsCiuD2EqzYrQRrwrRUh4ZoaU4MkR7+WyEK+QzEa6Rj0a4Sj4S4Tr50wh0eadbtACRjxPrbilEVJzJYC9fzQI/ihavZmolX8E2AVBHWPJovpbySM4JkH2wSh7FOgG6vv4o3tb/PoJ5AkyACTABJsAEmACxhzlEyPLCizoH+PX7CVDxWjnKT4CTAB0ioPhgB5gRkGwTgHXIUb4kQFWIKhbZYQf5rQBZgEwIxl0KyAkU89Z2ADQYY7te1FfSTf44QIcIpz6Sj5OLfDiAY4SoRziAU4SMQyqAOgSCHRJAEQHFDQvACoHmhQeoiFHJWBogGoTJRA3gODmAenIA9eQA6n0BieNe/gGRVqEAAAAASUVORK5CYII=";
 
 /**
  * A SAVED REPORT AND A DASHBOARD BUILT FROM IT

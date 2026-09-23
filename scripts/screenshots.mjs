@@ -107,7 +107,12 @@ const SHOTS = [
    * the things a reader is most likely to disbelieve: whether a number is
    * cleared to send, whether an automation is on, and who holds which role.
    */
-  { name: "settings", path: "/settings", token: OWNER, ...DESK, height: 900 },
+  /*
+    Settings opens on the branding controls, which are the only thing on that
+    screen anybody can change. The company's own colour and mark are applied
+    throughout the rest of the set.
+  */
+  { name: "settings", path: "/settings", token: OWNER, ...DESK, height: 1000 },
   /**
    * The inbox, and one thread inside it. Two shots because the list answers
    * "which of these needs me" and the thread answers "and what do I say",
