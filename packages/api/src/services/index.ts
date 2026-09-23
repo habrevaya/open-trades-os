@@ -37,3 +37,4 @@ export { writePosting } from "./ledger";
 export * as labor from "./labor";
 export * as telephony from "./telephony";
 export * as obligations from "./obligations";
+export * as files from "./files";

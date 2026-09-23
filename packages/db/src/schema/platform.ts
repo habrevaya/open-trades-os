@@ -136,6 +136,52 @@ export const brandAsset = pgTable("brand_asset", {
   kindIdx: uniqueIndex("brand_asset_kind_idx").on(t.organizationId, t.kind),
 }));
 
+/**
+ * THE BYTES BEHIND EVERY ATTACHMENT
+ *
+ * `attachment` holds a storage key and nothing wrote one, because there was
+ * no store to put a file in. This is that store, and it is Postgres for the
+ * same reason the brand assets are: a contractor self hosting this should be
+ * able to attach a photograph to a job without first standing up an object
+ * store, a bucket policy and a signed URL. Making photographs the feature
+ * that requires S3 is how a self hosted product becomes one nobody self
+ * hosts.
+ *
+ * It is NOT a claim that Postgres is where a large deployment should keep
+ * its files. `services/files.ts` reads and writes through one pair of
+ * functions so a deployment that wants an object store can be given one; as
+ * of this table, that other implementation does not exist, and this comment
+ * says so rather than describing a plan as a capability.
+ *
+ * CONTENT ADDRESSED. The key is derived from the SHA-256 of the bytes, so
+ * the same photograph attached to a job, a report and an invoice is one row
+ * with three references, and a phone retrying an upload over a metered
+ * connection writes to the key it already occupies.
+ *
+ * `references` is not a foreign key count and is not authoritative: it is
+ * maintained by the service and used only to decide when nothing points here
+ * any more. Deleting is a separate decision from decrementing.
+ */
+export const storedFile = pgTable("stored_file", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The content addressed path. Unique per organization by construction. */
+  storageKey: text("storage_key").notNull(),
+  /** Decided from the BYTES. Never what the upload claimed. */
+  contentType: text("content_type").notNull(),
+  sha256: text("sha256").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  bytes: customType<{ data: Buffer; driverData: Buffer }>({
+    dataType: () => "bytea",
+  })("bytes").notNull(),
+  references: integer("references").notNull().default(0),
+  uploadedByUserId: uuid("uploaded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  keyIdx: uniqueIndex("stored_file_key_idx").on(t.organizationId, t.storageKey),
+  hashIdx: index("stored_file_hash_idx").on(t.organizationId, t.sha256),
+}));
+
 export const attachment = pgTable("attachment", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),

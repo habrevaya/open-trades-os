@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { jobs, customers, commercial, entitlements, NotFoundError } from "@opentradesos/api/services";
+import {
+  jobs, customers, commercial, entitlements, files, NotFoundError,
+} from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Authorize, Coverage } from "./Commercial";
@@ -35,6 +37,32 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     entitlements.forJob(ctx, { jobId: id }),
     customers.get(ctx, { id: job.customerId }),
   ]);
+
+  /**
+   * What a technician photographed, and what is still on their phone.
+   *
+   * Both halves matter and only together. `field_upload` wrote a row per
+   * photograph the moment a visit synced, under a comment saying a report
+   * "should say so the moment it syncs, with the images following behind";
+   * the images never followed and nothing showed the promise either. A
+   * screen that showed only what arrived would say two photographs where
+   * there were three, and nobody would know to ask for the third.
+   */
+  const visitIds = job.visits.map((visit) => visit.id);
+  const photos = (await Promise.all(visitIds.map((visitId) =>
+    files.attachmentsFor(ctx, { entityType: "visit", entityId: visitId })
+      .then((rows) => rows.map((row) => ({ ...row, visitId }))),
+  ))).flat();
+  const outstanding = (await Promise.all(visitIds.map((visitId) =>
+    files.outstandingFor(ctx, { subjectType: "visit", subjectId: visitId }),
+  ))).reduce(
+    (total, one) => ({
+      stored: total.stored + one.stored,
+      pending: total.pending + one.pending,
+      abandoned: total.abandoned + one.abandoned,
+    }),
+    { stored: 0, pending: 0, abandoned: 0 },
+  );
   const writes = can(user.actor, "job:write");
 
   return (
@@ -217,6 +245,62 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             </tr>
           ))}
         </Table>
+      )}
+
+      {(photos.length > 0 || outstanding.pending > 0 || outstanding.abandoned > 0) && (
+        <>
+          <h2 className="mt-10 text-base font-semibold">Photos</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            {outstanding.pending > 0 && (
+              <span>
+                {outstanding.pending} still uploading from the van.{" "}
+              </span>
+            )}
+            {outstanding.abandoned > 0 && (
+              /*
+                Said out loud, and said differently from "still uploading".
+                A photograph that will never arrive and one that is on its
+                way are different things to tell somebody, and only one of
+                them is worth waiting for.
+              */
+              <span className="text-red-600">
+                {outstanding.abandoned} never arrived and the device has
+                stopped trying.
+              </span>
+            )}
+          </p>
+
+          {photos.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-3">
+              {photos.map((photo) => (
+                <li key={photo.id}>
+                  <a href={`/files/${photo.storageKey}`} className="block">
+                    {photo.contentType?.startsWith("image/") ? (
+                      /*
+                        A plain img rather than next/image. The optimizer
+                        would fetch this URL from the server side, where it
+                        has no session, so every photograph would come back
+                        a 404. A job photo is behind a login by design.
+                      */
+                      <img
+                        src={`/files/${photo.storageKey}`}
+                        alt={photo.fileName ?? "Job photo"}
+                        className="h-32 w-32 rounded border border-steel-200 object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-32 w-32 items-center justify-center rounded border border-steel-200 text-sm text-ink-700">
+                        {photo.fileName ?? "File"}
+                      </span>
+                    )}
+                  </a>
+                  {photo.phase && (
+                    <span className="mt-1 block text-xs text-ink-500">{photo.phase}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

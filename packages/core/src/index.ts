@@ -22,3 +22,4 @@ export * as inspection from "./inspection/index.js";
 export * as reviews from "./reviews/index.js";
 export * as labor from "./labor/index.js";
 export * as assets from "./assets/index.js";
+export * as files from "./files/index.js";

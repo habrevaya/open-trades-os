@@ -317,6 +317,66 @@ run("timesheets reach the HTTP API", () => {
   });
 });
 
+run("files reach the HTTP API", () => {
+  it("drains a queued upload and reports what is outstanding", async () => {
+    const [membership] = await raw<{ id: string }[]>`select id from public.membership
+      where organization_id = ${ORG} and user_id = ${USER}`;
+    const [device] = await raw<{ id: string }[]>`insert into public.device
+      (organization_id, technician_id, installation_id, platform)
+      values (${ORG}, ${technicianId}, 'shapes-install', 'android') returning id`;
+    void membership;
+
+    const visit = await jobs.addVisit(ctx(), {
+      id: jobId,
+      windowStart: new Date(Date.now() + 86_400_000).toISOString(),
+      windowEnd: new Date(Date.now() + 90_000_000).toISOString(),
+      estimatedDurationMinutes: 60,
+      technicianIds: [],
+    });
+
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 42]);
+    await raw`insert into public.field_upload
+      (organization_id, device_id, client_id, subject_type, subject_id, content_type)
+      values (${ORG}, ${device!.id}, 'shapes-upload', 'visit', ${visit.id}, 'image/jpeg')`;
+
+    const pending = await callRoute("listPendingUploads", { deviceId: device!.id }) as {
+      uploads: { clientId: string }[];
+    };
+    expect(pending.uploads.map((u) => u.clientId)).toContain("shapes-upload");
+
+    const stored = await callRoute("storeUpload", {
+      bytes: png.toString("base64"),
+      caption: "After",
+    }, { clientId: "shapes-upload" }) as { stored: boolean; storageKey: string | null };
+    expect(stored.stored).toBe(true);
+    expect(stored.storageKey).toBeTruthy();
+
+    const attached = await callRoute("listAttachments", {
+      entityType: "visit", entityId: visit.id,
+    }) as { attachments: unknown[] };
+    expect(attached.attachments.length).toBe(1);
+
+    const outstanding = await callRoute("getUploadStatus", {
+      subjectType: "visit", subjectId: visit.id,
+    }) as { stored: number; pending: number };
+    expect(outstanding).toMatchObject({ stored: 1, pending: 0 });
+  });
+
+  it("records a failure the device reports", async () => {
+    const [device] = await raw<{ id: string }[]>`insert into public.device
+      (organization_id, technician_id, installation_id, platform)
+      values (${ORG}, ${technicianId}, 'shapes-install-2', 'android') returning id`;
+    await raw`insert into public.field_upload
+      (organization_id, device_id, client_id, subject_type, content_type)
+      values (${ORG}, ${device!.id}, 'shapes-fail', 'visit', 'image/jpeg')`;
+
+    const result = await callRoute("failUpload", {
+      error: "No signal.",
+    }, { clientId: "shapes-fail" }) as { status: string; willRetry: boolean };
+    expect(result).toMatchObject({ status: "failed", willRetry: true });
+  });
+});
+
 run("calls reach the HTTP API", () => {
   it("logs a call, decides recording, and stores a redacted transcript", async () => {
     await callRoute("setRecordingPolicy", {

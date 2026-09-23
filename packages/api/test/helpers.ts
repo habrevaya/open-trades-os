@@ -70,7 +70,14 @@ const ORDER = [
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.
   "app_token", "connected_app",
-  "attachment", "audit_log", "integration_event", "webhook_endpoint",
+  /**
+   * Attachments before the files they point at. The key is a string rather
+   * than a foreign key, so nothing enforces this order; it is here for the
+   * reader, and because a stored file outliving every reference to it is
+   * exactly the leftover this list exists to prevent.
+   */
+  "attachment", "stored_file",
+  "audit_log", "integration_event", "webhook_endpoint",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",
   /**
