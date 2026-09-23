@@ -10,6 +10,7 @@ import * as properties from "../src/services/properties";
 import { inTenant, type ServiceContext } from "../src/services/context";
 import { jobScopeFilter, type ScopeContext } from "../src/services/scope";
 import * as roleService from "../src/services/roles";
+import { RoleEscalationError } from "../src/services/roles";
 import type { Scope } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { and, isNull } from "drizzle-orm";
@@ -420,5 +421,114 @@ run("a scope has to point at something", () => {
     await expect(roleService.assign(ctxFor(["owner"]), {
       membershipId: targetMembership, roleId: null, businessUnitId: otherOrgUnitId,
     })).rejects.toThrow(/business unit/i);
+  });
+});
+
+run("narrowing one person, and the column that reported it", () => {
+  /**
+   * `membership.scope_overrides` was written by nothing, and the settings
+   * screen renders a "Scope limits" column from it. An administrator opened
+   * Settings, saw that column blank for everybody, and concluded nobody's
+   * access had been narrowed. True, and true only because narrowing anybody's
+   * access was impossible.
+   *
+   * `membership.grants` and `.revocations` are the same shape: read by
+   * `permissionsFor` on every single request, written by nothing, so the only
+   * way to give one person one extra permission was to mint a role for them.
+   */
+  let target = "";
+
+  beforeAll(async () => {
+    if (!url) return;
+    const [m] = await raw<{ id: string }[]>`select id from public.membership
+      where organization_id = ${ORG} limit 1`;
+    target = m!.id;
+  });
+
+  const membershipRow = () => raw<{
+    scope_overrides: Record<string, string> | null;
+    grants: string[] | null;
+    revocations: string[] | null;
+  }[]>`select scope_overrides, grants, revocations from public.membership where id = ${target}`;
+
+  it("writes a scope limit somebody can then read back", async () => {
+    await roleService.assign(ctxFor(["owner"]), {
+      membershipId: target, roleId: null, scopeOverrides: { job: "own" },
+    });
+
+    // THE ASSERTION THE OLD CODE FAILED. Always {}, forever.
+    expect((await membershipRow())[0]!.scope_overrides).toEqual({ job: "own" });
+  });
+
+  it("refuses a limit that is not a scope, rather than saving a no-op", async () => {
+    await expect(roleService.assign(ctxFor(["owner"]), {
+      membershipId: target, roleId: null,
+      scopeOverrides: { job: "everything" as never },
+    })).rejects.toThrow(/not a scope/i);
+  });
+
+  it("gives one person one extra permission", async () => {
+    await roleService.assign(ctxFor(["owner"]), {
+      membershipId: target, roleId: null, grants: ["invoice:void"],
+    });
+    expect((await membershipRow())[0]!.grants).toEqual(["invoice:void"]);
+  });
+
+  it("refuses to grant what the caller does not hold themselves", async () => {
+    /**
+     * Checked with the same function that governs defining a role, rather
+     * than a second implementation. Two versions of "may you grant this"
+     * disagree eventually, and the disagreement is silent.
+     *
+     * THE CALLER HOLDS `membership:write` AND NOT `invoice:void`, and getting
+     * that pair right is the whole test. The first version used a dispatcher,
+     * who holds neither, so `guardedWrite` refused before the authority check
+     * ran: deleting the check left the test green, and it was measuring the
+     * permission on the endpoint rather than the escalation it is named for.
+     */
+    await expect(roleService.assign(ctxFor(["csr"]), {
+      membershipId: target, roleId: null, grants: ["invoice:void"],
+    })).rejects.toThrow(RoleEscalationError);
+  });
+
+  it("lets that same caller grant something they do hold", async () => {
+    // The other half, so the test above cannot pass by refusing everything.
+    await roleService.assign(ctxFor(["csr"]), {
+      membershipId: target, roleId: null, grants: ["customer:read"],
+    });
+    expect((await membershipRow())[0]!.grants).toEqual(["customer:read"]);
+  });
+
+  it("lets anybody who can edit memberships take a permission away", async () => {
+    /**
+     * Revocations are deliberately NOT checked against the caller's own set,
+     * and this test uses a CSR to prove it: they hold `membership:write` and
+     * not `invoice:void`, so if revocations went through the same authority
+     * check as grants, this call would be refused.
+     *
+     * The first version used an owner, who holds everything, so adding that
+     * check changed nothing and the property the test is named for was not
+     * being measured at all.
+     *
+     * Taking access away can only reduce what somebody can do. Requiring a
+     * permission before you may remove it is how an administrator ends up
+     * unable to lock down an account they are worried about.
+     */
+    await roleService.assign(ctxFor(["csr"]), {
+      membershipId: target, roleId: null, revocations: ["invoice:void"],
+    });
+    expect((await membershipRow())[0]!.revocations).toEqual(["invoice:void"]);
+  });
+
+  it("leaves all three alone when the caller says nothing about them", async () => {
+    await roleService.assign(ctxFor(["owner"]), {
+      membershipId: target, roleId: null,
+      scopeOverrides: { job: "own" }, grants: ["invoice:void"],
+    });
+    await roleService.assign(ctxFor(["owner"]), { membershipId: target, roleId: null });
+
+    const [row] = await membershipRow();
+    expect(row!.scope_overrides).toEqual({ job: "own" });
+    expect(row!.grants).toEqual(["invoice:void"]);
   });
 });

@@ -163,8 +163,17 @@ export default async function SettingsPage() {
                   : <span className="text-ink-700">{ROLE_PRESETS[membership.role]?.label ?? membership.role}</span>}
               </Td>
               <Td className="text-ink-700">
+                {/*
+                  This column was blank for everybody, forever.
+                  `membership.scope_overrides` was written by nothing, so an
+                  administrator read a blank column and concluded nobody's
+                  access had been narrowed. That was true, and true only
+                  because narrowing anybody's access was impossible.
+                  Saying so where the blank is beats leaving an empty cell
+                  that reads as a fact.
+                */}
                 {Object.keys(membership.scopeOverrides ?? {}).length === 0
-                  ? ""
+                  ? <span className="text-ink-500">None</span>
                   : Object.entries(membership.scopeOverrides).map(([k, v]) => `${k}: ${v}`).join(", ")}
               </Td>
             </tr>

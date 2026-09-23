@@ -185,6 +185,31 @@ export async function assign(
      */
     businessUnitId?: string | null;
     locationId?: string | null;
+    /**
+     * PER PERSON NARROWING, which can only ever take access away.
+     *
+     * `membership.scope_overrides` was written by nothing, and the settings
+     * screen renders a "Scope limits" column from it. So an administrator
+     * opened Settings, saw that column blank for everybody, and concluded
+     * nobody's access had been narrowed. That was true, and true only because
+     * narrowing anybody's access was impossible.
+     *
+     * `effectiveScope` in core already applies this as a CEILING: a role
+     * granting `job: "all"` with an override of `job: "own"` resolves to own.
+     * It cannot widen, which is why it needs no authority check of its own
+     * beyond the one on the role.
+     */
+    scopeOverrides?: Partial<Record<ScopedResource, Scope>> | null;
+    /**
+     * One extra permission for one person, and one taken away.
+     *
+     * Both columns are read by `permissionsFor` on every request and were
+     * written by nothing, so the only way to give somebody a single extra
+     * permission was to mint a whole role for them. Revocation beats a grant,
+     * which is what makes taking access away unambiguous.
+     */
+    grants?: Permission[] | null;
+    revocations?: Permission[] | null;
   },
 ) {
   return guardedWrite(ctx, "membership:write", async (tx) => {
@@ -268,6 +293,35 @@ export async function assign(
       if (!loc) throw new NotFoundError("Location");
     }
 
+    /**
+     * YOU CANNOT GRANT WHAT YOU DO NOT HOLD, checked with the same function
+     * that governs defining a role rather than a second implementation of
+     * the same idea. Two versions of "may you grant this" disagree
+     * eventually, and the disagreement is silent.
+     *
+     * Revocations are NOT checked, deliberately. Taking a permission away
+     * from somebody can only ever reduce what they can do, so an
+     * administrator who may edit memberships at all may do it, and requiring
+     * them to hold a permission before they can remove it is how somebody
+     * ends up unable to lock down an account they are worried about.
+     */
+    if (input.grants && input.grants.length > 0) {
+      assertWithinAuthority(ctx, { permissions: input.grants, scopes: {} });
+    }
+
+    /**
+     * An override may only narrow, and core enforces that when it resolves.
+     * Validated here anyway so an administrator who types a widening value
+     * is told, rather than saving something that silently does nothing.
+     */
+    for (const [resource, scope] of Object.entries(input.scopeOverrides ?? {})) {
+      if (!isScope(scope)) {
+        throw new ConflictError(
+          `${String(scope)} is not a scope, so the limit on ${resource} would do nothing.`,
+        );
+      }
+    }
+
     const [after] = await tx.update(schema.membership)
       .set({
         roleId: input.roleId,
@@ -278,6 +332,10 @@ export async function assign(
          */
         ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
         ...(input.locationId !== undefined ? { locationId: input.locationId } : {}),
+        ...(input.scopeOverrides !== undefined
+          ? { scopeOverrides: input.scopeOverrides ?? {} } : {}),
+        ...(input.grants !== undefined ? { grants: input.grants ?? [] } : {}),
+        ...(input.revocations !== undefined ? { revocations: input.revocations ?? [] } : {}),
         updatedAt: new Date(),
       })
       .where(eq(schema.membership.id, input.membershipId))
