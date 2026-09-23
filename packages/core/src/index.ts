@@ -6,3 +6,4 @@ export * as estimate from "./estimate/index.js";
 export * as field from "./field/index.js";
 export * as comms from "./comms/index.js";
 export * as automation from "./automation/index.js";
+export * as reporting from "./reporting/index.js";

@@ -1,4 +1,5 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
 
@@ -110,3 +111,28 @@ export const attachment = pgTable("attachment", {
   uploadedByUserId: uuid("uploaded_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({ entityIdx: index("attachment_entity_idx").on(t.organizationId, t.entityType, t.entityId) }));
+
+/**
+ * A SAVED REPORT
+ *
+ * The definition is data, validated against the catalogue in
+ * services/report-catalogue.ts before it is stored and again before it is
+ * run. Storing SQL here would make this table a remote code execution
+ * surface with a friendly name.
+ *
+ * Checked again at RUN time against whoever is running it, because a saved
+ * report is a stored intention rather than a stored permission: an owner
+ * saving "revenue by month" must not make it runnable by a dispatcher.
+ */
+export const report = pgTable("report", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  nameIdx: uniqueIndex("report_name_idx").on(t.organizationId, t.name)
+    .where(sql`${t.deletedAt} is null`),
+}));

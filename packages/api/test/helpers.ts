@@ -38,6 +38,7 @@ const ORDER = [
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.
   // Tasks before runs: a task points at the run that raised it.
+  "report",
   "task",
   "workflow_step_run", "workflow_run", "workflow_version", "workflow",
   "event_cursor", "domain_event",
