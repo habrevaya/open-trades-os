@@ -24,7 +24,16 @@ const NAV: { href: string; label: string; permission: Permission }[] = [
   { href: "/customers", label: "Customers", permission: "customer:read" },
   { href: "/pricebook", label: "Price book", permission: "pricebook:read" },
   { href: "/invoices", label: "Invoices", permission: "invoice:read" },
-  { href: "/reports", label: "Reports", permission: "report:read" },
+  /**
+   * Reports is absent on purpose rather than pending.
+   *
+   * It was in this list with no route behind it, along with five others, so
+   * the navigation 404ed for anybody who clicked. A door that leads nowhere
+   * is worse than a missing feature: the product reads as broken rather than
+   * unfinished. It goes back the day there is something behind it, and
+   * test/routes.test.ts fails if anything here ever gets ahead of the routes
+   * again.
+   */
   { href: "/settings", label: "Settings", permission: "settings:read" },
 ];
 

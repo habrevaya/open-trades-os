@@ -59,30 +59,42 @@ function shape(ctx: ServiceContext, row: ItemRow) {
    * would ask the access map about an entity that does not exist, and it would
    * silently return everything.
    */
-  const version = clean(ctx, "priceBookItemVersion", row.version) as Record<string, unknown>;
-  const cost = (version["cost"] ?? null) as string | null;
+  const version = clean(ctx, "priceBookItemVersion", row.version);
+  const visible = version as Record<string, unknown>;
+  const cost = (visible["cost"] ?? null) as string | null;
 
+  /**
+   * The fields that redaction can never remove are read from the ROW, not
+   * from the redacted copy.
+   *
+   * Reading them back out of a `Record<string, unknown>` was losing every
+   * type: `name` and `price` arrived at the caller as `unknown`, so the two
+   * most used fields in the price book had to be cast at each consumer, and
+   * a page rendering `price` where it meant `cost` would have compiled. Only
+   * `cost` and `commissionRate` are conditional, and only those are read
+   * through the redacted object.
+   */
   return {
     id: row.item.id,
     versionId: row.version.id,
     version: row.version.version,
     kind: row.item.kind,
     code: row.item.code,
-    name: version["name"],
-    description: version["description"] ?? null,
-    imageUrl: version["imageUrl"] ?? null,
+    name: row.version.name,
+    description: row.version.description ?? null,
+    imageUrl: row.version.imageUrl ?? null,
     categoryId: row.item.categoryId,
-    price: version["price"],
-    taxable: version["taxable"],
-    taxClass: version["taxClass"] ?? null,
-    laborMinutes: version["laborMinutes"] ?? null,
-    warrantyMonths: version["warrantyMonths"] ?? null,
+    price: row.version.price,
+    taxable: row.version.taxable,
+    taxClass: row.version.taxClass ?? null,
+    laborMinutes: row.version.laborMinutes ?? null,
+    warrantyMonths: row.version.warrantyMonths ?? null,
     active: row.item.active,
     // Absent entirely, rather than null, when the caller may not see it. A
     // null reads as "this item has no cost recorded", which is a different
     // fact from "you are not allowed to know".
-    ...("cost" in version ? { cost, margin: marginOf(String(version["price"]), cost) } : {}),
-    ...("commissionRate" in version ? { commissionRate: version["commissionRate"] } : {}),
+    ...("cost" in visible ? { cost, margin: marginOf(row.version.price, cost) } : {}),
+    ...("commissionRate" in visible ? { commissionRate: row.version.commissionRate } : {}),
     createdAt: row.item.createdAt,
     updatedAt: row.version.updatedAt,
   };

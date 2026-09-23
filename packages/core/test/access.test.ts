@@ -55,24 +55,45 @@ describe("technicians never see money they should not", () => {
 });
 
 describe("field redaction", () => {
-  const row = { id: "j1", summary: "No heat", total: "480.0000", cost: "210.0000", grossMargin: "270.0000" };
+  /**
+   * A real record shape, from a real table.
+   *
+   * This fixture used to be `{ id, summary, total, cost, grossMargin }`
+   * redacted as a "job", and `job` has none of those cost fields and never
+   * has. The test passed, the rules for `job.cost` and `job.grossMargin`
+   * existed, and neither could ever fire against an actual row: an invented
+   * fixture proved the mechanism and hid the fact that it was aimed at
+   * nothing. `job_line` is where a job's cost actually lives.
+   *
+   * packages/api/test/redaction.test.ts now checks every rule against the
+   * schema, so the pair cannot drift apart again.
+   */
+  const row = {
+    id: "jl1", name: "Condenser fan motor",
+    quantity: "1", unitPrice: "480.0000", unitCost: "210.0000",
+  };
 
-  it("strips cost and margin for a technician", () => {
-    const out = redact(actor(["technician"]), "job", row);
-    expect(out.total).toBe("480.0000");
-    expect(out.cost).toBeUndefined();
-    expect(out.grossMargin).toBeUndefined();
+  it("strips what a line cost us, for a technician", () => {
+    // They quote in the driveway and the customer can read their screen.
+    const out = redact(actor(["technician"]), "jobLine", row);
+    expect(out.unitPrice).toBe("480.0000");
+    expect(out.unitCost).toBeUndefined();
   });
 
-  it("keeps them for finance", () => {
-    const out = redact(actor(["accountant"]), "job", row);
-    expect(out.cost).toBe("210.0000");
-    expect(out.grossMargin).toBe("270.0000");
+  it("keeps it for finance", () => {
+    const out = redact(actor(["accountant"]), "jobLine", row);
+    expect(out.unitCost).toBe("210.0000");
+  });
+
+  it("strips a wage for anybody without payroll", () => {
+    const shift = { id: "t1", minutes: 480, appliedLoadedRate: "62.5000" };
+    expect(redact(actor(["dispatcher"]), "timeclockEntry", shift).appliedLoadedRate).toBeUndefined();
+    expect(redact(actor(["owner"]), "timeclockEntry", shift).appliedLoadedRate).toBe("62.5000");
   });
 
   it("does not mutate the input", () => {
-    redact(actor(["technician"]), "job", row);
-    expect(row.cost).toBe("210.0000");
+    redact(actor(["technician"]), "jobLine", row);
+    expect(row.unitCost).toBe("210.0000");
   });
 });
 

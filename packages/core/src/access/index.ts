@@ -100,6 +100,8 @@ export function effectiveScope(actor: Actor, resource: ScopedResource): Scope {
 export type RedactableField =
   | "cost" | "unitCost" | "margin" | "grossMargin" | "laborCost" | "materialCost"
   | "creditLimit" | "balance" | "discountRate"
+  | "baseRate" | "fringeRate"
+  | "appliedBaseRate" | "appliedFringeRate" | "appliedLoadedRate"
   | "payRate" | "loadedRate" | "commissionRate"
   | "productionRatePerDay" | "payoutExpected" | "purchaseCost";
 
@@ -107,6 +109,28 @@ export type RedactableField =
 export type Redacted<T> = Omit<T, RedactableField> &
   Partial<Pick<T, Extract<keyof T, RedactableField>>>;
 
+/**
+ * Every key here must name a field that exists, or the rule does nothing.
+ *
+ * `redact` walks the record's own keys, so a rule for a column the table does
+ * not have never fires. Eight of these named fields that had never been
+ * added: `job.cost`, `job.grossMargin`, `job.laborCost`, `job.materialCost`,
+ * `customer.balance`, `customer.creditLimit`, `technician.payRate` and
+ * `technician.loadedRate`. They read in review as protection that was in
+ * place, and `job.cost:read` and `payroll:read` were guarding nothing at all.
+ *
+ * Nothing leaked, because no service returned those rows, which is luck
+ * rather than design: the columns that DO hold cost had no rules. `jobLine`
+ * carries `unitCost` and exists for exactly that purpose, `wageScale` carries
+ * the wage, and `timeclockEntry` carries the rate as applied. All three are
+ * written today and would have been readable the first time anybody wrote a
+ * screen for them.
+ *
+ * The roll-ups (a job's total cost, a customer's balance) are not here
+ * because nothing computes them yet. They go back with the service that does,
+ * and test/redaction.test.ts fails if a rule ever gets ahead of a field
+ * again.
+ */
 export const FIELD_PERMISSIONS: Record<string, Permission> = {
   "priceBookItemVersion.cost": "pricebook.cost:read",
   "priceBookItemVersion.commissionRate": "commission:read",
@@ -117,15 +141,23 @@ export const FIELD_PERMISSIONS: Record<string, Permission> = {
   "estimateOption.cost": "job.cost:read",
   "estimateOption.margin": "job.cost:read",
   "estimateLine.unitCost": "pricebook.cost:read",
-  "job.cost": "job.cost:read",
-  "job.grossMargin": "job.cost:read",
-  "job.laborCost": "job.cost:read",
-  "job.materialCost": "job.cost:read",
-  "customer.creditLimit": "customer.financials:read",
-  "customer.balance": "customer.financials:read",
+  /**
+   * What the work actually cost, per line. `job_line` exists for this, and it
+   * is the field `job.cost:read` was always meant to be protecting.
+   */
+  "jobLine.unitCost": "job.cost:read",
   "customer.discountRate": "customer.financials:read",
-  "technician.payRate": "payroll:read",
-  "technician.loadedRate": "payroll:read",
+  /**
+   * Wages, at both ends. The scale is what a class of worker is paid; the
+   * timeclock entry is what was actually applied to a shift, which is the
+   * same fact about a named person on a named day and is if anything more
+   * sensitive.
+   */
+  "wageScale.baseRate": "payroll:read",
+  "wageScale.fringeRate": "payroll:read",
+  "timeclockEntry.appliedBaseRate": "payroll:read",
+  "timeclockEntry.appliedFringeRate": "payroll:read",
+  "timeclockEntry.appliedLoadedRate": "payroll:read",
   "crew.productionRatePerDay": "job.cost:read",
   "leadOffer.payoutExpected": "customer.financials:read",
   "rentableAsset.purchaseCost": "job.cost:read",

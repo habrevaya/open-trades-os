@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
+import { getDb } from "@/lib/db";
+import { todayIn } from "@/lib/dates";
+import { dispatch } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
+
+export const dynamic = "force-dynamic";
 
 /**
  * "Today" rather than "Dashboard". An owner opening this at 6am wants to know
@@ -25,6 +30,27 @@ export default async function TodayPage() {
   }
   const seesMoney = can(user.actor, "report.financial:read");
 
+  /**
+   * Real numbers, from the same query the board uses.
+   *
+   * These were four hardcoded zeros under a real heading, which is the worst
+   * version: a screen that says "0 completed" is making a claim, and an owner
+   * who has finished six jobs reads it as the product being wrong about their
+   * day rather than as a placeholder.
+   *
+   * Counted from the board rather than with four aggregate queries, because
+   * the board is one query the dispatcher's screen already runs and the
+   * numbers then cannot disagree with the screen they link to.
+   */
+  const today = todayIn(user.organizationTimezone);
+  const board = await dispatch.board({ actor: user.actor, db: getDb() }, { date: today });
+
+  const scheduled = board.technicians.reduce((n, t) => n + t.visits.length, 0);
+  const unassigned = board.unassigned.length;
+  const completed = board.technicians
+    .reduce((n, t) => n + t.visits.filter((v) => v.status === "completed").length, 0);
+  const empty = scheduled === 0 && unassigned === 0;
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -42,15 +68,28 @@ export default async function TodayPage() {
         </span>
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Visits scheduled" value="0" />
-        <Stat label="Unassigned" value="0" tone="warning" />
-        <Stat label="Completed" value="0" tone="success" />
-        {seesMoney ? <Stat label="Invoiced today" value="$0.00" mono /> : <Stat label="Open jobs" value="0" />}
+      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+        <Stat label="Visits today" value={String(scheduled + unassigned)} />
+        {/*
+          The tone appears only when the number means something. A "Needs
+          action" badge over a zero trains people to ignore the badge.
+        */}
+        <Stat label="Unassigned" value={String(unassigned)} {...(unassigned > 0 ? { tone: "warning" as const } : {})} />
+        <Stat label="Completed" value={String(completed)} {...(completed > 0 ? { tone: "success" as const } : {})} />
       </div>
 
+      {seesMoney ? (
+        <p className="mt-3 text-sm text-ink-500">
+          {/* Invoiced today was a hardcoded $0.00 here. It needs a sum over
+              today's invoices, which is a report rather than a board read,
+              so it is named as missing rather than shown as zero. */}
+          Revenue for the day is not on this screen yet.
+        </p>
+      ) : null}
+
+      {empty ? (
       <div className="mt-8 rounded-md border border-steel-200 bg-canvas p-8 text-center">
-        <p className="font-medium">Nothing scheduled yet</p>
+        <p className="font-medium">Nothing scheduled today</p>
         <p className="mx-auto mt-2 max-w-md text-sm text-ink-700">
           Add a customer and book their first job. The board fills in from there.
         </p>
@@ -65,6 +104,13 @@ export default async function TodayPage() {
           </a>
         </div>
       </div>
+      ) : (
+        <div className="mt-8">
+          <a href="/schedule" className="text-sm font-medium text-ink-900 hover:underline">
+            Open the board
+          </a>
+        </div>
+      )}
     </div>
   );
 }
