@@ -1,0 +1,48 @@
+# The worker.
+#
+# Drains the event log, runs workflows and hands queued messages to a carrier.
+# A separate image from the web application because the two fail differently:
+# a worker that dies must not take the UI with it, and a serverless web
+# deployment has nowhere to run a loop at all.
+#
+# Without this container running, the product works and automations do not.
+# Events are still written and they are still there when a worker starts.
+
+FROM node:22-alpine AS build
+WORKDIR /app
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY apps/web/package.json apps/web/
+COPY packages/api/package.json packages/api/
+COPY packages/core/package.json packages/core/
+COPY packages/db/package.json packages/db/
+COPY packages/ui/package.json packages/ui/
+COPY packages/trade-packs/package.json packages/trade-packs/
+COPY packages/field-client/package.json packages/field-client/
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+# Typechecked here rather than trusted. A worker image that builds and then
+# throws on its first event is worse than one that fails to build, because
+# the failure arrives at 2am against a customer's automation.
+RUN pnpm --filter @opentradesos/api exec tsc --noEmit
+
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+RUN corepack enable
+RUN addgroup -g 1001 -S nodejs && adduser -S -u 1001 -G nodejs worker
+
+# The workspace, as built. The worker runs TypeScript through tsx rather than
+# a compiled bundle, which is what the packages ship and what keeps the stack
+# traces pointing at source a contributor can open.
+COPY --from=build --chown=nodejs:nodejs /app ./
+
+USER worker
+
+# `WORKER_DATABASE_URL` should point at a role that may call
+# app.pending_event_organizations, which the request path's role deliberately
+# cannot. The migrations create `background` for exactly this.
+CMD ["pnpm", "--filter", "@opentradesos/api", "worker"]

@@ -86,3 +86,48 @@ jobs:
       # Tailwind classes that do not exist. The silent failure in this stack:
       # no rule, no warning, no build error, just an unstyled element.
       - run: pnpm --filter web test
+
+  # The self-host quickstart, actually run.
+  #
+  # `deploy/docker/docker-compose.yml` says its bar is that the file alone
+  # gets somebody from a clone to a working login. It referenced two
+  # Dockerfiles that did not exist, so `docker compose up` failed on the first
+  # line, and nothing in this workflow noticed because nothing here had ever
+  # opened it. A quickstart that does not start is worse than none: it is the
+  # first thing a stranger tries and the reason they stop.
+  selfhost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Parses the compose file and resolves every path in it, which is what
+      # catches a service pointing at a file nobody wrote.
+      - name: The compose file resolves
+        run: docker compose -f deploy/docker/docker-compose.yml config > /dev/null
+
+      # Built rather than linted. A Dockerfile that exists and does not build
+      # fails in exactly the same place for the reader.
+      - name: The web image builds
+        run: docker build -f deploy/docker/Dockerfile.web -t ots-web:ci .
+
+      - name: The worker image builds
+        run: docker build -f deploy/docker/Dockerfile.worker -t ots-worker:ci .
+
+      # And starts. An image that builds and cannot boot is the failure this
+      # job exists for: the standalone output has to carry the workspace
+      # packages, and when it does not, the build is clean and the container
+      # exits immediately.
+      - name: The web image starts and serves
+        run: |
+          docker run -d --name ots-web-ci -p 3000:3000 \
+            -e DATABASE_URL=postgresql://nobody:nobody@127.0.0.1:5432/none \
+            ots-web:ci
+          for i in $(seq 1 30); do
+            # The sign in page needs no database, which is the point: this
+            # checks the server booted, not that Postgres is reachable.
+            if curl -sf -o /dev/null http://localhost:3000/login; then
+              echo "served /login"; docker rm -f ots-web-ci; exit 0
+            fi
+            sleep 2
+          done
+          echo "never served a request"; docker logs ots-web-ci; exit 1

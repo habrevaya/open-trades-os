@@ -58,6 +58,8 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
+  # Without this, the product works and automations do not: events are written
+  # and nobody reads them. See docs/self-hosting/worker.md.
   worker:
     build:
       context: ../..
@@ -69,6 +71,10 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+    # It stops between events on a signal and then exits, so a slow stop is a
+    # bug rather than something to tune around.
+    stop_grace_period: 30s
+    restart: unless-stopped
 
 volumes:
   pgdata:

@@ -2,6 +2,26 @@
 module.exports = {
   reactStrictMode: true,
 
+  /**
+   * A self contained server directory, for the container image.
+   *
+   * Without it the image has to carry the whole pnpm store to run, which for
+   * this workspace is most of a gigabyte of node_modules that the server
+   * never touches at runtime. Next traces what is actually reachable and
+   * copies that.
+   */
+  output: "standalone",
+
+  /**
+   * Traced from the repository root, not from apps/web.
+   *
+   * The workspace packages live above this directory and are symlinked into
+   * it, and without this Next traces only what it can see below the app and
+   * the standalone output is missing @opentradesos/* entirely. The failure is
+   * a container that builds cleanly and cannot start.
+   */
+  outputFileTracingRoot: require("node:path").join(__dirname, "../.."),
+
   // Workspace packages ship TypeScript source rather than a build step, so the
   // app compiles them itself.
   transpilePackages: ["@opentradesos/ui", "@opentradesos/api", "@opentradesos/core", "@opentradesos/db"],

@@ -1,0 +1,59 @@
+# The web application.
+#
+# Two stages: one that installs and builds with the whole workspace present,
+# and one that carries only what the server actually needs at runtime. The
+# build stage is where pnpm, the TypeScript sources and every dev dependency
+# live, and none of that belongs in a running container.
+
+FROM node:22-alpine AS build
+WORKDIR /app
+
+# Corepack rather than `npm i -g pnpm`, so the version comes from
+# packageManager in package.json and the image cannot drift from what a
+# contributor runs locally.
+RUN corepack enable
+
+# The manifests first, on their own layer. Dependencies change far less often
+# than source, and copying the source in with them would invalidate the
+# install on every edit.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY apps/web/package.json apps/web/
+COPY packages/api/package.json packages/api/
+COPY packages/core/package.json packages/core/
+COPY packages/db/package.json packages/db/
+COPY packages/ui/package.json packages/ui/
+COPY packages/trade-packs/package.json packages/trade-packs/
+COPY packages/field-client/package.json packages/field-client/
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+# A build-time value is required by Next and is not the real one: the app
+# reads DATABASE_URL at request time, and baking a connection string into an
+# image is how credentials end up in a registry.
+ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter @opentradesos/web build
+
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+
+# Not root. A container that runs as root turns a bug in a dependency into a
+# host problem, and Node needs nothing that uid 0 provides.
+RUN addgroup -g 1001 -S nodejs && adduser -S -u 1001 -G nodejs nextjs
+
+# The standalone output, its static assets and public files. Nothing else:
+# no pnpm, no sources, no dev dependencies.
+COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+
+USER nextjs
+EXPOSE 3000
+
+# The traced entrypoint keeps the workspace layout, so the server is where
+# the app was rather than at the root.
+CMD ["node", "apps/web/server.js"]
