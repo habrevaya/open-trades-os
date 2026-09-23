@@ -249,7 +249,89 @@ export const configureBookableService = defineRoute({
   output: BookableService,
 });
 
+/**
+ * CREATING one, which nothing could do.
+ *
+ * `configureBookableService` UPDATES a row, and no code path in this product
+ * ever inserted one: not the API, not the app, not the seed. So the public
+ * booking page at /book/[slug] rendered an empty service list for every
+ * company, permanently, and the one endpoint that touched the table updated
+ * rows that could not exist. A whole customer-facing module was unreachable
+ * and nothing said so.
+ */
+export const createBookableService = defineRoute({
+  method: "post",
+  path: "/v1/booking/services",
+  summary: "Offer a job type to the public",
+  description:
+    "Per job type rather than per company: a shop will let the internet book a tune up two days out and will never let it book an emergency line replacement, and the difference is the job type.",
+  module: "M05",
+  permissions: ["booking:configure"],
+  idempotent: true,
+  input: z.object({
+    jobTypeId: Uuid,
+    publicName: z.string().min(1).max(200),
+    publicDescription: z.string().max(2000).optional(),
+    /**
+     * Absent means "we will quote on site", which is honest and converts
+     * better than a number the company will not honour.
+     */
+    displayPrice: MoneyString.optional(),
+    depositAmount: MoneyString.optional(),
+    depositPercent: RateString.optional(),
+    minNoticeHours: z.number().int().min(0).max(720).default(24),
+    maxAdvanceDays: z.number().int().min(1).max(365).default(60),
+    maxPerWindow: z.number().int().min(1).max(100).default(2),
+  }),
+  output: BookableService,
+});
+
+/**
+ * The arrival windows the booking page offers, and the days the company is
+ * open. Both tables were written by nothing, which is the other half of why
+ * the booking page had nothing on it: with no windows and no hours, even a
+ * service would have produced an empty calendar.
+ */
+export const setArrivalWindows = defineRoute({
+  method: "put",
+  path: "/v1/booking/arrival-windows",
+  summary: "Set the arrival windows customers may choose",
+  description:
+    "Sent as the whole list rather than one at a time, so there is no moment where a company has half a set of windows published.",
+  module: "M05",
+  permissions: ["booking:configure"],
+  input: z.object({
+    windows: z.array(z.object({
+      name: z.string().min(1).max(60),
+      /** Wall clock in the company's zone. "08:00", not an instant. */
+      startsAt: z.string().regex(/^\d{2}:\d{2}$/),
+      endsAt: z.string().regex(/^\d{2}:\d{2}$/),
+      /** 0 is Sunday, matching Postgres `dow` and JS `getDay`. */
+      daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1),
+    })).max(20),
+  }),
+  output: z.object({ windows: z.number().int() }),
+});
+
+export const setBusinessHours = defineRoute({
+  method: "put",
+  path: "/v1/booking/hours",
+  summary: "Set which days the company is open",
+  module: "M05",
+  permissions: ["booking:configure"],
+  input: z.object({
+    days: z.array(z.object({
+      dayOfWeek: z.number().int().min(0).max(6),
+      opensAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+      closesAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+      closed: z.boolean(),
+    })).length(7),
+  }),
+  output: z.object({ days: z.number().int() }),
+});
+
 export const bookingRoutes = {
+  createBookableService, setArrivalWindows, setBusinessHours,
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
   configureBookableService,

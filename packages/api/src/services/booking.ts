@@ -14,6 +14,7 @@ import type {
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
   configureBookableService,
+  createBookableService, setArrivalWindows, setBusinessHours,
 } from "../contracts/booking";
 
 const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
@@ -574,19 +575,30 @@ export async function configureService(
 
     await audit(tx, ctx, "booking.service.configured", "bookable_service", input.id, null, input);
 
-    return {
-      id: row.id,
-      publicName: row.publicName,
-      publicDescription: row.publicDescription,
-      displayPrice: row.displayPrice,
-      currency: row.currency,
-      depositAmount: row.depositAmount,
-      depositPercent: row.depositPercent,
-      minNoticeHours: row.minNoticeHours,
-      maxAdvanceDays: row.maxAdvanceDays,
-      intakeFields: row.intakeFields,
-    };
+    return shapeService(row);
   });
+}
+
+/**
+ * One shape for a service, used by creating and by configuring.
+ *
+ * Written out twice, it drifts: the second copy loses a field, and the
+ * difference only shows up as a client that works after an edit and not after
+ * a create.
+ */
+function shapeService(row: typeof schema.bookableService.$inferSelect) {
+  return {
+    id: row.id,
+    publicName: row.publicName,
+    publicDescription: row.publicDescription,
+    displayPrice: row.displayPrice,
+    currency: row.currency,
+    depositAmount: row.depositAmount,
+    depositPercent: row.depositPercent,
+    minNoticeHours: row.minNoticeHours,
+    maxAdvanceDays: row.maxAdvanceDays,
+    intakeFields: row.intakeFields,
+  };
 }
 
 /**
@@ -791,3 +803,191 @@ function minutesInto(clock: string): number {
 }
 const weekday = (dow: number) =>
   ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dow] ?? "";
+
+/**
+ * OFFERING A JOB TYPE TO THE PUBLIC, which nothing could do.
+ *
+ * `configureService` above updates a row. No code path in this product ever
+ * inserted one: not the API, not the app, not the seed. So `/book/[slug]`
+ * listed nothing for every company that has ever existed, permanently, and
+ * the only endpoint touching the table updated rows that could not be there.
+ *
+ * The module is marked as shipped. A whole customer-facing surface was
+ * unreachable and the only symptom was an empty list, which reads as "this
+ * company offers nothing online" rather than as a missing feature.
+ */
+export async function createService(
+  ctx: ServiceContext, input: z.infer<typeof createBookableService.input>,
+) {
+  return guardedWrite(ctx, "booking:configure", async (tx) => {
+    const [jobType] = await tx.select({ id: schema.jobType.id })
+      .from(schema.jobType)
+      .where(and(
+        eq(schema.jobType.id, input.jobTypeId),
+        eq(schema.jobType.organizationId, ctx.actor.organizationId),
+      )).limit(1);
+    if (!jobType) throw new NotFoundError("Job type");
+
+    /**
+     * One offering per job type. Two would put the same work on the booking
+     * page twice under different names and different prices, and the customer
+     * would pick whichever they saw first.
+     */
+    const [existing] = await tx.select({ id: schema.bookableService.id })
+      .from(schema.bookableService)
+      .where(and(
+        eq(schema.bookableService.jobTypeId, input.jobTypeId),
+        isNull(schema.bookableService.deletedAt),
+      )).limit(1);
+    if (existing) {
+      throw new ConflictError(
+        "That job type is already offered online. Edit the existing one rather than adding a second.",
+      );
+    }
+
+    /**
+     * A deposit is an amount OR a percent, never both.
+     *
+     * Both set means two answers to "what do they owe now", and the one that
+     * gets charged is whichever the code reads first. `depositDue` reads the
+     * amount, so a company that set 10 percent and later typed a flat fifty
+     * would silently start charging fifty.
+     */
+    if (input.depositAmount && input.depositPercent) {
+      throw new ConflictError(
+        "A deposit is either an amount or a percent. Two would be two answers to what the customer owes.",
+      );
+    }
+
+    const [row] = await tx.insert(schema.bookableService).values({
+      organizationId: ctx.actor.organizationId,
+      jobTypeId: input.jobTypeId,
+      publicName: input.publicName,
+      publicDescription: input.publicDescription ?? null,
+      displayPrice: input.displayPrice ?? null,
+      depositAmount: input.depositAmount ?? null,
+      depositPercent: input.depositPercent ?? null,
+      minNoticeHours: input.minNoticeHours,
+      maxAdvanceDays: input.maxAdvanceDays,
+      maxPerWindow: input.maxPerWindow,
+      /**
+       * Live immediately. A service created and left switched off is the
+       * same empty booking page the company just tried to fix, and the
+       * switch already exists on `configureService` for turning it back off.
+       */
+      isActive: true,
+    }).returning();
+
+    await audit(tx, ctx, "booking.service.created", "bookable_service", row!.id, null, row!);
+    return shapeService(row!);
+  });
+}
+
+/**
+ * The windows a customer may choose, replaced as a whole set.
+ *
+ * `arrival_window` was written by nothing, which is the other half of why the
+ * booking page was empty: with no windows, even a service produces a calendar
+ * with no slots on it.
+ *
+ * Sent as the entire list rather than one at a time, so there is no moment
+ * where a company has half a set of windows published. The alternative,
+ * add-one-then-remove-one, is visible to customers between the two calls.
+ */
+export async function setWindows(
+  ctx: ServiceContext, input: z.infer<typeof setArrivalWindows.input>,
+) {
+  return guardedWrite(ctx, "booking:configure", async (tx) => {
+    for (const window of input.windows) {
+      /**
+       * A window that ends before it starts would publish a slot nobody can
+       * arrive in, and `availability` would compute a negative span rather
+       * than refusing. Equal is refused too: a zero length window is a slot
+       * a customer can book and a technician cannot attend.
+       */
+      if (window.endsAt <= window.startsAt) {
+        throw new ConflictError(
+          `"${window.name}" ends at ${window.endsAt} and starts at ${window.startsAt}.`,
+        );
+      }
+    }
+
+    await tx.delete(schema.arrivalWindow)
+      .where(eq(schema.arrivalWindow.organizationId, ctx.actor.organizationId));
+
+    if (input.windows.length > 0) {
+      await tx.insert(schema.arrivalWindow).values(
+        input.windows.map((window, index) => ({
+          organizationId: ctx.actor.organizationId,
+          name: window.name,
+          startsAt: window.startsAt,
+          endsAt: window.endsAt,
+          daysOfWeek: window.daysOfWeek,
+          /**
+           * Position in the submitted list, so the booking page offers them
+           * in the order the company arranged rather than by name. "8am to
+           * 12pm" sorts after "12pm to 4pm" alphabetically.
+           */
+          sortOrder: index,
+          isActive: true,
+        })),
+      );
+    }
+
+    await audit(tx, ctx, "booking.windows.set", "organization",
+      ctx.actor.organizationId, null, { count: input.windows.length });
+
+    return { windows: input.windows.length };
+  });
+}
+
+/**
+ * Which days the company is open.
+ *
+ * All seven every time, because a partial week is ambiguous: a missing
+ * Saturday row could mean closed or could mean nobody has said yet, and
+ * `availability` treats an absent row as closed. Requiring the full set
+ * makes the company's answer explicit for every day.
+ */
+export async function setHours(
+  ctx: ServiceContext, input: z.infer<typeof setBusinessHours.input>,
+) {
+  return guardedWrite(ctx, "booking:configure", async (tx) => {
+    const days = new Set(input.days.map((d) => d.dayOfWeek));
+    if (days.size !== 7) {
+      throw new ConflictError("Send all seven days. A day left out is a day nobody has answered for.");
+    }
+
+    for (const day of input.days) {
+      if (day.closed) continue;
+      if (!day.opensAt || !day.closesAt) {
+        throw new ConflictError(
+          `Day ${day.dayOfWeek} is open and has no hours. Say when, or mark it closed.`,
+        );
+      }
+      if (day.closesAt <= day.opensAt) {
+        throw new ConflictError(
+          `Day ${day.dayOfWeek} closes at ${day.closesAt} and opens at ${day.opensAt}.`,
+        );
+      }
+    }
+
+    await tx.delete(schema.businessHours)
+      .where(eq(schema.businessHours.organizationId, ctx.actor.organizationId));
+
+    await tx.insert(schema.businessHours).values(
+      input.days.map((day) => ({
+        organizationId: ctx.actor.organizationId,
+        dayOfWeek: day.dayOfWeek,
+        opensAt: day.closed ? null : day.opensAt,
+        closesAt: day.closed ? null : day.closesAt,
+        closed: day.closed,
+      })),
+    );
+
+    await audit(tx, ctx, "booking.hours.set", "organization",
+      ctx.actor.organizationId, null, { open: input.days.filter((d) => !d.closed).length });
+
+    return { days: input.days.length };
+  });
+}

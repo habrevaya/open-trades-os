@@ -20,7 +20,7 @@ export type IconName =
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
-  | "timesheets";
+  | "timesheets" | "booking";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // A sun. One technician's own day, and the only screen they open.
@@ -127,6 +127,16 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="8.6" />
       <path d="M12 7.2V12l3.2 2.1" />
+    </>
+  ),
+  // A globe with a line through it. The public side of the product, which is
+  // what this screen configures: deliberately not the calendar, because this
+  // is about what strangers can see rather than what the company has booked.
+  booking: (
+    <>
+      <circle cx="12" cy="12" r="8.6" />
+      <path d="M3.4 12h17.2" />
+      <path d="M12 3.4a13 13 0 0 1 0 17.2a13 13 0 0 1 0-17.2Z" />
     </>
   ),
   automations: <path d="M13.4 2.6 5.2 13.2h5.4l-.9 8.2 8.2-10.6h-5.4l.9-8.2Z" />,

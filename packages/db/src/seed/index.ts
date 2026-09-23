@@ -270,6 +270,7 @@ async function main(): Promise<void> {
     await brand(sql);
     await stock(sql, jobTypes);
     await payroll(sql, technicians);
+    await bookingPage(sql, jobTypes);
     const links = await portalLinks(sql, customers);
     const owner = await session(sql, "owner");
     const tech = await session(sql, "ray");
@@ -1427,4 +1428,55 @@ async function payroll(sql: postgres.Sql, technicians: Map<string, string>): Pro
 
   // Sam: real hours, and no scale for an apprentice, so the cost is blank.
   for (const d of [0, 1, 2]) await punch("sam", d, 8, 8, null);
+}
+
+/**
+ * A BOOKING PAGE THAT ACTUALLY HAS SOMETHING ON IT.
+ *
+ * The seed never wrote any of the three tables the public page reads, and
+ * nothing in the product could either, so every demo of this feature has been
+ * an empty list. Seeded here so that /book/ridgeline-air shows what it is
+ * supposed to show.
+ *
+ * One job type is deliberately NOT offered online. A shop will let the
+ * internet book a tune up and will never let it book an emergency line
+ * replacement, and a demo where everything is bookable teaches the opposite
+ * of the model.
+ */
+async function bookingPage(sql: postgres.Sql, jobTypes: Map<string, string>): Promise<void> {
+  const tuneUp = jobTypes.get("maintenance") ?? [...jobTypes.values()][0];
+  if (!tuneUp) return;
+
+  await sql`insert into public.bookable_service
+    (id, organization_id, job_type_id, public_name, public_description,
+     display_price, min_notice_hours, max_advance_days, max_per_window, is_active)
+    values (${id("svc:tune-up")}, ${ORG}, ${tuneUp}, 'Seasonal tune up',
+            'A full system check before the season turns. About ninety minutes.',
+            149.0000, 24, 45, 2, true)`;
+
+  const windows = [
+    { name: "8am to 12pm", from: "08:00", to: "12:00" },
+    { name: "12pm to 4pm", from: "12:00", to: "16:00" },
+  ];
+  for (const [index, window] of windows.entries()) {
+    await sql`insert into public.arrival_window
+      (organization_id, name, starts_at, ends_at, days_of_week, sort_order, is_active)
+      values (${ORG}, ${window.name}, ${window.from}, ${window.to},
+              ${[1, 2, 3, 4, 5]}, ${index}, true)`;
+  }
+
+  /**
+   * Closed Sunday, open Saturday morning. Not a seven day week, because a
+   * company that is open every day at the same hours is the one shape this
+   * screen never has to get right.
+   */
+  for (const day of [0, 1, 2, 3, 4, 5, 6]) {
+    const closed = day === 0;
+    await sql`insert into public.business_hours
+      (organization_id, day_of_week, opens_at, closes_at, closed)
+      values (${ORG}, ${day},
+              ${closed ? null : "07:00"},
+              ${closed ? null : day === 6 ? "13:00" : "18:00"},
+              ${closed})`;
+  }
 }

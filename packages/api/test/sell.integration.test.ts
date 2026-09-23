@@ -661,3 +661,167 @@ run("booking from the website", () => {
     expect(declined.declineReason).toBe("outside_service_area");
   });
 });
+
+run("turning the booking page on at all", () => {
+  /**
+   * NOTHING COULD CREATE A BOOKABLE SERVICE. `configureBookableService`
+   * updates a row, and no code path in this product ever inserted one: not
+   * the API, not the app, not the seed. `arrival_window` and `business_hours`
+   * were written by nothing either.
+   *
+   * So /book/[slug] listed nothing for every company that has ever existed,
+   * permanently, and the only endpoint touching the table updated rows that
+   * could not be there. A whole customer facing module, marked as shipped,
+   * was unreachable, and the only symptom was an empty list that reads as
+   * "this company offers nothing online".
+   */
+  let freshJobType = "";
+
+  beforeAll(async () => {
+    if (!url) return;
+    const [jt] = await raw<{ id: string }[]>`insert into public.job_type
+      (organization_id, name, capacity_model)
+      values (${ORG_A}, 'Drain clearing', 'technician_dispatch') returning id`;
+    freshJobType = jt!.id;
+  });
+
+  it("creates a service the public list then returns", async () => {
+    const created = await booking.createService(office(), {
+      jobTypeId: freshJobType,
+      publicName: "Drain clearing",
+      publicDescription: "One fixture, cleared and camera checked.",
+      displayPrice: "189.00",
+      minNoticeHours: 24, maxAdvanceDays: 30, maxPerWindow: 2,
+    });
+
+    expect(created.publicName).toBe("Drain clearing");
+
+    // THE ASSERTION THAT MATTERS: it reaches the page a stranger loads.
+    const { services } = await booking.listServices(db(), { organizationSlug: "acme-sell" });
+    expect(services.map((s) => s.id)).toContain(created.id);
+  });
+
+  it("refuses a second offering of the same job type", async () => {
+    /**
+     * Two would put the same work on the booking page twice under different
+     * names and different prices, and the customer picks whichever they see
+     * first.
+     */
+    await expect(booking.createService(office(), {
+      jobTypeId: freshJobType, publicName: "Drains (again)",
+      minNoticeHours: 24, maxAdvanceDays: 30, maxPerWindow: 2,
+    })).rejects.toThrow(/already offered/i);
+  });
+
+  it("refuses a deposit that is both an amount and a percent", async () => {
+    /**
+     * Two answers to "what does the customer owe now", and the one charged is
+     * whichever the code reads first. `depositDue` reads the amount, so a
+     * company that set ten percent and later typed a flat fifty would
+     * silently start charging fifty.
+     */
+    const [jt] = await raw<{ id: string }[]>`insert into public.job_type
+      (organization_id, name, capacity_model)
+      values (${ORG_A}, 'Both deposits', 'technician_dispatch') returning id`;
+
+    await expect(booking.createService(office(), {
+      jobTypeId: jt!.id, publicName: "Both",
+      depositAmount: "50.00", depositPercent: "0.10",
+      minNoticeHours: 24, maxAdvanceDays: 30, maxPerWindow: 2,
+    })).rejects.toThrow(/either an amount or a percent/i);
+  });
+
+  it("refuses a job type belonging to nobody here", async () => {
+    await expect(booking.createService(office(), {
+      jobTypeId: "11111111-1111-4111-8111-111111111111", publicName: "Nope",
+      minNoticeHours: 24, maxAdvanceDays: 30, maxPerWindow: 2,
+    })).rejects.toThrow(/job type/i);
+  });
+});
+
+run("the windows and days a booking page is built from", () => {
+  it("replaces the whole set of windows at once", async () => {
+    /**
+     * Not one at a time. Add-then-remove is visible to customers between the
+     * two calls, which is a company publishing half a set of windows.
+     */
+    const { windows } = await booking.setWindows(office(), {
+      windows: [
+        { name: "8am to 12pm", startsAt: "08:00", endsAt: "12:00", daysOfWeek: [1, 2, 3, 4, 5] },
+        { name: "12pm to 4pm", startsAt: "12:00", endsAt: "16:00", daysOfWeek: [1, 2, 3, 4, 5] },
+      ],
+    });
+    expect(windows).toBe(2);
+
+    const rows = await raw<{ name: string; sort_order: number }[]>`
+      select name, sort_order from public.arrival_window
+      where organization_id = ${ORG_A} order by sort_order, name`;
+
+    /**
+     * The POSITIONS are asserted, not just the order they came back in.
+     *
+     * The first version checked only the returned order, and giving every
+     * window the same sort order left it green: Postgres returned them in
+     * insertion order by coincidence, and a tie broken by anything else, a
+     * different plan or a later update, would have reordered a customer's
+     * booking page with no test noticing.
+     *
+     * The names are deliberately ones where alphabetical and arranged order
+     * disagree, so the thing being protected is visible in the fixture.
+     */
+    expect(rows.map((r) => [r.name, r.sort_order])).toEqual([
+      ["8am to 12pm", 0],
+      ["12pm to 4pm", 1],
+    ]);
+  });
+
+  it("refuses a window that ends before it starts", async () => {
+    await expect(booking.setWindows(office(), {
+      windows: [{ name: "Backwards", startsAt: "16:00", endsAt: "08:00", daysOfWeek: [1] }],
+    })).rejects.toThrow(/ends at 08:00/);
+  });
+
+  it("refuses a window of zero length", async () => {
+    // A slot a customer can book and a technician cannot attend.
+    await expect(booking.setWindows(office(), {
+      windows: [{ name: "Instant", startsAt: "09:00", endsAt: "09:00", daysOfWeek: [1] }],
+    })).rejects.toThrow();
+  });
+
+  it("wants an answer for all seven days", async () => {
+    /**
+     * A partial week is ambiguous: a missing Saturday could mean closed or
+     * could mean nobody has said. `availability` treats an absent row as
+     * closed, so silence becomes a decision nobody made.
+     */
+    await expect(booking.setHours(office(), {
+      days: [{ dayOfWeek: 1, opensAt: "07:00", closesAt: "18:00", closed: false }] as never,
+    })).rejects.toThrow();
+  });
+
+  it("refuses a day that is open with no hours on it", async () => {
+    const days = [0, 1, 2, 3, 4, 5, 6].map((d) => ({
+      dayOfWeek: d,
+      opensAt: d === 3 ? null : "07:00",
+      closesAt: d === 3 ? null : "18:00",
+      closed: false,
+    }));
+    await expect(booking.setHours(office(), { days })).rejects.toThrow(/open and has no hours/i);
+  });
+
+  it("stores a closed day with no hours, which is a real answer", async () => {
+    const days = [0, 1, 2, 3, 4, 5, 6].map((d) => ({
+      dayOfWeek: d,
+      opensAt: d === 0 ? null : "07:00",
+      closesAt: d === 0 ? null : "18:00",
+      closed: d === 0,
+    }));
+    await booking.setHours(office(), { days });
+
+    const rows = await raw<{ day_of_week: number; closed: boolean }[]>`
+      select day_of_week, closed from public.business_hours
+      where organization_id = ${ORG_A} order by day_of_week`;
+    expect(rows).toHaveLength(7);
+    expect(rows[0]!.closed).toBe(true);
+  });
+});

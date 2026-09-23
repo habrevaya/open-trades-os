@@ -137,6 +137,9 @@ export const handlers = {
   confirmBookingRequest: booking.confirm,
   declineBookingRequest: booking.decline,
   configureBookableService: booking.configureService,
+  createBookableService: booking.createService,
+  setArrivalWindows: booking.setWindows,
+  setBusinessHours: booking.setHours,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;
