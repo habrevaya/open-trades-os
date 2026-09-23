@@ -8,6 +8,8 @@ import { portalRoutes } from "./portal";
 import { bookingRoutes } from "./booking";
 import { fieldRoutes } from "./field";
 import { telephonyRoutes } from "./telephony";
+import { inventoryRoutes } from "./inventory";
+import { laborRoutes } from "./labor";
 
 export * from "./common";
 export * from "./customers";
@@ -20,6 +22,8 @@ export * from "./portal";
 export * from "./booking";
 export * from "./field";
 export * from "./telephony";
+export * from "./inventory";
+export * from "./labor";
 
 /**
  * Every route in the product, and the only description of them.
@@ -50,6 +54,8 @@ export const routes = {
   ...bookingRoutes,
   ...fieldRoutes,
   ...telephonyRoutes,
+  ...inventoryRoutes,
+  ...laborRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

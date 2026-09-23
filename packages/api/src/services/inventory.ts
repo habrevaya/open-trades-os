@@ -810,3 +810,159 @@ export async function releaseAllFor(
 
   return { released };
 }
+
+/* --------------------------------------------------------------- handlers */
+
+/**
+ * The contract shapes.
+ *
+ * Thin on purpose: every one of these is a rename or an envelope, and the
+ * deciding is all above. A handler layer that did arithmetic would be a
+ * second place where a quantity could be misread, and the whole point of the
+ * scaled integer is that there is only one.
+ */
+/**
+ * A movement, cut down to what the contract publishes.
+ *
+ * The row carries `organizationId`, `recordedByUserId` and the soft delete
+ * columns, and none of them belong on the wire: the organization is the
+ * caller's own, so it is noise, and the other two are this database's
+ * bookkeeping rather than facts about the part that moved. Shaping here
+ * rather than letting zod strip them on the way out keeps the document
+ * EXACT, which is the only version of it worth generating a client from.
+ */
+export interface MovementOnTheWire {
+  id: string;
+  itemId: string;
+  locationId: string;
+  kind: string;
+  quantity: string;
+  totalCost: string | null;
+  jobId: string | null;
+  transferId: string | null;
+  reasonCode: string | null;
+  sequence: number;
+  occurredAt: Date;
+}
+
+const onTheWire = (rows: readonly (typeof schema.stockMovement.$inferSelect)[]): MovementOnTheWire[] =>
+  rows.map((row) => ({
+    id: row.id,
+    itemId: row.itemId,
+    locationId: row.locationId,
+    kind: row.kind,
+    quantity: row.quantity,
+    totalCost: row.totalCost,
+    jobId: row.jobId,
+    transferId: row.transferId,
+    reasonCode: row.reasonCode,
+    sequence: row.sequence,
+    occurredAt: row.occurredAt,
+  }));
+
+export const handlers = {
+  listStockLevels: async (ctx: ServiceContext) => ({ levels: await levels(ctx) }),
+
+  listCommitments: async (ctx: ServiceContext) => ({ commitments: await commitments(ctx) }),
+
+  /**
+   * Spelled out because core's suggestion type would otherwise name its own
+   * module path in this table's inferred type. Every quantity is already a
+   * label by the time it gets here: core works in scaled integers and the
+   * wire never sees one.
+   */
+  listReorderSuggestions: async (ctx: ServiceContext): Promise<{
+    suggestions: {
+      itemId: string; itemName: string; locationId: string; locationName: string;
+      suggested: string; position: string; availableNow: string;
+      onOrder: string; reorderPoint: string; preferredVendorId?: string | undefined;
+    }[];
+  }> => ({ suggestions: await toOrder(ctx) }),
+
+  getJobMaterialCost: async (ctx: ServiceContext, input: { jobId: string }) => ({
+    cost: await costOfJob(ctx, input),
+  }),
+
+  reserveStock: async (ctx: ServiceContext, input: {
+    itemId: string; locationId: string; jobId: string; quantity: string;
+  }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await reserve(ctx, input)) }),
+
+  releaseStock: async (ctx: ServiceContext, input: {
+    itemId: string; locationId: string; jobId: string; quantity: string;
+  }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await release(ctx, input)) }),
+
+  issueStock: async (ctx: ServiceContext, input: {
+    itemId: string; locationId: string; jobId: string; quantity: string;
+  }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await issue(ctx, input)) }),
+
+  receiveStock: async (ctx: ServiceContext, input: {
+    itemId: string; locationId: string; quantity: string; totalCost: string;
+  }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await receive(ctx, input)) }),
+
+  countStock: async (ctx: ServiceContext, input: {
+    itemId: string; locationId: string; counted: string;
+    reasonCode?: string | undefined; foundAtCost?: string | undefined;
+  }): Promise<{ movements: MovementOnTheWire[] }> => ({
+    movements: onTheWire(await count(ctx, {
+      itemId: input.itemId,
+      locationId: input.locationId,
+      counted: input.counted,
+      ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+      ...(input.foundAtCost ? { foundAtCost: input.foundAtCost } : {}),
+    })),
+  }),
+
+  transferStock: async (ctx: ServiceContext, input: {
+    itemId: string; fromLocationId: string; toLocationId: string; quantity: string;
+  }): Promise<{ movements: MovementOnTheWire[] }> => ({ movements: onTheWire(await transfer(ctx, input)) }),
+
+  listVendors: async (ctx: ServiceContext) => ({ vendors: await vendors(ctx) }),
+
+  createVendor: (ctx: ServiceContext, input: {
+    name: string; accountNumber?: string | undefined;
+    email?: string | undefined; phone?: string | undefined;
+  }) => createVendor(ctx, {
+    name: input.name,
+    ...(input.accountNumber ? { accountNumber: input.accountNumber } : {}),
+    ...(input.email ? { email: input.email } : {}),
+    ...(input.phone ? { phone: input.phone } : {}),
+  }),
+
+  listPurchaseOrders: async (ctx: ServiceContext) => ({
+    purchaseOrders: await purchaseOrders(ctx),
+  }),
+
+  createPurchaseOrder: (ctx: ServiceContext, input: {
+    vendorId: string; defaultLocationId: string;
+    expectedAt?: string | undefined; notes?: string | undefined;
+    lines: readonly { itemId: string; locationId?: string | undefined; quantity: string; unitPrice: string }[];
+  }) => createPurchaseOrder(ctx, {
+    vendorId: input.vendorId,
+    defaultLocationId: input.defaultLocationId,
+    ...(input.expectedAt ? { expectedAt: new Date(input.expectedAt) } : {}),
+    ...(input.notes ? { notes: input.notes } : {}),
+    lines: input.lines.map((line) => ({
+      itemId: line.itemId,
+      ...(line.locationId ? { locationId: line.locationId } : {}),
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+    })),
+  }),
+
+  /**
+   * The status union is written out rather than imported from core, so this
+   * table's inferred type does not name core's internal module path. The
+   * cast is checked by the contract's own enum on the way in.
+   */
+  setPurchaseOrderStatus: (ctx: ServiceContext, input: {
+    id: string;
+    status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
+  }): Promise<{ id: string; status: string }> => setPurchaseOrderStatus(ctx, input),
+
+  receivePurchaseOrder: (ctx: ServiceContext, input: {
+    id: string; lines: readonly { lineId: string; quantity: string }[];
+  }): Promise<{ status: string }> => receivePurchaseOrder(ctx, {
+    purchaseOrderId: input.id,
+    lines: input.lines.map((l) => ({ lineId: l.lineId, quantity: l.quantity })),
+  }),
+} as const;

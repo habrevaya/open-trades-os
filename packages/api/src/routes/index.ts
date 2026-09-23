@@ -5,7 +5,7 @@ import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
-  fieldOps, dispatch, properties, priceBook, telephony,
+  fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
 } from "../services/index";
 
 /**
@@ -124,6 +124,30 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Stock. Every write appends a movement; no route sets a level, because
+  // levels are a fold over the movements and a setter destroys the evidence.
+  listStockLevels: inventory.handlers.listStockLevels,
+  listCommitments: inventory.handlers.listCommitments,
+  reserveStock: inventory.handlers.reserveStock,
+  releaseStock: inventory.handlers.releaseStock,
+  issueStock: inventory.handlers.issueStock,
+  receiveStock: inventory.handlers.receiveStock,
+  countStock: inventory.handlers.countStock,
+  transferStock: inventory.handlers.transferStock,
+  listReorderSuggestions: inventory.handlers.listReorderSuggestions,
+  getJobMaterialCost: inventory.handlers.getJobMaterialCost,
+  listVendors: inventory.handlers.listVendors,
+  createVendor: inventory.handlers.createVendor,
+  listPurchaseOrders: inventory.handlers.listPurchaseOrders,
+  createPurchaseOrder: inventory.handlers.createPurchaseOrder,
+  setPurchaseOrderStatus: inventory.handlers.setPurchaseOrderStatus,
+  receivePurchaseOrder: inventory.handlers.receivePurchaseOrder,
+
+  // Time. The week is derived on every read; the rate is frozen once.
+  getTimesheetWeek: labor.handlers.getTimesheetWeek,
+  listTimeEntries: labor.handlers.listTimeEntries,
+  approveTimeEntries: labor.handlers.approveTimeEntries,
 
   // Voice. Both gates run before the thing they gate, never after.
   listRecordingPolicies: telephony.handlers.listRecordingPolicies,

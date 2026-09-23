@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { schema } from "@opentradesos/db";
 import { parties, labor, marketing } from "@opentradesos/core";
+import * as contracts from "../src/contracts/index";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -144,4 +145,39 @@ describe("lead sources", () => {
     expect(keys).toContain("direct");
     expect(keys).toContain("unknown");
   });
+});
+
+/**
+ * A CONTRACT ENUM IS A THIRD COPY OF THE SAME LIST
+ *
+ * The party roles exist twice by necessity. A published enum makes a third,
+ * and it is the worst of the three to get wrong: the OpenAPI document and
+ * every generated client are built from it, so a missing value becomes a
+ * type in somebody else's codebase that says a real response is impossible.
+ *
+ * This was not hypothetical. `MovementKind` shipped with seven of the eleven
+ * kinds, chosen from memory, and the one most obviously missing was
+ * `adjustment_out`: what a physical count writes when the shelf came up
+ * short. A client generated from that document would have broken on the days
+ * a count found less than the history expected, and on no other day.
+ *
+ * `PurchaseOrderStatus` was missing `acknowledged` in the same commit, which
+ * would have made a legal transition fail input validation at the edge.
+ */
+describe("published enums match the columns behind them", () => {
+  const pairs: [string, readonly string[], readonly string[]][] = [
+    ["stock_movement_kind", contracts.MovementKind.options, schema.movementKind.enumValues],
+    ["purchase_order_status", contracts.PurchaseOrderStatus.options, schema.purchaseOrderStatus.enumValues],
+    ["call_status", contracts.CallStatus.options, schema.callStatus.enumValues],
+  ];
+
+  it("covers more than one column, so the loop is not proving itself", () => {
+    expect(pairs.length).toBeGreaterThan(1);
+  });
+
+  for (const [column, published, stored] of pairs) {
+    it(`publishes exactly the values ${column} can hold`, () => {
+      expect([...published].sort()).toEqual([...stored].sort());
+    });
+  }
 });

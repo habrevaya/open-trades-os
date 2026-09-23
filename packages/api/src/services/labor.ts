@@ -418,3 +418,49 @@ export async function entriesFor(
     return { weekStart, entries: rows };
   });
 }
+
+/* --------------------------------------------------------------- handlers */
+
+/**
+ * The policy as the contract publishes it: the fields that explain the
+ * numbers, spelled out rather than imported, so the handler table's inferred
+ * type does not name core's internal module path. `punchRounding` and
+ * `countsTowardOvertime` are deliberately left off the wire for now, because
+ * a field published non-optionally and then found to be unwritten is the
+ * defect this codebase spends most of its time removing.
+ */
+export interface PolicyOnTheWire {
+  label: string;
+  timeZone: string;
+  weekStartsOn: number;
+  dayAttribution: "shift_start" | "split_at_midnight";
+  weeklyThresholdMinutes: number | null;
+  weeklyDoubleTimeThresholdMinutes: number | null;
+  dailyThresholdMinutes: number | null;
+  dailyDoubleTimeThresholdMinutes: number | null;
+  overtimeMultiplier: string;
+  doubleTimeMultiplier: string;
+  onCallTreatment: "separate_rate_not_hours_worked" | "hours_worked_at_base";
+}
+
+export const handlers = {
+  /**
+   * The policy is returned alongside the rows rather than left implicit,
+   * because a week of hours means nothing without the rule that classified
+   * it. Its type is spelled out here so this table does not name core's
+   * internal module path.
+   */
+  getTimesheetWeek: (ctx: ServiceContext, input: {
+    weekOf: string; technicianId?: string | undefined;
+  }): Promise<{ weekStart: string; policy: PolicyOnTheWire; rows: WeekRow[] }> =>
+    week(ctx, {
+      weekOf: input.weekOf,
+      ...(input.technicianId ? { technicianId: input.technicianId } : {}),
+    }),
+
+  listTimeEntries: (ctx: ServiceContext, input: { technicianId: string; weekOf: string }) =>
+    entriesFor(ctx, input),
+
+  approveTimeEntries: (ctx: ServiceContext, input: { entryIds: readonly string[] }) =>
+    approve(ctx, { entryIds: [...input.entryIds] }),
+} as const;
