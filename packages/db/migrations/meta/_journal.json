@@ -120,6 +120,13 @@
       "when": 1790132124513,
       "tag": "0016_true_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790134711653,
+      "tag": "0017_adorable_dragon_man",
+      "breakpoints": true
     }
   ]
 }

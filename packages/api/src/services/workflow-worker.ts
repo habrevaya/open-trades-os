@@ -1,8 +1,9 @@
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import type { Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
+import { tick } from "./workflow-schedule";
 
 /**
  * THE WORKER
@@ -46,7 +47,7 @@ export interface DrainResult {
 /** The actor a drain uses to enter a tenant. Holds nothing. */
 function workerActor(organizationId: string): Actor {
   return {
-    userId: "00000000-0000-0000-0000-000000000000",
+    userId: SYSTEM_USER_ID,
     organizationId,
     roles: [],
     grants: [],
@@ -178,6 +179,15 @@ export async function runWorker(options: {
   signal?: AbortSignal;
   onPass?: (results: DrainResult[]) => void;
   /**
+   * Whether this worker also drives the clock.
+   *
+   * On by default, and the same loop rather than a second process, because a
+   * scheduled workflow is a workflow: it queues messages into the same outbox
+   * and writes into the same event log. A deployment that wants the clock
+   * somewhere else turns it off here.
+   */
+  schedules?: boolean;
+  /**
    * Runs after each drain, for the organizations that had events.
    *
    * The outbox is separate from the runner on purpose: a workflow queues a
@@ -192,6 +202,20 @@ export async function runWorker(options: {
 
   while (!options.signal?.aborted) {
     try {
+      /**
+       * The clock first, so anything it fires is in the log before this
+       * pass reads it and goes out on the same pass rather than the next.
+       */
+      if (options.schedules !== false) {
+        try {
+          await tick(options.db);
+        } catch (error) {
+          // Same reasoning as the drain below: logged and retried. A worker
+          // that exits here stops every automation in the product.
+          console.error("[worker] schedules:", (error as Error).message);
+        }
+      }
+
       const results = await drainAll(options.db);
 
       for (const result of results) {

@@ -1,4 +1,5 @@
 import type { Permission } from "../access/permissions.js";
+export * from "./schedule.js";
 
 /**
  * THE WORKFLOW ENGINE'S DECISIONS

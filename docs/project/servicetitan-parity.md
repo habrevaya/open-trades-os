@@ -50,7 +50,7 @@ than pretending otherwise.
 | Phones, IVR, call recording, softphone (Phones Pro, Contact Center) | M18 | Part built |
 | Ads, attribution, call tracking, email (Marketing Pro) | M19 | Planned |
 | Reviews and reputation | M20 | Planned |
-| Reporting, dashboards, custom reports | M21 | Planned |
+| Reporting, dashboards, custom reports | M21 | Part built |
 | Fleet and GPS (Fleet Pro) | M22 | Planned |
 | Documents, licences, compliance, safety | M23 | Planned |
 | People, certifications, skills | M24 | Planned |

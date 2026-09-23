@@ -12,6 +12,24 @@ export * from "./scopes";
  * something the credential behind it could not do in the UI. There is no
  * separate agent permission path to get wrong.
  */
+/**
+ * THE ACTOR THAT IS NOT A PERSON
+ *
+ * The worker, the scheduler, the outbox, an inbound webhook and a workflow
+ * run all act as somebody, and none of them is a user. They were each
+ * writing this uuid out by hand, which is fine until something tries to
+ * store it: `domain_event.actor_user_id` has a foreign key, and the nil uuid
+ * is not a row in the user table, so the first event a scheduled workflow
+ * emitted failed on a constraint five layers below where it could be read.
+ *
+ * Named here so the places that record an actor can ask whether there is a
+ * person behind it, rather than comparing against a literal.
+ */
+export const SYSTEM_USER_ID = "00000000-0000-0000-0000-000000000000";
+
+/** Whether this actor is the system rather than somebody. */
+export const isSystem = (actor: { userId: string }) => actor.userId === SYSTEM_USER_ID;
+
 export interface Actor {
   userId: string;
   organizationId: string;

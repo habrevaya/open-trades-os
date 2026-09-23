@@ -47,22 +47,61 @@ export function offsetAt(instant: Date, timeZone: string): number {
 }
 
 /**
- * The instant a calendar day starts in a zone.
+ * The instant at which a wall clock reads this, in a zone.
  *
  * Solved by iteration rather than algebra: guess that the offset is whatever
- * it is at UTC midnight, correct, and check again. The second pass is what
- * handles a day that begins inside a daylight saving transition, where the
- * offset before the guess and the offset after it are different.
+ * it is at the same numbers read as UTC, correct, and check again. The second
+ * pass is what handles a time that sits inside a daylight saving transition,
+ * where the offset before the guess and the offset after it differ.
+ *
+ * Two wall times are not instants at all and this cannot say so on its own:
+ * the hour that does not exist when the clocks go forward, and the hour that
+ * happens twice when they go back. `wallTimeExists` answers the first, and
+ * the second resolves to the earlier of the two, which is the reading a
+ * person who wrote "1:30am" would recognise.
  */
-export function startOfDayIn(date: string, timeZone: string): Date {
-  const utcMidnight = Date.parse(`${date}T00:00:00Z`);
-  if (Number.isNaN(utcMidnight)) throw new Error(`Not a calendar date: ${date}`);
+export function instantOfLocal(
+  date: string, minutesPastMidnight: number, timeZone: string,
+): Date {
+  const midnight = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(midnight)) throw new Error(`Not a calendar date: ${date}`);
+  const asIfUtc = midnight + minutesPastMidnight * 60_000;
 
-  let instant = new Date(utcMidnight);
+  let instant = new Date(asIfUtc);
   for (let pass = 0; pass < 2; pass += 1) {
-    instant = new Date(utcMidnight - offsetAt(instant, timeZone));
+    instant = new Date(asIfUtc - offsetAt(instant, timeZone));
   }
   return instant;
+}
+
+/**
+ * Whether that wall time happened at all.
+ *
+ * Between two and three on the morning the clocks go forward, nothing does.
+ * A daily job set for half past two must be skipped that day rather than
+ * silently moved an hour, which is what every "just add the offset" version
+ * of this does.
+ */
+export function wallTimeExists(
+  date: string, minutesPastMidnight: number, timeZone: string,
+): boolean {
+  const instant = instantOfLocal(date, minutesPastMidnight, timeZone);
+  return dateIn(instant, timeZone) === date
+    && minutesInDay(instant, timeZone) === minutesPastMidnight;
+}
+
+/** Minutes past local midnight, for an instant. */
+export function minutesInDay(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, hour12: false, hour: "2-digit", minute: "2-digit",
+  }).formatToParts(instant);
+  const field = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return (field("hour") % 24) * 60 + field("minute");
+}
+
+/** The instant a calendar day starts in a zone. */
+export function startOfDayIn(date: string, timeZone: string): Date {
+  return instantOfLocal(date, 0, timeZone);
 }
 
 /** The day after a `YYYY-MM-DD`, as a `YYYY-MM-DD`. */

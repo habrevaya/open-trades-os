@@ -684,3 +684,47 @@ create or replace function app.pending_event_organizations(
 
 revoke all on function app.pending_event_organizations(text, int) from public;
 grant execute on function app.pending_event_organizations(text, int) to background;
+
+-- =========================================================================
+-- WHAT IS DUE ON A CLOCK
+--
+-- The same shape as `pending_event_organizations` and for the same reason:
+-- finding work across tenants is a cross tenant read, which row level
+-- security forbids and should. It returns ids and the two values the tick
+-- needs to decide, nothing else, and it is not callable by the role the
+-- request path uses.
+--
+-- The organization's timezone comes back with the row because a schedule
+-- means a wall clock time where the company is. Reading it separately would
+-- be one query per workflow per tick.
+-- =========================================================================
+
+create or replace function app.scheduled_workflows(p_limit int default 200)
+returns table (
+  organization_id uuid,
+  workflow_id uuid,
+  expression text,
+  timezone text,
+  next_run_at timestamptz,
+  stored_expression text
+)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select w.organization_id, w.id, w.schedule, o.timezone, s.next_run_at, s.expression
+    from public.workflow w
+    join public.organization o on o.id = w.organization_id
+    left join public.workflow_schedule s
+      on s.organization_id = w.organization_id and s.workflow_id = w.id
+    where w.enabled
+      and w.deleted_at is null
+      and w.trigger_kind = 'schedule'
+      and w.schedule is not null
+      and w.active_version_id is not null
+    -- A workflow with no row yet sorts first, so a new schedule is planned
+    -- on the next tick rather than whenever the list happens to reach it.
+    order by coalesce(s.next_run_at, '-infinity'::timestamptz)
+    limit p_limit
+  $$;
+
+revoke all on function app.scheduled_workflows(int) from public;
+grant execute on function app.scheduled_workflows(int) to background;

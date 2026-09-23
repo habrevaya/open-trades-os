@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { automation, comms, type Actor, type Permission } from "@opentradesos/core";
+import { automation, comms, type Actor, type Permission, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
 import { sendMessage, createTask, type StepResult } from "./workflow-steps";
@@ -46,7 +46,7 @@ export interface RunSummary {
  */
 export function runnerActor(organizationId: string, permissions: readonly string[]): Actor {
   return {
-    userId: "00000000-0000-0000-0000-000000000000",
+    userId: SYSTEM_USER_ID,
     organizationId,
     roles: [],
     grants: permissions as Permission[],
@@ -128,6 +128,59 @@ export async function handleEvent(
 
     return summaries;
   });
+}
+
+/**
+ * Run one workflow against one event, without asking whether it subscribes.
+ *
+ * The scheduler's entry point. An event-triggered workflow is chosen by
+ * `handleEvent` matching the event name; a scheduled one is chosen by the
+ * clock, and there is nothing for that match to test. Everything after the
+ * choosing is the same code, which is the point: a scheduled run is recorded,
+ * permitted and bounded exactly as an event-triggered one is.
+ */
+export async function fire(
+  tx: Database,
+  ctx: ServiceContext,
+  input: { workflowId: string; eventId: string },
+): Promise<RunSummary> {
+  const [row] = await tx.select({
+    workflow: schema.workflow,
+    version: schema.workflowVersion,
+  })
+    .from(schema.workflow)
+    .innerJoin(schema.workflowVersion, eq(schema.workflowVersion.id, schema.workflow.activeVersionId))
+    .where(and(
+      eq(schema.workflow.id, input.workflowId),
+      eq(schema.workflow.enabled, true),
+      isNull(schema.workflow.deletedAt),
+    ))
+    .limit(1);
+  if (!row) {
+    return { workflowId: input.workflowId, runId: null, status: "skipped", reason: "not_runnable", steps: 0 };
+  }
+
+  const [event] = await tx.select().from(schema.domainEvent)
+    .where(eq(schema.domainEvent.id, input.eventId)).limit(1);
+  if (!event) {
+    return { workflowId: input.workflowId, runId: null, status: "skipped", reason: "no_event", steps: 0 };
+  }
+
+  /**
+   * Conditions still apply. "Every morning at nine, IF there is anything to
+   * chase" is the normal shape of a scheduled workflow, and a schedule that
+   * ignored its own conditions would send an empty summary every day.
+   */
+  const conditions = row.version.conditions as automation.ConditionGroup;
+  const passes = automation.evaluateGroup(conditions, {
+    payload: event.payload,
+    previous: (event.payload as { previous?: Record<string, unknown> }).previous,
+  });
+  if (!passes) {
+    return { workflowId: row.workflow.id, runId: null, status: "skipped", reason: "conditions", steps: 0 };
+  }
+
+  return execute(tx, ctx, { workflow: row.workflow, version: row.version, event });
 }
 
 async function execute(

@@ -13,6 +13,7 @@
  * development and DATABASE_URL is used.
  */
 import { createClient } from "@opentradesos/db";
+import { SYSTEM_USER_ID } from "@opentradesos/core";
 import { runWorker } from "../services/workflow-worker";
 import { flush, providerFor, recoverStuck } from "../services/comms-outbox";
 import { inTenant } from "../services/context";
@@ -62,7 +63,7 @@ const readSecret = async (ref: string): Promise<string> => {
 
 async function sendQueued(organizationId: string): Promise<void> {
   const provider = await inTenant(
-    { actor: { userId: "00000000-0000-0000-0000-000000000000", organizationId, roles: [] }, db },
+    { actor: { userId: SYSTEM_USER_ID, organizationId, roles: [] }, db },
     async (tx) => providerFor(tx, organizationId, readSecret),
   ).catch((error: unknown) => {
     // No carrier connected is an ordinary state, not an error. The messages

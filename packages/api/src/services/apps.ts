@@ -4,6 +4,7 @@ import { schema, type Database } from "@opentradesos/db";
 import {
   canDefineRole, isScope, ALL_PERMISSIONS,
   type Actor, type Permission, type RoleDefinition, type Scope, type ScopedResource,
+  SYSTEM_USER_ID,
 } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, ConflictError, NotFoundError,
@@ -304,7 +305,7 @@ export async function resolveToken(db: Database, token: string): Promise<Resolve
    * that depends on being a person resolves to its narrowest form.
    */
   const actor: Actor = {
-    userId: "00000000-0000-0000-0000-000000000000",
+    userId: SYSTEM_USER_ID,
     organizationId: row.organization_id,
     roles: [],
     grants: row.permissions as Permission[],

@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { comms, type Actor } from "@opentradesos/core";
+import { comms, type Actor, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import type { InboundMessage, MessagingProvider, WebhookRequest } from "../comms/provider";
 import { recordDelivery } from "./comms-outbox";
@@ -31,7 +31,7 @@ export type InboundOutcome =
 
 function inboundActor(organizationId: string): Actor {
   return {
-    userId: "00000000-0000-0000-0000-000000000000",
+    userId: SYSTEM_USER_ID,
     organizationId,
     roles: [],
     grants: [],

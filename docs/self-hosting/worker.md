@@ -23,6 +23,32 @@ A pass that found work goes straight round again, so a backlog drains at the
 speed of the database rather than the speed of the timer. The interval only
 applies when there is nothing to do.
 
+## The clock
+
+The same loop also fires scheduled workflows, before each drain, so anything a
+schedule produces goes out on the same pass rather than the next one. Turn it
+off with `schedules: false` if you would rather run the clock somewhere else;
+there is nothing else to configure.
+
+A schedule is a five field cron expression **in the company's timezone**, not
+the server's. Every night at eleven means eleven where the company is, which
+is the whole reason this is harder than adding a day to a timestamp: the
+answer has to survive the clocks changing. What the engine decides, so that
+nobody has to guess:
+
+| Case | What happens |
+|---|---|
+| A wall time that does not exist, on the morning the clocks go forward | Skipped for that day. It runs the next day as normal |
+| A wall time that happens twice, when the clocks go back | Fires once, on the first |
+| Both a day of the month and a day of the week are given | Fires on either, which is what cron has always meant and is easy to get backwards |
+| The worker was down for three days | One run, for the occurrence it was due, and then back on the normal clock. Not three |
+| An expression nothing can read | Recorded on the row with a reason, rather than quietly becoming "never" |
+
+Two workers is a capacity decision rather than a duplicate-message incident.
+Claiming a due schedule is a conditional update on its own due time, and the
+claim and the run share one transaction, so a process that dies mid-run rolls
+back the claim and the next pass tries again.
+
 ## The database role
 
 The worker needs one privilege the request path deliberately does not have.
@@ -31,7 +57,8 @@ Finding out which organizations have unread events is a cross tenant read by
 definition, and row level security is forced on every tenant table, so it
 cannot be done by selecting. It goes through
 `app.pending_event_organizations`, which returns organization ids and a count
-and nothing else.
+and nothing else. The clock uses a second one, `app.scheduled_workflows`,
+which returns ids, the cron expression and the company's timezone.
 
 `authenticated`, the role every request runs as, is **not** granted execute on
 it. A web request being able to enumerate every tenant with pending work is an

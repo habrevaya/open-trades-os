@@ -237,6 +237,50 @@ export const eventCursor = pgTable("event_cursor", {
   pk: primaryKey({ columns: [t.organizationId, t.consumer] }),
 }));
 
+/**
+ * WHERE A SCHEDULED WORKFLOW IS UP TO
+ *
+ * Separate from `workflow` because it is a cursor rather than a definition.
+ * Editing a workflow must not move its schedule, and a schedule advancing
+ * every night must not look like somebody edited the workflow every night.
+ *
+ * The claim is a conditional update on `next_run_at`: a worker reads the due
+ * time, then updates the row only if it still holds that value. Two workers
+ * both see one row as due and exactly one of them wins, which is the same
+ * shape the outbox and the task queue already use, and the reason a second
+ * worker is a capacity decision rather than a duplicate-message incident.
+ */
+export const workflowSchedule = pgTable("workflow_schedule", {
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  workflowId: uuid("workflow_id").notNull().references(() => workflow.id, { onDelete: "cascade" }),
+  /**
+   * When it next fires, computed in the organization's timezone.
+   *
+   * Null means the schedule never fires again, which is a real answer for
+   * "the 30th of February" and better than a loop looking for it.
+   */
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  /**
+   * The expression this row was computed from.
+   *
+   * Kept so a changed schedule is detectable without reading the workflow on
+   * every tick, and so a row left over from an old expression recomputes
+   * rather than firing on the old clock.
+   */
+  expression: text("expression").notNull(),
+  /** Why it is not firing, when it is not. Shown rather than swallowed. */
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.organizationId, t.workflowId] }),
+  /**
+   * The only query the tick makes: what is due, across every tenant. Ordered
+   * by due time so the one that has waited longest goes first.
+   */
+  dueIdx: index("workflow_schedule_due_idx").on(t.nextRunAt).where(sql`${t.nextRunAt} is not null`),
+}));
+
 // ---------------------------------------------------------------------------
 // Tasks: the office work queue
 // ---------------------------------------------------------------------------

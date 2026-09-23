@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import type { Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import {
   createProvider, ProviderNotConfiguredError,
@@ -39,7 +39,7 @@ export interface SendOutcome {
 
 function outboxActor(organizationId: string): Actor {
   return {
-    userId: "00000000-0000-0000-0000-000000000000",
+    userId: SYSTEM_USER_ID,
     organizationId,
     roles: [],
     grants: [],

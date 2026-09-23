@@ -40,7 +40,7 @@ const ORDER = [
   // Tasks before runs: a task points at the run that raised it.
   "report",
   "task",
-  "workflow_step_run", "workflow_run", "workflow_version", "workflow",
+  "workflow_step_run", "workflow_run", "workflow_schedule", "workflow_version", "workflow",
   "event_cursor", "domain_event",
   // Communications, in dependency order: a message points at a conversation
   // and a consent row, a call points at a number, a number points at a

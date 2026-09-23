@@ -1,5 +1,6 @@
 import { sql, eq, and, gt, asc } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { isSystem } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 
 /**
@@ -72,8 +73,14 @@ export async function emit(
       ...(input.payload ?? {}),
       ...(input.previous ? { previous: input.previous } : {}),
     },
-    // A portal caller has no user, same as the audit log.
-    actorUserId: ctx.portalGrantId ? null : ctx.actor.userId,
+    /**
+     * A portal caller has no user, same as the audit log, and neither does
+     * the system. The worker, the scheduler and a workflow run all act as
+     * the nil uuid, which is not a row in the user table, so writing it
+     * breaks a foreign key five layers below where anybody could read the
+     * error. A scheduled workflow's first event hit exactly that.
+     */
+    actorUserId: ctx.portalGrantId || isSystem(ctx.actor) ? null : ctx.actor.userId,
     actorAgentId: ctx.agentId ?? ctx.actor.agentId ?? null,
     causedByRunId: input.causedByRunId ?? null,
     causationDepth: input.causationDepth ?? 0,
