@@ -1,0 +1,2 @@
+ALTER TABLE "lead_source_connector" ADD COLUMN "webhook_token" text;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "lead_source_connector_token_idx" ON "lead_source_connector" USING btree ("webhook_token");

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."touch_basis" ADD VALUE 'declared' BEFORE 'none';

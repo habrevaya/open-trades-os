@@ -57,6 +57,9 @@
     },
     {
       "name": "M23"
+    },
+    {
+      "name": "M25"
     }
   ],
   "paths": {
@@ -1984,6 +1987,369 @@
         "x-authorization": "session",
         "x-permissions": [
           "message:send"
+        ]
+      }
+    },
+    "/v1/connectors": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listConnectors",
+        "summary": "Every connector, and whether this company has it on",
+        "description": "Requires a session holding: integration:read.",
+        "tags": [
+          "M25"
+        ],
+        "parameters": [
+          {
+            "name": "capability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every connector, and whether this company has it on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListConnectorsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
+    },
+    "/v1/connectors/{provider}": {
+      "description": "Served at this path: DELETE, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "POST"
+      ],
+      "post": {
+        "operationId": "connectConnector",
+        "summary": "Turn a connector on",
+        "description": "Refuses anything the catalogue calls declared. Letting an operator connect a provider with no adapter produces a settings screen saying it is on, a report with none of its data in it, and an owner concluding the channel is free.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M25"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectConnectorInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Turn a connector on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectConnectorOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      },
+      "delete": {
+        "operationId": "disconnectConnector",
+        "summary": "Turn a connector off",
+        "description": "Requires a session holding: integration:write.",
+        "tags": [
+          "M25"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisconnectConnectorInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Turn a connector off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisconnectConnectorOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
         ]
       }
     },
@@ -6896,6 +7262,104 @@
         ]
       }
     },
+    "/v1/lead-offers": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listLeadOffers",
+        "summary": "Marketplace offers on the table, soonest to expire first",
+        "description": "An offer is not a job. It costs money to accept, it expires in minutes, and a contractor at capacity has to be able to decline without that being a cancelled job on their own board.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M25"
+        ],
+        "responses": {
+          "200": {
+            "description": "Marketplace offers on the table, soonest to expire first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListLeadOffersOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      }
+    },
     "/v1/marketing/performance": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -7054,6 +7518,135 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RecordSpendOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:write"
+        ]
+      }
+    },
+    "/v1/marketing/spend/file": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "importSpendFile",
+        "summary": "Load an ad platform's daily export",
+        "description": "Takes the file as text and the channel it is for, because the file does not say: a Google Ads export names Google nowhere in it, and guessing from campaign names puts a whole budget under the wrong channel the first time somebody writes 'google' in a Meta campaign name. Unreadable lines are skipped with their line numbers and the rest imports.\n\nRequires a session holding: adspend:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSpendFileInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Load an ad platform's daily export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSpendFileOutput"
                 }
               }
             }
@@ -15130,6 +15723,44 @@
           "jobId"
         ]
       },
+      "ConnectConnectorInput": {
+        "type": "object",
+        "properties": {
+          "accountLabel": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "credentialRef": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {},
+            "default": {}
+          }
+        }
+      },
+      "ConnectConnectorOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "status"
+        ]
+      },
       "ConvertEstimateInput": {
         "type": "object",
         "properties": {
@@ -18977,6 +19608,25 @@
           "updatedAt"
         ]
       },
+      "DisconnectConnectorInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DisconnectConnectorOutput": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "status"
+        ]
+      },
       "FailUploadInput": {
         "type": "object",
         "properties": {
@@ -21454,6 +22104,80 @@
           "refused"
         ]
       },
+      "ImportSpendFileInput": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "default": "spend_csv"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8388608
+          }
+        },
+        "required": [
+          "source",
+          "text"
+        ]
+      },
+      "ImportSpendFileOutput": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "integer"
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "row": {
+                  "type": "integer"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "row",
+                "reason"
+              ]
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "integer"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "line",
+                "reason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "accepted",
+          "refused",
+          "skipped"
+        ]
+      },
       "IssuePortalGrantInput": {
         "type": "object",
         "properties": {
@@ -22520,6 +23244,85 @@
           "hasMore"
         ]
       },
+      "ListConnectorsOutput": {
+        "type": "object",
+        "properties": {
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "capability": {
+                  "type": "string"
+                },
+                "auth": {
+                  "type": "string"
+                },
+                "flows": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "built",
+                    "declared"
+                  ]
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "setup": {
+                  "type": "string"
+                },
+                "limitation": {
+                  "type": "string"
+                },
+                "connected": {
+                  "type": "boolean"
+                },
+                "connectionStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "capability",
+                "auth",
+                "flows",
+                "state",
+                "purpose",
+                "setup",
+                "limitation",
+                "connected",
+                "connectionStatus",
+                "lastError"
+              ]
+            }
+          }
+        },
+        "required": [
+          "connectors"
+        ]
+      },
       "ListCustomersOutput": {
         "type": "object",
         "properties": {
@@ -23208,6 +24011,95 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "ListLeadOffersOutput": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "connector": {
+                  "type": "string"
+                },
+                "serviceRequested": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "addressLine1": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "postalCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "estimatedValue": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "expired": {
+                  "type": "boolean"
+                },
+                "secondsLeft": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "connector",
+                "serviceRequested",
+                "addressLine1",
+                "city",
+                "state",
+                "postalCode",
+                "estimatedValue",
+                "expiresAt",
+                "expired",
+                "secondsLeft"
+              ]
+            }
+          }
+        },
+        "required": [
+          "offers"
         ]
       },
       "ListObligationsOutput": {

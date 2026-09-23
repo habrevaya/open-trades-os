@@ -39,3 +39,4 @@ export * as telephony from "./telephony";
 export * as obligations from "./obligations";
 export * as files from "./files";
 export * as marketing from "./marketing";
+export * as leadIntake from "./lead-intake";

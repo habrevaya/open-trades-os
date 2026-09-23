@@ -105,6 +105,13 @@ export const NAV: NavGroup[] = [
           { href: "/reports/new", label: "Build one" },
         ],
       },
+      {
+        href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
+        children: [
+          { href: "/marketing", label: "What it cost" },
+          { href: "/marketing/connectors", label: "Connectors" },
+        ],
+      },
       { href: "/automations", label: "Automations", permission: "workflow:read", icon: "automations" },
       { href: "/settings", label: "Settings", permission: "settings:read", icon: "settings" },
     ],

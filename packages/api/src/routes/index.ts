@@ -6,7 +6,7 @@ import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
-  obligations, files, marketing,
+  obligations, files, marketing, leadIntake,
 } from "../services/index";
 
 /**
@@ -125,6 +125,13 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Connectors. State and connected are two fields, so neither can lie.
+  listConnectors: leadIntake.handlers.listConnectors,
+  connectConnector: leadIntake.handlers.connectConnector,
+  disconnectConnector: leadIntake.handlers.disconnectConnector,
+  importSpendFile: leadIntake.handlers.importSpendFile,
+  listLeadOffers: leadIntake.handlers.listLeadOffers,
 
   // Marketing. The touch is kept whole, and no model is the house model.
   listTouches: marketing.handlers.listTouches,

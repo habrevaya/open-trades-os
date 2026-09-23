@@ -48,7 +48,7 @@ than pretending otherwise.
 | Purchasing, vendors, inventory, truck stock | M16 | Part built |
 | Payroll, timesheets, commissions, scorecards | M17 | Part built |
 | Phones, IVR, call recording, softphone (Phones Pro, Contact Center) | M18 | Part built |
-| Ads, attribution, call tracking, email (Marketing Pro) | M19 | Planned |
+| Ads, attribution, call tracking, email (Marketing Pro) | M19 | Part built |
 | Reviews and reputation | M20 | Planned |
 | Reporting, dashboards, custom reports | M21 | Part built |
 | Fleet and GPS (Fleet Pro) | M22 | Planned |

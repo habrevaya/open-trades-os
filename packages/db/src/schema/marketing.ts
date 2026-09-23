@@ -38,7 +38,7 @@ import { job } from "./work";
 
 /** How we decided what a touch was. Mirrors core's `TouchBasis`. */
 export const touchBasis = pgEnum("touch_basis", [
-  "utm", "click_id", "tracked_number", "referrer", "none",
+  "utm", "click_id", "tracked_number", "referrer", "declared", "none",
 ]);
 
 export const marketingTouch = pgTable("marketing_touch", {

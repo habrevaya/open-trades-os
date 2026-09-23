@@ -494,6 +494,22 @@ export type TouchBasis =
   | "click_id"
   | "tracked_number"
   | "referrer"
+  /**
+   * The source itself said so.
+   *
+   * A marketplace posting a lead to a webhook, or a partner integration
+   * sending work under its own credential. `parseTouch` never produces this,
+   * because there is no URL to read it from: it is set by whatever
+   * authenticated the sender.
+   *
+   * It is the STRONGEST basis in this list and the only one that is not an
+   * inference. A utm tag is a string somebody put in a link and anybody can
+   * copy; a referrer is a browser's account of where it had been. A lead
+   * that arrived over a signed connection from Angi came from Angi, and
+   * collapsing that into `none` because there was no query string would
+   * have put the clearest evidence in the bucket labelled "we do not know".
+   */
+  | "declared"
   | "none";
 
 export interface Touch {

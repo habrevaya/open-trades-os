@@ -23,3 +23,4 @@ export * as reviews from "./reviews/index.js";
 export * as labor from "./labor/index.js";
 export * as assets from "./assets/index.js";
 export * as files from "./files/index.js";
+export * as connectors from "./connectors/index.js";

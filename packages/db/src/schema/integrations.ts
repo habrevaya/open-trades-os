@@ -130,12 +130,27 @@ export const leadSourceConnector = pgTable("lead_source_connector", {
     maxDriveMinutes?: number;
     requireOpenCapacity?: boolean;
   }>().notNull().default({}),
+  /**
+   * The secret in the webhook URL, identifying this connector and therefore
+   * the tenant.
+   *
+   * Not the company slug and not the connector id. A slug is printed on
+   * their website and an id turns up in an export, and either would let
+   * somebody aim a forged lead at a company they chose. A forged lead is a
+   * job on a dispatch board and a van driving to an address that never
+   * asked for one.
+   */
+  webhookToken: text("webhook_token"),
   /** What the source takes. Feeds true margin on marketplace work. */
   commissionRate: money("commission_rate"),
   leadFee: money("lead_fee"),
   active: boolean("active").notNull().default(true),
   ...timestamps,
-}, (t) => ({ orgIdx: index("lead_source_connector_org_idx").on(t.organizationId, t.source) }));
+}, (t) => ({
+  orgIdx: index("lead_source_connector_org_idx").on(t.organizationId, t.source),
+  /** The lookup every inbound lead does, and it has to be unique across tenants. */
+  tokenIdx: uniqueIndex("lead_source_connector_token_idx").on(t.webhookToken),
+}));
 
 export const leadOffer = pgTable("lead_offer", {
   id: pk(),

@@ -57,6 +57,49 @@ const toCore = (row: typeof schema.marketingTouch.$inferSelect): mk.Touch => ({
   ...(row.unrecognised ? { unrecognised: row.unrecognised } : {}),
 });
 
+/**
+ * A touch whose source is DECLARED rather than inferred.
+ *
+ * A marketplace posting a lead over a signed connection, or a partner
+ * sending work under its own credential. There is no URL to read a source
+ * out of, and the sender's identity is the evidence: `parseTouch` cannot
+ * produce this and should not be asked to.
+ *
+ * Separate from `recordTouch` rather than an optional field on it, because
+ * an optional `source` would be a way to bypass the parser from anywhere.
+ * The source is checked against the catalogue here, since the caller is an
+ * adapter and adapters are the thing most likely to invent a key.
+ */
+export async function recordDeclaredTouch(
+  tx: Database,
+  organizationId: string,
+  input: {
+    source: string;
+    at?: Date | undefined;
+    customerId?: string | null;
+    jobId?: string | null;
+    campaign?: string | null;
+  },
+): Promise<{ id: string }> {
+  if (!known.has(input.source)) {
+    throw new ConflictError(
+      `"${input.source}" is not a lead source in the catalogue, so a touch recorded against it would appear in no report.`,
+    );
+  }
+
+  const [row] = await tx.insert(schema.marketingTouch).values({
+    organizationId,
+    customerId: input.customerId ?? null,
+    jobId: input.jobId ?? null,
+    source: input.source,
+    basis: "declared",
+    utmCampaign: input.campaign ?? null,
+    occurredAt: input.at ?? new Date(),
+  }).returning({ id: schema.marketingTouch.id });
+
+  return { id: row!.id };
+}
+
 export interface RecordTouchInput {
   at?: Date | undefined;
   visitorId?: string | null;

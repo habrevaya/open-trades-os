@@ -20,9 +20,20 @@ export type IconName =
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
-  | "timesheets" | "booking" | "purchasing";
+  | "timesheets" | "booking" | "purchasing" | "marketing";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /**
+   * Marketing: a megaphone. Deliberately not a funnel, which is the usual
+   * choice and which draws a shape this product refuses to publish, since
+   * every stage of a funnel diagram is a number somebody had to model.
+   */
+  marketing: (
+    <>
+      <path d="M4 10.5v3a1.5 1.5 0 0 0 1.5 1.5H8l6.5 4V5L8 9H5.5A1.5 1.5 0 0 0 4 10.5Z" />
+      <path d="M18 9.5a4 4 0 0 1 0 5M8 15v4.5" />
+    </>
+  ),
   // A sun. One technician's own day, and the only screen they open.
   day: (
     <>
