@@ -6,7 +6,7 @@ import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
-  obligations, files, marketing, leadIntake,
+  obligations, files, marketing, leadIntake, forms,
 } from "../services/index";
 
 /**
@@ -125,6 +125,17 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Forms. A refused submission is a row, because a form that drops what
+  // it cannot parse is a form whose losses are invisible.
+  listForms: forms.handlers.listForms,
+  saveForm: forms.handlers.saveForm,
+  submitForm: forms.handlers.submitForm,
+  listSubmissions: forms.handlers.listSubmissions,
+  getFormRefusals: forms.handlers.getFormRefusals,
+
+  // The loop closed: booked jobs reported back to the account that bought them.
+  getConversions: marketing.conversionHandlers.getConversions,
 
   // Connectors. State and connected are two fields, so neither can lie.
   listConnectors: leadIntake.handlers.listConnectors,

@@ -68,6 +68,19 @@ describe("permissions", () => {
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/public/bookings",
+      /**
+       * A lead form on a company's own website, filled in by a homeowner
+       * with no account. Public by necessity, like the booking endpoint
+       * beside it.
+       *
+       * What protects it: core's honeypot field and its minimum fill time,
+       * which mark a submission `spam` rather than refusing it, so the
+       * evidence stays. What does NOT protect it, and is worth saying here
+       * rather than leaving somebody to assume: there is no rate limit in
+       * this product. A deployment exposing this to the internet puts one
+       * in front of it, the same as for the booking endpoint.
+       */
+      "POST /v1/public/forms/{formSlug}",
     ]);
   });
 });

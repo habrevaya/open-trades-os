@@ -181,3 +181,37 @@ describe("published enums match the columns behind them", () => {
     });
   }
 });
+
+/**
+ * FORM FIELD TYPES
+ *
+ * A third copy of a list that already exists in core and in whatever a
+ * client generates from the document. This one shipped wrong on its first
+ * commit: it invented `boolean` and `address` and omitted `service_address`,
+ * `hidden` and `honeypot`.
+ *
+ * The omissions were the expensive half. `service_address` and the problem
+ * description are the two fields every trades lead form has and most form
+ * builders handle badly, and `honeypot` is the spam check: a generated
+ * client could not have built any of them.
+ */
+describe("form field types", () => {
+  it("publishes exactly the types core knows how to check", () => {
+    /**
+     * Core's union has no runtime value, so the list is read out of the
+     * source. Reading it rather than restating it is the point: a restated
+     * list is a fourth copy.
+     */
+    const source = readFileSync(
+      join(__dirname, "../../core/src/marketing/index.ts"),
+      "utf8",
+    );
+    const block = /export type FieldType =([\s\S]*?);/.exec(source);
+    expect(block, "core's FieldType union moved").toBeTruthy();
+
+    const inCore = [...block![1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
+    expect(inCore.length).toBeGreaterThan(5);
+
+    expect([...contracts.FormFieldType.options].sort()).toEqual([...inCore].sort());
+  });
+});

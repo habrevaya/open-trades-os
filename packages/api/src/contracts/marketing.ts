@@ -228,7 +228,191 @@ export const listUnplacedSources = defineRoute({
   }),
 });
 
+
+/* ---------------------------------------------------------------- forms */
+
+/**
+ * Exactly core's `FieldType`, and swept against it in vocabulary.test.ts.
+ *
+ * The first version of this was written from memory: it invented `boolean`
+ * and `address`, and omitted `service_address`, `hidden` and `honeypot`. A
+ * client generated from that document could not have built the two fields
+ * every trades lead form has (where the property is, and what is wrong with
+ * it), and could not have built the honeypot, which is the spam check.
+ */
+export const FormFieldType = z.enum([
+  "text", "long_text", "email", "phone", "service_address",
+  "choice", "multi_choice", "number", "date", "consent",
+  "hidden", "honeypot",
+]);
+
+export const FormField = z.object({
+  key: z.string().min(1).max(60),
+  label: z.string().min(1).max(200),
+  type: FormFieldType,
+  required: z.boolean(),
+  /** Shown under the field. The place to say why you are asking. */
+  help: z.string().max(300).optional(),
+  rules: z.array(z.union([
+    z.object({ rule: z.literal("min_length"), value: z.number().int() }),
+    z.object({ rule: z.literal("max_length"), value: z.number().int() }),
+    z.object({ rule: z.literal("min"), value: z.number() }),
+    z.object({ rule: z.literal("max"), value: z.number() }),
+    z.object({ rule: z.literal("pattern"), value: z.enum(["us_zip", "digits", "letters_and_spaces", "us_state"]) }),
+  ])).optional(),
+  options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+});
+
+export const listForms = defineRoute({
+  method: "get",
+  path: "/v1/marketing/forms",
+  summary: "The lead forms on the website",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({}),
+  output: z.object({
+    forms: z.array(z.object({
+      id: Uuid, slug: z.string(), title: z.string(),
+      source: z.string(), fields: z.number().int(),
+    })),
+  }),
+});
+
+export const saveForm = defineRoute({
+  method: "put",
+  path: "/v1/marketing/forms/{slug}",
+  summary: "Create or replace a lead form",
+  description:
+    "The definition is validated before it is stored and again when a submission is checked against it, because a form is edited by an office user and then executed against input from the open internet.",
+  module: "M19",
+  permissions: ["adspend:write"],
+  idempotent: true,
+  input: z.object({
+    slug: z.string().min(1).max(100),
+    title: z.string().min(1).max(200),
+    /** The lead source every submission to this form counts as. */
+    source: z.string().max(50).optional(),
+    fields: z.array(FormField).min(1).max(40),
+    /**
+     * Below this, a submission is treated as a robot. A person cannot read
+     * a form, type an address and describe a broken water heater in under
+     * three seconds; a script can. Only measured when the page reported
+     * when it was opened, because refusing on a missing timestamp throws
+     * away real leads from browsers that blocked the script.
+     */
+    minimumFillSeconds: z.number().int().min(0).max(300).optional(),
+  }),
+  output: z.object({ id: Uuid, slug: z.string(), title: z.string(), source: z.string() }),
+});
+
+export const submitForm = defineRoute({
+  method: "post",
+  path: "/v1/public/forms/{formSlug}",
+  summary: "Fill in a lead form",
+  description:
+    "Every field is checked and ALL the refusals come back together. Returning the first makes somebody fix their phone number, submit, and be told about the address, which is where a homeowner with a leak rings the next company on the list. A refused submission is stored with its refusals, because a form that silently drops what it cannot parse is a form whose owner believes it works.",
+  module: "M19",
+  permissions: [],
+  authorization: "public",
+  idempotent: true,
+  input: z.object({
+    organizationSlug: z.string().min(1).max(100),
+    formSlug: z.string().min(1).max(100),
+    values: z.record(z.unknown()),
+    /** When the page was opened, if it could tell. Used only for the timing check. */
+    startedAt: z.string().datetime().optional(),
+    visitorId: z.string().max(200).optional(),
+    landingQuery: z.string().max(4000).optional(),
+    referrer: z.string().max(2000).optional(),
+  }),
+  output: z.object({
+    accepted: z.boolean(),
+    submissionId: Uuid,
+    /** Written for the person filling the form in, never for a developer. */
+    refusals: z.array(z.object({
+      field: z.string(), reason: z.string(), message: z.string(),
+    })),
+    customerId: Uuid.nullable(),
+  }),
+});
+
+export const listSubmissions = defineRoute({
+  method: "get",
+  path: "/v1/marketing/submissions",
+  summary: "What arrived, including what was refused",
+  description:
+    "The refused ones are the point. A list of accepted submissions is the same form builder every contractor already has, and its losses are invisible by construction.",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({
+    formId: Uuid.optional(),
+    state: z.enum(["received", "accepted", "rejected", "spam"]).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+  }),
+  output: z.object({
+    submissions: z.array(z.object({
+      id: Uuid,
+      formId: Uuid,
+      state: z.string(),
+      refusals: z.array(z.object({ field: z.string(), reason: z.string(), message: z.string() })),
+      customerId: Uuid.nullable(),
+      jobId: Uuid.nullable(),
+      createdAt: z.string().datetime(),
+    })),
+  }),
+});
+
+export const getFormRefusals = defineRoute({
+  method: "get",
+  path: "/v1/marketing/forms/{formId}/refusals",
+  summary: "Which fields are losing people",
+  description:
+    "Not 'the form gets some submissions' but 'eleven people in a fortnight could not get past the phone number field'. One of those is a fact somebody can act on in an afternoon.",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({ formId: Uuid }),
+  output: z.object({
+    refusals: z.array(z.object({
+      field: z.string(), reason: z.string(), count: z.number().int(),
+    })),
+  }),
+});
+
+/* ------------------------------------------------- closing the loop back */
+
+export const getConversions = defineRoute({
+  method: "get",
+  path: "/v1/marketing/conversions",
+  summary: "Booked jobs to report back to the ad accounts",
+  description:
+    "An ads platform optimises towards whatever it is told a conversion is. Left alone it is told about form fills, learns to buy form fills, and a contractor pays more and more for people who were never going to book. Reporting the JOB, with money on it, against the click id, is what makes the account bid towards work. The value is this source's SHARE, split so the parts sum to the invoice: sending the full amount to two platforms tells each it produced twice the revenue it did.",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({
+    from: z.string().date(),
+    to: z.string().date(),
+    /** Which model splits the money. Named, because this is where a modelling choice becomes real spend. */
+    model: AttributionModel.optional(),
+    /** Omit for JSON. `google` or `meta` returns that platform's own upload format. */
+    format: z.enum(["google", "meta"]).optional(),
+  }),
+  output: z.object({
+    model: AttributionModel,
+    rows: z.array(z.object({
+      clickId: z.string(),
+      source: z.string(),
+      convertedAt: z.string().datetime(),
+      value: MoneyString,
+      jobId: Uuid,
+    })),
+    /** Present when a format was asked for: the file, ready to upload. */
+    csv: z.string().optional(),
+  }),
+});
+
 export const marketingRoutes = {
   listTouches, getJobAttribution, recordSpend, importSpend,
   getPerformance, listUnplacedSources,
+  listForms, saveForm, submitForm, listSubmissions, getFormRefusals,
+  getConversions,
 } as const;

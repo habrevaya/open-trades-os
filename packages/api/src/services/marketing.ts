@@ -793,3 +793,229 @@ export const handlers = {
     sources: { wrote: string; medium: string | null; touches: number; lastSeen: Date }[];
   }> => ({ sources: await unplaced(ctx, input.limit) }),
 } as const;
+
+/* ------------------------------------------------- closing the loop back */
+
+export interface ConversionRow {
+  /** The click the ads platform will match on. */
+  clickId: string;
+  /** Which platform's click it is, so the right file is produced. */
+  source: string;
+  /** When the work was won, not when the click happened. */
+  convertedAt: Date;
+  /** This source's SHARE of the job, not the whole invoice. */
+  value: string;
+  jobId: string;
+}
+
+/**
+ * WHAT TO TELL THE AD ACCOUNT, AND WHY IT IS THE POINT OF ALL OF THIS
+ *
+ * An ads platform optimises towards whatever it is told a conversion is. Left
+ * alone it is told about form fills, so it learns to buy form fills, and a
+ * contractor ends up paying more and more for people who were never going to
+ * book. The platform is not wrong; it is doing exactly what it was asked.
+ *
+ * The fix is to report the JOB rather than the enquiry, with the money on it,
+ * against the click id that produced it. Then the account bids towards work.
+ * That single loop is worth more than every report in this module, and it is
+ * the reason the click id was worth a schema change.
+ *
+ * THE VALUE IS THE SOURCE'S SHARE, NOT THE INVOICE.
+ *
+ * A job touched by Google and by Meta is reported to each at a fraction, and
+ * `creditRevenue` splits it by allocation so the parts sum to the invoice
+ * exactly. Sending the full amount to both, which is what most setups do
+ * because it is easier, tells each platform it produced twice the revenue it
+ * did, and both then bid as though the work were worth double.
+ *
+ * WHICH MODEL SPLITS IT IS THE CALLER'S CHOICE, and it has to be, because
+ * this is the one place a modelling choice becomes real money spent. The
+ * default is `position_based` only because something has to be, and the API
+ * makes the caller see the name of what they picked.
+ */
+export async function conversions(
+  ctx: ServiceContext,
+  input: { from: string; to: string; model?: mk.AttributionModelKey },
+): Promise<ConversionRow[]> {
+  return guardedRead(ctx, "adspend:read", async (tx) => {
+    const model = input.model ?? "position_based";
+    const from = new Date(`${input.from}T00:00:00Z`);
+    const to = new Date(`${input.to}T23:59:59.999Z`);
+
+    /**
+     * Jobs that were WON in the period, rather than touches that happened in
+     * it. A conversion is reported at the moment work was booked; the clicks
+     * behind it are often months older, and filtering on their dates would
+     * leave out exactly the long considered purchases a contractor most
+     * wants their account to bid on.
+     */
+    const jobRows = await tx.selectDistinct({
+      jobId: schema.job.id,
+      customerId: schema.job.customerId,
+      createdAt: schema.job.createdAt,
+    }).from(schema.job)
+      .innerJoin(schema.marketingTouch, eq(schema.marketingTouch.jobId, schema.job.id))
+      .where(and(
+        eq(schema.job.organizationId, ctx.actor.organizationId),
+        gte(schema.job.createdAt, from),
+        lte(schema.job.createdAt, to),
+      ));
+
+    if (jobRows.length === 0) return [];
+
+    const out: ConversionRow[] = [];
+
+    for (const job of jobRows) {
+      const [invoice] = await tx.select({ total: schema.invoice.total })
+        .from(schema.invoice)
+        .where(and(
+          eq(schema.invoice.organizationId, ctx.actor.organizationId),
+          eq(schema.invoice.jobId, job.jobId),
+        )).limit(1);
+
+      /**
+       * A job with no invoice yet is SKIPPED rather than reported at zero.
+       * A zero conversion teaches the account that this click produced
+       * nothing, which is the opposite of true and is a lesson it will act
+       * on. The job will be picked up by a later export once it is
+       * invoiced, and the platforms accept a conversion dated in the past.
+       */
+      if (!invoice?.total) continue;
+
+      const rows = await tx.select().from(schema.marketingTouch)
+        .where(and(
+          eq(schema.marketingTouch.organizationId, ctx.actor.organizationId),
+          eq(schema.marketingTouch.customerId, job.customerId),
+        ))
+        .orderBy(asc(schema.marketingTouch.occurredAt));
+
+      const decision = mk.attribute(model, rows.map(toCore));
+      if (!decision.ok) continue;
+
+      const shares = mk.creditRevenue(decision.credits, m.money(invoice.total, "USD"));
+      const shareOf = new Map(shares.map((s) => [s.source, s.amount]));
+
+      /**
+       * One row per CLICK ID, not per source. A customer who clicked the
+       * same campaign three times has three click ids and only one of them
+       * is the one the platform recorded the conversion window against; the
+       * platform matches on the id and ignores the rest, so sending them all
+       * is correct and sending a guess is not.
+       *
+       * The share is divided again across that source's own click ids, so a
+       * source's total across the file is still its share of the invoice.
+       */
+      const bySource = new Map<string, string[]>();
+      for (const row of rows) {
+        if (!row.clickId) continue;
+        const list = bySource.get(row.source) ?? [];
+        if (!list.includes(row.clickId)) list.push(row.clickId);
+        bySource.set(row.source, list);
+      }
+
+      for (const [source, clickIds] of bySource) {
+        const share = shareOf.get(source as mk.LeadSourceKey);
+        if (!share) continue;
+        const perClick = m.allocate(share, clickIds.map(() => "1"), 2);
+        clickIds.forEach((clickId, index) => {
+          out.push({
+            clickId,
+            source,
+            convertedAt: job.createdAt,
+            value: m.toString(perClick[index] ?? m.zero("USD")),
+            jobId: job.jobId,
+          });
+        });
+      }
+    }
+
+    return out;
+  });
+}
+
+/**
+ * The conversions as the file each platform takes.
+ *
+ * A file rather than an API call, for the same reason the spend import is a
+ * file: it works today, with no developer token and no consent screen, and
+ * both Google Ads and Meta accept an offline conversion upload in exactly
+ * this shape. An operator who can get API access should have it; one who
+ * cannot should still be able to close the loop.
+ *
+ * The header names are the platforms' own, verbatim, because their importers
+ * match on them and a helpful rename means a file that is rejected with a
+ * message about a missing column.
+ */
+export function conversionsCsv(
+  rows: readonly ConversionRow[],
+  platform: "google" | "meta",
+): string {
+  if (platform === "google") {
+    const lines = [
+      "Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency",
+      ...rows
+        .filter((row) => row.source === "google_ads" || row.source === "google_lsa")
+        .map((row) =>
+          [
+            row.clickId,
+            "Booked job",
+            /**
+             * Google's importer wants an explicit offset. UTC is written as
+             * +0000 rather than the `Z` an ISO string ends with, because
+             * their parser rejects `Z` and the error says only "invalid
+             * date".
+             */
+            `${row.convertedAt.toISOString().slice(0, 19).replace("T", " ")}+0000`,
+            row.value,
+            "USD",
+          ].join(","),
+        ),
+    ];
+    return lines.join("\n");
+  }
+
+  return [
+    "fbclid,event_name,event_time,value,currency",
+    ...rows
+      .filter((row) => row.source === "meta_ads")
+      .map((row) =>
+        [
+          row.clickId,
+          "Purchase",
+          /** Meta takes a unix timestamp in seconds. */
+          String(Math.floor(row.convertedAt.getTime() / 1000)),
+          row.value,
+          "USD",
+        ].join(","),
+      ),
+  ].join("\n");
+}
+
+/**
+ * The conversions handler, which returns the file as well as the rows.
+ *
+ * Both, rather than one or the other, because the two readers are different
+ * people: an integration wants the rows, and the operator about to upload a
+ * file to Google wants the file. Making them call twice, or making the
+ * integration parse a CSV, would serve neither.
+ */
+export const conversionHandlers = {
+  getConversions: async (ctx: ServiceContext, input: {
+    from: string; to: string;
+    model?: ("first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based") | undefined;
+    format?: ("google" | "meta") | undefined;
+  }): Promise<{
+    model: string;
+    rows: { clickId: string; source: string; convertedAt: Date; value: string; jobId: string }[];
+    csv?: string;
+  }> => {
+    const model = input.model ?? "position_based";
+    const rows = await conversions(ctx, { from: input.from, to: input.to, model });
+    return {
+      model,
+      rows,
+      ...(input.format ? { csv: conversionsCsv(rows, input.format) } : {}),
+    };
+  },
+} as const;
