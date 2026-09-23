@@ -12,3 +12,4 @@ export * as coverage from "./coverage/index.js";
 export * as authorization from "./authorization/index.js";
 export * as work from "./work/index.js";
 export * as parties from "./parties/index.js";
+export * as dashboard from "./dashboard/index.js";

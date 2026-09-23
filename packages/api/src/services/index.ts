@@ -26,6 +26,7 @@ export * as comms from "./comms";
 export * as commsInbound from "./comms-inbound";
 export * as commsOutbox from "./comms-outbox";
 export * as reports from "./reports";
+export * as dashboards from "./dashboards";
 export * as roles from "./roles";
 export * as tasks from "./tasks";
 export * as session from "./session";

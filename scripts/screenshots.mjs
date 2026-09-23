@@ -152,6 +152,23 @@ const SHOTS = [
     click: "main table tbody tr:first-child a",
     lands: "/agreements/",
   },
+  /**
+   * The two dashboards. Both, because the interesting claim is that they are
+   * the same machinery: every tile on them is a report definition run through
+   * the same resolver, so a dashboard cannot disagree with the report behind
+   * it about what a number means.
+   */
+  { name: "dashboard-operations", path: "/dashboards/operations", token: OWNER, ...DESK, height: 1000 },
+  { name: "dashboard-money", path: "/dashboards/money", token: OWNER, ...DESK, height: 1000 },
+  /*
+    The same board with the rail collapsed. Two captures of one screen is
+    worth it here: the claim is that the icons keep their order, so the
+    thing worth showing is the pair rather than either one.
+  */
+  {
+    name: "dispatch-board-collapsed", path: "/schedule", token: OWNER, ...DESK,
+    height: 1520, rail: "collapsed",
+  },
   { name: "reports", path: "/reports", token: OWNER, ...DESK, height: 760 },
   {
     name: "report-receivables", path: "/reports/built-in/ar-aging",
@@ -228,6 +245,16 @@ for (const shot of SHOTS) {
   });
   if (shot.token) {
     await context.addCookies([{ name: "ots_session", value: shot.token, url: values.base }]);
+  }
+  /*
+    The collapsed rail is a cookie, because this application navigates with
+    full document loads and component state would reset on every click. Set
+    directly here rather than clicked: the button posts to a server action
+    and redirects, and a capture that depends on a round trip completing is
+    a capture that is flaky before it is anything else.
+  */
+  if (shot.rail) {
+    await context.addCookies([{ name: "ots_rail", value: shot.rail, url: values.base }]);
   }
 
   const page = await context.newPage();

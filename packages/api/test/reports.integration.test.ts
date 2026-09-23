@@ -89,6 +89,43 @@ beforeEach(async () => {
   await raw`delete from public.report where organization_id = ${ORG}`;
 });
 
+run("ordering", () => {
+  it("sorts money by how much it is, not alphabetically", async () => {
+    /**
+     * A money measure is selected as TEXT on purpose: a sum of `numeric`
+     * arriving as a float loses cents at scale. `order by "balance"` then
+     * names that text column and Postgres sorts it as a word, so "9.0000"
+     * lands above "1000.0000" and the chasing list opens with a nine dollar
+     * debt.
+     *
+     * Two values chosen so the two orders disagree: alphabetically 1000
+     * comes first, numerically 9 does not.
+     */
+    const rows = await raw<{ id: string }[]>`
+      insert into public.invoice
+        (organization_id, customer_id, number, status, issued_on, due_on, subtotal, total, balance)
+      values
+        (${ORG}, ${customerId}, 8801, 'open', current_date, current_date + 30, 9, 9, 9),
+        (${ORG}, ${customerId}, 8802, 'open', current_date, current_date - 45, 1000, 1000, 1000)
+      returning id`;
+
+    try {
+      // Two different aging buckets, so there are two rows to order.
+      const result = await reports.run(owner(), {
+        dataset: "invoices", dimensions: ["aging"], measures: ["balance"],
+        orderBy: "balance",
+      });
+      const balances = result.rows.map((r) => Number(r["balance"]));
+      expect(balances).toEqual([...balances].sort((a, b) => b - a));
+      expect(balances[0]).toBe(1000);
+    } finally {
+      for (const row of rows) {
+        await raw`delete from public.invoice where id = ${row.id}`;
+      }
+    }
+  });
+});
+
 run("running one", () => {
   it("groups and counts", async () => {
     const result = await reports.run(owner(), {

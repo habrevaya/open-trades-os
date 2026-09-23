@@ -1,5 +1,6 @@
 import { Money } from "@opentradesos/ui";
 import { formatDay } from "@/lib/dates";
+import { enumText } from "@/lib/labels";
 import { Table, Th, Td, Empty } from "./Table";
 import type { reports } from "@opentradesos/api/services";
 
@@ -75,6 +76,7 @@ function Cell({
   // The sort prefix is declared by the catalogue, not sniffed for here: a
   // customer called "3 Brothers Plumbing" would lose their name to a guess.
   const text = String(value);
+  if (column.type === "status") return <span>{enumText(text)}</span>;
   return <span>{column.sortPrefix ? text.replace(/^\d+\s+/, "") : text}</span>;
 }
 

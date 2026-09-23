@@ -897,6 +897,66 @@ async function invoices(sql: postgres.Sql, customers: Map<string, { customer: st
               ${row.total}, '0', ${row.total}, ${row.balance})
     `;
   }
+
+  await history(sql, customers);
+}
+
+/**
+ * A YEAR OF PAID INVOICES BEHIND THE THREE LIVE ONES
+ *
+ * Without these the revenue trend is two columns, which is not a trend and
+ * demonstrates nothing: the whole claim of that tile is that you can see the
+ * shape of a year at a glance, and a chart with two buckets in it cannot make
+ * that claim either way.
+ *
+ * All paid and none attached to a job, which is honest about what they are:
+ * the book a shop already had before the demo starts. Attaching them to the
+ * eight seeded jobs would put twelve invoices on one job.
+ *
+ * The amounts are deliberately uneven, with a summer that is roughly double
+ * the winter. A flat year is a chart where a bug in the ordering, the scaling
+ * or the bucketing is invisible, which is the same reason the fixtures in the
+ * tests make size order and time order disagree.
+ */
+async function history(
+  sql: postgres.Sql,
+  customers: Map<string, { customer: string; property: string }>,
+): Promise<void> {
+  /*
+    HVAC, so the shape is a Texas summer: the number is what the shop billed
+    that month.
+
+    ELEVEN of them, not twelve. The live invoices above are in the current
+    month, so twelve months of history makes thirteen buckets on the trend
+    and the axis reads "Sep ... Sep", which looks like a bug in the chart.
+  */
+  const months = [
+    "16900.00", "21300.00", "28700.00", "34100.00", "41800.00",
+    "46200.00", "44900.00", "38600.00", "27400.00", "22100.00", "19800.00",
+  ];
+  const payers = ["whitfield", "okafor", "delgado", "kestrel", "brazos"];
+
+  let number = 2100;
+  for (const [index, total] of months.entries()) {
+    const link = customers.get(payers[index % payers.length]!);
+    if (!link) continue;
+
+    const issued = now();
+    // The 12th of the month, so a month boundary and a timezone cannot move
+    // an invoice into the bucket next door.
+    issued.setMonth(issued.getMonth() - (months.length - index), 12);
+
+    await sql`
+      insert into public.invoice
+        (id, organization_id, number, customer_id, status, issued_on, due_on,
+         subtotal, tax_total, total, balance)
+      values (${id(`inv:history:${index}`)}, ${ORG}, ${number}, ${link.customer}, 'paid',
+              ${issued.toISOString().slice(0, 10)},
+              ${issued.toISOString().slice(0, 10)}::date + 30,
+              ${total}, '0', ${total}, '0')
+    `;
+    number += 1;
+  }
 }
 
 /**

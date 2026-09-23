@@ -38,8 +38,15 @@ export interface Dimension {
   label: string;
   /** The expression, written by us. Never assembled from input. */
   sql: string;
-  /** Presentation only. `date` and `money` are formatted differently. */
-  type: "text" | "date" | "money" | "number";
+  /**
+   * Presentation only.
+   *
+   * `status` is `text` that came out of an enum column, so a renderer knows
+   * to make `in_progress` readable. It is not a separate SQL shape and it
+   * deliberately does not change what is stored or filtered on: a saved
+   * report's filter must keep matching when somebody improves a label.
+   */
+  type: "text" | "status" | "date" | "money" | "number";
   /** When present, only an actor holding it may group by this. */
   permission?: Permission;
   /**
@@ -106,7 +113,14 @@ export interface ReportDefinition {
   /** Inclusive start, exclusive end. Both optional. */
   from?: string;
   to?: string;
-  /** Which measure to order by, descending. Defaults to the first. */
+  /**
+   * What to order by: a measure, or a dimension.
+   *
+   * Left out, a report grouped by a single date orders by that date, and
+   * anything else orders by its first measure, biggest first. Naming a date
+   * dimension reads chronologically; naming anything else reads biggest
+   * first, which is what a ranking is.
+   */
   orderBy?: string;
   limit?: number;
 }

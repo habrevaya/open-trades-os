@@ -88,6 +88,12 @@ function links(): { file: string; href: string }[] {
   for (const group of NAV) {
     for (const item of group.items) {
       out.push({ file: "lib/nav.ts", href: item.href });
+      // Children too. They are the newer half of that list and the half
+      // nobody looks at, because a subsection only shows once you are
+      // already inside its parent.
+      for (const child of item.children ?? []) {
+        out.push({ file: "lib/nav.ts", href: child.href });
+      }
     }
   }
   return out;
@@ -112,5 +118,8 @@ describe("internal links", () => {
     // And that an interpolated link is actually checked, since skipping those
     // is how the first version of this test passed against six dead routes.
     expect(links().some(({ href }) => /\/customers\/x$/.test(href))).toBe(true);
+    // And that the nav's children are in the set being checked at all.
+    expect(links().some(({ file, href }) => file === "lib/nav.ts" && href === "/reports/new"))
+      .toBe(true);
   });
 });

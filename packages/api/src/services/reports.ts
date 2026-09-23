@@ -101,15 +101,28 @@ export async function run(
     for (const d of dimensions) {
       selects.push(sql`${sql.raw(d.sql)} as ${sql.raw(`"${d.key}"`)}`);
     }
+
+    /**
+     * The numeric form of each measure, kept for ORDER BY.
+     *
+     * A money measure is selected as TEXT, deliberately, because a sum of
+     * `numeric` arriving as a float loses cents at scale. But `order by
+     * "balance"` names the output column, which is that text, so Postgres
+     * sorts it alphabetically: "9.0000" lands above "1000.0000" and the
+     * receivables report puts a nine dollar debt at the top of the chasing
+     * list. Ordering by the aggregate itself keeps the precision in the
+     * value and the arithmetic in the sort.
+     */
+    const numeric = new Map<string, string>();
     for (const m of measures) {
       const expression = m.kind === "count"
         ? "count(*)"
         : `${m.kind}(${m.sql})`;
       // `coalesce` so a group with no matching rows reads 0 rather than a
       // blank cell, which looks like missing data rather than none.
-      const wrapped = m.type === "money"
-        ? `coalesce(${expression}, 0)::text`
-        : `coalesce(${expression}, 0)::float8`;
+      const total = `coalesce(${expression}, 0)`;
+      numeric.set(m.key, total);
+      const wrapped = m.type === "money" ? `${total}::text` : `${total}::float8`;
       selects.push(sql`${sql.raw(wrapped)} as ${sql.raw(`"${m.key}"`)}`);
     }
 
@@ -161,11 +174,52 @@ export async function run(
       ? sql` group by ${sql.raw(dimensions.map((_, i) => String(i + 1)).join(", "))}`
       : sql``;
 
-    const orderKey = definition.orderBy && measures.some((m) => m.key === definition.orderBy)
-      ? definition.orderBy
-      : measures[0]!.key;
+    /**
+     * WHAT A REPORT IS SORTED BY, AND WHY A DATE IS DIFFERENT
+     *
+     * Biggest first is right for a category: "who owes us" is a list you read
+     * from the top and stop. It is wrong for a date, and wrong in a way that
+     * looks fine. Revenue by month sorted by revenue is the same twelve
+     * numbers with the shape taken out, and with a limit on it, it keeps the
+     * twelve BIGGEST months rather than the twelve most recent, so a chart
+     * labelled "last 18 months" quietly shows the best 18 the company ever
+     * had.
+     *
+     * So a report grouped by one date orders by that date unless the
+     * definition asks for something else, and `orderBy` may now name a
+     * dimension as well as a measure.
+     */
+    /**
+     * A dimension is SEQUENTIAL when its values have an order of their own.
+     * Two do: a date, and a bucket carrying a sort prefix. The aging buckets
+     * are the second kind, and the prefix exists for exactly this: "Over 90"
+     * sorts between "1 to 30" and "31 to 60" without it.
+     *
+     * Everything else is a category, and categories have no order but size.
+     */
+    const sequential = dimensions.length === 1
+      && (dimensions[0]!.type === "date" || dimensions[0]!.sortPrefix === true)
+      ? dimensions[0]! : null;
+
+    const asked = definition.orderBy;
+    const orderKey =
+      (asked && dimensions.some((d) => d.key === asked) ? asked : null)
+      ?? (asked && measures.some((m) => m.key === asked) ? asked : null)
+      ?? sequential?.key
+      ?? measures[0]!.key;
+
+    /**
+     * Descending either way, because the limit has to keep the recent end
+     * rather than the far one. The reading order is produced by reversing
+     * what came back, below, rather than by sorting ascending and then
+     * throwing away the eighteen months somebody wanted.
+     */
+    const chronological = sequential !== null && orderKey === sequential.key;
+    // A measure sorts by its own aggregate, a dimension by its output
+    // column, where text order is the order we want.
+    const orderExpression = numeric.get(orderKey) ?? `"${orderKey}"`;
     const order = dimensions.length > 0
-      ? sql` order by ${sql.raw(`"${orderKey}"`)} desc nulls last`
+      ? sql` order by ${sql.raw(orderExpression)} desc nulls last`
       : sql``;
 
     const limit = Math.min(definition.limit ?? MAX_ROWS, MAX_ROWS);
@@ -179,6 +233,9 @@ export async function run(
     `);
 
     const truncated = rows.length > limit;
+    const kept = truncated ? rows.slice(0, limit) : rows;
+    // Oldest first for a reader, after the limit has taken the newest.
+    const ordered = chronological ? [...kept].reverse() : kept;
     return {
       columns: [
         ...dimensions.map((d) => ({
@@ -187,7 +244,7 @@ export async function run(
         })),
         ...measures.map((m) => ({ key: m.key, label: m.label, type: m.type, role: "measure" as const })),
       ],
-      rows: (truncated ? rows.slice(0, limit) : rows) as ReportResult["rows"],
+      rows: ordered as ReportResult["rows"],
       truncated,
     };
   });

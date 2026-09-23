@@ -149,3 +149,23 @@ export const INVOICE_TONE: Record<string, Tone> = {
 
 export const tone = (map: Record<string, Tone>, value: string): Tone =>
   map[value] ?? "neutral";
+
+/**
+ * A value from an enum column, when nobody knows which enum it came from.
+ *
+ * A report groups by `job.status` or `task.status` or `estimate.status` and
+ * hands back a string with no note of which. The maps above need to know, so
+ * they cannot be used, and the alternative was what the dashboard shipped
+ * with first: `in_progress` rendered as itself, on a tile an owner reads.
+ *
+ * Every one of those maps is still better where it applies, because they
+ * carry real wording rather than a transformation: `working` becomes "In
+ * progress" there and "Working" here. So this is the fallback for the one
+ * place that cannot know, and not a replacement for any of them.
+ */
+export function enumText(value: string): string {
+  return value
+    .split("_")
+    .map((word) => (word.length === 0 ? word : word[0]!.toUpperCase() + word.slice(1)))
+    .join(" ");
+}

@@ -1,4 +1,5 @@
 import type { Permission } from "@opentradesos/core";
+import type { IconName } from "@/components/NavIcon";
 
 /**
  * THE NAVIGATION, AS DATA
@@ -7,15 +8,38 @@ import type { Permission } from "@opentradesos/core";
  * and so the active-state logic is a function with its own tests rather than
  * a ternary inside markup.
  *
- * Grouped because a flat list of eleven is a list somebody reads top to
+ * Grouped because a flat list of fourteen is a list somebody reads top to
  * bottom every time. The groups are the way a contractor already thinks about
  * their day: what is happening now, the work, the people, the money, and the
  * things you set up once.
+ *
+ * THREE LEVELS AND NOT FOUR. Group, item, child. A fourth level is a menu
+ * somebody navigates rather than reads, and a product that needs one usually
+ * has a naming problem rather than a navigation problem.
  */
+export interface NavChild {
+  href: string;
+  label: string;
+}
+
 export interface NavItem {
   href: string;
   label: string;
   permission: Permission;
+  /**
+   * Required, not optional, because the rail collapses to icons only and an
+   * item with no icon is invisible in that state rather than plain.
+   */
+  icon: IconName;
+  /**
+   * Screens that belong under this one.
+   *
+   * They inherit the parent's permission rather than declaring their own. A
+   * child under a parent somebody cannot open is a door behind a wall, and a
+   * child that genuinely needs a different permission is a top level item
+   * filed in the wrong place.
+   */
+  children?: NavChild[];
 }
 
 export interface NavGroup {
@@ -33,39 +57,46 @@ export const NAV: NavGroup[] = [
        * permission it is the only screen they open, and anything above it is
        * a thing they scroll past every morning.
        */
-      { href: "/my-day", label: "My day", permission: "field:sync" },
-      { href: "/", label: "Today", permission: "job:read" },
+      { href: "/my-day", label: "My day", permission: "field:sync", icon: "day" },
+      { href: "/", label: "Today", permission: "job:read", icon: "today" },
     ],
   },
   {
     label: "Work",
     items: [
-      { href: "/schedule", label: "Schedule", permission: "visit:read" },
-      { href: "/jobs", label: "Jobs", permission: "job:read" },
-      { href: "/tasks", label: "Tasks", permission: "task:read" },
+      { href: "/schedule", label: "Schedule", permission: "visit:read", icon: "schedule" },
+      { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
+      { href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks" },
     ],
   },
   {
     label: "Customers",
     items: [
-      { href: "/customers", label: "Customers", permission: "customer:read" },
-      { href: "/inbox", label: "Inbox", permission: "message:read" },
+      { href: "/customers", label: "Customers", permission: "customer:read", icon: "customers" },
+      { href: "/inbox", label: "Inbox", permission: "message:read", icon: "inbox" },
     ],
   },
   {
     label: "Money",
     items: [
-      { href: "/invoices", label: "Invoices", permission: "invoice:read" },
-      { href: "/agreements", label: "Agreements", permission: "membership:read" },
-      { href: "/pricebook", label: "Price book", permission: "pricebook:read" },
+      { href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices" },
+      { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
+      { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
     ],
   },
   {
     label: "Business",
     items: [
-      { href: "/reports", label: "Reports", permission: "report:read" },
-      { href: "/automations", label: "Automations", permission: "workflow:read" },
-      { href: "/settings", label: "Settings", permission: "settings:read" },
+      { href: "/dashboards", label: "Dashboards", permission: "report:read", icon: "dashboards" },
+      {
+        href: "/reports", label: "Reports", permission: "report:read", icon: "reports",
+        children: [
+          { href: "/reports", label: "All reports" },
+          { href: "/reports/new", label: "Build one" },
+        ],
+      },
+      { href: "/automations", label: "Automations", permission: "workflow:read", icon: "automations" },
+      { href: "/settings", label: "Settings", permission: "settings:read", icon: "settings" },
     ],
   },
 ];
@@ -81,4 +112,44 @@ export const NAV: NavGroup[] = [
 export function isActive(href: string, pathname: string): boolean {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * Whether an item's children should be showing.
+ *
+ * Open when you are anywhere under the parent, closed otherwise. A section
+ * that stays open after you leave it turns the rail into a list of every
+ * screen in the product, which is what the groups exist to prevent.
+ *
+ * It asks about the parent's own href rather than any child's, because
+ * `/reports/saved/8f2a` matches no child exactly and still belongs open.
+ */
+export function isOpen(item: NavItem, pathname: string): boolean {
+  return item.children !== undefined && isActive(item.href, pathname);
+}
+
+/**
+ * Which child is the one you are looking at, when more than one matches.
+ *
+ * Longest href wins, for the same reason the parent uses a prefix: somebody
+ * on `/settings/people/abc` is in People, and `/settings/people` being a
+ * prefix of nothing else should not stop it saying so. Testing each child on
+ * its own would light both it and any shorter sibling, and a rail claiming
+ * you are in two places is worse than one claiming nothing.
+ *
+ * WITH ONE EXCEPTION, which is the child that is its parent's own landing
+ * page. "All reports" is `/reports` and so is Reports itself, so a prefix
+ * match lights it on every screen under Reports: open one saved report and
+ * the rail says you are looking at the list of them. An index is the active
+ * child only when it is exactly the page, and the parent stays marked either
+ * way, so nothing is lost by it going quiet.
+ */
+export function activeChild(item: NavItem, pathname: string): string | null {
+  const matches = (item.children ?? []).filter((child) =>
+    child.href === item.href ? pathname === child.href : isActive(child.href, pathname));
+  const best = matches.reduce<NavChild | null>(
+    (winner, child) => (winner && winner.href.length >= child.href.length ? winner : child),
+    null,
+  );
+  return best?.href ?? null;
 }

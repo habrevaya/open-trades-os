@@ -32,7 +32,12 @@ export const BUILT_IN: BuiltInReport[] = [
       dataset: "invoices",
       dimensions: ["month"],
       measures: ["total", "count", "average"],
-      orderBy: "total",
+      /**
+       * No `orderBy`, which now means chronological. It used to say "total",
+       * so the months came back in order of size: the same twelve numbers
+       * with the shape taken out, on the one report whose entire point is
+       * the shape.
+       */
     },
   },
   {
@@ -43,7 +48,13 @@ export const BUILT_IN: BuiltInReport[] = [
       dataset: "invoices",
       dimensions: ["aging"],
       measures: ["balance", "count"],
-      orderBy: "balance",
+      /**
+       * In bucket order, which is the whole reason the aging dimension
+       * carries a sort prefix. Ordering by balance, as this did, defeated
+       * the prefix on the one report it was written for: an owner reading
+       * this wants current at the top and over ninety at the bottom, not
+       * whichever bucket happens to be biggest this week.
+       */
     },
   },
   {

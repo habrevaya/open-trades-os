@@ -25,7 +25,7 @@ export const CATALOGUE: reporting.Dataset[] = [
     scope: "job",
     dateColumn: "job.created_at",
     dimensions: [
-      { key: "status", label: "Status", sql: "job.status::text", type: "text" },
+      { key: "status", label: "Status", sql: "job.status::text", type: "status" },
       {
         key: "priority", label: "Priority", type: "text",
         /**
@@ -67,7 +67,7 @@ export const CATALOGUE: reporting.Dataset[] = [
     scope: "invoice",
     dateColumn: "invoice.issued_on",
     dimensions: [
-      { key: "status", label: "Status", sql: "invoice.status::text", type: "text" },
+      { key: "status", label: "Status", sql: "invoice.status::text", type: "status" },
       {
         key: "month", label: "Month", type: "date",
         sql: "to_char(date_trunc('month', invoice.issued_on), 'YYYY-MM')",
@@ -110,7 +110,7 @@ export const CATALOGUE: reporting.Dataset[] = [
     scope: "estimate",
     dateColumn: "estimate.created_at",
     dimensions: [
-      { key: "status", label: "Status", sql: "estimate.status::text", type: "text" },
+      { key: "status", label: "Status", sql: "estimate.status::text", type: "status" },
       {
         key: "month", label: "Month", type: "date",
         sql: "to_char(date_trunc('month', estimate.created_at), 'YYYY-MM')",
@@ -151,7 +151,7 @@ export const CATALOGUE: reporting.Dataset[] = [
     scope: "visit",
     dateColumn: "visit.window_start",
     dimensions: [
-      { key: "status", label: "Status", sql: "visit.status::text", type: "text" },
+      { key: "status", label: "Status", sql: "visit.status::text", type: "status" },
       {
         key: "month", label: "Month", type: "date",
         sql: "to_char(date_trunc('month', visit.window_start), 'YYYY-MM')",
@@ -173,7 +173,7 @@ export const CATALOGUE: reporting.Dataset[] = [
   {
     key: "tasks",
     label: "Tasks",
-    description: "The office queue: what is raised, by whom, and how much of it gets donestimate.",
+    description: "The office queue: what is raised, by whom, and how much of it gets done.",
     from: "public.task",
     permission: "task:read",
     // Tasks are not scoped by work today, so the whole queue is the report.
@@ -181,13 +181,13 @@ export const CATALOGUE: reporting.Dataset[] = [
     scope: "job",
     dateColumn: "task.created_at",
     dimensions: [
-      { key: "status", label: "Status", sql: "task.status::text", type: "text" },
-      { key: "priority", label: "Priority", sql: "task.priority::text", type: "text" },
+      { key: "status", label: "Status", sql: "task.status::text", type: "status" },
+      { key: "priority", label: "Priority", sql: "task.priority::text", type: "status" },
       { key: "queue", label: "Queue", sql: "coalesce(task.queue, 'None')", type: "text" },
       {
         key: "source", label: "Raised by", type: "text",
         // Whether automation is generating work people actually do is the
-        // question worth asking about a queuestimate.
+        // question worth asking about a queue.
         sql: "case when task.raised_by_run_id is null then 'A person' else 'An automation' end",
       },
       {
