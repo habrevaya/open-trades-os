@@ -384,3 +384,143 @@ run("raising the ceiling", () => {
     expect(found!.authorization.consumedAmount).toBe("400.0000");
   });
 });
+
+run("the two ways an invoice ends without being paid", () => {
+  /**
+   * `invoice_status` has carried `void` and `written_off` since it was
+   * written, the contract published both, `invoice:writeoff` was a permission
+   * in the catalogue, and `ledger.postWriteOff` was written and tested.
+   * Nothing could reach any of it: no route, no service, no path.
+   * `invoice.voided_at` was a column nothing wrote.
+   *
+   * So the only way to deal with an invoice that was never going to be paid
+   * was to leave it open. Receivables aged past a year, the AR report kept
+   * counting money that did not exist, and the workaround was the database.
+   */
+  const invoiceRow = (id: string) => raw<{
+    status: string; balance: string; voided_at: Date | null;
+  }[]>`select status, balance, voided_at from public.invoice where id = ${id}`;
+
+  /**
+   * Signed, because the amount column is always positive and the direction
+   * says which way. Netting the raw amounts is how the first version of the
+   * reversal test concluded that a voided invoice had doubled its receivable.
+   */
+  const postingsFor = (id: string) => raw<{ account: string; signed: number }[]>`
+    select account_code as account,
+           case when direction = 'debit' then amount else -amount end as signed
+    from public.ledger_entry
+    where organization_id = ${ORG} and source_id = ${id} order by account_code`;
+
+  async function anInvoice(): Promise<{ id: string; total: string }> {
+    const invoice = await billing.create(owner(), {
+      customerId: tenantId, lines: [line("400.00")],
+    });
+    return { id: invoice.id, total: invoice.total };
+  }
+
+  it("voids an invoice that should never have been raised", async () => {
+    const { id } = await anInvoice();
+    await billing.voidInvoice(owner(), { id, reason: "Raised against the wrong property" });
+
+    const [row] = await invoiceRow(id);
+    expect(row!.status).toBe("void");
+    // The column that nothing used to write.
+    expect(row!.voided_at).not.toBeNull();
+    // Nothing is owed, so nothing should still be counted.
+    expect(Number(row!.balance)).toBe(0);
+  });
+
+  it("reverses the original posting rather than moving the balance", async () => {
+    /**
+     * A void says the invoice should never have existed, so the revenue was
+     * never earned and the tax was never collected. Treating it as a write
+     * off would leave revenue the company never earned on its books and a bad
+     * debt expense it never suffered, and a tax return is built on both.
+     */
+    const { id } = await anInvoice();
+    const before = await postingsFor(id);
+    await billing.voidInvoice(owner(), { id, reason: "Duplicate" });
+    const after = await postingsFor(id);
+
+    expect(after.length).toBeGreaterThan(before.length);
+    // Every account nets to zero once the reversal is in.
+    const net = new Map<string, number>();
+    for (const entry of after) {
+      net.set(entry.account, (net.get(entry.account) ?? 0) + Number(entry.signed));
+    }
+    for (const [account, sum] of net) {
+      expect([account, Math.round(sum * 10000)]).toEqual([account, 0]);
+    }
+  });
+
+  it("refuses to void an invoice money has arrived against", async () => {
+    /**
+     * A payment with nothing to allocate to is stranded. That is a refund,
+     * which is a different posting and a different conversation.
+     */
+    const { id } = await anInvoice();
+    await billing.pay(owner(), {
+      customerId: tenantId, method: "check", amount: "100.00", tipAmount: "0",
+      allocations: [{ invoiceId: id, amount: "100.00" }],
+    });
+
+    await expect(billing.voidInvoice(owner(), { id, reason: "Too late" }))
+      .rejects.toThrow(/Refund the payment first/);
+  });
+
+  it("writes off the outstanding balance, never the total", async () => {
+    /**
+     * An invoice half paid and then written off would otherwise remove a
+     * receivable that was already settled in cash.
+     */
+    const { id } = await anInvoice();
+    await billing.pay(owner(), {
+      customerId: tenantId, method: "check", amount: "150.00", tipAmount: "0",
+      allocations: [{ invoiceId: id, amount: "150.00" }],
+    });
+
+    await billing.writeOff(owner(), { id, reason: "Customer went under" });
+
+    const [row] = await invoiceRow(id);
+    expect(row!.status).toBe("written_off");
+    expect(Number(row!.balance)).toBe(0);
+
+    // 250 written off, not 400.
+    const entries = await postingsFor(id);
+    // 6900 is the bad debt account. Read off ACCOUNTS rather than guessed:
+    // the first version used 6100 and summed zero, which would have passed
+    // just as happily against a write off that posted nothing at all.
+    const writeOffAmount = entries
+      .filter((e) => e.account === "6900")
+      .reduce((total, e) => total + Number(e.signed), 0);
+    expect(writeOffAmount).toBe(250);
+  });
+
+  it("refuses to write off an invoice with nothing outstanding", async () => {
+    // A zero pair in the ledger, and a paid invoice marked as a bad debt.
+    const { id, total } = await anInvoice();
+    await billing.pay(owner(), {
+      customerId: tenantId, method: "check", amount: total, tipAmount: "0",
+      allocations: [{ invoiceId: id, amount: total }],
+    });
+
+    await expect(billing.writeOff(owner(), { id, reason: "Nope" }))
+      .rejects.toThrow(/nothing outstanding/i);
+  });
+
+  it("treats both endings as final", async () => {
+    /**
+     * Voiding a written off invoice, or writing off a void one, posts a
+     * second entry against a receivable that is already gone and takes the
+     * ledger out of agreement with itself.
+     */
+    const { id } = await anInvoice();
+    await billing.writeOff(owner(), { id, reason: "Gone" });
+
+    await expect(billing.writeOff(owner(), { id, reason: "Again" }))
+      .rejects.toThrow(/already written off/i);
+    await expect(billing.voidInvoice(owner(), { id, reason: "Also" }))
+      .rejects.toThrow(/already written off/i);
+  });
+});

@@ -93,6 +93,8 @@ export const handlers = {
   getInvoice: billing.get,
   listInvoices: billing.list,
   recordPayment: billing.pay,
+  voidInvoice: billing.voidInvoice,
+  writeOffInvoice: billing.writeOff,
   getArAging: billing.arAging,
 
   // Sell

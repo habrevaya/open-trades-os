@@ -378,6 +378,50 @@ export function postRefund(input: {
   });
 }
 
+/**
+ * VOIDING AN INVOICE, WHICH IS NOT THE SAME THING AS WRITING IT OFF.
+ *
+ * A write off says the money is owed and will not arrive: the receivable
+ * goes and a loss is recognised, so the revenue stays on the books and the
+ * bad debt sits beside it. A void says the invoice should never have
+ * existed: the revenue was never earned, the tax was never collected, and
+ * nothing is lost because nothing was ever really owed.
+ *
+ * Getting the two the wrong way round is not a rounding error. A voided
+ * invoice written off leaves revenue the company never earned in its
+ * accounts and a bad debt expense it never suffered, and both of those are
+ * numbers a tax return is built on.
+ *
+ * So this REVERSES the original posting line for line rather than moving the
+ * balance somewhere. The tag carries the same job and customer, so the
+ * reversal lands on the same rows a report groups by.
+ */
+export function postVoid(input: {
+  invoiceId: string;
+  occurredAt: Date;
+  totals: InvoiceTotals;
+  customerId?: string | undefined;
+  jobId?: string | undefined;
+  isAgreementRevenue?: boolean | undefined;
+}): Posting {
+  const { totals } = input;
+  const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
+  const tag = { jobId: input.jobId, customerId: input.customerId };
+
+  return assertBalanced({
+    sourceType: "void",
+    sourceId: input.invoiceId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      // Every line of `postInvoice`, the other way up.
+      cr(ACCOUNTS.AR, totals.total, "Invoice voided", tag),
+      cr(ACCOUNTS.DISCOUNTS, totals.discountTotal, "Discount reversed", tag),
+      dr(revenueAccount, totals.subtotal, "Revenue reversed", tag),
+      dr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax reversed", tag),
+    ]),
+  });
+}
+
 /** Writing off a balance. The receivable goes, and the loss is recognised. */
 export function postWriteOff(input: {
   invoiceId: string;

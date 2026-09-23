@@ -176,6 +176,55 @@ export const getArAging = defineRoute({
   }),
 });
 
+/**
+ * THE TWO WAYS AN INVOICE ENDS WITHOUT BEING PAID.
+ *
+ * `invoice_status` has carried `void` and `written_off` since it was
+ * written, `InvoiceStatus` above publishes both, and nothing could reach
+ * either. A company's only option for an invoice that was never going to be
+ * paid was to leave it open, so receivables aged past a year and the AR
+ * report kept counting money that did not exist.
+ *
+ * Two routes rather than one with a flag, because they are different acts
+ * with different postings. A write off says the money is owed and will not
+ * arrive: the receivable goes, the revenue stays, and a bad debt appears. A
+ * void says the invoice should never have existed and reverses the original
+ * posting line for line. Behind one parameter, the wrong one gets picked.
+ */
+export const voidInvoice = defineRoute({
+  method: "post",
+  path: "/v1/invoices/{id}/void",
+  summary: "Void an invoice that should never have been raised",
+  description:
+    "Reverses the original posting. Refused once anything has been paid against it, because a payment with nothing to allocate to is stranded: refund it first, or write the balance off instead.",
+  module: "M13",
+  permissions: ["invoice:void"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    /** Why. An auditor asks this before they ask anything else. */
+    reason: z.string().min(1).max(500),
+  }),
+  output: Invoice,
+});
+
+export const writeOffInvoice = defineRoute({
+  method: "post",
+  path: "/v1/invoices/{id}/write-off",
+  summary: "Write off a balance that will not be collected",
+  description:
+    "Posts the OUTSTANDING BALANCE to bad debt, never the total: an invoice half paid and then written off would otherwise remove a receivable that was already settled in cash.",
+  module: "M13",
+  permissions: ["invoice:writeoff"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    reason: z.string().min(1).max(500),
+  }),
+  output: Invoice,
+});
+
 export const billingRoutes = {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging,
+  voidInvoice, writeOffInvoice,
 } as const;

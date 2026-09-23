@@ -555,3 +555,155 @@ async function entitlementIdFor(tx: Database, jobId: string): Promise<string | n
     .where(eq(schema.entitlement.jobId, jobId)).limit(1);
   return row?.id ?? null;
 }
+
+/**
+ * THE TWO WAYS AN INVOICE ENDS WITHOUT BEING PAID.
+ *
+ * `invoice_status` has carried `void` and `written_off` since it was written,
+ * the contract publishes both, `invoice:writeoff` is a permission in the
+ * catalogue, and `ledger.postWriteOff` was written and tested. Nothing could
+ * reach any of it: no route, no service, no path. `invoice.voided_at` was a
+ * column nothing wrote.
+ *
+ * So a company had exactly one way to deal with an invoice that was never
+ * going to be paid, which was to leave it open forever. Receivables aged
+ * past a year, the AR report kept counting money that did not exist, and the
+ * only workaround was editing the database.
+ *
+ * VOID AND WRITE OFF ARE DIFFERENT and the difference is the whole reason
+ * both exist. A write off says the money is owed and will not arrive: the
+ * receivable goes, the revenue stays, and a bad debt expense appears beside
+ * it. A void says the invoice should never have existed: the revenue was
+ * never earned and the tax was never collected, so the original posting is
+ * reversed line for line. Using the wrong one leaves either revenue the
+ * company never earned or an expense it never suffered on a set of books a
+ * tax return is built from.
+ */
+export async function voidInvoice(
+  ctx: ServiceContext, input: { id: string; reason: string },
+) {
+  return guardedWrite(ctx, "invoice:void", async (tx) => {
+    const invoice = await loadForClosing(tx, ctx, input.id);
+
+    /**
+     * A paid invoice cannot be voided. Money arrived against it, and
+     * pretending it never existed strands the payment with nothing to
+     * allocate against. That is a refund, which is a different posting and a
+     * different conversation with the customer.
+     */
+    if (m.isPositive(m.money(invoice.amountPaid, "USD"))) {
+      throw new ConflictError(
+        `Invoice ${invoice.number} has ${invoice.amountPaid} paid against it. `
+        + "Refund the payment first, or write the balance off instead.",
+      );
+    }
+
+    await writePosting(tx, ctx, ledger.postVoid({
+      invoiceId: invoice.id,
+      occurredAt: new Date(),
+      totals: {
+        subtotal: m.money(invoice.subtotal, "USD"),
+        discountTotal: m.money(invoice.discountTotal, "USD"),
+        taxTotal: m.money(invoice.taxTotal, "USD"),
+        total: m.money(invoice.total, "USD"),
+      },
+      customerId: invoice.customerId,
+      ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+    }));
+
+    await tx.update(schema.invoice).set({
+      status: "void",
+      voidedAt: new Date(),
+      /**
+       * The balance goes to zero because nothing is owed any more. Leaving
+       * the old figure there is what makes an AR report keep counting an
+       * invoice nobody is chasing.
+       */
+      balance: "0",
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, invoice.id));
+
+    await audit(tx, ctx, "invoice.voided", "invoice", invoice.id,
+      { status: invoice.status, balance: invoice.balance },
+      { status: "void", reason: input.reason });
+
+    return loadInvoice(tx, ctx, invoice.id);
+  });
+}
+
+export async function writeOff(
+  ctx: ServiceContext, input: { id: string; reason: string },
+) {
+  return guardedWrite(ctx, "invoice:writeoff", async (tx) => {
+    const invoice = await loadForClosing(tx, ctx, input.id);
+
+    const balance = m.money(invoice.balance, "USD");
+    if (!m.isPositive(balance)) {
+      /**
+       * Writing off nothing posts a zero pair to the ledger and marks a paid
+       * invoice as a bad debt. Both are wrong, and the second one is the kind
+       * of wrong an accountant finds a year later.
+       */
+      throw new ConflictError(
+        `Invoice ${invoice.number} has nothing outstanding. There is nothing to write off.`,
+      );
+    }
+
+    /**
+     * ONLY THE BALANCE, never the total. An invoice half paid and then
+     * written off loses the unpaid half, and writing off the whole total
+     * would remove a receivable that was already settled in cash.
+     */
+    await writePosting(tx, ctx, ledger.postWriteOff({
+      invoiceId: invoice.id,
+      occurredAt: new Date(),
+      amount: balance,
+      customerId: invoice.customerId,
+    }));
+
+    await tx.update(schema.invoice).set({
+      status: "written_off",
+      balance: "0",
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, invoice.id));
+
+    await audit(tx, ctx, "invoice.written_off", "invoice", invoice.id,
+      { status: invoice.status, balance: invoice.balance },
+      { status: "written_off", amount: m.toString(balance), reason: input.reason });
+
+    return loadInvoice(tx, ctx, invoice.id);
+  });
+}
+
+/**
+ * The invoice, and a refusal when it is already finished.
+ *
+ * Both terminal states are absorbing. Voiding a written off invoice, or
+ * writing off a void one, posts a second entry against a receivable that is
+ * already gone and takes the ledger out of agreement with itself.
+ */
+async function loadForClosing(
+  tx: Database, ctx: ServiceContext, id: string,
+): Promise<typeof schema.invoice.$inferSelect> {
+  const [invoice] = await tx.select().from(schema.invoice)
+    .where(and(eq(schema.invoice.id, id), isNull(schema.invoice.deletedAt)))
+    .limit(1);
+  if (!invoice) throw new NotFoundError("Invoice");
+
+  if (invoice.status === "void" || invoice.status === "written_off") {
+    throw new ConflictError(
+      `Invoice ${invoice.number} is already ${invoice.status.replace("_", " ")}.`,
+    );
+  }
+  if (invoice.status === "draft") {
+    /**
+     * A draft has never been posted to the ledger, so there is nothing to
+     * reverse and nothing to lose. Deleting it is the right action and this
+     * is not it.
+     */
+    throw new ConflictError(
+      `Invoice ${invoice.number} is still a draft. Delete it rather than voiding it.`,
+    );
+  }
+  return invoice;
+}
