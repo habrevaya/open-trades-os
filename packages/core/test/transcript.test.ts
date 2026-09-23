@@ -764,3 +764,74 @@ describe("whether a transcript is good enough to act on", () => {
     expect(relaxed.actOnAutomatically).toBe(true);
   });
 });
+
+/**
+ * A CARD NUMBER WITH AN EMOJI IN FRONT OF IT
+ *
+ * `redactTranscript` built its character array with `[...text]`, which splits
+ * into CODE POINTS, while every index written into it comes from UTF-16
+ * offsets: `match.index` from `matchAll`, and `i` from `charCodeAt`. One
+ * astral character anywhere earlier in the segment, which is any emoji and
+ * plenty of CJK, makes the two index spaces disagree by one per surrogate
+ * pair.
+ *
+ * The measured output for "🙂 my card is 4111 1111 1111 1111 ok" was
+ * "🙂 my card is 4####1####1####1####ok". Four digits of the card survived
+ * into the string written to the database, the spaces this function's own
+ * comment says are left alone were the characters that got masked instead,
+ * and the recorded offset was one short, so a reviewer's highlight would sit
+ * on the wrong character.
+ *
+ * Every existing test used plain ASCII, where the two index spaces coincide
+ * exactly, which is why all of them passed.
+ */
+describe("redaction with characters outside the basic plane", () => {
+  const spoken = (text: string) =>
+    redactTranscript([{ speaker: "caller", startsAt: 0, endsAt: 5, text }] as never);
+
+  const digitsIn = (text: string) => (text.match(/\d/g) ?? []).join("");
+
+  it("destroys every digit of the card, emoji or no emoji", () => {
+    for (const prefix of ["", "🙂 ", "🙂🙂 ", "𝕏 "]) {
+      const out = spoken(`${prefix}my card is 4111 1111 1111 1111 ok`);
+      const text = out.segments[0]!.text;
+      // The surviving digits, not the literal string. A first attempt at this
+      // asserted the output did not contain "4111", which passed against the
+      // broken code: the survivors come back separated by mask characters, so
+      // the substring never appears and the assertion measured nothing.
+      expect([prefix, digitsIn(text)]).toEqual([prefix, ""]);
+    }
+  });
+
+  it("keeps the words around it intact", () => {
+    const out = spoken("🙂 my card is 4111 1111 1111 1111 ok");
+    const text = out.segments[0]!.text;
+    expect(text.startsWith("🙂 my card is ")).toBe(true);
+    expect(text.endsWith(" ok")).toBe(true);
+  });
+
+  it("records an offset that lands on the masked run, not next to it", () => {
+    /**
+     * The offset is what a reviewer's highlight is drawn from, and it was one
+     * short: the run it pointed at started on the space before the number.
+     * Asserted against the ASCII answer for the same sentence, so the test
+     * states the property rather than a number I read off a run.
+     */
+    const withEmoji = spoken("🙂 my card is 4111 1111 1111 1111 ok");
+    const plain = spoken("my card is 4111 1111 1111 1111 ok");
+
+    const a = withEmoji.report.sites[0];
+    const b = plain.report.sites[0];
+    expect([a, b].every(Boolean)).toBe(true);
+
+    // The emoji is two UTF-16 units plus a space, so the offset moves by
+    // exactly three and the length does not move at all.
+    expect(a!.start - b!.start).toBe(3);
+    expect(a!.length).toBe(b!.length);
+
+    // And what sits at that offset is a mask rather than the space in front
+    // of the number.
+    const text = withEmoji.segments[0]!.text;
+    expect(text[a!.start]).not.toBe(" ");
+  });
+});

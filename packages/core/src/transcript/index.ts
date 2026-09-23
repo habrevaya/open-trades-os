@@ -465,7 +465,32 @@ export function redactText(text: string, context: RedactionContext = {}): TextRe
   const accountContext = mentions(window, ACCOUNT_WORDS);
 
   const found: FoundRedaction[] = [];
-  const characters = [...text];
+
+  /**
+   * UTF-16 UNITS, NOT CODE POINTS, AND THE DIFFERENCE LEFT CARD DIGITS IN.
+   *
+   * This was `[...text]`, which splits into code points, while every index
+   * written into it comes from UTF-16 offsets: `match.index` from
+   * `matchAll`, and `i` from `charCodeAt`. One astral character anywhere
+   * earlier in the segment, which is any emoji and plenty of CJK, makes the
+   * two index spaces disagree by one per surrogate pair.
+   *
+   * Measured, on "🙂 my card is 4111 1111 1111 1111 ok": the output was
+   * "🙂 my card is 4####1####1####1####ok". Four digits of the PAN survived
+   * into the string that gets written to the database, the spaces this
+   * function's own comment says are "left alone" were the characters that got
+   * masked instead, and the recorded `start` offset was one short, so the
+   * highlight a reviewer sees would sit on the wrong character.
+   *
+   * With plain ASCII the two spaces coincide exactly, which is why every test
+   * in this module passed.
+   *
+   * `split("")` keeps UTF-16 units, so a surrogate pair becomes two entries
+   * and the indices line up. A pair is only ever split when a mask lands on
+   * it, and a mask never lands on one: the loop below writes only where
+   * `charCodeAt` found a digit, and no digit is half of a surrogate pair.
+   */
+  const characters = text.split("");
 
   for (const match of text.matchAll(DIGIT_RUN)) {
     const runText = match[0];

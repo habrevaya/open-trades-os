@@ -152,9 +152,12 @@ export interface DepositPolicy {
  * Returns zero rather than throwing when the policy resolves below the
  * minimum, because "no deposit on this one" is a normal outcome and not an
  * error. It throws only on a policy that cannot mean anything: both amount and
- * percent, or neither, or a percentage above one hundred, each of which is a
- * configuration mistake that should surface at setup rather than silently
- * overcharge a customer.
+ * percent, or a percentage above one hundred, each of which is a configuration
+ * mistake that should surface at setup rather than silently overcharge a
+ * customer.
+ *
+ * It does NOT throw on a policy that sets neither. That is how a job taking
+ * no deposit is expressed, and the branch below says what that costs.
  */
 export function computeDeposit(total: Money, policy: DepositPolicy): Money {
   const currency = total.currency;
@@ -164,6 +167,25 @@ export function computeDeposit(total: Money, policy: DepositPolicy): Money {
   if (hasAmount && hasPercent) {
     throw new DepositError("A deposit policy sets an amount or a percent, not both.");
   }
+  /**
+   * NEITHER SET MEANS NO DEPOSIT, and the comment above used to say this
+   * threw.
+   *
+   * I changed the code to match the comment and a test that has been here
+   * since this function was written went red: "asks for nothing when no
+   * policy is set". The behaviour is deliberate, so the comment was the
+   * thing that was wrong, which is the usual direction in this repository
+   * and not the one I assumed.
+   *
+   * The limitation is real and is worth writing down rather than fixing on a
+   * guess. An empty policy is ambiguous: it is how a job type that takes no
+   * deposit is expressed, and it is also what a policy row looks like after
+   * losing both of its columns. This function cannot tell them apart, so a
+   * configuration mistake reads as "no deposit on this one" and the caller
+   * has no way to notice. Resolving that needs the caller to distinguish
+   * "no policy" from "a policy that asks for nothing" before it gets here,
+   * which is a change to the shape rather than to this branch.
+   */
   if (!hasAmount && !hasPercent) return zero(currency);
 
   if (hasPercent && Number(policy.percent) > 1) {

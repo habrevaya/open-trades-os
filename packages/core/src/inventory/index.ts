@@ -1166,6 +1166,39 @@ export function consumeLayers(
     };
   }
 
+  /**
+   * THE CURRENCY CHECK MOVES AHEAD OF THE POOLING, and it had to.
+   *
+   * `poolLayers` folds every layer's cost with `add`, which throws
+   * `CurrencyMismatchError` out of the money module. So under average costing
+   * a mixed currency history threw, while the identical input under FIFO
+   * returned a tidy `{ ok: false, reason: "currency_mismatch" }`. Same data,
+   * two different failure shapes, and the documented one was the one the
+   * caller is told to expect: the header of this section promises that every
+   * decision here either succeeds or refuses, `InventoryRefusal` carries a
+   * `currency_mismatch` member, and `explainRefusal` has a sentence ready
+   * for it.
+   *
+   * The throw propagated out of `costMovements` and took the whole costing
+   * run with it, so one stray layer from a Canadian branch would stop a
+   * month's job costing rather than naming the part.
+   *
+   * Checked over every layer rather than only the ones consumed. Pooling
+   * touches all of them, so a layer that FIFO would never have reached still
+   * breaks the average.
+   */
+  for (const layer of layers) {
+    if (layer.cost.currency !== context.currency) {
+      return {
+        ok: false,
+        reason: "currency_mismatch",
+        itemId: context.itemId,
+        expected: context.currency,
+        found: layer.cost.currency,
+      };
+    }
+  }
+
   const ordered = method === "average" ? poolLayers(layers) : [...layers].sort(byLayerAge);
 
   const consumed: LayerConsumption[] = [];

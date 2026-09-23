@@ -1190,3 +1190,59 @@ describe("taking a part off the shelf for a job", () => {
     })).reason).toBe("insufficient_available");
   });
 });
+
+/**
+ * A LAYER IN THE WRONG CURRENCY
+ *
+ * The section header promises that every decision either succeeds or
+ * refuses, `InventoryRefusal` carries a `currency_mismatch` member, and
+ * `explainRefusal` has a sentence ready for it. Under AVERAGE costing it
+ * threw instead: `poolLayers` folds every layer's cost with `add`, which
+ * raises `CurrencyMismatchError` out of the money module, and it ran before
+ * the per layer check.
+ *
+ * Same data under FIFO returned the tidy refusal. Two failure shapes for one
+ * input, and the documented one was the one the caller is told to expect.
+ */
+describe("a cost layer in another currency", () => {
+  const layerIn = (currency: "USD" | "EUR", id: string): inv.CostLayer => ({
+    receiptMovementId: id,
+    itemId: COMP,
+    locationId: WAREHOUSE,
+    quantity: q("2"),
+    cost: money("100.00", currency),
+    occurredAt: at(3),
+    sequence: 1,
+  });
+
+  const context = {
+    itemId: COMP, locationId: WAREHOUSE, currency: "USD" as const,
+    movementId: "m1", occurredAt: at(5), sequence: 9,
+  };
+
+  // Both methods this product supports. There is no LIFO here on purpose:
+  // see the note on CostingMethod.
+  for (const method of ["fifo", "average"] as const) {
+    it(`refuses rather than throwing under ${method}`, () => {
+      const layers = [layerIn("USD", "a"), layerIn("EUR", "b")];
+
+      let result: ReturnType<typeof inv.consumeLayers> | null = null;
+      expect(() => { result = inv.consumeLayers(layers, q("1"), method, context); })
+        .not.toThrow();
+
+      const decision = result! as inv.InventoryRefusal;
+      expect([method, decision.ok]).toEqual([method, false]);
+      expect([method, decision.reason]).toEqual([method, "currency_mismatch"]);
+      // And it says which currency it found, because "mismatch" alone sends
+      // somebody looking through a month of receipts.
+      expect(inv.explainRefusal(decision)).toContain("EUR");
+    });
+  }
+
+  it("still costs an ordinary single currency history", () => {
+    // A guard that refused everything would pass every assertion above.
+    const layers = [layerIn("USD", "a"), layerIn("USD", "b")];
+    const decision = inv.consumeLayers(layers, q("1"), "average", context);
+    expect(decision.ok).toBe(true);
+  });
+});
