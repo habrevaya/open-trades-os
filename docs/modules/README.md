@@ -24,10 +24,14 @@ lives in the planning repo; these are the user-facing docs.
 | M16 Purchasing, Vendors and Inventory | Money | 5 | [Purchasing, Vendors and Inventory](m16-purchasing-vendors-inventory.md) |
 | M17 Payroll, Time and Commissions | Money | 5 | [Payroll, Time and Commissions](m17-payroll-time-commissions.md) |
 | M21 Reporting and Business Intelligence | Grow | 5 | [Reporting and Business Intelligence](m21-reporting-business-intelligence.md) |
+| M31 Commercial Parties, Contracts and Third-Party Billing | Money | 5 | [Commercial Parties, Contracts and Third-Party Billing](m31-commercial-parties-contracts.md) |
+| M32 Coverage, Warranty and Who Is Actually Paying | Money | 5 | [Coverage, Warranty and Who Is Actually Paying](m32-coverage-and-warranty.md) |
 | M08 Memberships and Service Agreements | Sell | 6 | [Memberships and Service Agreements](m08-memberships-service-agreements.md) |
 | M18 Communications Infrastructure | Grow | 6 | [Communications Infrastructure](m18-communications-infrastructure.md) |
 | M19 Marketing Operations and Attribution | Grow | 6 | [Marketing Operations and Attribution](m19-marketing-operations-attribution.md) |
 | M20 Reviews and Reputation | Grow | 6 | [Reviews and Reputation](m20-reviews-reputation.md) |
+| M33 Inspections and the Deficiency Backlog | Operate | 6 | [Inspections and the Deficiency Backlog](m33-inspections-and-deficiencies.md) |
+| M34 Tasks and the Office Work Queue | Company | 6 | [Tasks and the Office Work Queue](m34-tasks-and-the-office-queue.md) |
 | M12 Projects and Multi-Phase Work | Operate | 7 | [Projects and Multi-Phase Work](m12-projects-multi-phase-work.md) |
 | M22 Fleet, Tools and Company Assets | Company | 7 | [Fleet, Tools and Company Assets](m22-fleet-tools-company-assets.md) |
 | M23 Documents, Compliance and Safety | Company | 7 | [Documents, Compliance and Safety](m23-documents-compliance-safety.md) |
