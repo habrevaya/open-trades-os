@@ -8,6 +8,7 @@ import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
+import { resolveIn } from "./entitlements";
 
 /**
  * MAINTENANCE AGREEMENTS
@@ -530,6 +531,23 @@ export async function book(ctx: ServiceContext, input: { agreementVisitId: strin
         row.visit.skippedOn ? "That visit was skipped." : "That visit is already booked.",
       );
     }
+
+    /**
+     * WHO IS PAYING FOR THIS, WRITTEN DOWN AT THE MOMENT IT IS BOOKED.
+     *
+     * Without it, a zero dollar job under a plan and a zero dollar job that
+     * is our own rework are the same row on every revenue report, and they
+     * mean opposite things about the business. Recorded rather than derived,
+     * because a plan cancelled in June did not uncover a visit delivered in
+     * March.
+     */
+    await resolveIn(tx, ctx.actor.organizationId, {
+      jobId: job!.id,
+      source: "agreement",
+      grantingEntityType: "agreement",
+      grantingEntityId: row.agreement.id,
+      resolvedByUserId: ctx.actor.userId,
+    });
 
     await audit(tx, ctx, "agreement_visit.booked", "agreement_visit", input.agreementVisitId,
       row.visit, { ...row.visit, jobId: job!.id });

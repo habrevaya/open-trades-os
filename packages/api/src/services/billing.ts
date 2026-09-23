@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { ledger, money as m } from "@opentradesos/core";
+import { coverage, ledger, money as m } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
@@ -11,6 +11,7 @@ import { invoiceScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { writePosting } from "./ledger";
 import { nextNumber } from "./jobs";
+import * as entitlements from "./entitlements";
 import type { createInvoice, listInvoices, getInvoice, recordPayment, getArAging } from "../contracts/billing";
 
 const usd = (v: string) => m.money(v, "USD");
@@ -77,6 +78,38 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       };
     });
 
+    /**
+     * WORK THE CUSTOMER DOES NOT PAY FOR MUST NOT REACH THEM.
+     *
+     * A guard rather than a calculation. The sources this refuses on are the
+     * ones where billing the customer is not a pricing question but a
+     * mistake: we are back because of something we did, or we chose to
+     * absorb it. Rework billed to a customer is the complaint that ends a
+     * relationship, and it happens because the person invoicing was not the
+     * person who decided.
+     *
+     * A line's own `coverageSource` wins over the job's, because a job can
+     * be a callback with one chargeable extra on it.
+     */
+    const terms = input.jobId ? await entitlements.termsFor(tx, input.jobId) : null;
+    if (terms) {
+      /**
+       * Only the lines that INHERIT the job's coverage are tested. A line
+       * that names its own source was an explicit decision by whoever wrote
+       * it, including naming the customer: a callback can have one
+       * chargeable extra on it, and refusing that would make the guard
+       * something people work around rather than with.
+       */
+      const charges = resolved
+        .filter((r) => r.coverageSource == null)
+        .map((r) => ({
+          kind: chargeKindOf(r.name, r.costCode),
+          amount: m.multiply(r.unitPrice, r.quantity),
+        }));
+      const refusal = entitlements.refusalFor(terms, charges);
+      if (refusal) throw new ConflictError(refusal);
+    }
+
     const computed = ledger.computeInvoice(resolved.map((r) => ({
       quantity: r.quantity,
       unitPrice: r.unitPrice,
@@ -105,9 +138,24 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       memo: input.memo ?? null,
     }).returning();
 
+    /**
+     * The link the schema has always had a column for and nothing wrote.
+     * Without it, an invoice line that was free under a plan and one that
+     * was free because we got it wrong are the same row, and the API
+     * contract has promised a `coverageSource` on every line since it was
+     * written.
+     */
+    const entitlementId = input.jobId ? await entitlementIdFor(tx, input.jobId) : null;
+
     await tx.insert(schema.invoiceLine).values(resolved.map((r, i) => ({
       organizationId: ctx.actor.organizationId,
       invoiceId: invoice!.id,
+      /**
+       * A line that explicitly says the customer is paying does not carry
+       * the job's coverage, so the document does not later claim a
+       * chargeable extra was covered by a warranty.
+       */
+      entitlementId: r.coverageSource === "customer" ? null : entitlementId,
       origin: "job" as const,
       sortOrder: i,
       name: r.name,
@@ -170,13 +218,27 @@ async function loadInvoice(tx: Database, ctx: ServiceContext, id: string) {
     .where(eq(schema.invoice.id, id)).limit(1);
   if (!invoice) throw new NotFoundError("Invoice");
 
-  const lines = await tx.select().from(schema.invoiceLine)
+  /**
+   * The coverage source comes back on every line, which the API contract has
+   * promised since it was written and nothing populated. It is read through
+   * the entitlement rather than copied onto the line, so one place decides
+   * who is paying and the document cannot disagree with the job.
+   */
+  const lines = await tx.select({
+    line: schema.invoiceLine,
+    coverageSource: schema.entitlement.source,
+  })
+    .from(schema.invoiceLine)
+    .leftJoin(schema.entitlement, eq(schema.entitlement.id, schema.invoiceLine.entitlementId))
     .where(eq(schema.invoiceLine.invoiceId, id))
     .orderBy(schema.invoiceLine.sortOrder);
 
   return {
     ...clean(ctx, "invoice", invoice),
-    lines: lines.map((l) => clean(ctx, "invoiceLine", l)),
+    lines: lines.map((l) => ({
+      ...clean(ctx, "invoiceLine", l.line),
+      coverageSource: l.coverageSource ?? null,
+    })),
   };
 }
 
@@ -394,4 +456,31 @@ export async function arAging(ctx: ServiceContext, input: z.infer<typeof getArAg
       total: m.toString(m.sum(buckets.map((b) => usd(b.total)), "USD")),
     };
   });
+}
+
+/**
+ * What kind of charge a line is, for the purpose of who pays for it.
+ *
+ * Inferred from the cost code where there is one and from the name where
+ * there is not, because an invoice line has never carried a kind and adding
+ * one to the contract would break every existing caller. A line we cannot
+ * classify is the CUSTOMER's, deliberately: guessing the other way means a
+ * line billed to nobody, and a line billed to nobody is revenue that
+ * silently disappears.
+ */
+export function chargeKindOf(name: string, costCode: string | null): coverage.ChargeKind {
+  const text = `${costCode ?? ""} ${name}`.toLowerCase();
+  if (/\btrip\b|\bdispatch\b|\bcall ?out\b|\bdiagnostic\b|\btravel\b/.test(text)) return "trip";
+  if (/\blabou?r\b|\bhour\b|\btech\b|\binstall\b|\bservice call\b/.test(text)) return "labour";
+  if (/\bpart\b|\bmaterial\b|\bequipment\b|\bunit\b|\bfilter\b|\bmotor\b|\bcapacitor\b/.test(text)) {
+    return "parts";
+  }
+  return "other";
+}
+
+/** The entitlement row this job resolved to, for linking lines to it. */
+async function entitlementIdFor(tx: Database, jobId: string): Promise<string | null> {
+  const [row] = await tx.select({ id: schema.entitlement.id }).from(schema.entitlement)
+    .where(eq(schema.entitlement.jobId, jobId)).limit(1);
+  return row?.id ?? null;
 }

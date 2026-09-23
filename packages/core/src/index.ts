@@ -8,3 +8,4 @@ export * as comms from "./comms/index.js";
 export * as automation from "./automation/index.js";
 export * as reporting from "./reporting/index.js";
 export * as time from "./time/index.js";
+export * as coverage from "./coverage/index.js";
