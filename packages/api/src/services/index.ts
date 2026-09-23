@@ -20,6 +20,7 @@ export * as workflowDwell from "./workflow-dwell";
 export * as workflows from "./workflows";
 export * as agreements from "./agreements";
 export * as entitlements from "./entitlements";
+export * as commercial from "./commercial";
 export * as apps from "./apps";
 export * as comms from "./comms";
 export * as commsInbound from "./comms-inbound";

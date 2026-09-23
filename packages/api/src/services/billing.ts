@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { coverage, ledger, money as m } from "@opentradesos/core";
+import { authorization as authz, coverage, ledger, money as m } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
@@ -12,6 +12,7 @@ import { audit } from "./customers";
 import { writePosting } from "./ledger";
 import { nextNumber } from "./jobs";
 import * as entitlements from "./entitlements";
+import * as commercial from "./commercial";
 import type { createInvoice, listInvoices, getInvoice, recordPayment, getArAging } from "../contracts/billing";
 
 const usd = (v: string) => m.money(v, "USD");
@@ -118,6 +119,46 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       taxRate: r.taxRate,
     })));
 
+    /**
+     * THE INVOICE GOES TO WHOEVER IS BEING BILLED, NOT TO WHOEVER IS ON SITE.
+     *
+     * A property manager orders the work, a tenant is there, an owner pays.
+     * The product assumed one customer holding every role, and an invoice
+     * addressed to the tenant is a document the payer will not accept and
+     * the tenant should never have seen.
+     *
+     * Nobody named means the residential case, where the job's customer is
+     * all of them, and nothing about that gets harder.
+     */
+    if (input.jobId) {
+      const billTo = await commercial.billToFor(tx, input.jobId);
+      if (billTo?.customerId && billTo.customerId !== input.customerId) {
+        const [who] = await tx.select({ name: schema.customer.name })
+          .from(schema.customer).where(eq(schema.customer.id, billTo.customerId)).limit(1);
+        throw new ConflictError(
+          `This job is billed to ${who?.name ?? "another party"}, not to the customer on the invoice.`,
+        );
+      }
+    }
+
+    /**
+     * AND IT MAY NOT GO OVER WHAT THEY AUTHORISED.
+     *
+     * A facilities network authorises five hundred, the technician finds
+     * more wrong, the office invoices nine hundred, and the network pays
+     * five hundred and disputes the rest. The four hundred is not a
+     * receivable, it is a write-off, and nobody notices until the aging
+     * report has a column of them.
+     *
+     * Checked here rather than reconstructed afterwards, against the total
+     * the invoice will actually carry.
+     */
+    const ceiling = input.jobId ? await commercial.ceilingFor(tx, input.jobId) : null;
+    if (ceiling) {
+      const decision = authz.decide(ceiling.terms, computed.totals.total);
+      if (!decision.ok) throw new ConflictError(decision.detail);
+    }
+
     const number = await nextNumber(tx, ctx.actor.organizationId, "invoice");
 
     const [invoice] = await tx.insert(schema.invoice).values({
@@ -184,6 +225,20 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       await tx.update(schema.job)
         .set({ status: "invoiced", total: m.toString(computed.totals.total), updatedAt: new Date() })
         .where(eq(schema.job.id, input.jobId));
+    }
+
+    /**
+     * Consumed once the invoice exists, so a second invoice on the same job
+     * knows what the first one used. An increment rather than a computed
+     * write, so two raised at the same moment cannot both read three hundred
+     * and both write six hundred.
+     */
+    if (ceiling) {
+      await commercial.consume(tx, {
+        authorizationId: ceiling.id,
+        terms: ceiling.terms,
+        amount: computed.totals.total,
+      });
     }
 
     if (ctx.idempotencyKey) {
