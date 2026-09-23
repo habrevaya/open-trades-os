@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, primaryKey, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -206,4 +206,33 @@ export const workflowStepRun = pgTable("workflow_step_run", {
   ...timestamps,
 }, (t) => ({
   runIdx: uniqueIndex("workflow_step_run_idx").on(t.runId, t.stepIndex),
+}));
+
+/**
+ * HOW FAR A CONSUMER HAS READ
+ *
+ * The event log is the seam three things are meant to share: workflows,
+ * webhooks and the agent layer. A cursor per consumer rather than a flag on
+ * the event is what makes that true. A `processed` column would let exactly
+ * one reader exist, and the next one would need its own queue, which is the
+ * design this log was chosen to avoid.
+ *
+ * Per organization, because sequences are per organization: one tenant's
+ * quiet week must not hold up another's.
+ *
+ * The cursor is a position, not a lock. Running two workers means some events
+ * are handled twice, and that is safe because a run is keyed on (version,
+ * event) behind a unique index. Advancing with `greatest` rather than an
+ * assignment is what stops a slower worker rewinding a faster one.
+ */
+export const eventCursor = pgTable("event_cursor", {
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** `workflow` today. `webhook` and `agent` are the reason this is a column. */
+  consumer: text("consumer").notNull(),
+  /** Matches `domain_event.sequence`. Same type on both sides so the
+   *  comparison never needs a cast. */
+  lastSequence: integer("last_sequence").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.organizationId, t.consumer] }),
 }));

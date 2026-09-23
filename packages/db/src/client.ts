@@ -12,7 +12,24 @@ export type Database = ReturnType<typeof createClient>;
  */
 export function createClient(connectionString = process.env.DATABASE_URL!) {
   const client = postgres(connectionString, { max: 10, prepare: false });
-  return drizzle(client, { schema });
+  const db = drizzle(client, { schema });
+  /**
+   * The pool, reachable for the one caller that has to close it.
+   *
+   * A pooled connection keeps Node's event loop alive, so a long running
+   * process that finishes its work and returns never exits: the worker
+   * handled its SIGTERM, stopped cleanly, logged that it had stopped, and
+   * then hung until the orchestrator gave up and sent SIGKILL. A graceful
+   * shutdown that ends in a kill is not one.
+   *
+   * A request handler must not call this. Closing the shared pool from a
+   * request would take out every other request using it.
+   */
+  Object.defineProperty(db, "$close", {
+    value: () => client.end({ timeout: 5 }),
+    enumerable: false,
+  });
+  return db as ReturnType<typeof drizzle<typeof schema>> & { $close: () => Promise<void> };
 }
 
 /**

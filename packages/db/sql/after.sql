@@ -540,3 +540,52 @@ grant execute on function app.peek_portal_grant(text) to authenticated;
 grant execute on function app.revoke_portal_grant(text) to authenticated;
 grant execute on function app.revoke_session(text) to authenticated;
 grant execute on function app.credential_for_login(text) to authenticated;
+
+-- =========================================================================
+-- THE BACKGROUND ROLE
+--
+-- A worker draining the event log has a problem no request has: it must find
+-- out WHICH organizations have work before it can enter any of them. That is
+-- a cross tenant read by definition, and row level security is forced, so it
+-- cannot be done by selecting.
+--
+-- The answer is not to run the worker as a superuser. It is a function that
+-- returns organization ids and nothing else, callable by a role the request
+-- path never uses. `authenticated` is deliberately NOT granted execute: a web
+-- request being able to enumerate every tenant with pending work is a leak
+-- even though the rows themselves stay protected.
+--
+-- `background` is a member of `authenticated` so the worker can drop into the
+-- ordinary tenant context for the actual work. It discovers organizations
+-- with one privilege and then does everything else with none.
+-- =========================================================================
+
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'background') then
+    create role background nologin;
+  end if;
+end
+$$;
+
+grant authenticated to background;
+
+create or replace function app.pending_event_organizations(
+  p_consumer text, p_limit int default 50
+) returns table (organization_id uuid, pending integer)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select e.organization_id, count(*)::int
+    from public.domain_event e
+    left join public.event_cursor c
+      on c.organization_id = e.organization_id and c.consumer = p_consumer
+    where e.sequence > coalesce(c.last_sequence, 0)
+    group by e.organization_id
+    -- Most behind first. A tenant that has been waiting longest should not be
+    -- starved by one that produces events constantly.
+    order by min(e.sequence)
+    limit p_limit
+  $$;
+
+revoke all on function app.pending_event_organizations(text, int) from public;
+grant execute on function app.pending_event_organizations(text, int) to background;

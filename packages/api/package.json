@@ -13,7 +13,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "openapi": "tsx src/lib/generate-openapi.ts"
+    "openapi": "tsx src/lib/generate-openapi.ts",
+    "worker": "tsx src/bin/worker.ts"
   },
   "dependencies": {
     "zod": "^3.24.1",
