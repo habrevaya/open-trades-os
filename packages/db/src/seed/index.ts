@@ -228,6 +228,7 @@ async function main(): Promise<void> {
     const customers = await customersAndProperties(sql);
     await work(sql, customers, technicians, jobTypes);
     await estimate(sql, customers);
+    await communications(sql, customers);
     /**
      * Two sessions. The owner sees the board, the technician sees their own
      * day, and the two screens are genuinely different products for genuinely
@@ -461,6 +462,81 @@ async function work(
   }
 
   await invoices(sql, customers);
+}
+
+/**
+ * A number the shop can send from, and one automation that uses it.
+ *
+ * Without these the settings screen is three empty states, which is an honest
+ * picture of an empty database and a useless picture of the product: the
+ * whole point of that screen is showing whether a number may send and whether
+ * an automation is on, and neither question has an answer when nothing is
+ * there.
+ *
+ * It also means the workflow path is exercised by the demo rather than only
+ * by its tests. A seed that never produces an event nobody handles is a seed
+ * that would not notice the worker being broken.
+ */
+async function communications(
+  sql: postgres.Sql,
+  customers: Map<string, { customer: string; property: string }>,
+): Promise<void> {
+  await sql`
+    insert into public.phone_number
+      (id, organization_id, e164, label, purpose, sms_registered, capabilities)
+    values (${id("number:main")}, ${ORG}, '+15125550143', 'Main line', 'main', true,
+            ${sql.json({ voice: true, sms: true, mms: true })})
+  `;
+
+  /**
+   * Registered, because an unregistered number is not merely rejected by the
+   * carrier: the send counts against the sender. A demo that showed a number
+   * sending without a campaign behind it would be teaching the wrong thing.
+   */
+  await sql`
+    insert into public.messaging_brand (id, organization_id, legal_name, display_name, entity_type, status, approved_at)
+    values (${id("brand")}, ${ORG}, 'Ridgeline Mechanical LLC', 'Ridgeline Mechanical', 'private_profit', 'approved',
+            now() - interval '90 days')
+  `;
+
+  const workflowId = id("wf:completed");
+  const versionId = id("wfv:completed");
+  await sql`
+    insert into public.workflow
+      (id, organization_id, name, description, enabled, trigger_kind, trigger_events)
+    values (${workflowId}, ${ORG}, 'Thank the customer when a job is done',
+            'Sends one text after a completed job. Skipped for anyone who has not consented or has replied STOP.',
+            true, 'event', ${sql.json(["job.completed"])})
+  `;
+  await sql`
+    insert into public.workflow_version
+      (id, organization_id, workflow_id, version, conditions, steps, required_permissions, published_at)
+    values (${versionId}, ${ORG}, ${workflowId}, 1, ${sql.json({})},
+            ${sql.json([{
+              kind: "send_message",
+              config: {
+                channel: "sms",
+                body: "Thanks for having us out today. Job {{ job.number }} is complete: any questions, just reply to this message.",
+              },
+            }])},
+            ${sql.json(["message:send"])}, now())
+  `;
+  await sql`update public.workflow set active_version_id = ${versionId} where id = ${workflowId}`;
+
+  /**
+   * One customer who has consented and one who has not, because "it sends to
+   * everybody" is the assumption this model exists to break. The decision is
+   * made at send time against these rows, not when the workflow was written.
+   */
+  const consenting = customers.get("whitfield");
+  if (consenting) {
+    await sql`
+      insert into public.communication_consent
+        (id, organization_id, customer_id, address, channel, purpose, state, method, captured_at)
+      values (${id("consent:whitfield")}, ${ORG}, ${consenting.customer}, '+15125550192',
+              'sms', 'transactional', 'granted', 'web_form', now() - interval '60 days')
+    `;
+  }
 }
 
 /**

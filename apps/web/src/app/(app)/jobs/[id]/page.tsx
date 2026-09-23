@@ -6,6 +6,7 @@ import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
+import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, label, tone } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           <span className="font-mono tabular-nums text-ink-500">{job.number}</span>{" "}
           {job.summary ?? "Untitled"}
         </h1>
-        <Chip tone={job.status === "completed" ? "success" : "info"}>{job.status}</Chip>
+        <Chip tone={tone(JOB_TONE, job.status)}>
+          {label(JOB_STATUS, job.status)}
+        </Chip>
       </div>
 
       <Facts>
@@ -60,7 +63,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   ? formatIn(visit.windowStart, user.organizationTimezone)
                   : "Unscheduled"}
               </Td>
-              <Td><Chip tone={visit.status === "completed" ? "success" : "neutral"}>{visit.status}</Chip></Td>
+              <Td>
+                <Chip tone={tone(VISIT_TONE, visit.status)}>
+                  {label(VISIT_STATUS, visit.status)}
+                </Chip>
+              </Td>
             </tr>
           ))}
         </Table>

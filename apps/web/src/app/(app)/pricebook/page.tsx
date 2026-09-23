@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { priceBook } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
+import { PRICE_BOOK_KIND, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +62,7 @@ export default async function PriceBookPage({
             <tr key={item.id} className="hover:bg-steel-100">
               <Td className="font-mono text-ink-700">{item.code}</Td>
               <Td className="font-medium">{item.name}</Td>
-              <Td className="text-ink-700">{item.kind}</Td>
+              <Td className="text-ink-700">{label(PRICE_BOOK_KIND, item.kind)}</Td>
               <Td className="text-right"><Money value={item.price} /></Td>
               {seesCost ? <Td className="text-right"><Money value={item.cost ?? null} muted /></Td> : null}
             </tr>

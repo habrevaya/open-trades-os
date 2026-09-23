@@ -4,7 +4,8 @@ import { inTenant, roles as roleService } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { and, eq, isNull } from "drizzle-orm";
-import { Chip } from "@opentradesos/ui";
+import { Chip, Phone } from "@opentradesos/ui";
+import { PHONE_PURPOSE, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
@@ -70,8 +71,8 @@ export default async function SettingsPage() {
           <Table head={<><Th>Number</Th><Th>Purpose</Th><Th>Label</Th><Th>SMS</Th></>}>
             {data.numbers.map((number) => (
               <tr key={number.id}>
-                <Td className="font-mono">{number.e164}</Td>
-                <Td className="text-ink-700">{number.purpose}</Td>
+                <Td><Phone value={number.e164} /></Td>
+                <Td className="text-ink-700">{label(PHONE_PURPOSE, number.purpose)}</Td>
                 <Td className="text-ink-700">{number.label ?? ""}</Td>
                 <Td>
                   <Chip tone={number.smsRegistered ? "success" : "warning"}>

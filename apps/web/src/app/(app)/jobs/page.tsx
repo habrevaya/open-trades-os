@@ -2,30 +2,10 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { jobs } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
+import { JOB_STATUS, JOB_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
-
-/**
- * A job is the unit of work, and the status is the first thing anybody looks
- * at, so it is a chip rather than a word in a column. A dispatcher scanning
- * this is looking for the red ones.
- */
-const TONE: Record<string, "neutral" | "info" | "success" | "warning" | "danger"> = {
-  draft: "neutral",
-  scheduled: "info",
-  dispatched: "info",
-  working: "warning",
-  completed: "success",
-  cancelled: "neutral",
-  on_hold: "danger",
-};
-
-const LABEL: Record<string, string> = {
-  draft: "Draft", scheduled: "Scheduled", dispatched: "Dispatched",
-  working: "In progress", completed: "Completed", cancelled: "Cancelled",
-  on_hold: "On hold",
-};
 
 export default async function JobsPage() {
   const user = await requireSetupUser();
@@ -55,7 +35,7 @@ export default async function JobsPage() {
               <Td className="text-ink-700">{job.customerName}</Td>
               <Td className="text-ink-700">{job.propertyAddress}</Td>
               <Td>
-                <Chip tone={TONE[job.status] ?? "neutral"}>{LABEL[job.status] ?? job.status}</Chip>
+                <Chip tone={tone(JOB_TONE, job.status)}>{label(JOB_STATUS, job.status)}</Chip>
               </Td>
             </tr>
           ))}

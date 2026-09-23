@@ -44,3 +44,21 @@ export function formatIn(
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("en-US", { ...options, timeZone: timezone }).format(date);
 }
+
+/**
+ * A date-only value, as the company reads it.
+ *
+ * `2026-09-06` in a Due column is a string a person has to decode, and the
+ * ISO ordering that makes it right to store is exactly what makes it hard to
+ * scan. Parsed at UTC midnight and formatted in the company's zone, because
+ * a date with no time in it is a calendar day rather than a moment, and
+ * letting the runtime guess a local midnight shifts it by one in half the
+ * world.
+ */
+export function formatDay(isoDate: string, timezone: string): string {
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short", day: "numeric", year: "numeric", timeZone: timezone,
+  }).format(date);
+}

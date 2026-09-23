@@ -3,7 +3,8 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customers, jobs, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
-import { Chip } from "@opentradesos/ui";
+import { Chip, Phone } from "@opentradesos/ui";
+import { JOB_STATUS, label } from "@/lib/labels";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 
@@ -44,9 +45,7 @@ export default async function CustomerPage({
       </div>
 
       <Facts>
-        <Fact label="Phone">
-          {customer.phone ? <span className="font-mono">{customer.phone}</span> : null}
-        </Fact>
+        <Fact label="Phone"><Phone value={customer.phone} /></Fact>
         <Fact label="Email">{customer.email}</Fact>
         <Fact label="Payment terms">
           {/* Stored as a decimal string, like every other number that has to
@@ -84,7 +83,7 @@ export default async function CustomerPage({
                   {job.summary ?? "Untitled"}
                 </a>
               </Td>
-              <Td className="text-ink-700">{job.status}</Td>
+              <Td className="text-ink-700">{label(JOB_STATUS, job.status)}</Td>
             </tr>
           ))}
         </Table>

@@ -2,6 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customers } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
+import { Phone } from "@opentradesos/ui";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
@@ -66,8 +67,11 @@ export default async function CustomersPage({
                 </a>
               </Td>
               <Td className="text-ink-700">{customer.type === "commercial" ? "Commercial" : "Residential"}</Td>
-              {/* Tabular numerals, so a column of phone numbers lines up. */}
-              <Td className="font-mono text-ink-700">{customer.phone ?? ""}</Td>
+              {/*
+                Formatted and tabular, so a column of numbers lines up and a
+                person reading one aloud does not have to parse E.164.
+              */}
+              <Td className="text-ink-700"><Phone value={customer.phone} /></Td>
               <Td className="text-ink-700">{customer.email ?? ""}</Td>
             </tr>
           ))}

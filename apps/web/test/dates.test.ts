@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { todayIn } from "../src/lib/dates";
+import { todayIn, formatDay } from "../src/lib/dates";
 
 /**
  * "Today" in the company's timezone.
@@ -37,5 +37,31 @@ describe("the company's today", () => {
   it("handles a half hour offset", () => {
     // 18:45 UTC is 00:15 the next day in Kolkata.
     expect(todayIn("Asia/Kolkata", new Date("2026-09-22T18:45:00Z"))).toBe("2026-09-23");
+  });
+});
+
+/**
+ * OVERDUE, AND THE MIDNIGHT THAT BREAKS IT
+ *
+ * A date with no time in it is a calendar day, not a moment. `new Date("2026-09-06")`
+ * parses at UTC midnight, so formatting it in a zone behind UTC renders the
+ * day before: an invoice due the 6th shows as due the 5th, and at a due date
+ * boundary that is the difference between late and not.
+ */
+describe("formatting a date-only value", () => {
+  it("does not shift a day backwards in a zone behind UTC", () => {
+    expect(formatDay("2026-09-06", "America/Chicago")).toBe("Sep 6, 2026");
+    expect(formatDay("2026-01-01", "America/Los_Angeles")).toBe("Jan 1, 2026");
+  });
+
+  it("does not shift a day forwards in a zone ahead of UTC", () => {
+    expect(formatDay("2026-09-06", "Australia/Sydney")).toBe("Sep 6, 2026");
+    expect(formatDay("2026-12-31", "Asia/Tokyo")).toBe("Dec 31, 2026");
+  });
+
+  it("returns the value unchanged rather than Invalid Date", () => {
+    // A malformed date in one row must not replace the cell with a word that
+    // looks like a system error to whoever is reading the column.
+    expect(formatDay("not-a-date", "America/Chicago")).toBe("not-a-date");
   });
 });

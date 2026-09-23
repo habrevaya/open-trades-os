@@ -78,6 +78,29 @@ const SHOTS = [
   },
   { name: "proposal-phone", path: links["proposal"], ...PHONE },
   { name: "job-tracking", path: links["job tracking"], ...PHONE },
+  /**
+   * The back office screens, each cropped to roughly what its own content
+   * fills.
+   *
+   * A list is read from the top, and a fixed tall viewport over a five row
+   * table captures three hundred pixels of nothing, which reads as a product
+   * with no data in it rather than as a crop. The demo company is a small
+   * shop on purpose, so the heights are per screen rather than shared.
+   */
+  { name: "customers", path: "/customers", token: OWNER, ...DESK, height: 520 },
+  { name: "jobs", path: "/jobs", token: OWNER, ...DESK, height: 600 },
+  { name: "invoices", path: "/invoices", token: OWNER, ...DESK, height: 520 },
+  {
+    // As the owner, so the cost column is in the capture. It is the column a
+    // technician does not get, and a screenshot without it cannot show that.
+    name: "price-book", path: "/pricebook", token: OWNER, ...DESK, height: 760,
+  },
+  /**
+   * Settings as the owner, because it is the screen that shows the state of
+   * the things a reader is most likely to disbelieve: whether a number is
+   * cleared to send, whether an automation is on, and who holds which role.
+   */
+  { name: "settings", path: "/settings", token: OWNER, ...DESK, height: 900 },
 ];
 
 /** The dev overlay is not part of the product. */
