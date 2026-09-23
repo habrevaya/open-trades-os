@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { NAV } from "../src/lib/nav";
 
 /**
  * EVERY LINK GOES SOMEWHERE
@@ -78,6 +79,17 @@ function links(): { file: string; href: string }[] {
     }
   };
   walk(join(import.meta.dirname, "../src"));
+
+  /**
+   * The navigation is data rather than markup now, so the href regexes above
+   * do not see it. It is the list most likely to get ahead of the routes,
+   * which is the failure this test exists for.
+   */
+  for (const group of NAV) {
+    for (const item of group.items) {
+      out.push({ file: "lib/nav.ts", href: item.href });
+    }
+  }
   return out;
 }
 

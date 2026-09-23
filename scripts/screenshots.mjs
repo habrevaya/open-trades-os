@@ -108,9 +108,33 @@ const SHOTS = [
    */
   { name: "inbox", path: "/inbox", token: OWNER, ...DESK, height: 380 },
   { name: "tasks", path: "/tasks", token: OWNER, ...DESK, height: 620 },
+  /**
+   * Reporting, in three shots, because the claim being made is three claims.
+   *
+   * The list shows that there are answers in the box. A built-in report shows
+   * what one of them looks like. The builder shows that the custom side is a
+   * real screen and not a roadmap item, which is the one a reader is most
+   * likely to disbelieve.
+   */
+  { name: "reports", path: "/reports", token: OWNER, ...DESK, height: 760 },
+  {
+    name: "report-receivables", path: "/reports/built-in/ar-aging",
+    token: OWNER, ...DESK, height: 620,
+  },
+  {
+    name: "report-builder",
+    path: "/reports/new?dataset=invoices&dimensions=month&measures=total,count,average",
+    token: OWNER, ...DESK, height: 1000,
+  },
   {
     name: "inbox-thread", path: "/inbox", token: OWNER, ...DESK, height: 640,
-    click: "ul li:first-child a",
+    /**
+     * Scoped to `main`, because the navigation moved into a sidebar and the
+     * sidebar is a list of links too. A bare `ul li:first-child a` started
+     * clicking "My day" instead of the first thread, and the capture landed
+     * on the dispatch board with a 200 and the wrong screen in it.
+     */
+    click: "main ul li:first-child a",
     // The click opens a thread, whose id comes from the seed. A prefix, so a
     // redirect to sign in still fails the capture.
     lands: "/inbox/",
