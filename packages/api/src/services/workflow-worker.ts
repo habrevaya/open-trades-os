@@ -177,12 +177,34 @@ export async function runWorker(options: {
   intervalMs?: number;
   signal?: AbortSignal;
   onPass?: (results: DrainResult[]) => void;
+  /**
+   * Runs after each drain, for the organizations that had events.
+   *
+   * The outbox is separate from the runner on purpose: a workflow queues a
+   * message and stops, and something else hands it to a carrier. Passed in
+   * rather than imported so a deployment with no messaging provider runs the
+   * same worker with nothing to configure, and so the worker does not depend
+   * on a carrier adapter to start.
+   */
+  afterDrain?: (organizationId: string) => Promise<void>;
 }): Promise<void> {
   const interval = options.intervalMs ?? 5_000;
 
   while (!options.signal?.aborted) {
     try {
       const results = await drainAll(options.db);
+
+      for (const result of results) {
+        if (result.events === 0) continue;
+        try {
+          await options.afterDrain?.(result.organizationId);
+        } catch (error) {
+          // One organization's carrier being down must not stop the loop for
+          // everybody else. The messages stay queued and go on the next pass.
+          console.error(`[worker] outbox ${result.organizationId}:`, (error as Error).message);
+        }
+      }
+
       options.onPass?.(results);
       /**
        * A pass that did work goes straight round again. A backlog should

@@ -14,6 +14,12 @@
  */
 import { createClient } from "@opentradesos/db";
 import { runWorker } from "../services/workflow-worker";
+import { flush, providerFor, recoverStuck } from "../services/comms-outbox";
+import { inTenant } from "../services/context";
+import { ProviderNotConfiguredError } from "../comms/provider";
+// Registers the carrier adapters. Drop this import and the worker still runs;
+// the outbox simply finds no provider and leaves messages queued.
+import "../comms";
 
 const url = process.env["WORKER_DATABASE_URL"] ?? process.env["DATABASE_URL"];
 if (!url) {
@@ -40,11 +46,42 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 const interval = Number(process.env["WORKER_INTERVAL_MS"] ?? 5_000);
 
+/**
+ * Reading a carrier credential.
+ *
+ * A deployment stores these wherever it stores secrets: Supabase Vault, a
+ * KMS, a file mounted by the orchestrator. The default reads an environment
+ * variable named by the connection's `credentialRef`, which is the smallest
+ * thing that works and keeps the secret out of the database.
+ */
+const readSecret = async (ref: string): Promise<string> => {
+  const value = process.env[ref];
+  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
+  return value;
+};
+
+async function sendQueued(organizationId: string): Promise<void> {
+  const provider = await inTenant(
+    { actor: { userId: "00000000-0000-0000-0000-000000000000", organizationId, roles: [] }, db },
+    async (tx) => providerFor(tx, organizationId, readSecret),
+  ).catch((error: unknown) => {
+    // No carrier connected is an ordinary state, not an error. The messages
+    // stay queued and go out when one is.
+    if (error instanceof ProviderNotConfiguredError) return null;
+    throw error;
+  });
+  if (!provider) return;
+
+  await recoverStuck(db, organizationId);
+  await flush(db, organizationId, { provider });
+}
+
 console.info(`[worker] draining every ${interval}ms`);
 await runWorker({
   db,
   intervalMs: interval,
   signal: controller.signal,
+  afterDrain: sendQueued,
   onPass: (results) => {
     const events = results.reduce((n, r) => n + r.events, 0);
     if (events > 0) {
