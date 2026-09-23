@@ -229,6 +229,7 @@ async function main(): Promise<void> {
     await work(sql, customers, technicians, jobTypes);
     await estimate(sql, customers);
     await communications(sql, customers);
+    await agreementBook(sql, customers);
     /**
      * Two sessions. The owner sees the board, the technician sees their own
      * day, and the two screens are genuinely different products for genuinely
@@ -511,6 +512,109 @@ async function work(
  * by its tests. A seed that never produces an event nobody handles is a seed
  * that would not notice the worker being broken.
  */
+/**
+ * A MAINTENANCE PLAN, AND TWO MEMBERS ON IT
+ *
+ * Without this the agreements screen is three zeroes, which is an honest
+ * picture of an empty database and a useless picture of the product. The
+ * whole point of that screen is the visit somebody owes and has not booked,
+ * and that question has no answer when nothing is there.
+ *
+ * One member is mid term with a visit already delivered and the next one
+ * coming due, and the other is newly sold. Between them the screen shows all
+ * three states an included visit can be in.
+ */
+async function agreementBook(
+  sql: postgres.Sql,
+  customers: Map<string, { customer: string; property: string }>,
+): Promise<void> {
+  const planId = id("plan:comfort");
+  await sql`
+    insert into public.agreement_plan
+      (id, organization_id, name, code, description, price, billing_frequency,
+       term_months, included_visits_per_term, visit_anchor_months, discount_rate,
+       priority_dispatch, waives_diagnostic_fee, benefits)
+    values (${planId}, ${ORG}, 'Comfort Club', 'CC', 'Two tune ups a year, priority dispatch and no diagnostic fee.',
+            '228.0000', 'monthly', 12, 2, ${sql.json([4, 10])}, '0.1000',
+            true, true, ${sql.json(["Two tune ups a year", "Priority dispatch", "No diagnostic fee", "10% off repairs"])})
+  `;
+
+  const members: Array<{ key: string; startedOn: string; delivered: number }> = [
+    { key: "whitfield", startedOn: monthsAgo(7), delivered: 1 },
+    { key: "okafor", startedOn: monthsAgo(1), delivered: 0 },
+  ];
+
+  for (const [index, member] of members.entries()) {
+    const link = customers.get(member.key);
+    if (!link) throw new Error(`Seed agreement names an unknown customer: ${member.key}`);
+
+    const agreementId = id(`agreement:${member.key}`);
+    await sql`
+      insert into public.agreement
+        (id, organization_id, plan_id, customer_id, property_id, status, started_on,
+         ends_on, price, billing_frequency, visits_included_this_term, visits_delivered_this_term)
+      values (${agreementId}, ${ORG}, ${planId}, ${link.customer}, ${link.property}, 'active',
+              ${member.startedOn}, ${plusMonths(member.startedOn, 12)}, '228.0000', 'monthly',
+              2, ${member.delivered})
+    `;
+
+    /**
+     * Two visits per term, half the price each, which is what the service
+     * computes at sale. Written the same way here so the demo agrees with
+     * what a real sale would produce rather than approximating it.
+     */
+    for (const sequence of [1, 2]) {
+      const visitId = id(`agreement-visit:${member.key}:${sequence}`);
+      const dueOn = plusMonths(member.startedOn, sequence === 1 ? 5 : 11);
+      const delivered = sequence <= member.delivered;
+      await sql`
+        insert into public.agreement_visit
+          (id, organization_id, agreement_id, sequence, due_on, recognition_amount,
+           delivered_on, recognized_on)
+        values (${visitId}, ${ORG}, ${agreementId}, ${sequence}, ${dueOn}, '114.0000',
+                ${delivered ? dueOn : null}, ${delivered ? dueOn : null})
+      `;
+      await sql`
+        insert into public.deferred_revenue_entry
+          (organization_id, agreement_id, agreement_visit_id, amount, scheduled_for, recognized_on)
+        values (${ORG}, ${agreementId}, ${visitId}, '114.0000', ${dueOn},
+                ${delivered ? dueOn : null})
+      `;
+    }
+
+    for (let instalment = 1; instalment <= 12; instalment += 1) {
+      const dueOn = plusMonths(member.startedOn, instalment - 1);
+      // Everything up to today is invoiced; the rest is still scheduled.
+      const past = dueOn <= today();
+      await sql`
+        insert into public.agreement_billing
+          (organization_id, agreement_id, sequence, due_on, amount, status)
+        values (${ORG}, ${agreementId}, ${instalment}, ${dueOn}, '19.0000',
+                ${past ? "paid" : "scheduled"})
+      `;
+    }
+
+    if (index === 0) void index;
+  }
+}
+
+/** Calendar helpers for the seed, in the company's own zone. */
+function today(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(now());
+}
+
+function plusMonths(date: string, months: number): string {
+  const [y, mo, d] = date.split("-").map(Number) as [number, number, number];
+  const target = new Date(Date.UTC(y, mo - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+
+const monthsAgo = (months: number) => plusMonths(today(), -months);
+
 async function communications(
   sql: postgres.Sql,
   customers: Map<string, { customer: string; property: string }>,

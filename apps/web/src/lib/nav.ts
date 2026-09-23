@@ -56,6 +56,7 @@ export const NAV: NavGroup[] = [
     label: "Money",
     items: [
       { href: "/invoices", label: "Invoices", permission: "invoice:read" },
+      { href: "/agreements", label: "Agreements", permission: "membership:read" },
       { href: "/pricebook", label: "Price book", permission: "pricebook:read" },
     ],
   },

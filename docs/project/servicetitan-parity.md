@@ -41,7 +41,7 @@ than pretending otherwise.
 | Projects and construction (multi phase) | M12 | Planned |
 | Price book, member pricing, kits (Pricebook Pro) | M06 | Built |
 | Estimates, good better best, in home sales (Sales Pro) | M07 | Built |
-| Memberships and service agreements | M08 | Planned |
+| Memberships and service agreements | M08 | Part built |
 | Invoicing, payments, card present, financing | M13 | Built |
 | Accounting sync, GL, tax (QuickBooks, Intacct) | M14 | Part built |
 | Job costing and profitability | M15 | Part built |

@@ -122,6 +122,19 @@ const SHOTS = [
    * real screen and not a roadmap item, which is the one a reader is most
    * likely to disbelieve.
    */
+  /**
+   * The agreement book, and one member.
+   *
+   * The list shot is the three numbers an owner opens it for; the detail is
+   * the two schedules side by side, which is the claim that would otherwise
+   * be a sentence nobody can check.
+   */
+  { name: "agreements", path: "/agreements", token: OWNER, ...DESK, height: 900 },
+  {
+    name: "agreement", path: "/agreements", token: OWNER, ...DESK, height: 1100,
+    click: "main table tbody tr:first-child a",
+    lands: "/agreements/",
+  },
   { name: "reports", path: "/reports", token: OWNER, ...DESK, height: 760 },
   {
     name: "report-receivables", path: "/reports/built-in/ar-aging",
