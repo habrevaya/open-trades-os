@@ -44,6 +44,34 @@ nobody has to guess:
 | The worker was down for three days | One run, for the occurrence it was due, and then back on the normal clock. Not three |
 | An expression nothing can read | Recorded on the row with a reason, rather than quietly becoming "never" |
 
+## Waiting for something not to happen
+
+The third trigger kind, and the one the other two cannot express. An event
+fires when something happens and a schedule fires on a clock; neither of them
+fires when something has NOT happened, and "the estimate nobody answered" is
+the single most valuable automation a contractor can have, because it is money
+that quietly did not arrive and leaves no record that it was supposed to.
+
+The shapes are declared by the product rather than written by a workflow, for
+the same reason a report names a dataset rather than a table:
+
+| Shape | The question |
+|---|---|
+| An estimate nobody answered | Which quotes have gone quiet? |
+| An invoice past its due date | Who has owed us money for a while? |
+| A task nobody has taken | What has been sitting in the queue? |
+| Work finished and not invoiced | What did we do and never bill for? |
+
+Each one is measured from a column that means "entered this state", never
+from `updated_at`. A customer opening a quote sets `viewed_at` and touches the
+row, so dwelling on `updated_at` resets the clock every time they look at it
+without deciding, which is exactly the customer worth chasing.
+
+A sweep runs on every pass, so each record is chased ONCE, ever: the run is
+keyed on the record rather than on the event, because each sweep emits a new
+event with a new id and keying on that would chase the same customer every few
+minutes until somebody turned the automation off.
+
 ## Waiting, mid run
 
 "Wait three days, then chase" is what most of the automations a contractor

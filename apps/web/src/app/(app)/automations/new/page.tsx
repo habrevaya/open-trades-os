@@ -13,10 +13,9 @@ export default async function NewAutomationPage() {
   const ctx = { actor: user.actor, db: getDb() };
   if (!can(user.actor, "workflow:write")) notFound();
 
-  const [events, steps] = await Promise.all([
-    workflows.triggerEvents(ctx),
-    Promise.resolve(workflows.availableSteps(ctx)),
-  ]);
+  const events = await workflows.triggerEvents(ctx);
+  const steps = workflows.availableSteps(ctx);
+  const shapes = workflows.dwellShapes();
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -33,7 +32,7 @@ export default async function NewAutomationPage() {
         It is saved switched off. Read it back, then turn it on.
       </p>
 
-      <CreateForm events={events} steps={steps} />
+      <CreateForm events={events} steps={steps} shapes={shapes} />
     </div>
   );
 }

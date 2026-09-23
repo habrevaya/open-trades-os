@@ -1,0 +1,1 @@
+ALTER TABLE "workflow" ADD COLUMN "dwell" jsonb;

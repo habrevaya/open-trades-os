@@ -144,7 +144,19 @@ export async function handleEvent(
 export async function fire(
   tx: Database,
   ctx: ServiceContext,
-  input: { workflowId: string; eventId: string },
+  input: {
+    workflowId: string;
+    eventId: string;
+    /**
+     * Overrides the key a run is deduplicated on.
+     *
+     * A dwell sweep runs every pass and the same estimate is still
+     * unanswered on the next one, so keying on the EVENT would chase the
+     * same customer every few minutes: each sweep emits a new event with a
+     * new id. Keying on the record is what makes it once, ever.
+     */
+    idempotencyKey?: string;
+  },
 ): Promise<RunSummary> {
   const [row] = await tx.select({
     workflow: schema.workflow,
@@ -182,7 +194,10 @@ export async function fire(
     return { workflowId: row.workflow.id, runId: null, status: "skipped", reason: "conditions", steps: 0 };
   }
 
-  return execute(tx, ctx, { workflow: row.workflow, version: row.version, event });
+  return execute(tx, ctx, {
+    workflow: row.workflow, version: row.version, event,
+    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+  });
 }
 
 async function execute(
@@ -192,10 +207,11 @@ async function execute(
     workflow: typeof schema.workflow.$inferSelect;
     version: typeof schema.workflowVersion.$inferSelect;
     event: typeof schema.domainEvent.$inferSelect;
+    idempotencyKey?: string;
   },
 ): Promise<RunSummary> {
   const { workflow, version, event } = input;
-  const key = automation.runKey(version.id, event.id);
+  const key = input.idempotencyKey ?? automation.runKey(version.id, event.id);
 
   /**
    * The unique index on (organization, key) is what makes this once. Inserting

@@ -6,6 +6,7 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { audit } from "./customers";
+import { SHAPES } from "./workflow-dwell";
 
 /**
  * AUTOMATIONS, AS SOMETHING A PERSON CAN SEE AND TURN OFF
@@ -32,6 +33,9 @@ export interface WorkflowSummary {
   schedule: string | null;
   /** The schedule in words, when there is one. */
   scheduleText: string | null;
+  dwell: { shape: string; afterDays: number } | null;
+  /** The dwell in words, when there is one. */
+  dwellText: string | null;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   /** Why it is not firing, when it is not. */
@@ -77,6 +81,8 @@ export async function list(ctx: ServiceContext): Promise<WorkflowSummary[]> {
         scheduleText: row.workflow.schedule
           ? automation.describeSchedule(row.workflow.schedule)
           : null,
+        dwell: row.workflow.dwell ?? null,
+        dwellText: describeDwell(row.workflow.dwell),
         nextRunAt: row.scheduleState?.nextRunAt ?? null,
         lastRunAt: row.scheduleState?.lastRunAt ?? null,
         scheduleError: row.scheduleState?.lastError ?? null,
@@ -168,6 +174,7 @@ export async function detail(ctx: ServiceContext, input: { id: string; runs?: nu
       scheduleText: row.workflow.schedule
         ? automation.describeSchedule(row.workflow.schedule)
         : null,
+      dwellText: describeDwell(row.workflow.dwell),
       runs,
     };
   });
@@ -222,11 +229,13 @@ export async function setEnabled(ctx: ServiceContext, input: { id: string; enabl
 export interface WorkflowInput {
   name: string;
   description?: string;
-  triggerKind: "event" | "schedule";
+  triggerKind: "event" | "schedule" | "dwell";
   /** Event names, when the trigger is an event. */
   triggerEvents?: string[];
   /** A five field cron, when the trigger is a schedule. */
   schedule?: string;
+  /** Which shape of record, and for how long, when the trigger is a dwell. */
+  dwell?: { shape: string; afterDays: number };
   conditions?: automation.ConditionGroup;
   steps: { kind: string; config?: Record<string, unknown> }[];
 }
@@ -247,10 +256,24 @@ function check(ctx: ServiceContext, input: WorkflowInput): string | null {
     if ((input.triggerEvents ?? []).length === 0) {
       return "An event automation needs at least one event to trigger on.";
     }
-  } else {
+  } else if (input.triggerKind === "schedule") {
     if (!input.schedule) return "A scheduled automation needs a schedule.";
     const parsed = automation.parseSchedule(input.schedule);
     if (!parsed.ok) return parsed.reason;
+  } else {
+    if (!input.dwell) return "A waiting automation needs something to wait on.";
+    if (!SHAPES.some((shape) => shape.key === input.dwell!.shape)) {
+      /**
+       * Refused rather than saved. A workflow pointing at a shape this build
+       * does not have is a workflow that silently never fires, and silently
+       * never firing is the automation failure nobody notices until a
+       * customer does.
+       */
+      return `This build has no such thing to wait on: ${input.dwell.shape}.`;
+    }
+    const days = Number(input.dwell.afterDays);
+    if (!Number.isFinite(days) || days < 0) return "How many days is not a number.";
+    if (days > 365) return "A wait of more than a year is somebody's units being wrong.";
   }
 
   /**
@@ -292,6 +315,7 @@ export async function create(ctx: ServiceContext, input: WorkflowInput) {
       triggerKind: input.triggerKind,
       triggerEvents: input.triggerKind === "event" ? (input.triggerEvents ?? []) : [],
       schedule: input.triggerKind === "schedule" ? (input.schedule ?? null) : null,
+      dwell: input.triggerKind === "dwell" ? (input.dwell ?? null) : null,
       createdByUserId: ctx.actor.userId,
     }).returning();
 
@@ -361,6 +385,7 @@ export async function publish(ctx: ServiceContext, input: { id: string } & Workf
       triggerKind: input.triggerKind,
       triggerEvents: input.triggerKind === "event" ? (input.triggerEvents ?? []) : [],
       schedule: input.triggerKind === "schedule" ? (input.schedule ?? null) : null,
+      dwell: input.triggerKind === "dwell" ? (input.dwell ?? null) : null,
       activeVersionId: version!.id,
       updatedAt: new Date(),
     }).where(eq(schema.workflow.id, input.id)).returning();
@@ -446,3 +471,21 @@ const IMPLEMENTED = [
     description: "Pauses the run. The wait is stored, so it survives a restart.",
   },
 ];
+
+/** The things an automation can wait on, as the screen has to name them. */
+export function dwellShapes() {
+  return SHAPES.map((shape) => ({
+    key: shape.key, label: shape.label, question: shape.question,
+  }));
+}
+
+/** A dwell in words, for a screen that has to show what is set. */
+export function describeDwell(
+  dwell: { shape: string; afterDays: number } | null | undefined,
+): string | null {
+  if (!dwell) return null;
+  const shape = SHAPES.find((s) => s.key === dwell.shape);
+  if (!shape) return `Waiting on something this build does not have: ${dwell.shape}`;
+  const days = dwell.afterDays;
+  return `${shape.label}, after ${days} ${days === 1 ? "day" : "days"}`;
+}

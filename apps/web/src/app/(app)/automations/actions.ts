@@ -57,15 +57,22 @@ function definitionFrom(form: FormData) {
     return { kind, config: {} as Record<string, unknown>, index };
   });
 
-  const triggerKind = form.get("triggerKind") === "schedule" ? "schedule" as const : "event" as const;
+  const chosen = String(form.get("triggerKind") ?? "event");
+  const triggerKind = chosen === "schedule" || chosen === "dwell"
+    ? chosen as "schedule" | "dwell"
+    : "event" as const;
   const schedule = String(form.get("schedule") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
+  const dwellShape = String(form.get("dwellShape") ?? "").trim();
 
   return {
     name: String(form.get("name") ?? ""),
     triggerKind,
     triggerEvents: form.getAll("triggerEvent").map(String).filter(Boolean),
     ...(schedule ? { schedule } : {}),
+    ...(dwellShape
+      ? { dwell: { shape: dwellShape, afterDays: Number(form.get("dwellDays") ?? 0) } }
+      : {}),
     ...(description ? { description } : {}),
     steps,
     conditions: {} as automation.ConditionGroup,

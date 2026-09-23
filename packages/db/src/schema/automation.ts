@@ -108,6 +108,16 @@ export const workflow = pgTable("workflow", {
   /** Cron, in the ORGANIZATION's timezone rather than the server's. */
   schedule: text("schedule"),
   /**
+   * What "has been sitting there too long" means, when the trigger is a
+   * dwell: which shape of record, and for how many days.
+   *
+   * The shapes are declared in the service rather than written here, for the
+   * same reason a report names a dataset rather than a table: a workflow
+   * must not be a way to write a query. What this holds is a key into that
+   * list and a number of days.
+   */
+  dwell: jsonb("dwell").$type<{ shape: string; afterDays: number } | null>(),
+  /**
    * The published version. Null while a workflow has only ever been drafted,
    * which is why it is nullable and why `enabled` alone does not mean it runs.
    */

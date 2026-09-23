@@ -16,6 +16,7 @@ export * as workflowRunner from "./workflow-runner";
 export * as workflowSteps from "./workflow-steps";
 export * as workflowWorker from "./workflow-worker";
 export * as workflowSchedule from "./workflow-schedule";
+export * as workflowDwell from "./workflow-dwell";
 export * as workflows from "./workflows";
 export * as agreements from "./agreements";
 export * as entitlements from "./entitlements";

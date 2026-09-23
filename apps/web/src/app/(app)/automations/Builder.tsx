@@ -22,17 +22,25 @@ export interface StepOption {
   allowed: boolean;
 }
 
+export interface DwellShape {
+  key: string;
+  label: string;
+  question: string;
+}
+
 export function Builder({
-  events, steps, initial,
+  events, steps, shapes, initial,
 }: {
   events: string[];
   steps: StepOption[];
+  shapes: DwellShape[];
   initial?: {
     name: string;
     description: string | null;
     triggerKind: string;
     triggerEvents: string[];
     schedule: string | null;
+    dwell: { shape: string; afterDays: number } | null;
     steps: { kind: string; config?: Record<string, unknown> }[];
   };
 }) {
@@ -74,6 +82,7 @@ export function Builder({
           {[
             { value: "event", label: "When something happens" },
             { value: "schedule", label: "On a clock" },
+            { value: "dwell", label: "When something has not happened" },
           ].map((option) => (
             <label
               key={option.value}
@@ -115,6 +124,47 @@ export function Builder({
                 </label>
               ))}
             </div>
+          </div>
+        ) : triggerKind === "dwell" ? (
+          <div className="mt-3">
+            {/*
+              The one the other two cannot express. An event fires when
+              something happens and a schedule fires on a clock; neither
+              fires when something has NOT happened, and the estimate nobody
+              answered is money that quietly did not arrive.
+            */}
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-sm">
+                <span className="block text-ink-700">Wait on</span>
+                <select
+                  name="dwellShape"
+                  defaultValue={initial?.dwell?.shape ?? shapes[0]?.key ?? ""}
+                  className="mt-1 h-9 rounded border border-steel-300 px-2"
+                >
+                  {shapes.map((shape) => (
+                    <option key={shape.key} value={shape.key}>{shape.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                <span className="block text-ink-700">After how many days</span>
+                <input
+                  name="dwellDays" type="number" min="0" max="365"
+                  defaultValue={initial?.dwell?.afterDays ?? 5}
+                  className="mt-1 h-9 w-28 rounded border border-steel-300 px-2"
+                />
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-ink-500">
+              Measured from when the record entered that state, not from when
+              anybody last touched it. A customer opening a quote without
+              deciding is exactly the one worth chasing.
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-ink-500">
+              {shapes.map((shape) => (
+                <li key={shape.key}>{shape.label}: {shape.question}</li>
+              ))}
+            </ul>
           </div>
         ) : (
           <div className="mt-3">

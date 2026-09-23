@@ -4,6 +4,7 @@ import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
+import { sweep } from "./workflow-dwell";
 
 /**
  * THE WORKER
@@ -211,6 +212,8 @@ export async function runWorker(options: {
           await tick(options.db);
           // And the runs that are partway through one, waiting on a clock.
           await resumeDue(options.db);
+          // And the records that have been sitting there too long.
+          await sweep(options.db);
         } catch (error) {
           // Same reasoning as the drain below: logged and retried. A worker
           // that exits here stops every automation in the product.

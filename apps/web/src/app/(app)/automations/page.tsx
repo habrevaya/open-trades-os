@@ -95,7 +95,9 @@ export default async function AutomationsPage() {
               <p className="mt-1 text-sm text-ink-700">
                 {flow.triggerKind === "schedule"
                   ? flow.scheduleText
-                  : `When ${flow.triggerEvents.join(" or ") || "nothing, which never fires"}`}
+                  : flow.triggerKind === "dwell"
+                    ? flow.dwellText
+                    : `When ${flow.triggerEvents.join(" or ") || "nothing, which never fires"}`}
               </p>
 
               {/*

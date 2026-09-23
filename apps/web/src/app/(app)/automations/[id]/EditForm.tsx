@@ -2,14 +2,15 @@
 
 import { useActionState } from "react";
 import { publishAutomation } from "../actions";
-import { Builder, type StepOption } from "../Builder";
+import { Builder, type StepOption, type DwellShape } from "../Builder";
 
 export function EditForm({
-  id, events, steps, initial,
+  id, events, steps, shapes, initial,
 }: {
   id: string;
   events: string[];
   steps: StepOption[];
+  shapes: DwellShape[];
   initial: React.ComponentProps<typeof Builder>["initial"];
 }) {
   const [state, submit, pending] = useActionState(publishAutomation, null);
@@ -17,7 +18,7 @@ export function EditForm({
   return (
     <form action={submit} className="mt-4">
       <input type="hidden" name="id" value={id} />
-      <Builder events={events} steps={steps} initial={initial} />
+      <Builder events={events} steps={steps} shapes={shapes} initial={initial} />
 
       {state && "error" in state && state.error ? (
         <p role="alert" className="mt-4 rounded-md border border-red-600 bg-red-tint p-3 text-sm text-red-600">

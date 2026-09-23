@@ -754,3 +754,28 @@ returns table (organization_id uuid, run_id uuid, resume_at timestamptz)
 
 revoke all on function app.due_workflow_runs(int) from public;
 grant execute on function app.due_workflow_runs(int) to background;
+
+-- =========================================================================
+-- WORKFLOWS THAT WATCH FOR SOMETHING NOT HAPPENING
+--
+-- The same shape as the two above. Ids and the dwell spec, nothing else, and
+-- not callable by the role the request path uses.
+-- =========================================================================
+
+create or replace function app.dwell_workflows(p_limit int default 100)
+returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select w.organization_id, w.id, w.dwell
+    from public.workflow w
+    where w.enabled
+      and w.deleted_at is null
+      and w.trigger_kind = 'dwell'
+      and w.dwell is not null
+      and w.active_version_id is not null
+    order by w.created_at
+    limit p_limit
+  $$;
+
+revoke all on function app.dwell_workflows(int) from public;
+grant execute on function app.dwell_workflows(int) to background;

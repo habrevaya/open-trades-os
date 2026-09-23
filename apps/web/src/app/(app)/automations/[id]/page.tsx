@@ -62,7 +62,9 @@ export default async function AutomationPage({
         <span>
           {workflow.triggerKind === "schedule"
             ? data.scheduleText
-            : `When ${(workflow.triggerEvents ?? []).join(" or ") || "nothing"}`}
+            : workflow.triggerKind === "dwell"
+              ? data.dwellText
+              : `When ${(workflow.triggerEvents ?? []).join(" or ") || "nothing"}`}
         </span>
         {version ? <span className="text-ink-500">version {version.version}</span> : null}
       </div>
@@ -172,12 +174,14 @@ export default async function AutomationPage({
             id={workflow.id}
             events={await workflows.triggerEvents(ctx)}
             steps={workflows.availableSteps(ctx)}
+            shapes={workflows.dwellShapes()}
             initial={{
               name: workflow.name,
               description: workflow.description,
               triggerKind: workflow.triggerKind,
               triggerEvents: workflow.triggerEvents ?? [],
               schedule: workflow.schedule,
+              dwell: workflow.dwell,
               steps: (version?.steps as { kind: string; config?: Record<string, unknown> }[]) ?? [],
             }}
           />
