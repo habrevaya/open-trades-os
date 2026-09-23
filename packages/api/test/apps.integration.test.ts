@@ -411,12 +411,23 @@ run("authenticating over HTTP", () => {
     const { token } = await apps.issueToken(owner(), { appId: app.id });
     await authenticate(request({ authorization: `Bearer ${token}` }), { db: db(), session: signedIn });
 
-    // `touch` is deliberately not awaited into the request, so give it the
-    // tick it needs rather than asserting on a race.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const [row] = await raw<{ last_used_at: Date | null }[]>`
-      select last_used_at from public.connected_app where id = ${app.id}`;
-    expect(row!.last_used_at).not.toBeNull();
+    /**
+     * `touch` is deliberately not awaited into the request, so this waits for
+     * it rather than asserting on a race.
+     *
+     * A fixed sleep was the first version and it is the same race with a
+     * longer fuse: fifty milliseconds is enough until the database is cold,
+     * and then the whole suite goes red on a test that passes on its own.
+     * Polling waits as long as it takes and still fails if it never happens.
+     */
+    let lastUsed: Date | null = null;
+    for (let attempt = 0; attempt < 100 && lastUsed === null; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const [row] = await raw<{ last_used_at: Date | null }[]>`
+        select last_used_at from public.connected_app where id = ${app.id}`;
+      lastUsed = row?.last_used_at ?? null;
+    }
+    expect(lastUsed).not.toBeNull();
   });
 });
 
