@@ -734,3 +734,79 @@ export async function setPurchaseOrderStatus(
     return { id: order.id, status: input.status };
   });
 }
+
+/**
+ * GIVE BACK WHAT A JOB NO LONGER NEEDS.
+ *
+ * `inv.planRelease` is the third member of the commit / issue / release trio
+ * and was called by nothing. The other two are wired; this one was not, and
+ * the gap is not cosmetic.
+ *
+ * A reservation is a `commit` movement with a job on it, and `deriveLevels`
+ * subtracts every OPEN commitment from available. Without a release there is
+ * no way to close one, so a cancelled job holds its parts forever: the shelf
+ * shows them, the available figure does not, and the reorder engine keeps
+ * buying against a shortfall that only exists because of a job nobody is
+ * going to do. Nothing in the product detects it, because the numbers are
+ * all internally consistent.
+ */
+export async function release(
+  ctx: ServiceContext,
+  input: { itemId: string; locationId: string; jobId: string; quantity: string },
+) {
+  return decide(ctx, "inventory:adjust", ({ level, stamp, movements }) => {
+    /**
+     * Never more than the job is actually holding.
+     *
+     * `planRelease` clamps nothing and says so: it refuses only a
+     * non-positive quantity. Releasing four against a reservation of one
+     * writes a release the fold then subtracts, and the commitment goes
+     * NEGATIVE, which reads as the job having lent stock to the shelf.
+     */
+    const held = inv.commitmentFor(movements, input.itemId, input.locationId, input.jobId);
+    const want = inv.quantity(input.quantity);
+    if (want > held) {
+      throw new ConflictError(
+        `That job is holding ${inv.quantityLabel(held)}, not ${inv.quantityLabel(want)}.`,
+      );
+    }
+
+    return inv.planRelease({ level, quantity: want, jobId: input.jobId, stamp });
+  }, input, "inventory.released");
+}
+
+/**
+ * Everything a job is still holding, released in one go.
+ *
+ * Called when a job is cancelled. Returns what it gave back rather than
+ * nothing, because "we freed four parts" is the sentence a dispatcher needs
+ * and "done" is not.
+ */
+export async function releaseAllFor(
+  ctx: ServiceContext, input: { jobId: string },
+): Promise<{ released: Array<{ itemId: string; locationId: string; quantity: string }> }> {
+  const open = await guardedRead(ctx, "inventory:read", async (tx) =>
+    inv.deriveCommitments(await history(tx)).filter((c) => c.jobId === input.jobId));
+
+  const released: Array<{ itemId: string; locationId: string; quantity: string }> = [];
+  for (const commitment of open) {
+    /**
+     * One at a time, each through the same path a person would use. Writing
+     * the movements directly would be a second way to release stock, and the
+     * second way written is the one that forgets the clamp above.
+     */
+    await release(ctx, {
+      itemId: commitment.itemId,
+      locationId: commitment.locationId,
+      jobId: input.jobId,
+      quantity: inv.quantityToString(commitment.quantity),
+    });
+    released.push({
+      itemId: commitment.itemId,
+      locationId: commitment.locationId,
+      quantity: inv.quantityLabel(commitment.quantity),
+    });
+  }
+
+  return { released };
+}

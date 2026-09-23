@@ -6,6 +6,7 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
 } from "./context";
 import { audit } from "./customers";
+import { releaseAllFor } from "./inventory";
 import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit } from "../contracts/jobs";
@@ -314,6 +315,29 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
         name: `job.${input.status}`, entityType: "job", entityId: input.id,
         payload: { job: after! }, previous: { job: before },
       });
+    }
+
+    /**
+     * A CANCELLED JOB GIVES ITS PARTS BACK.
+     *
+     * A reservation is a `commit` movement with a job on it, and the level
+     * fold subtracts every OPEN commitment from available. Nothing closed
+     * one, so a cancelled job held its parts forever: the shelf showed them
+     * and the available figure did not, and the reorder engine kept buying
+     * against a shortfall that existed only because of a job nobody was
+     * going to do. Every number stayed internally consistent, which is why
+     * nothing detected it.
+     *
+     * Inside the same transaction as the cancellation. Afterwards is the
+     * obvious place and is wrong for the same reason the event emit above is
+     * in here: the cancellation commits, the process dies, and the stock
+     * stays held with nothing recording that it should not be.
+     */
+    if (input.status === "cancelled" && before.status !== "cancelled") {
+      const freed = await releaseAllFor(ctx, { jobId: input.id });
+      if (freed.released.length > 0) {
+        await audit(tx, ctx, "job.released_stock", "job", input.id, null, freed);
+      }
     }
 
     return clean(ctx, "job", after!);

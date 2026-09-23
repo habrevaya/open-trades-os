@@ -585,3 +585,83 @@ run("an order moving along", () => {
     expect((await levelAt(warehouse))?.onHand).not.toBe("0");
   });
 });
+
+run("giving a reservation back", () => {
+  /**
+   * `inv.planRelease` is the third member of the commit / issue / release
+   * trio and was called by nothing. The other two were wired; this one was
+   * not, and the gap was not cosmetic.
+   *
+   * A reservation is a `commit` movement with a job on it, and the level fold
+   * subtracts every OPEN commitment from available. Without a release there
+   * was no way to close one, so a cancelled job held its parts forever: the
+   * shelf showed them, the available figure did not, and the reorder engine
+   * kept buying against a shortfall that existed only because of a job nobody
+   * was going to do. Every number stayed internally consistent, which is why
+   * nothing detected it.
+   */
+  beforeEach(async () => {
+    if (!url) return;
+    await inventory.receive(owner(), {
+      itemId, locationId: warehouse, quantity: "4", totalCost: "400.00",
+    });
+  });
+
+  it("puts the parts back on the available figure", async () => {
+    await inventory.reserve(owner(), {
+      itemId, locationId: warehouse, jobId: jobA, quantity: "3",
+    });
+    const held = await levelAt(warehouse);
+    expect([held?.onHand, held?.committed, held?.available]).toEqual(["4", "3", "1"]);
+
+    await inventory.release(owner(), {
+      itemId, locationId: warehouse, jobId: jobA, quantity: "3",
+    });
+
+    const back = await levelAt(warehouse);
+    // On hand never moved. Only the reservation did, which is the whole
+    // difference between a release and an issue.
+    expect([back?.onHand, back?.committed, back?.available]).toEqual(["4", "0", "4"]);
+  });
+
+  it("releases part of a reservation and keeps the rest", async () => {
+    await inventory.reserve(owner(), {
+      itemId, locationId: warehouse, jobId: jobA, quantity: "3",
+    });
+    await inventory.release(owner(), {
+      itemId, locationId: warehouse, jobId: jobA, quantity: "1",
+    });
+
+    const open = await inventory.commitments(owner());
+    expect(open.map((c) => [c.jobId, c.quantity])).toEqual([[jobA, "2"]]);
+  });
+
+  it("refuses to release more than the job is holding", async () => {
+    /**
+     * `planRelease` clamps nothing and says so: it refuses only a
+     * non-positive quantity. Releasing four against a reservation of one
+     * writes a release the fold then subtracts, and the commitment goes
+     * NEGATIVE, which reads as the job having lent stock to the shelf.
+     */
+    await inventory.reserve(owner(), {
+      itemId, locationId: warehouse, jobId: jobA, quantity: "1",
+    });
+
+    await expect(inventory.release(owner(), {
+      itemId, locationId: warehouse, jobId: jobA, quantity: "4",
+    })).rejects.toThrow(/holding 1/);
+
+    const open = await inventory.commitments(owner());
+    expect(open.map((c) => c.quantity)).toEqual(["1"]);
+  });
+
+  it("does not touch another job's reservation", async () => {
+    await inventory.reserve(owner(), { itemId, locationId: warehouse, jobId: jobA, quantity: "1" });
+    await inventory.reserve(owner(), { itemId, locationId: warehouse, jobId: jobB, quantity: "1" });
+
+    await inventory.release(owner(), { itemId, locationId: warehouse, jobId: jobA, quantity: "1" });
+
+    const open = await inventory.commitments(owner());
+    expect(open.map((c) => c.jobId)).toEqual([jobB]);
+  });
+});
