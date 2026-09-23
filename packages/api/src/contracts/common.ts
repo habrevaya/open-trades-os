@@ -48,20 +48,42 @@ export const pageOf = <T extends z.ZodTypeAny>(item: T) =>
 
 export const SortOrder = z.enum(["asc", "desc"]).default("desc");
 
-/** Errors are a stable shape so a client can branch on them. */
+/**
+ * Errors are a stable shape so a client can branch on them.
+ *
+ * THIS IS WHAT THE DISPATCHER ACTUALLY WRITES, and it did not used to be.
+ * The shape declared here was `{ error: { code, message, fields, permission } }`
+ * with a machine-readable `code` an SDK could switch on. Nothing in the
+ * codebase ever emitted it: `problem()` in src/http/dispatch.ts writes
+ * `{ error: "<a sentence>", status: <number> }` and always has. Any client
+ * that trusted this file and branched on `error.code` was branching on
+ * undefined, forever, for every error the API can return.
+ *
+ * It is corrected to the truth rather than the other way round, deliberately.
+ * Changing the dispatcher to match would have been a breaking change to every
+ * error every existing caller already handles, made in order to honour a
+ * promise nobody had been able to rely on. The machine-readable code is worth
+ * having and is a separate, additive piece of work: a `code` field alongside
+ * the existing two, with the prose kept.
+ *
+ * `status` is the HTTP status repeated in the body. It is genuinely useful to
+ * a client reading a response it has already parsed, and it is what the
+ * dispatcher sends.
+ */
 export const ApiError = z.object({
-  error: z.object({
-    code: z.enum([
-      "unauthenticated", "forbidden", "not_found", "conflict",
-      "validation_failed", "rate_limited", "idempotency_conflict",
-      "authorization_exceeded", "period_closed", "internal",
-    ]),
+  /** A sentence for a person. Not a code, and not stable enough to match on. */
+  error: z.string(),
+  status: z.number().int(),
+  /**
+   * On a 422 only: which field failed and why, so an integrator can fix a
+   * request from "limit: expected number, received string".
+   */
+  issues: z.array(z.object({
+    path: z.string(),
     message: z.string(),
-    /** Field path to message, for form display. */
-    fields: z.record(z.string()).optional(),
-    /** The permission that was missing, when the code is forbidden. */
-    permission: z.string().optional(),
-  }),
+  })).optional(),
+  /** On a 405 only: the methods this path does serve. */
+  allowed: z.array(z.string()).optional(),
 });
 
 export const Timestamps = z.object({

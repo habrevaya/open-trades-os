@@ -5,7 +5,11 @@ import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError,
+  InvalidGrantError,
 } from "./context";
+
+/** Re-exported so existing importers of this module keep working. */
+export { InvalidGrantError };
 import { audit } from "./customers";
 import { decide, loadEstimate } from "./estimates";
 import type {
@@ -33,16 +37,6 @@ import type {
  * actor scoped to the resolved organization, so a bug in a handler below
  * cannot reach across tenants even if it tries.
  */
-
-export class InvalidGrantError extends Error {
-  constructor() {
-    // Deliberately says nothing about why. Expired, revoked, spent and never
-    // existed are all the same message, because distinguishing them tells an
-    // attacker which tokens were once real.
-    super("This link is no longer valid.");
-    this.name = "InvalidGrantError";
-  }
-}
 
 interface ResolvedGrant {
   grantId: string;

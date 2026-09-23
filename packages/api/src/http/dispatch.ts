@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PermissionError } from "@opentradesos/core";
 import type { Database } from "@opentradesos/db";
 import { handlers, type RequestMeta } from "../routes/index";
-import { NotFoundError, ConflictError, type ServiceContext } from "../services/context";
+import { NotFoundError, ConflictError, InvalidGrantError, type ServiceContext } from "../services/context";
 import { matchRoute, queryToInput } from "./match";
 import type { RouteDefinition } from "../lib/define";
 
@@ -269,6 +269,21 @@ export function errorResponse(error: unknown): Response {
   }
   if (error instanceof NotFoundError) return problem(404, error.message);
   if (error instanceof ConflictError) return problem(409, error.message);
+
+  /**
+   * 410, and it used to be a 500.
+   *
+   * A customer clicking an estimate link that expired last week got
+   * "Internal error", and the server logged it as an unhandled exception:
+   * the one person who could have been told something useful was told
+   * nothing, and the log line that should mean a bug meant a link doing
+   * exactly what links do. Gone rather than 404 because the resource was
+   * real and is not any more, which is the difference between "check your
+   * URL" and "ask them to send a new one". The message is safe to echo: it
+   * says nothing about whether the token expired, was revoked or never
+   * existed.
+   */
+  if (error instanceof InvalidGrantError) return problem(410, error.message);
 
   console.error("Unhandled error serving a request:", error);
   return problem(500, "Internal error");

@@ -70,6 +70,26 @@ export interface RequestMeta {
   idempotencyKey?: string | undefined;
 }
 
+/**
+ * A portal link that will not open.
+ *
+ * It lives here rather than in portal.ts, with the other domain errors,
+ * because `errorResponse` in the HTTP layer maps these to status codes and
+ * cannot import a service. While it was defined over there it was simply not
+ * in that map, so every expired estimate link a customer clicked came back as
+ * 500 "Internal error" AND logged as an unhandled exception, which both told
+ * the customer nothing and buried the real unhandled errors in the noise.
+ */
+export class InvalidGrantError extends Error {
+  constructor() {
+    // Deliberately says nothing about why. Expired, revoked, spent and never
+    // existed are all the same message, because distinguishing them tells an
+    // attacker which tokens were once real.
+    super("This link is no longer valid.");
+    this.name = "InvalidGrantError";
+  }
+}
+
 export class NotFoundError extends Error {
   constructor(resource: string) {
     super(`${resource} not found`);

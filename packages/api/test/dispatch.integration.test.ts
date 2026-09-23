@@ -4,6 +4,7 @@ import type { Actor } from "@opentradesos/core";
 import { dispatch } from "../src/http/dispatch";
 import type { ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
+import { ApiError } from "../src/contracts/common";
 
 /**
  * A request in, a response out, against a real database.
@@ -271,5 +272,70 @@ run("the idempotency key reaches a route with no session", () => {
     const rows = await raw`select id from public.booking_request
       where organization_id = ${ORG} and requested_date = ${date}`;
     expect(rows).toHaveLength(1);
+  });
+});
+
+run("the error envelope the contracts describe is the one that is sent", () => {
+  /**
+   * `ApiError` in contracts/common.ts declared `{ error: { code, message,
+   * fields, permission } }` and nothing ever emitted it. `problem()` writes
+   * `{ error: "<a sentence>", status }`. An SDK generated from the contracts,
+   * or a client that read them, branched on `error.code` and got undefined
+   * for every error the API can return, for as long as the file existed.
+   *
+   * These tests parse real responses against the declared schema, so the two
+   * cannot drift apart again without something going red.
+   */
+  it("matches the schema on a validation failure", async () => {
+    const res = await dispatch(request("GET", "/v1/customers?limit=9999"), deps(["owner"]));
+    expect(res.status).toBe(422);
+
+    const parsed = ApiError.safeParse(await res.json());
+    expect(parsed.success).toBe(true);
+    // And the part an integrator actually needs.
+    expect(parsed.success && parsed.data.issues?.[0]?.path).toBe("limit");
+  });
+
+  it("matches the schema on a permission refusal", async () => {
+    const res = await dispatch(
+      request("POST", "/v1/customers", {
+        type: "residential", name: "No", paymentTermsDays: 0,
+        taxExempt: false, tags: [], customFields: {},
+      }),
+      deps(["technician"]),
+    );
+    expect(res.status).toBe(403);
+    expect(ApiError.safeParse(await res.json()).success).toBe(true);
+  });
+
+  it("matches the schema on a wrong method, and names the right ones", async () => {
+    const res = await dispatch(request("DELETE", "/v1/customers"), deps(["owner"]));
+    const parsed = ApiError.safeParse(await res.json());
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.allowed).toContain("GET");
+  });
+
+  it("answers a dead portal link with 410 rather than 500", async () => {
+    /**
+     * A customer clicking an estimate link that expired last week was told
+     * "Internal error", and the server logged it as an unhandled exception:
+     * the one person who could have acted on it learned nothing, and the log
+     * line that is supposed to mean a bug meant a link doing what links do.
+     *
+     * Gone rather than not-found, because the resource was real and is not
+     * any more. "Ask them to send a new one" is a different instruction from
+     * "check your URL".
+     */
+    const res = await dispatch(
+      request("GET", "/v1/portal/session?token=ots_definitely_not_a_real_token_x"),
+      deps(null),
+    );
+
+    expect(res.status).toBe(410);
+    const parsed = ApiError.safeParse(await res.json());
+    expect(parsed.success).toBe(true);
+    // And it still says nothing about WHY, which is what keeps it from
+    // telling somebody which tokens were once real.
+    expect(parsed.success && parsed.data.error).toBe("This link is no longer valid.");
   });
 });
