@@ -78,7 +78,7 @@ const json = (value: unknown): Response =>
  * person as a broken connection; a tool result with `isError` is handed back
  * to the MODEL, which can read it and do something else.
  *
- * "You do not hold invoice:void" and "there is no customer with that id" are
+ * "You do not hold deposit:refund" and "there is no customer with that id" are
  * facts the model should act on: ask the user, pick another record, stop. Sent
  * as JSON-RPC errors they become "the OpenTradesOS server is failing", which
  * is both wrong and unactionable.
@@ -179,7 +179,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
        * Those two produce the same refusal for different reasons, and the
        * difference is what the agent does next. "No such tool" sends a model
        * hunting for a spelling mistake in a name it got from this server.
-       * "You do not hold invoice:void" tells the user what to ask for.
+       * "You do not hold deposit:refund" tells the user what to ask for.
        */
       if (!tool) return toolError(message.id, `No tool named ${name}.`);
 

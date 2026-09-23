@@ -136,7 +136,7 @@ function describe(routeName: string, route: RouteDefinition): McpTool {
    *
    * A tool that refuses with "forbidden" sends a person to support. A tool
    * whose description names the permission lets the agent say "ask whoever
-   * administers this to grant invoice:void", which is an answer.
+   * administers this to grant deposit:refund", which is an answer.
    */
   const permissionLine = route.permissions.length > 0
     ? `\n\nRequires: ${route.permissions.join(", ")}.`
