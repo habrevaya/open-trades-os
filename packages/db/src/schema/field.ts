@@ -2,6 +2,7 @@ import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, time
 import { pk, timestamps, sourceRef } from "./_shared";
 import { organization } from "./tenancy";
 import { technician } from "./tenancy";
+import { message } from "./comms";
 
 /**
  * THE FIELD
@@ -235,6 +236,19 @@ export const arrivalNotice = pgTable("arrival_notice", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   visitId: uuid("visit_id").notNull(),
   channel: text("channel").notNull(),
+  /**
+   * The text this notice actually is.
+   *
+   * Null when nothing went out, which happens when the customer has replied
+   * STOP or the company has no registered number: the row still exists,
+   * because the technician did say they were on their way and that is a fact
+   * worth keeping, and `failed_reason` says why the customer never heard it.
+   *
+   * Before this column the notice recorded a send that the code never made.
+   * A row saying a message went out, with no message anywhere, is worse than
+   * no row: dispatch reads it and stops calling the customer.
+   */
+  messageId: uuid("message_id").references(() => message.id, { onDelete: "set null" }),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   /** What the technician's phone estimated at the moment of sending. */
   etaMinutes: integer("eta_minutes"),

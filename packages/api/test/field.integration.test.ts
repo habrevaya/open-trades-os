@@ -77,9 +77,22 @@ beforeAll(async () => {
     values (${ORG}, ${membership!.id}, 'Ray Nunez') returning id`;
   technicianId = t!.id;
 
-  const [c] = await raw`insert into public.customer (organization_id, name)
-    values (${ORG}, 'Nina Patel') returning id`;
+  /**
+   * A number we can send from and a customer who can be texted.
+   *
+   * Added when "on my way" started actually sending. Before that it wrote a
+   * row and returned a tracking link for a customer with no phone on file,
+   * and the test below asserted on the link, which is why nobody noticed that
+   * no text existed to put it in.
+   */
+  await raw`insert into public.phone_number (organization_id, e164, purpose, sms_registered)
+            values (${ORG}, '+15125559970', 'main', true)`;
+  const [c] = await raw`insert into public.customer (organization_id, name, phone)
+    values (${ORG}, 'Nina Patel', '+15125550140') returning id`;
   customerId = c!.id;
+  await raw`insert into public.communication_consent
+    (organization_id, address, channel, purpose, state, method, captured_at)
+    values (${ORG}, '+15125550140', 'sms', 'transactional', 'granted', 'verbal', now())`;
   const [p] = await raw`insert into public.property
     (organization_id, address_line1, city, state, postal_code)
     values (${ORG}, '88 Ridge Rd', 'Austin', 'TX', '78704') returning id`;
@@ -664,6 +677,7 @@ run("on my way", () => {
     const first = await dispatchSvc.onMyWay(ctxFor(["technician"]), {
       id: visitId, channel: "sms", etaMinutes: 20, includeTracking: true,
     });
+    expect(first.sent).toBe(true);
     expect(first.trackingUrl).toMatch(/\/j\//);
 
     await dispatchSvc.onMyWay(ctxFor(["technician"]), {
@@ -673,6 +687,15 @@ run("on my way", () => {
     const notices = await raw`select id from public.arrival_notice where visit_id = ${visitId}`;
     // The customer reads both. One is a courtesy and two is an annoyance.
     expect(notices).toHaveLength(1);
+
+    /**
+     * And one text. The notice count was the whole of this assertion while
+     * the function sent nothing, so it proved only that the row was written
+     * once.
+     */
+    const messages = await raw`select id from public.message
+      where organization_id = ${ORG} and direction = 'outbound'`;
+    expect(messages).toHaveLength(1);
   });
 
   it("records how far out it went, not just that it went", async () => {

@@ -47,13 +47,22 @@ export async function sync(input: {
   }
 }
 
+/**
+ * The result comes back, and the screen says it.
+ *
+ * This used to throw away what the service returned and report `ok: true`
+ * whenever nothing threw. Since the service sent nothing at all, that was
+ * consistent, and both halves were wrong together. Now that a send can be
+ * refused for a reason the technician can act on, "they replied STOP, phone
+ * them" has to reach the person standing in the driveway.
+ */
 export async function onMyWay(input: {
   visitId: string;
   etaMinutes?: number;
-}): Promise<{ ok: boolean; message?: string }> {
+}): Promise<{ ok: boolean; sent?: boolean; message?: string }> {
   const user = await requireSetupUser();
   try {
-    await dispatch.onMyWay(
+    const result = await dispatch.onMyWay(
       { actor: user.actor, db: getDb() },
       {
         id: input.visitId,
@@ -63,7 +72,11 @@ export async function onMyWay(input: {
       },
     );
     revalidatePath("/my-day");
-    return { ok: true };
+    return {
+      ok: true,
+      sent: result.sent,
+      ...(result.reason ? { message: result.reason } : {}),
+    };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Could not send" };
   }

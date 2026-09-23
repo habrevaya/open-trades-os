@@ -294,6 +294,17 @@ function VisitCard({
 }) {
   const [note, setNote] = useState("");
   const [sendingEta, setSendingEta] = useState(false);
+  /**
+   * What the customer will be told, chosen rather than assumed.
+   *
+   * This screen used to send a flat twenty minutes on every tap. Nobody typed
+   * it and nobody checked it, and it went to a customer as "about 20 minutes
+   * away" in a text they then planned an hour around. A guess presented to
+   * somebody else as a fact is the same defect as a row recording a message
+   * that was never sent.
+   */
+  const [eta, setEta] = useState(20);
+  const [etaResult, setEtaResult] = useState<string | null>(null);
   const next = NEXT_ACTION[status] ?? null;
   const address = `${visit.property.addressLine1}, ${visit.property.city} ${visit.property.postalCode}`;
   const window = arrivalWindow(visit.windowStart, visit.windowEnd, timezone);
@@ -372,18 +383,48 @@ function VisitCard({
           </div>
 
           {(status === "dispatched" || status === "scheduled") && (
-            <button
-              type="button"
-              disabled={sendingEta}
-              onClick={async () => {
-                setSendingEta(true);
-                await onMyWay({ visitId: visit.id, etaMinutes: 20 });
-                setSendingEta(false);
-              }}
-              className="h-12 w-full rounded border border-steel-300 text-base font-medium"
-            >
-              {sendingEta ? "Sending…" : "Text the customer I am on my way"}
-            </button>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <label className="flex h-12 items-center gap-2 rounded border border-steel-300 px-3">
+                  <span className="text-sm text-ink-500">Minutes</span>
+                  <select
+                    value={eta}
+                    onChange={(e) => setEta(Number(e.target.value))}
+                    className="bg-transparent text-base font-medium"
+                  >
+                    {[5, 10, 15, 20, 30, 45, 60].map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={sendingEta}
+                  onClick={async () => {
+                    setSendingEta(true);
+                    setEtaResult(null);
+                    const result = await onMyWay({ visitId: visit.id, etaMinutes: eta });
+                    setEtaResult(
+                      result.sent
+                        ? `Texted: about ${eta} minutes away.`
+                        : result.message ?? "Not sent.",
+                    );
+                    setSendingEta(false);
+                  }}
+                  className="h-12 flex-1 rounded border border-steel-300 text-base font-medium"
+                >
+                  {sendingEta ? "Sending…" : "Text the customer I am on my way"}
+                </button>
+              </div>
+              {/*
+                The refusal stays on the screen. A technician who is told
+                nothing assumes it went, and the one thing they could have done
+                about a STOP on file is pick up the phone instead.
+              */}
+              {etaResult && (
+                <p className="text-sm text-ink-500" role="status">{etaResult}</p>
+              )}
+            </div>
           )}
 
           <div>

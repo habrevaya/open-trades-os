@@ -4,6 +4,7 @@ import { comms, type Actor, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import type { InboundMessage, MessagingProvider, WebhookRequest } from "../comms/provider";
 import { recordDelivery } from "./comms-outbox";
+import { threadFor } from "./comms-send";
 import { createProvider } from "../comms/provider";
 
 /**
@@ -155,47 +156,6 @@ export async function store(
   });
 }
 
-/**
- * The thread this belongs to.
- *
- * By address rather than by the provider's own threading, which keys on the
- * number pair and therefore splits a conversation the moment a company sends
- * from a pool. The customer is attached when one is recognized, and left null
- * when not: an unrecognized number texting in is a lead, and dropping it
- * because it does not match a customer row is how leads are lost.
- */
-async function threadFor(tx: Database, input: {
-  organizationId: string; address: string; phoneNumberId: string;
-}): Promise<string> {
-  const [existing] = await tx.select({ id: schema.conversation.id })
-    .from(schema.conversation)
-    .where(and(
-      eq(schema.conversation.organizationId, input.organizationId),
-      eq(schema.conversation.externalAddress, input.address),
-      isNull(schema.conversation.deletedAt),
-    ))
-    .orderBy(desc(schema.conversation.createdAt))
-    .limit(1);
-  if (existing) return existing.id;
-
-  const [customer] = await tx.select({ id: schema.customer.id })
-    .from(schema.customer)
-    .where(and(
-      eq(schema.customer.phone, input.address),
-      isNull(schema.customer.deletedAt),
-    ))
-    .limit(1);
-
-  const [created] = await tx.insert(schema.conversation).values({
-    organizationId: input.organizationId,
-    channel: "sms",
-    externalAddress: input.address,
-    phoneNumberId: input.phoneNumberId,
-    customerId: customer?.id ?? null,
-    status: "open",
-  }).returning({ id: schema.conversation.id });
-  return created!.id;
-}
 
 
 export interface WebhookConnection {

@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, inArray, asc, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, lte, inArray, asc, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { time } from "@opentradesos/core";
 import { audit } from "./customers";
+import { sendTransactional } from "./comms-send";
 import type {
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot,
 } from "../contracts/field";
@@ -262,6 +263,19 @@ export async function reorder(ctx: ServiceContext, input: z.infer<typeof reorder
  * Recorded as its own row rather than a flag, because a company that sends two
  * has a problem worth seeing, and because the question worth asking later is
  * how long before arrival it actually went out. A boolean answers neither.
+ *
+ * THE BUG THIS FIXES. The first version of this function wrote the notice row,
+ * wrote a portal event, minted a tracking grant, and returned ok. It did not
+ * send anything. The button in the van reads "Text the customer I am on my
+ * way", and nothing was ever texted: the row recorded a message that had never
+ * existed, and the `failed_reason` column beside it was written by nothing, so
+ * the retry guard that skips notices with a reason could never skip one. A
+ * dispatcher reading the notice stops phoning the customer. That is the worst
+ * shape a defect can take here, because the record actively argues against
+ * anybody noticing it.
+ *
+ * It now goes through `sendTransactional`, which is the same consent gate the
+ * inbox uses. A technician tapping this is not an exemption from a STOP.
  */
 export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArrivalNotice.input>) {
   return guardedWrite(ctx, "message:send", async (tx) => {
@@ -274,12 +288,14 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
 
     const [job] = await tx.select({
       customerId: schema.job.customerId,
+      propertyId: schema.job.propertyId,
       number: schema.job.number,
     }).from(schema.job).where(eq(schema.job.id, visit.jobId)).limit(1);
     if (!job) throw new NotFoundError("Job");
 
     // A retry from a van with one bar must not send a second message. The
-    // customer reads both.
+    // customer reads both. A notice that failed is not a send, so it does not
+    // block one: that is what the `failed_reason` test means.
     const [already] = await tx.select({ id: schema.arrivalNotice.id })
       .from(schema.arrivalNotice)
       .where(and(
@@ -288,18 +304,26 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
       )).limit(1);
 
     if (already) {
-      const [existingGrant] = await tx.select({ id: schema.portalGrant.id })
-        .from(schema.portalGrant)
-        .where(and(
-          eq(schema.portalGrant.scope, "job"),
-          eq(schema.portalGrant.subjectId, visit.jobId),
-          isNull(schema.portalGrant.revokedAt),
-        )).limit(1);
-      return { ok: true as const, trackingUrl: existingGrant ? null : null };
+      /**
+       * No tracking link on a repeat, and that is not an oversight.
+       *
+       * The token is stored hashed, which is the whole point of storing it
+       * that way, so the link handed out the first time cannot be recovered
+       * and handed out again. Minting a second grant for the same job would
+       * leave two live links to one property, and the first version of this
+       * branch pretended to choose between them with a ternary whose two
+       * arms were both null.
+       */
+      return {
+        ok: true as const, sent: false, alreadySent: true,
+        trackingUrl: null, reason: "They have already been told you are on the way.",
+      };
     }
 
+    const address = await notifiableAddress(tx, job.customerId, job.propertyId);
+
     let trackingUrl: string | null = null;
-    if (input.includeTracking) {
+    if (input.includeTracking && address) {
       const token = randomBytes(32).toString("base64url");
       await tx.insert(schema.portalGrant).values({
         organizationId: ctx.actor.organizationId,
@@ -314,14 +338,40 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
       trackingUrl = `${PORTAL_BASE}/j/${token}`;
     }
 
+    const outcome = address
+      ? await sendTransactional(tx, {
+          organizationId: ctx.actor.organizationId,
+          address,
+          customerId: job.customerId,
+          sentByUserId: ctx.actor.userId,
+          body: noticeBody({
+            company: await companyName(tx, ctx.actor.organizationId),
+            etaMinutes: input.etaMinutes ?? null,
+            trackingUrl,
+          }),
+        })
+      : {
+          sent: false as const, reason: "no_address",
+          explanation: "No phone number on this customer or property.",
+        };
+
     await tx.insert(schema.arrivalNotice).values({
       organizationId: ctx.actor.organizationId,
       visitId: input.id,
       channel: input.channel,
       etaMinutes: input.etaMinutes ?? null,
-      includesTracking: input.includeTracking,
+      includesTracking: input.includeTracking && outcome.sent,
+      messageId: outcome.sent ? outcome.messageId : null,
+      failedReason: outcome.sent ? null : outcome.reason,
     });
 
+    /**
+     * The portal event regardless.
+     *
+     * Somebody who cannot be texted may still have the portal open, and the
+     * timeline there is a record of what happened on the job rather than a
+     * record of what we managed to deliver.
+     */
     await tx.insert(schema.portalEvent).values({
       organizationId: ctx.actor.organizationId,
       customerId: job.customerId,
@@ -331,8 +381,90 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
       detail: input.etaMinutes ? `About ${input.etaMinutes} minutes away` : null,
     });
 
-    return { ok: true as const, trackingUrl };
+    return {
+      ok: true as const,
+      sent: outcome.sent,
+      alreadySent: false,
+      trackingUrl: outcome.sent ? trackingUrl : null,
+      reason: outcome.sent ? null : outcome.explanation,
+    };
   });
+}
+
+/**
+ * Who to text, and in what order.
+ *
+ * The contact on the PROPERTY first. On a rental the customer is the landlord
+ * and the person who opens the door is the tenant, and texting the landlord
+ * that somebody is fifteen minutes away helps nobody standing outside a house.
+ * Then the customer's own primary contact, then the number on the customer
+ * record, which is what a one person household has.
+ */
+async function notifiableAddress(
+  tx: Database, customerId: string, propertyId: string,
+): Promise<string | null> {
+  const contacts = await tx.select({
+    phone: schema.contact.phone,
+    propertyId: schema.contact.propertyId,
+    isPrimary: schema.contact.isPrimary,
+    preferredChannel: schema.contact.preferredChannel,
+  }).from(schema.contact)
+    .where(and(
+      isNull(schema.contact.deletedAt),
+      or(
+        eq(schema.contact.propertyId, propertyId),
+        eq(schema.contact.customerId, customerId),
+      ),
+    ));
+
+  const reachable = contacts.filter((c) => (c.phone ?? "").trim() !== "");
+
+  /**
+   * Ranked rather than filtered.
+   *
+   * A contact who prefers email is still worth texting when they are the only
+   * person attached to the property: the alternative is a technician arriving
+   * at a door nobody knew about. Preference decides the order, not whether
+   * somebody hears from us at all.
+   */
+  const rank = (c: typeof reachable[number]): number =>
+    (c.propertyId === propertyId ? 0 : 4)
+    + (c.isPrimary ? 0 : 2)
+    + (c.preferredChannel === "sms" ? 0 : 1);
+
+  const best = reachable.slice().sort((a, b) => rank(a) - rank(b))[0];
+  if (best?.phone) return best.phone.trim();
+
+  const [customer] = await tx.select({ phone: schema.customer.phone })
+    .from(schema.customer).where(eq(schema.customer.id, customerId)).limit(1);
+  const fallback = (customer?.phone ?? "").trim();
+  return fallback === "" ? null : fallback;
+}
+
+/** The name the text signs off with. */
+async function companyName(tx: Database, organizationId: string): Promise<string> {
+  const [org] = await tx.select({ name: schema.organization.name })
+    .from(schema.organization)
+    .where(eq(schema.organization.id, organizationId)).limit(1);
+  return org?.name ?? "Your technician";
+}
+
+/**
+ * What the customer reads.
+ *
+ * No em dash, no "Hi {first_name}," with nothing behind it, and the tracking
+ * link last because that is where a thumb goes. The ETA is omitted rather than
+ * guessed when the phone did not supply one: "about null minutes" has shipped
+ * in this industry more than once.
+ */
+function noticeBody(input: {
+  company: string; etaMinutes: number | null; trackingUrl: string | null;
+}): string {
+  const eta = input.etaMinutes
+    ? `about ${input.etaMinutes} minutes away`
+    : "on the way";
+  const line = `${input.company}: your technician is ${eta}.`;
+  return input.trackingUrl ? `${line} Track them here: ${input.trackingUrl}` : line;
 }
 
 /**

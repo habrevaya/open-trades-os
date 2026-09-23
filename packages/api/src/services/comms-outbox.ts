@@ -259,6 +259,27 @@ export async function recordDelivery(
       ...(report.errorMessage ? { errorMessage: report.errorMessage } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.message.id, row.id));
+
+    /**
+     * An arrival notice follows its message.
+     *
+     * `arrival_notice.delivered_at` and `failed_reason` were columns nothing
+     * ever wrote, which is why nobody noticed that the notice recorded a send
+     * the code never made. They are the answer to the only question that
+     * screen is for: did the customer actually hear that somebody was coming.
+     *
+     * Scoped to the message rather than the visit, so a second notice on a
+     * rescheduled visit does not inherit the first one's receipt.
+     */
+    if (report.status === "delivered" || report.status === "undelivered" || report.status === "failed") {
+      await tx.update(schema.arrivalNotice).set({
+        ...(report.status === "delivered"
+          ? { deliveredAt: new Date(), failedReason: null }
+          : { failedReason: report.errorMessage ?? report.errorCode ?? report.status }),
+        updatedAt: new Date(),
+      }).where(eq(schema.arrivalNotice.messageId, row.id));
+    }
+
     return true;
   });
 }

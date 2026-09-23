@@ -298,13 +298,32 @@ export const sendArrivalNotice = defineRoute({
   idempotent: true,
   input: z.object({
     id: Uuid,
-    channel: z.enum(["sms", "email"]).default("sms"),
+    /**
+     * SMS only, and narrowed on purpose.
+     *
+     * This accepted "email" for as long as it sent nothing at all, which cost
+     * nothing because both values did the same thing: nothing. Now that it
+     * sends, an accepted value with no sender behind it would queue a text to
+     * somebody who asked for an email, or silently drop it. The enum stays a
+     * single value rather than becoming a plain string, so the day email is
+     * built the change is visible in this file.
+     */
+    channel: z.enum(["sms"]).default("sms"),
     etaMinutes: z.number().int().min(0).max(480).optional(),
     includeTracking: z.boolean().default(true),
   }),
   output: z.object({
     ok: z.literal(true),
+    /** Whether a message was actually queued to the customer. */
+    sent: z.boolean(),
+    /** Whether an earlier notice for this visit had already gone out. */
+    alreadySent: z.boolean(),
     trackingUrl: z.string().url().nullable(),
+    /**
+     * Why they will not hear from us, in words for the person in the van.
+     * Null when the message was queued.
+     */
+    reason: z.string().nullable(),
   }),
 });
 

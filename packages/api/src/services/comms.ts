@@ -6,6 +6,7 @@ import {
   NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
 import { conversationScopeFilter } from "./scope";
+import { sendability, refusal, threadFor } from "./comms-send";
 
 /**
  * THE INBOX
@@ -193,55 +194,6 @@ export async function markRead(ctx: ServiceContext, input: { id: string }) {
   });
 }
 
-async function sendability(
-  tx: Parameters<Parameters<typeof guardedRead>[2]>[0],
-  organizationId: string,
-  address: string,
-) {
-  const [from] = await tx.select().from(schema.phoneNumber)
-    .where(and(
-      eq(schema.phoneNumber.organizationId, organizationId),
-      isNull(schema.phoneNumber.releasedAt),
-      eq(schema.phoneNumber.smsRegistered, true),
-    ))
-    .orderBy(desc(schema.phoneNumber.createdAt))
-    .limit(1);
-
-  const consents = await tx.select().from(schema.communicationConsent)
-    .where(and(
-      eq(schema.communicationConsent.organizationId, organizationId),
-      eq(schema.communicationConsent.address, address),
-      isNull(schema.communicationConsent.supersededAt),
-    ));
-
-  const suppressions = await tx.select().from(schema.suppression)
-    .where(and(
-      eq(schema.suppression.organizationId, organizationId),
-      eq(schema.suppression.address, address),
-      isNull(schema.suppression.liftedAt),
-    ));
-
-  const decision = comms.canSend({
-    channel: "sms",
-    purpose: "transactional",
-    consents: consents.map((c) => ({
-      channel: c.channel as comms.Channel,
-      purpose: c.purpose as comms.Purpose,
-      state: c.state as comms.ConsentState,
-      capturedAt: c.capturedAt,
-      supersededAt: c.supersededAt,
-    })),
-    suppressions: suppressions.map((s) => ({
-      channel: s.channel as comms.Channel,
-      purpose: s.purpose as comms.Purpose | null,
-      liftedAt: s.liftedAt,
-    })),
-    channelRegistered: Boolean(from?.smsRegistered),
-  });
-
-  return { ...decision, from };
-}
-
 /**
  * A person replying, by hand.
  *
@@ -296,21 +248,3 @@ export async function reply(ctx: ServiceContext, input: { id: string; body: stri
     return clean(ctx, "message", message!);
   });
 }
-
-/**
- * The refusal in words an operator can act on.
- *
- * "Forbidden" sends somebody to support. "They replied STOP" tells them what
- * happened and that there is nothing to fix.
- */
-function refusal(reason: string | undefined): string {
-  switch (reason) {
-    case "suppressed": return "They have replied STOP. You cannot text this number until they opt back in.";
-    case "no_consent": return "No consent on record for this number.";
-    case "revoked": return "They withdrew consent for this number.";
-    case "channel_unregistered": return "No registered sending number. Register one before sending.";
-    case "quiet_hours": return "Outside the hours this customer may be contacted.";
-    default: return reason ? `Cannot send: ${reason}` : "Cannot send to this number.";
-  }
-}
-
