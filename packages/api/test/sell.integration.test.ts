@@ -660,6 +660,114 @@ run("booking from the website", () => {
     expect(declined.status).toBe("declined");
     expect(declined.declineReason).toBe("outside_service_area");
   });
+
+    describe("where a booking actually came from", () => {
+    /**
+     * Both write sites used to say `"online_booking"`, which is a CHANNEL and
+     * not a source. `marketing.LEAD_SOURCES` holds twenty one real sources and
+     * that is not among them, so every job and customer this path created
+     * carried a value no report could group and no attribution model could
+     * credit.
+     *
+     * The distinction costs money: somebody who clicked a Google ad and then
+     * booked on the website came from Google Ads, and the ad account paid for
+     * them. Recording the widget credits the website for every paid click a
+     * company buys, and the ads look free.
+     */
+    const bookAndConfirm = async (
+      extra: { utm?: Record<string, string>; referrer?: string },
+      dayOffset: number,
+    ) => {
+      const date = new Date(Date.now() + dayOffset * 864e5).toISOString().slice(0, 10);
+      const { request } = await booking.createRequest(db(), {
+        organizationSlug: "acme-sell", bookableServiceId: serviceId,
+        requestedDate: date, arrivalWindowId: windowId,
+        contactName: `Source ${dayOffset}`, contactPhone: `51255502${dayOffset}`,
+        addressLine1: `${dayOffset} Source Way`, city: "Austin", state: "TX",
+        postalCode: "78704", intakeAnswers: {},
+        utm: extra.utm ?? {},
+        ...(extra.referrer ? { referrer: extra.referrer } : {}),
+      });
+      const { jobId } = await booking.confirm(office(), { id: request.id });
+      const [row] = await raw<{ lead_source: string | null }[]>`
+        select lead_source from public.job where id = ${jobId}`;
+      return row!.lead_source;
+    };
+
+    it("credits the campaign that paid for the click", async () => {
+      const source = await bookAndConfirm(
+        { utm: { utm_source: "google", utm_medium: "cpc" } }, 30,
+      );
+      expect(source).toBe("google_ads");
+    });
+
+    it("reads the referrer when nothing was tagged", async () => {
+      const source = await bookAndConfirm(
+        { referrer: "https://www.google.com/search?q=ac repair austin" }, 31,
+      );
+      expect(source).toBe("organic_search");
+    });
+
+    it("says unknown, not direct, when a tag was present and meant nothing", async () => {
+      /**
+       * MY FIRST VERSION OF THIS TEST ASSERTED THE OPPOSITE, and `parseTouch`
+       * is right. A UTM that was present and did not resolve is a gap in the
+       * alias list. Falling back to the referrer, or to `direct`, collapses
+       * "we cannot read our own tags" into "they came straight to us", and
+       * makes a data problem look like brand strength.
+       *
+       * I had hand rolled a resolver that did exactly that, and it also
+       * missed click ids entirely. `parseTouch` was written, tested and
+       * called by nothing, and reimplementing it produced something worse
+       * that looked the same from outside.
+       */
+      /**
+       * Its own day offset, because the fixture derives the contact name and
+       * address from it and the booking replay added earlier treats an
+       * identical submission as a retry. Two of these cases shared offset 31,
+       * so the second returned the first one's booking and the test measured
+       * the wrong row. My own deduplication caught my own test.
+       */
+      const source = await bookAndConfirm(
+        { utm: { utm_source: "wharrgarbl" }, referrer: "https://www.google.com/search?q=ac" }, 34,
+      );
+      expect(source).toBe("unknown");
+    });
+
+    it("does not count our own pages as a referral", async () => {
+      /**
+       * Somebody moving from the pricing page to the booking page is one
+       * session. Counting it as a referral from ourselves is how "our own
+       * website" becomes the top lead source on a report, which reads as a
+       * marketing win and is a measurement artefact.
+       */
+      const source = await bookAndConfirm(
+        { referrer: "https://portal.example.com/pricing" }, 35,
+      );
+      expect(source).toBe("direct");
+    });
+
+    it("takes a click id as proof of a paid click", async () => {
+      /**
+       * A bare `utm_source=google` with no medium is ambiguous between the ad
+       * account and the SEO that has been working for free. A `gclid` settles
+       * it, and it is the most common tagging shape in this trade.
+       */
+      const source = await bookAndConfirm(
+        { utm: { utm_source: "google", gclid: "Cj0KCQjw" } }, 33,
+      );
+      expect(source).toBe("google_ads");
+    });
+
+    it("says direct when there is nothing to go on", async () => {
+      /**
+       * `direct` and `unknown` are different facts. Unknown means we failed to
+       * record it, direct means they typed the address in, and a report that
+       * cannot tell them apart cannot tell a tracking gap from a strong brand.
+       */
+      expect(await bookAndConfirm({}, 32)).toBe("direct");
+    });
+    });
 });
 
 run("turning the booking page on at all", () => {

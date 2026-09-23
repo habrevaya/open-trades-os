@@ -155,19 +155,19 @@ const CUSTOMERS = [
     key: "whitfield", type: "residential", name: "Dana Whitfield",
     email: "dana.w@example.com", phone: "(512) 555-0192",
     address: { line1: "4102 Ramsey Ave", city: "Austin", state: "TX", postalCode: "78756" },
-    gateCode: "#4417", hasDog: true, leadSource: "Referral",
+    gateCode: "#4417", hasDog: true, leadSource: "referral_customer",
   },
   {
     key: "brazos", type: "commercial", name: "Brazos Property Group",
     email: "ap@brazospg.example.com", phone: "(512) 555-0110",
     address: { line1: "900 Congress Ave", line2: "Suite 400", city: "Austin", state: "TX", postalCode: "78701" },
-    leadSource: "Google", taxExempt: true, paymentTerms: 30,
+    leadSource: "google_ads", taxExempt: true, paymentTerms: 30,
   },
   {
     key: "okafor", type: "residential", name: "Tolu Okafor",
     email: "tolu.okafor@example.com", phone: "(512) 555-0177",
     address: { line1: "7300 Hart Ln", city: "Austin", state: "TX", postalCode: "78731" },
-    leadSource: "Repeat customer",
+    leadSource: "repeat_customer",
   },
   {
     key: "delgado", type: "residential", name: "Marisol Delgado",

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { schema } from "@opentradesos/db";
-import { parties, labor } from "@opentradesos/core";
+import { parties, labor, marketing } from "@opentradesos/core";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * TWO COPIES OF A LIST DISAGREE EVENTUALLY
@@ -70,5 +72,76 @@ describe("time entry kinds", () => {
     if (fallback) {
       expect([...schema.timeEntryKind.enumValues]).toContain(fallback);
     }
+  });
+});
+
+/**
+ * LEAD SOURCES
+ *
+ * `marketing.LEAD_SOURCES` is a catalogue of twenty one real sources and
+ * booking wrote `"online_booking"`, which is not one of them. It is a
+ * CHANNEL, not a source, so every job and customer that path created carried
+ * a value no report could group, no attribution model could credit, and
+ * `leadSourceLabel` rendered by replacing an underscore with a space.
+ *
+ * The distinction costs money. Somebody who clicked a Google ad and then
+ * booked on the website came from Google Ads and the ad account paid for
+ * them. Recording the widget credits the website for every paid click a
+ * company ever buys, and the ads look free.
+ *
+ * The catalogue was built and the writers never adopted it, which is how a
+ * controlled vocabulary becomes a text column with extra steps.
+ */
+describe("lead sources", () => {
+  /** Every string literal this codebase writes into a `leadSource` column. */
+  function writtenLiterals(): { file: string; value: string }[] {
+    const roots = [
+      join(__dirname, "../src"),
+      join(__dirname, "../../../apps/web/src"),
+      join(__dirname, "../../db/src/seed"),
+    ];
+    const found: { file: string; value: string }[] = [];
+
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) { walk(path); continue; }
+        if (!/\.tsx?$/.test(entry.name)) continue;
+        const source = readFileSync(path, "utf8");
+        for (const match of source.matchAll(/leadSource:\s*"([^"]+)"/g)) {
+          found.push({ file: entry.name, value: match[1]! });
+        }
+      }
+    };
+
+    for (const root of roots) walk(root);
+    return found;
+  }
+
+  it("never writes a source that is not in the catalogue", () => {
+    const known = new Set(marketing.LEAD_SOURCE_KEYS as readonly string[]);
+    const written = writtenLiterals();
+
+    const unknownOnes = written.filter((w) => !known.has(w.value));
+    expect(
+      unknownOnes.map((w) => `${w.file}: ${w.value}`),
+      "a lead source no report can group",
+    ).toEqual([]);
+  });
+
+  it("writes at least one, so the sweep above is not measuring an empty set", () => {
+    // The assertion that keeps the test from passing because a regex broke.
+    expect(writtenLiterals().length).toBeGreaterThan(0);
+  });
+
+  it("has a real key for a customer who simply typed the address in", () => {
+    /**
+     * `direct` and `unknown` are different facts. Unknown means we failed to
+     * record it, direct means they came straight to us, and a report that
+     * cannot tell them apart cannot tell a tracking gap from a strong brand.
+     */
+    const keys = marketing.LEAD_SOURCE_KEYS as readonly string[];
+    expect(keys).toContain("direct");
+    expect(keys).toContain("unknown");
   });
 });

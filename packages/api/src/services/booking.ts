@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, time } from "@opentradesos/core";
+import { money as m, time, marketing } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -474,7 +474,7 @@ export async function confirm(ctx: ServiceContext, input: z.infer<typeof confirm
       // The customer's own words, kept verbatim. Rewriting them into a job
       // summary loses the only unfiltered account of the problem anyone gets.
       customerComplaint: request.notes ?? null,
-      leadSource: "online_booking",
+      leadSource: sourceOf(request),
     }).returning({ id: schema.job.id });
 
     await tx.update(schema.bookingRequest).set({
@@ -705,7 +705,7 @@ async function createCustomerFrom(
     name: request.contactName,
     email: request.contactEmail ?? null,
     phone: request.contactPhone ?? null,
-    leadSource: "online_booking",
+    leadSource: sourceOf(request),
   }).returning({ id: schema.customer.id });
   return customer!.id;
 }
@@ -990,4 +990,68 @@ export async function setHours(
 
     return { days: input.days.length };
   });
+}
+
+/**
+ * WHERE THIS BOOKING ACTUALLY CAME FROM.
+ *
+ * Both write sites used to say `"online_booking"`, which is not a lead
+ * source at all: it is a CHANNEL. `marketing.LEAD_SOURCES` is a catalogue of
+ * twenty one real sources and `online_booking` is not among them, so every
+ * job and customer this path created carried a value no report could group,
+ * no attribution model could credit, and `leadSourceLabel` rendered by
+ * replacing an underscore with a space.
+ *
+ * The distinction costs money. Somebody who searched, clicked a Google ad
+ * and then booked on the website came from Google Ads, and the ad account
+ * paid for them. Recording the booking widget instead credits the website
+ * for every paid click a company buys, and the ads look free.
+ *
+ * `marketing.parseTouch` does the whole job and was called by nothing. I
+ * wrote a hand rolled version of it first, reading `utm_source` and falling
+ * back to the referrer, and it was wrong in two ways that `parseTouch`
+ * already has right:
+ *
+ *   It missed CLICK IDS entirely. A `gclid` on the landing page is proof of
+ *   a paid click and settles a bare `utm_source=google` that has no medium,
+ *   which is the single most common tagging shape in this trade.
+ *
+ *   It fell back to the referrer when a UTM was present and did not resolve.
+ *   `parseTouch` answers `unknown` there, deliberately, because that is the
+ *   difference between "we have a gap in our alias list" and "they came
+ *   straight to us", and collapsing the two makes a data problem look like
+ *   brand strength.
+ *
+ * The lesson is the one this codebase keeps relearning: the function was
+ * already written, tested, and unused, and reimplementing it produced
+ * something worse that looked the same from outside.
+ */
+function sourceOf(request: typeof schema.bookingRequest.$inferSelect): string {
+  const utm = (request.utm ?? {}) as Record<string, string | undefined>;
+
+  /**
+   * The utm bag is rebuilt into a query string because that is what
+   * `parseTouch` reads, and it is what the booking widget had in the first
+   * place. Carrying the raw landing page query on the request instead would
+   * be better and is a schema change: the click id is the field that gets
+   * lost in the round trip, since the widget only stores utm_ keys today.
+   */
+  const query = Object.entries(utm)
+    .filter(([, value]) => value !== undefined && value !== "")
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value!)}`)
+    .join("&");
+
+  const touch = marketing.parseTouch({
+    at: request.createdAt,
+    query,
+    referrer: request.referrer,
+    /**
+     * Our own pages are not a referral. Somebody moving from the pricing page
+     * to the booking page is one session, and counting it as a referral from
+     * ourselves is how "our own website" becomes the top lead source.
+     */
+    ownHosts: [new URL(PORTAL_BASE).host],
+  });
+
+  return touch.source;
 }
