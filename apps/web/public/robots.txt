@@ -1,0 +1,8 @@
+# A self-hosted instance of this application is somebody's private business
+# system. It holds their customer list, their pricing and their schedule, and
+# none of it belongs in a search index.
+#
+# The marketing site is a separate deployment with its own robots file. This
+# one is the app.
+User-agent: *
+Disallow: /

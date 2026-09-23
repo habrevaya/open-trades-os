@@ -49,6 +49,10 @@ RUN addgroup -g 1001 -S nodejs && adduser -S -u 1001 -G nodejs nextjs
 # no pnpm, no sources, no dev dependencies.
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+# `public` must exist for this to resolve, and Docker has no conditional copy.
+# The directory is in the repository with a robots.txt in it, which is a file
+# this app wants anyway: a self-hosted instance is somebody's private business
+# system and has no business in a search index.
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
 USER nextjs
