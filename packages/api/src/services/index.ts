@@ -34,3 +34,4 @@ export * as tasks from "./tasks";
 export * as session from "./session";
 export { resolveSession, type ResolvedSession } from "./session";
 export { writePosting } from "./ledger";
+export * as labor from "./labor";

@@ -19,7 +19,8 @@ export type IconName =
   | "day" | "today" | "schedule" | "jobs" | "tasks"
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
-  | "dashboards" | "reports" | "automations" | "settings" | "inventory";
+  | "dashboards" | "reports" | "automations" | "settings" | "inventory"
+  | "timesheets";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // A sun. One technician's own day, and the only screen they open.
@@ -118,6 +119,14 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M2.4 9.6 12 4.2l9.6 5.4" />
       <rect x="7.4" y="12.6" width="4.2" height="4" rx="0.6" />
       <rect x="13.2" y="12.6" width="3.4" height="4" rx="0.6" />
+    </>
+  ),
+  // A clock. Deliberately not the calendar the schedule uses and not the sun
+  // the day uses: this screen is about how LONG, which neither of those says.
+  timesheets: (
+    <>
+      <circle cx="12" cy="12" r="8.6" />
+      <path d="M12 7.2V12l3.2 2.1" />
     </>
   ),
   automations: <path d="M13.4 2.6 5.2 13.2h5.4l-.9 8.2 8.2-10.6h-5.4l.9-8.2Z" />,

@@ -281,6 +281,20 @@ export const technician = pgTable("technician", {
   skills: jsonb("skills").$type<string[]>().notNull().default([]),
   licenses: jsonb("licenses").$type<Array<{ type: string; number: string; expiresOn: string }>>().notNull().default([]),
   homeLocationId: uuid("home_location_id").references(() => location.id, { onDelete: "set null" }),
+  /**
+   * The wage classification this person is normally paid at.
+   *
+   * It is a name rather than a foreign key to `wage_scale`, because a scale
+   * is dated: the classification "Journeyman Electrician" outlives the row
+   * that says what a journeyman earned in 2025. The entry resolves the row
+   * that was in effect on the day it was worked.
+   *
+   * `timeclock_entry.classification` was already captured at the punch, with
+   * a comment about not reconstructing it six weeks later. Nothing supplied
+   * it, because the phone had nowhere to read it from, so it was always null
+   * and the reconstruction it exists to avoid was the only option available.
+   */
+  wageClassification: text("wage_classification"),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({ orgIdx: index("technician_org_idx").on(t.organizationId) }));

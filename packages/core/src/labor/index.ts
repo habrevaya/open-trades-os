@@ -86,6 +86,7 @@ function elapsedSeconds(from: Date, to: Date): number {
 
 export const TIME_ENTRY_KINDS = [
   "travel", "on_site", "shop", "unpaid_break", "paid_break", "on_call",
+  "training", "pto", "holiday",
 ] as const;
 export type TimeEntryKind = (typeof TIME_ENTRY_KINDS)[number];
 
@@ -159,6 +160,53 @@ export const TIME_ENTRY_KIND: Record<TimeEntryKind, TimeEntryKindProfile> = {
     countsTowardOvertime: false,
     contested:
       "Whether waiting is working. It turns on how constrained the person actually is, and it is the question in this file with the widest spread of correct answers, so the policy has to declare a treatment and this module will not guess.",
+  },
+
+  /**
+   * THE THREE BELOW ARE PAID AND ARE NOT HOURS WORKED, which is the whole
+   * reason they are separate kinds rather than absences kept somewhere else.
+   *
+   * They were added because the database enum had them and this list did
+   * not. A row whose kind was `pto` reached `TIME_ENTRY_KIND[kind].paid`,
+   * found undefined, and threw out of a timesheet. The two vocabularies had
+   * drifted, which is the same failure this repository already carries a
+   * `vocabulary.test.ts` for on party roles, and there is now one here too.
+   */
+  training: {
+    label: "Training",
+    meaning: "A class, a certification day, a manufacturer course.",
+    paid: true,
+    /**
+     * Counting, unlike the two below. Training is generally hours worked when
+     * the employer requires it, which is the case a field service company is
+     * almost always in, and the operator can override it per kind if theirs
+     * is the voluntary sort.
+     */
+    countsTowardOvertime: true,
+    contested:
+      "Voluntary training outside working hours, with no job duties performed, is the one shape that is usually not hours worked. Whether a given course is voluntary is a question about the employer's own communications, not about a timesheet.",
+  },
+  pto: {
+    label: "Paid time off",
+    meaning: "Vacation or sick leave taken, paid, and not worked.",
+    paid: true,
+    /**
+     * NOT counted. Paying eight hours of holiday and then paying a premium on
+     * Friday because the week crossed forty is a real overpayment, and the
+     * federal rule is explicit that hours not worked do not count toward the
+     * threshold. An operator whose agreement says otherwise overrides it.
+     */
+    countsTowardOvertime: false,
+    contested:
+      "A union agreement or a company policy can be more generous than the statute and count it. That is a choice somebody makes, not a default anybody should inherit.",
+  },
+  holiday: {
+    label: "Holiday",
+    meaning: "A company holiday, paid, not worked.",
+    paid: true,
+    countsTowardOvertime: false,
+    contested:
+      "Holiday premium pay, where a company pays extra for working ON a holiday, is a different thing from this and belongs on the day actually worked.",
   },
 };
 

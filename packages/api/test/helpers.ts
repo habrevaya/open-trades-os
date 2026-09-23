@@ -32,7 +32,7 @@ const ORDER = [
   "customer_property", "contact", "property", "customer",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
-  "timeclock_entry", "wage_scale",
+  "timeclock_entry", "overtime_policy", "wage_scale",
   "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
   // Automation. A step run points at a run, a run at a version, a version at

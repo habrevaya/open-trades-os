@@ -169,6 +169,20 @@
       "when": 1790169393618,
       "tag": "0023_superb_switch",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790176608344,
+      "tag": "0024_woozy_famine",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790176754940,
+      "tag": "0025_high_silk_fever",
+      "breakpoints": true
     }
   ]
 }

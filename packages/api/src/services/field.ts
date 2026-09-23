@@ -6,6 +6,7 @@ import {
   type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
 import { audit } from "./customers";
+import { freezeRate } from "./labor";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
 } from "../contracts/field";
@@ -330,7 +331,12 @@ async function effect(
       await tx.insert(schema.timeclockEntry).values({
         organizationId: org,
         technicianId: op.payload["technicianId"] as string,
-        kind: (op.payload["kind"] as "job") ?? "job",
+        /**
+         * `on_site` rather than `job`, which is what the enum used to say.
+         * A punch with no kind is somebody at a property working, which is
+         * the only default here that cannot quietly reclassify paid time.
+         */
+        kind: (op.payload["kind"] as "on_site") ?? "on_site",
         jobId: (op.payload["jobId"] as string) ?? null,
         visitId: op.subjectId || null,
         startedAt: op.occurredAt,
@@ -375,6 +381,22 @@ async function effect(
         endLongitude: (op.payload["longitude"] as string) ?? null,
         updatedAt: new Date(),
       }).where(eq(schema.timeclockEntry.id, open.id));
+
+      /**
+       * WHAT THOSE HOURS COST, decided now and never again.
+       *
+       * The three applied rate columns sit under a comment reading "Frozen at
+       * close. The scale can change; this entry's cost must not", and nothing
+       * wrote them. Every entry cost null, so labour contributed nothing to
+       * job costing and a contractor reading a margin was reading a number
+       * with its largest expense missing.
+       *
+       * Here rather than at report time because a rate looked up later
+       * changes retroactively when somebody edits a wage scale, and last
+       * quarter's costing moving after the quarter closed is how a number
+       * stops being something anybody can stand behind.
+       */
+      await freezeRate(tx, org, open.id);
       return;
     }
 
