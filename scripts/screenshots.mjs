@@ -109,6 +109,7 @@ const SHOTS = [
     a screen that cannot show that is a screen tracking one number.
   */
   { name: "inventory", path: "/inventory", token: OWNER, ...DESK, height: 1100 },
+  { name: "timesheets", path: "/timesheets", token: OWNER, ...DESK, height: 900 },
   /**
    * Settings as the owner, because it is the screen that shows the state of
    * the things a reader is most likely to disbelieve: whether a number is

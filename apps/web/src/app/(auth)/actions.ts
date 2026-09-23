@@ -6,6 +6,17 @@ import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { hashPassword, verifyPassword, issueToken, SESSION_COOKIE, SESSION_TTL_DAYS, sessionCookieOptions } from "@/lib/session";
+
+/**
+ * Five wrong passwords, then fifteen minutes.
+ *
+ * Low enough to make an online guessing attack pointless, high enough that a
+ * person working through their password manager does not lock themselves out.
+ * The window restarts on every further attempt, so somebody hammering the
+ * form keeps extending their own lock rather than waiting it out.
+ */
+const MAX_ATTEMPTS = 5;
+const LOCK_MINUTES = 15;
 import { getDb } from "@/lib/db";
 
 export type ActionState = { error?: string; fields?: Record<string, string> };
@@ -116,10 +127,45 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
     ? await verifyPassword(password, row.passwordHash)
     : await verifyPassword(password, "scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA");
 
-  if (!row || !ok) return { error: "That email and password do not match" };
+  if (!row || !ok) {
+    /**
+     * THE LOCKOUT IS NOW RECORDED, AND IT WAS NOT.
+     *
+     * `failed_attempts` and `locked_until` were columns nothing ever wrote.
+     * `credential_for_login` returned `locked_until` specifically so the
+     * branch below could refuse on it, and it was always null, so the branch
+     * was dead and the message asserted a control that did not exist. There
+     * was no brute force protection on this form at all, and the code read as
+     * though there were, which is the most expensive way to be wrong about a
+     * security property: a reviewer ticks it off.
+     *
+     * Counted for an unknown email too, harmlessly: the function matches on
+     * the address and updates nothing when there is no such user, so it adds
+     * no behavioural difference between a real address and a made up one.
+     */
+    await db.execute(
+      sql`select app.record_failed_login(${email}, ${MAX_ATTEMPTS}, ${LOCK_MINUTES})`,
+    );
+    return { error: "That email and password do not match" };
+  }
+
+  /**
+   * Checked AFTER the password, deliberately, and the order is the privacy
+   * property rather than an oversight.
+   *
+   * Somebody guessing passwords gets the same generic message whether or not
+   * the account is locked, so the form never becomes an oracle for which
+   * addresses exist or which are under attack. Only a caller who has proved
+   * they know the password is told why they are still refused, which is the
+   * person who needs to know.
+   */
   if (row.lockedUntil && row.lockedUntil > new Date()) {
     return { error: "This account is temporarily locked. Try again shortly." };
   }
+
+  // Correct password, not locked. A person who mistyped twice and then got it
+  // right must not carry those attempts toward a lock next week.
+  await db.execute(sql`select app.clear_failed_logins(${row.userId}::uuid)`);
 
   const memberships = await db
     .select({ organizationId: schema.membership.organizationId })

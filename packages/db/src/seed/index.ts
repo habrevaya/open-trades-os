@@ -145,9 +145,9 @@ function at(hoursFromAnchor: number, dayOffset = 0): Date {
 }
 
 const TECHNICIANS = [
-  { key: "ray", name: "Ray Ortiz", email: "ray@ridgeline.example", color: "#1D4ED8", skills: ["hvac", "refrigerant"] },
-  { key: "nia", name: "Nia Osei", email: "nia@ridgeline.example", color: "#047857", skills: ["hvac", "electrical"] },
-  { key: "sam", name: "Sam Reyes", email: "sam@ridgeline.example", color: "#B45309", skills: ["hvac"] },
+  { key: "ray", name: "Ray Ortiz", email: "ray@ridgeline.example", color: "#1D4ED8", skills: ["hvac", "refrigerant"], classification: "Journeyman" },
+  { key: "nia", name: "Nia Osei", email: "nia@ridgeline.example", color: "#047857", skills: ["hvac", "electrical"], classification: "Journeyman" },
+  { key: "sam", name: "Sam Reyes", email: "sam@ridgeline.example", color: "#B45309", skills: ["hvac"], classification: "Apprentice" },
 ];
 
 const CUSTOMERS = [
@@ -269,6 +269,7 @@ async function main(): Promise<void> {
     await savedReporting(sql);
     await brand(sql);
     await stock(sql, jobTypes);
+    await payroll(sql, technicians);
     const links = await portalLinks(sql, customers);
     const owner = await session(sql, "owner");
     const tech = await session(sql, "ray");
@@ -343,9 +344,9 @@ async function people(sql: postgres.Sql): Promise<Map<string, string>> {
               values (${userId}, ${tech.email}, ${tech.name}, now())`;
     await sql`insert into public.membership (id, organization_id, user_id, role)
               values (${membershipId}, ${ORG}, ${userId}, 'technician')`;
-    await sql`insert into public.technician (id, organization_id, membership_id, display_name, color, skills, home_location_id)
+    await sql`insert into public.technician (id, organization_id, membership_id, display_name, color, skills, home_location_id, wage_classification)
               values (${technicianId}, ${ORG}, ${membershipId}, ${tech.name}, ${tech.color},
-                      ${JSON.stringify(tech.skills)}, ${id("loc")})`;
+                      ${JSON.stringify(tech.skills)}, ${id("loc")}, ${tech.classification})`;
     byKey.set(tech.key, technicianId);
   }
   return byKey;
@@ -1351,3 +1352,79 @@ main().catch((error: unknown) => {
   console.error(error);
   process.exit(1);
 });
+
+/**
+ * A WEEK OF HOURS, AND WHAT THEY COST
+ *
+ * Seeded so the timesheets screen shows the three things it exists to show:
+ * a week that crossed forty and earned a premium, a week that did not, and a
+ * person whose hours are real and whose cost is blank because nobody loaded a
+ * scale for their classification.
+ *
+ * That last one is deliberate rather than an omission in the fixture. An
+ * unpriced row is the state a real company is in for weeks after they start,
+ * and a demo where every number is filled in teaches nobody what a blank
+ * means.
+ */
+async function payroll(sql: postgres.Sql, technicians: Map<string, string>): Promise<void> {
+  await sql`insert into public.overtime_policy
+    (id, organization_id, label, time_zone, week_starts_on, day_attribution,
+     weekly_threshold_minutes, overtime_multiplier, double_time_multiplier,
+     on_call_treatment, note)
+    values (${id("otp")}, ${ORG}, 'Federal, forty hour week', 'America/Chicago', 1,
+            'shift_start', 2400, '1.5', '2', 'separate_rate_not_hours_worked',
+            'Anything over forty in a week is time and a half. No daily overtime. Carrying the phone is paid at the on call rate and is not hours worked.')`;
+
+  /**
+   * One scale, for journeymen only. The apprentice classification has none,
+   * which is what leaves Sam's row unpriced on the screen.
+   */
+  await sql`insert into public.wage_scale
+    (id, organization_id, authority, classification, base_rate, fringe_rate)
+    values (${id("scale:journeyman")}, ${ORG}, 'employee_default', 'Journeyman',
+            42.5000, 6.2500)`;
+
+  /**
+   * The Monday of last full week, in the company's zone. Relative rather than
+   * fixed, so the screen has hours on it whenever somebody seeds.
+   */
+  const now = new Date();
+  const day = now.getUTCDay();
+  const monday = new Date(now);
+  monday.setUTCDate(now.getUTCDate() - ((day + 6) % 7) - 7);
+  monday.setUTCHours(0, 0, 0, 0);
+
+  const punch = async (
+    techKey: string, dayOffset: number, startHour: number, hours: number,
+    rate: { base: string; fringe: string } | null,
+  ) => {
+    const started = new Date(monday);
+    started.setUTCDate(monday.getUTCDate() + dayOffset);
+    // 07:00 in Austin is 13:00 UTC for most of the year, and the exact offset
+    // does not matter for a fixture whose point is the number of hours.
+    started.setUTCHours(startHour + 6, 0, 0, 0);
+    const ended = new Date(started.getTime() + hours * 3600_000);
+
+    await sql`insert into public.timeclock_entry
+      (organization_id, technician_id, kind, started_at, ended_at, minutes,
+       classification, wage_scale_id, applied_base_rate, applied_fringe_rate,
+       applied_loaded_rate)
+      values (${ORG}, ${technicians.get(techKey)!}, 'on_site', ${started}, ${ended},
+              ${Math.round(hours * 60)},
+              ${techKey === "sam" ? "Apprentice" : "Journeyman"},
+              ${rate ? id("scale:journeyman") : null},
+              ${rate?.base ?? null}, ${rate?.fringe ?? null},
+              ${rate ? "48.7500" : null})`;
+  };
+
+  const journeyman = { base: "42.5000", fringe: "6.2500" };
+
+  // Ray: five nines. Forty-five hours, so five of them earn the premium.
+  for (const d of [0, 1, 2, 3, 4]) await punch("ray", d, 7, 9, journeyman);
+
+  // Nia: a normal week, under the threshold and earning no premium.
+  for (const d of [0, 1, 2, 3, 4]) await punch("nia", d, 8, 7.5, journeyman);
+
+  // Sam: real hours, and no scale for an apprentice, so the cost is blank.
+  for (const d of [0, 1, 2]) await punch("sam", d, 8, 8, null);
+}

@@ -225,6 +225,62 @@ create or replace function app.credential_for_login(p_email text)
 
 revoke all on function app.credential_for_login(text) from public;
 
+-- ---- Brute force lockout -------------------------------------------------
+-- These two functions exist because the lockout did not.
+--
+-- `credential.failed_attempts` and `credential.locked_until` were columns
+-- nothing ever wrote, and `credential_for_login` went out of its way to
+-- return `locked_until` so that sign-in could refuse on it. `locked_until`
+-- was always null, so the refusal was dead code, and the error message
+-- "This account is temporarily locked. Try again shortly." asserted a control
+-- that did not exist. That is the most expensive shape a defect can take
+-- here: a security property a reviewer reads the code and ticks off.
+--
+-- SECURITY DEFINER for the same reason the read is: the credential table is
+-- not tenant scoped and the request path must never connect as a role that
+-- can write it directly.
+create or replace function app.record_failed_login(
+  p_email text, p_max_attempts integer, p_lock_minutes integer
+) returns void
+  language sql
+  volatile
+  security definer
+  set search_path = public, pg_temp
+  as $$
+    update public.credential c
+       set failed_attempts = c.failed_attempts + 1,
+           -- Locked only once the threshold is CROSSED, and the window is
+           -- measured from this attempt. An attacker who keeps going keeps
+           -- pushing their own lock out, which is the behaviour that makes a
+           -- lockout worth having.
+           locked_until = case
+             when c.failed_attempts + 1 >= p_max_attempts
+               then now() + make_interval(mins => p_lock_minutes)
+             else c.locked_until
+           end,
+           updated_at = now()
+      from public."user" u
+     where c.user_id = u.id
+       and lower(u.email) = lower(p_email)
+  $$;
+
+-- Cleared on a successful sign in, so a person who mistypes twice and then
+-- gets it right does not carry two attempts toward a lock a week later.
+create or replace function app.clear_failed_logins(p_user_id uuid)
+  returns void
+  language sql
+  volatile
+  security definer
+  set search_path = public, pg_temp
+  as $$
+    update public.credential
+       set failed_attempts = 0, locked_until = null, updated_at = now()
+     where user_id = p_user_id and (failed_attempts <> 0 or locked_until is not null)
+  $$;
+
+revoke all on function app.record_failed_login(text, integer, integer) from public;
+revoke all on function app.clear_failed_logins(uuid) from public;
+
 -- ---- Resolving a session -------------------------------------------------
 -- A chicken and egg problem, and the reason this function exists rather than
 -- a direct select.
@@ -540,6 +596,8 @@ grant execute on function app.peek_portal_grant(text) to authenticated;
 grant execute on function app.revoke_portal_grant(text) to authenticated;
 grant execute on function app.revoke_session(text) to authenticated;
 grant execute on function app.credential_for_login(text) to authenticated;
+grant execute on function app.record_failed_login(text, integer, integer) to authenticated;
+grant execute on function app.clear_failed_logins(uuid) to authenticated;
 
 -- -------------------------------------------------------------------------
 -- RESOLVING A CARRIER WEBHOOK
