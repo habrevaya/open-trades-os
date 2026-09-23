@@ -180,3 +180,32 @@ export const invoiceScopeFilter = (scope: Scope, actor: ScopeContext): SQL | und
 
 export const estimateScopeFilter = (scope: Scope, actor: ScopeContext): SQL | undefined =>
   documentFilter(scope, actor, sql`${schema.estimate.jobId}`);
+
+/**
+ * WHICH CONVERSATIONS
+ *
+ * A conversation reaches a restricted actor two ways, and both have to hold
+ * or a technician reads the company's inbox: the thread is attached to a job
+ * they can see, or it belongs to a customer they have been sent to.
+ *
+ * A thread attached to NEITHER is invisible at a restricted scope. An inbound
+ * text from a number matching no customer is a lead, and a lead is the office's
+ * to answer: a technician has no work it relates to, so there is nothing for
+ * them to do with it and no reason for them to read it.
+ */
+export function conversationScopeFilter(scope: Scope, actor: ScopeContext): SQL | undefined {
+  if (scope === "all") return undefined;
+
+  const byJob = jobVisibility(scope, actor, sql`${schema.conversation.jobId}`);
+  if (byJob === undefined) return undefined;
+
+  return sql`(
+    (${schema.conversation.jobId} is not null and ${byJob})
+    or exists (
+      select 1 from public.job cj
+      where cj.customer_id = ${schema.conversation.customerId}
+        and cj.deleted_at is null
+        and ${jobVisibility(scope, actor, sql`cj.id`) ?? sql`true`}
+    )
+  )`;
+}

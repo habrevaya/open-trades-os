@@ -2,7 +2,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { resolveSession, type ResolvedSession } from "@opentradesos/api/services";
-import { createClient } from "@opentradesos/db";
+import { getDb } from "./db";
 import { SESSION_COOKIE, hashToken } from "./session";
 
 /**
@@ -44,7 +44,17 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 export async function sessionFromCookie(): Promise<CurrentUser | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  return resolveSession(createClient(), hashToken(token));
+  /**
+   * The shared pool, not a new one.
+   *
+   * `createClient` opens ten connections every time it is called, and this
+   * runs on every authenticated request: the first version called it here
+   * and Postgres started refusing with "sorry, too many clients already"
+   * from pages that had nothing to do with connections. That is the exact
+   * failure lib/db.ts exists to prevent, and it was reintroduced two lines
+   * from the comment explaining it.
+   */
+  return resolveSession(getDb(), hashToken(token));
 }
 
 /** For a page that must not render to a signed out visitor. */

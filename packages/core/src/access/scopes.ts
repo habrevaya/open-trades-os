@@ -28,7 +28,15 @@ export const widest = (a: Scope, b: Scope): Scope =>
   ORDER.indexOf(a) >= ORDER.indexOf(b) ? a : b;
 
 /** Resources that are meaningfully scopable. Everything else is all-or-nothing. */
-export type ScopedResource = "job" | "visit" | "customer" | "estimate" | "invoice" | "timesheet" | "servicereport";
+export type ScopedResource =
+  | "job" | "visit" | "customer" | "estimate" | "invoice" | "timesheet" | "servicereport"
+  /**
+   * A conversation is not a property of a customer record: it contains what
+   * somebody said, which is a different and more sensitive thing than their
+   * address. A technician holds `message:read` because they text from the
+   * field, and without this that permission was the whole company's inbox.
+   */
+  | "conversation";
 
 export const DEFAULT_SCOPES: Record<RoleId, Partial<Record<ScopedResource, Scope>>> = {
   owner: {},
@@ -44,10 +52,12 @@ export const DEFAULT_SCOPES: Record<RoleId, Partial<Record<ScopedResource, Scope
   technician: {
     job: "own", visit: "own", customer: "own",
     estimate: "own", invoice: "own", timesheet: "own", servicereport: "own",
+    conversation: "own",
   },
   crew_lead: {
     job: "crew", visit: "crew", customer: "crew",
     estimate: "crew", invoice: "crew", timesheet: "crew", servicereport: "crew",
+    conversation: "crew",
   },
   accountant: {},
   readonly: {},

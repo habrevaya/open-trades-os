@@ -4,8 +4,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
-import { createClient, schema } from "@opentradesos/db";
+import { schema } from "@opentradesos/db";
 import { hashPassword, verifyPassword, issueToken, SESSION_COOKIE, SESSION_TTL_DAYS, sessionCookieOptions } from "@/lib/session";
+import { getDb } from "@/lib/db";
 
 export type ActionState = { error?: string; fields?: Record<string, string> };
 
@@ -30,7 +31,7 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
     return { fields };
   }
   const { name, email, password, companyName } = parsed.data;
-  const db = createClient();
+  const db = getDb();
 
   const existing = await db.select({ id: schema.user.id }).from(schema.user)
     .where(eq(schema.user.email, email.toLowerCase())).limit(1);
@@ -91,7 +92,7 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
   if (!parsed.success) return { error: "Enter your email and password" };
 
   const { email, password } = parsed.data;
-  const db = createClient();
+  const db = getDb();
 
   /**
    * The hash is fetched through app.credential_for_login, not selected. The
@@ -142,7 +143,7 @@ export async function signOut(): Promise<void> {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) {
     const { hashToken } = await import("@/lib/session");
-    const db = createClient();
+    const db = getDb();
     // Revoke rather than delete, so the audit trail keeps the session.
     await db.execute(sql`select app.revoke_session(${hashToken(token)})`);
   }

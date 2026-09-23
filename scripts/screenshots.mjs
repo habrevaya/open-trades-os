@@ -101,10 +101,37 @@ const SHOTS = [
    * cleared to send, whether an automation is on, and who holds which role.
    */
   { name: "settings", path: "/settings", token: OWNER, ...DESK, height: 900 },
+  /**
+   * The inbox, and one thread inside it. Two shots because the list answers
+   * "which of these needs me" and the thread answers "and what do I say",
+   * which are different screens doing different jobs.
+   */
+  { name: "inbox", path: "/inbox", token: OWNER, ...DESK, height: 380 },
+  {
+    name: "inbox-thread", path: "/inbox", token: OWNER, ...DESK, height: 640,
+    click: "ul li:first-child a",
+    // The click opens a thread, whose id comes from the seed. A prefix, so a
+    // redirect to sign in still fails the capture.
+    lands: "/inbox/",
+  },
 ];
 
-/** The dev overlay is not part of the product. */
-const HIDE_DEV = `nextjs-portal, #__next-build-watcher, [data-nextjs-toast] { display: none !important; }`;
+/**
+ * The dev overlay is not part of the product.
+ *
+ * The selector list grows with the framework: Next renamed the badge and the
+ * old rule stopped matching, so a small dark circle sat in the corner of
+ * every capture until somebody looked at one. Anything whose name starts
+ * `nextjs-` is the toolchain rather than the application.
+ */
+const HIDE_DEV = `
+  nextjs-portal,
+  [id^="__next"],
+  [data-nextjs-toast],
+  [data-nextjs-dev-tools-button],
+  [data-next-badge-root],
+  [class*="dev-tools-indicator"] { display: none !important; }
+`;
 
 mkdirSync(values.out, { recursive: true });
 
@@ -147,11 +174,17 @@ for (const shot of SHOTS) {
    * Checking only the status captured a screenshot of a login form and called
    * it the dispatch board. So the final URL has to be the one that was asked
    * for: a redirect anywhere is a failed capture.
+   *
+   * A shot whose click is MEANT to navigate says where to, as a prefix, and
+   * the check holds against that instead. Loosening it to "any URL is fine
+   * once you clicked" would have given the guard away on exactly the shots
+   * that click into a detail screen, which is where a stale link or a
+   * redirect to sign in is most likely.
    */
   const status = response?.status() ?? 0;
   const landed = new URL(page.url()).pathname;
-  const wanted = new URL(shot.path, values.base).pathname;
-  const redirected = landed !== wanted;
+  const wanted = shot.lands ?? new URL(shot.path, values.base).pathname;
+  const redirected = shot.lands ? !landed.startsWith(shot.lands) : landed !== wanted;
   const ok = status === 200 && errors.length === 0 && !redirected;
 
   if (!ok) failed += 1;

@@ -2,11 +2,12 @@
 
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { createClient, schema } from "@opentradesos/db";
+import { schema } from "@opentradesos/db";
 import { requireUser } from "@/lib/auth";
 import { assertCan } from "@opentradesos/core";
 import { tradePacks } from "@opentradesos/api/services";
 import { packById } from "@opentradesos/trade-packs";
+import { getDb } from "@/lib/db";
 
 /**
  * Marking setup complete is deliberately allowed with steps outstanding.
@@ -19,7 +20,7 @@ export async function completeSetup(): Promise<void> {
   const user = await requireUser();
   assertCan(user.actor, "settings:write");
 
-  const db = createClient();
+  const db = getDb();
   await db
     .update(schema.organization)
     .set({ setupCompletedAt: new Date(), updatedAt: new Date() })
@@ -44,7 +45,7 @@ export async function chooseTrade(formData: FormData): Promise<void> {
   const packId = String(formData.get("packId") ?? "");
   if (!packById(packId)) redirect("/setup/trade?error=unknown-trade");
 
-  await tradePacks.applyTradePack({ actor: user.actor, db: createClient() }, packId);
+  await tradePacks.applyTradePack({ actor: user.actor, db: getDb() }, packId);
 
   redirect("/setup?applied=" + encodeURIComponent(packId));
 }

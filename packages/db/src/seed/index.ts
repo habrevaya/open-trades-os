@@ -524,6 +524,46 @@ async function communications(
   await sql`update public.workflow set active_version_id = ${versionId} where id = ${workflowId}`;
 
   /**
+   * A conversation with an unanswered reply in it.
+   *
+   * The inbox exists to answer one question, "which of these is waiting on
+   * us", and a seeded inbox with nothing waiting cannot show that it answers
+   * it. This one has a reminder that went out, a reply that came back, and
+   * nobody has responded.
+   */
+  const talking = customers.get("okafor");
+  if (talking) {
+    const conversationId = id("conv:okafor");
+    await sql`
+      insert into public.conversation
+        (id, organization_id, channel, external_address, phone_number_id, customer_id,
+         status, last_message_at, last_message_preview)
+      values (${conversationId}, ${ORG}, 'sms', '+15125550177', ${id("number:main")},
+              ${talking.customer}, 'open', ${new Date(now().getTime() - 21 * 60_000)},
+              'Any chance you could make it before noon?')
+    `;
+    const messages = [
+      { dir: "outbound", mins: 95, body: "Ridgeline Mechanical: Ray is scheduled for your no cooling call today between 1pm and 3pm. Reply to this message with any questions.", status: "delivered" },
+      { dir: "inbound", mins: 21, body: "Any chance you could make it before noon?", status: "received" },
+    ];
+    let seq = 0;
+    for (const m of messages) {
+      const at = new Date(now().getTime() - m.mins * 60_000);
+      await sql`
+        insert into public.message
+          (id, organization_id, conversation_id, direction, channel, purpose,
+           from_address, to_address, body, status, sent_at, created_at)
+        values (${id(`msg:okafor:${seq}`)}, ${ORG}, ${conversationId}, ${m.dir}::comm_direction,
+                'sms', 'transactional',
+                ${m.dir === "outbound" ? "+15125550143" : "+15125550177"},
+                ${m.dir === "outbound" ? "+15125550177" : "+15125550143"},
+                ${m.body}, ${m.status}::message_status, ${at}, ${at})
+      `;
+      seq += 1;
+    }
+  }
+
+  /**
    * One customer who has consented and one who has not, because "it sends to
    * everybody" is the assumption this model exists to break. The decision is
    * made at send time against these rows, not when the workflow was written.
