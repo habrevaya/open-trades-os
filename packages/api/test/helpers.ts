@@ -38,7 +38,10 @@ const ORDER = [
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.
   // Tasks before runs: a task points at the run that raised it.
-  "report",
+  // A dashboard's tiles point at reports by id inside jsonb, which no foreign
+  // key enforces, so the order here is for the reader rather than for the
+  // database: the thing pointing goes before the thing pointed at.
+  "dashboard", "report",
   "task",
   "workflow_step_run", "workflow_run", "workflow_schedule", "workflow_version", "workflow",
   "event_cursor", "domain_event",

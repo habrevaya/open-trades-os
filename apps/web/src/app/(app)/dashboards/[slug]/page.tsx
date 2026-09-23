@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { dashboards, NotFoundError } from "@opentradesos/api/services";
-import { DashboardTile } from "@/components/DashboardTile";
+import { DashboardTile, tileSpan } from "@/components/DashboardTile";
 import { PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +59,11 @@ export default async function DashboardPage({ params }: { params: Promise<{ slug
         nothing under it reads as a tile that failed to load the rest.
       */}
       <div className="mt-5 grid grid-cols-12 items-start gap-4">
-        {tiles.map((tile) => <DashboardTile key={tile.key} tile={tile} />)}
+        {tiles.map((tile) => (
+          <div key={tile.key} className={`col-span-12 ${tileSpan(tile.width)}`}>
+            <DashboardTile tile={tile} />
+          </div>
+        ))}
       </div>
     </div>
   );

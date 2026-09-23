@@ -159,6 +159,16 @@ const SHOTS = [
    * the same resolver, so a dashboard cannot disagree with the report behind
    * it about what a number means.
    */
+  /*
+    The one the demo company assembled, first. It is the screen the feature
+    is for: the two that ship are what you learn from.
+  */
+  {
+    name: "dashboard", path: "/dashboards", token: OWNER, ...DESK, height: 1100,
+    click: 'main a[href^="/dashboards/saved/"]',
+    lands: "/dashboards/saved/",
+  },
+  { name: "dashboards", path: "/dashboards", token: OWNER, ...DESK, height: 700 },
   { name: "dashboard-operations", path: "/dashboards/operations", token: OWNER, ...DESK, height: 1000 },
   { name: "dashboard-money", path: "/dashboards/money", token: OWNER, ...DESK, height: 1000 },
   /*

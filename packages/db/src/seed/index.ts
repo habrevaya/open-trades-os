@@ -266,6 +266,7 @@ async function main(): Promise<void> {
      * never gets looked at, which is how it acquires a five hundred that
      * nobody notices.
      */
+    await savedReporting(sql);
     const links = await portalLinks(sql, customers);
     const owner = await session(sql, "owner");
     const tech = await session(sql, "ray");
@@ -1149,6 +1150,71 @@ function report(tokens: { owner: string; tech: string }, links: { estimate: stri
   line("proposal", `/e/${links.estimate}`);
   line("job tracking", `/j/${links.job}`);
   console.log("");
+}
+
+/**
+ * A SAVED REPORT AND A DASHBOARD BUILT FROM IT
+ *
+ * Without these, both screens open on an empty state and the feature reads
+ * as unfinished rather than as unused. The dashboard is the one a contractor
+ * would actually assemble: the two numbers an owner checks before the week
+ * starts, and the two lists they act on.
+ *
+ * One tile points at the saved report and the rest at reports that ship,
+ * because that mix is the point. A tile is a pointer either way, so the
+ * dashboard shows the report's current definition rather than a copy taken
+ * the day it was added.
+ */
+async function savedReporting(sql: postgres.Sql): Promise<void> {
+  /**
+   * TWO SAVED REPORTS, BECAUSE A TILE'S SHAPE HAS TO MATCH ITS REPORT.
+   *
+   * A number tile needs a report with no grouping, and every report that
+   * ships is grouped by something, so the headline needs one of its own.
+   * The first version of this seed pointed a number tile at the receivables
+   * report and the dashboard rendered it as a broken tile, correctly: the
+   * API refuses that pairing, and the seed writes SQL directly so nothing
+   * stopped it. Worth saying out loud, because a seed is the one place in
+   * this repository that can write a row the product would not accept.
+   */
+  const outstanding = id("report:outstanding");
+  await sql`
+    insert into public.report (id, organization_id, name, description, definition)
+    values (${outstanding}, ${ORG}, 'Outstanding right now',
+            'Every unpaid balance on the book, as one number.',
+            ${JSON.stringify({
+              dataset: "invoices",
+              dimensions: [],
+              measures: ["balance"],
+              filters: [{ dimension: "status", op: "neq", value: "paid" }],
+            })}::jsonb)
+  `;
+
+  const chase = id("report:unpaid-by-customer");
+  await sql`
+    insert into public.report (id, organization_id, name, description, definition)
+    values (${chase}, ${ORG}, 'Who to chase this week',
+            'Unpaid balances by customer, biggest first.',
+            ${JSON.stringify({
+              dataset: "invoices",
+              dimensions: ["customer"],
+              measures: ["balance", "count"],
+              filters: [{ dimension: "status", op: "neq", value: "paid" }],
+              orderBy: "balance",
+            })}::jsonb)
+  `;
+
+  await sql`
+    insert into public.dashboard (id, organization_id, name, description, tiles)
+    values (${id("dash:monday")}, ${ORG}, 'Monday morning',
+            'What the owner checks before the week starts.',
+            ${JSON.stringify([
+              { key: "outstanding", kind: "number", width: 3, reportId: outstanding, title: "Outstanding" },
+              { key: "chase", kind: "bars", width: 6, reportId: chase, title: "Who to chase" },
+              { key: "jobs-by-status", kind: "bars", width: 6, builtIn: "jobs-by-status" },
+              { key: "revenue", kind: "trend", width: 12, builtIn: "revenue-by-month" },
+            ])}::jsonb)
+  `;
 }
 
 /** "lawn-and-landscape" is a pack id, and a company is not called that. */

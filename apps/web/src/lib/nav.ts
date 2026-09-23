@@ -87,7 +87,13 @@ export const NAV: NavGroup[] = [
   {
     label: "Business",
     items: [
-      { href: "/dashboards", label: "Dashboards", permission: "report:read", icon: "dashboards" },
+      {
+        href: "/dashboards", label: "Dashboards", permission: "report:read", icon: "dashboards",
+        children: [
+          { href: "/dashboards", label: "All dashboards" },
+          { href: "/dashboards/new", label: "Build one" },
+        ],
+      },
       {
         href: "/reports", label: "Reports", permission: "report:read", icon: "reports",
         children: [

@@ -136,3 +136,41 @@ export const report = pgTable("report", {
   nameIdx: uniqueIndex("report_name_idx").on(t.organizationId, t.name)
     .where(sql`${t.deletedAt} is null`),
 }));
+
+/**
+ * A DASHBOARD SOMEBODY ASSEMBLED
+ *
+ * Tiles, and nothing else. A tile POINTS AT A REPORT rather than carrying a
+ * definition of its own: either a saved report by id, or one of the reports
+ * that ship with the product by slug. That is the property worth protecting.
+ * A tile holding its own copy of a definition is a tile that keeps showing
+ * last quarter's version of a number after somebody corrected the report,
+ * and the person reading it has no way to know which of the two is right.
+ *
+ * It also means this table stores no query and no definition, so the remote
+ * code execution argument above does not need making twice: the worst thing
+ * in here is a uuid pointing at a row that is itself validated.
+ *
+ * Layout only, deliberately: which report, what shape, how wide, in what
+ * order. There is no filter, no date range and no override, because every
+ * one of those is a way for the tile and the report to disagree.
+ */
+export const dashboard = pgTable("dashboard", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  /**
+   * `{ key, kind, width, reportId?, builtIn?, title?, caption? }[]`, in the
+   * order they are drawn. An array rather than rows in a child table because
+   * the order IS the data: reordering a dashboard is one write of the whole
+   * list, and a sort column on a child table is the thing that ends up with
+   * two tiles claiming position three.
+   */
+  tiles: jsonb("tiles").$type<Record<string, unknown>[]>().notNull().default([]),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  nameIdx: uniqueIndex("dashboard_name_idx").on(t.organizationId, t.name)
+    .where(sql`${t.deletedAt} is null`),
+}));

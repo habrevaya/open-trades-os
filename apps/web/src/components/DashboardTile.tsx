@@ -47,17 +47,21 @@ function Value({ type, value }: { type: string; value: string | number | null })
   return <span className="font-mono tabular-nums">{NUMBER.format(Number(value))}</span>;
 }
 
-const SPAN: Record<number, string> = {
-  3: "lg:col-span-3",
-  6: "lg:col-span-6",
-  12: "lg:col-span-12",
-};
+/**
+ * How many of the twelve columns a tile takes.
+ *
+ * Exported, because the saved dashboard wraps each tile in a column of its
+ * own to hang the reorder controls underneath it, and two copies of this map
+ * is how the two dashboards end up laid out differently.
+ */
+export function tileSpan(width: number): string {
+  return ({ 3: "lg:col-span-3", 6: "lg:col-span-6", 12: "lg:col-span-12" } as Record<number, string>)[width]
+    ?? "lg:col-span-6";
+}
 
 export function DashboardTile({ tile }: { tile: TileResult }) {
   return (
-    <section
-      className={`col-span-12 rounded-lg border border-steel-200 bg-canvas p-4 ${SPAN[tile.width] ?? "lg:col-span-6"}`}
-    >
+    <section className="h-full rounded-lg border border-steel-200 bg-canvas p-4">
       <h2 className="text-sm font-medium text-ink-700">{tile.title}</h2>
       {tile.caption && <p className="mt-0.5 text-xs text-ink-500">{tile.caption}</p>}
       <div className="mt-3">
