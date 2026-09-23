@@ -112,6 +112,12 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "campaign:read",
       "user:read", "user:invite",
       "settings:read",
+      /**
+       * Reading, not writing. The office manager is the person who gets
+       * asked why a customer received a text, and the run log is the only
+       * place that answers it.
+       */
+      "workflow:read",
       "job.cost:read", "pricebook.cost:read",
     ],
   },

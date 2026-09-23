@@ -63,6 +63,7 @@ export const NAV: NavGroup[] = [
     label: "Business",
     items: [
       { href: "/reports", label: "Reports", permission: "report:read" },
+      { href: "/automations", label: "Automations", permission: "workflow:read" },
       { href: "/settings", label: "Settings", permission: "settings:read" },
     ],
   },

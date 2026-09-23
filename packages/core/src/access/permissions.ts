@@ -144,6 +144,12 @@ export const PERMISSIONS = {
   "apikey:write": "Create and revoke API keys",
   "audit:read": "View the audit log",
   "customfield:write": "Define custom fields and objects",
+  /**
+   * Seeing what is automated is a different question from being able to
+   * change it. An owner asking "why did this customer get that text" needs
+   * the first; the answer to the second is a much smaller list of people.
+   */
+  "workflow:read": "See automations, their runs and why they did what they did",
   "workflow:write": "Create and edit automation workflows",
   "agent:configure": "Configure AI agents",
   "data:export": "Export all company data in bulk",

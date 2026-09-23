@@ -11,8 +11,14 @@
  * Usage:
  *
  *   TZ=America/Chicago pnpm db:seed
+ *   timeout 10 pnpm --filter @opentradesos/api worker
  *   TZ=America/Chicago pnpm --filter @opentradesos/web dev
  *   node scripts/screenshots.mjs --seed-output /tmp/seed.txt --out ./shots
+ *
+ * The worker pass is not optional if the automations screen is in the run.
+ * The seed writes the events a completed job produces and nothing else reads
+ * them, so without it the run log is empty and the screen shows two
+ * automations that have never done anything.
  *
  * The TZ matters and is not a detail. The seed builds the day around the
  * current hour and the app renders every time in the company's timezone, so
@@ -123,6 +129,21 @@ const SHOTS = [
     // product this screen is rather than cropping the section it belongs to.
     token: OWNER, ...DESK, height: 760,
   },
+  /**
+   * The automations screen, and one automation's run log.
+   *
+   * The log is the reason for the second shot. "Why did this customer get
+   * that text" is what somebody opens this screen to answer, and a list of
+   * workflow names answers it no better than not having the screen.
+   */
+  { name: "automations", path: "/automations", token: OWNER, ...DESK, height: 760 },
+  {
+    name: "automation-runs", path: "/automations", token: OWNER, ...DESK, height: 900,
+    // The second one, deliberately: it is the one that has actually run, and
+    // the run log is the whole reason for this capture.
+    click: "main ul li:nth-of-type(2) a",
+    lands: "/automations/",
+  },
   {
     name: "report-builder",
     path: "/reports/new?dataset=invoices&dimensions=month&measures=total,count,average",
@@ -190,6 +211,13 @@ for (const shot of SHOTS) {
   if (shot.click) {
     await page.click(shot.click).catch(() => errors.push(`could not click ${shot.click}`));
     await page.waitForTimeout(400);
+    /**
+     * Again, because the links in this app are plain anchors rather than
+     * router links, so a click is a full document load and the style tag
+     * went with the old document. One capture came back with the dev tools
+     * badge sitting over the sign out button.
+     */
+    await page.addStyleTag({ content: HIDE_DEV });
   }
   await page.waitForTimeout(700);
   await page.screenshot({ path: `${values.out}/${shot.name}.png` });

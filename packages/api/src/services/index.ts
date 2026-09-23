@@ -16,6 +16,7 @@ export * as workflowRunner from "./workflow-runner";
 export * as workflowSteps from "./workflow-steps";
 export * as workflowWorker from "./workflow-worker";
 export * as workflowSchedule from "./workflow-schedule";
+export * as workflows from "./workflows";
 export * as apps from "./apps";
 export * as comms from "./comms";
 export * as commsInbound from "./comms-inbound";

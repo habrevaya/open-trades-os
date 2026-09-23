@@ -436,6 +436,40 @@ async function work(
     `;
 
     /**
+     * THE EVENT THE COMPLETION WOULD HAVE WRITTEN.
+     *
+     * This file inserts rows rather than calling the services, which is the
+     * right trade for a seed and left one claim in it false: the comment on
+     * the automations below says the workflow path is exercised by the demo
+     * rather than only by its tests, and no event was ever written, so a
+     * worker running against the demo had nothing to drain and the thank you
+     * text nobody got was invisible.
+     *
+     * Same shape `jobs.update` emits. The sequence is per organization and
+     * allocated the same way, so a worker reads these exactly as it reads a
+     * real one.
+     */
+    if (completed) {
+      await sql`
+        insert into public.domain_event
+          (organization_id, sequence, name, entity_type, entity_id, payload, occurred_at)
+        values (
+          ${ORG},
+          (select coalesce(max(sequence), 0) + 1 from public.domain_event where organization_id = ${ORG}),
+          'job.completed', 'job', ${jobId},
+          ${sql.json({
+            job: {
+              id: jobId, number, status: "completed", summary: spec.summary,
+              customerId: link.customer, propertyId: link.property, total: spec.total,
+            },
+            previous: { status: "working" },
+          })},
+          ${spec.end}
+        )
+      `;
+    }
+
+    /**
      * The "on my way" notice, for the one visit that is actually en route.
      *
      * The tracking page counts down from this, so without it the customer
@@ -522,6 +556,43 @@ async function communications(
             ${sql.json(["message:send"])}, now())
   `;
   await sql`update public.workflow set active_version_id = ${versionId} where id = ${workflowId}`;
+
+  /**
+   * A second one on a clock, because the two trigger kinds are different
+   * shapes and a demo with only the first suggests the second does not
+   * exist.
+   *
+   * Nine in the morning on weekdays, and the schedule row is planted with it
+   * so the screen can say when it next runs without waiting for a worker to
+   * tick. The expression matches what the workflow holds, so a real tick
+   * leaves it alone rather than replanning.
+   */
+  const chaseId = id("wf:chase");
+  const chaseVersionId = id("wfv:chase");
+  await sql`
+    insert into public.workflow
+      (id, organization_id, name, description, enabled, trigger_kind, trigger_events, schedule)
+    values (${chaseId}, ${ORG}, 'Chase an estimate nobody answered',
+            'Raises a task every weekday morning for quotes that have gone quiet.',
+            true, 'schedule', ${sql.json([])}, '0 9 * * 1-5')
+  `;
+  await sql`
+    insert into public.workflow_version
+      (id, organization_id, workflow_id, version, conditions, steps, required_permissions, published_at)
+    values (${chaseVersionId}, ${ORG}, ${chaseId}, 1, ${sql.json({})},
+            ${sql.json([
+              { kind: "wait", config: { hours: 1 } },
+              { kind: "create_task", config: { title: "Follow up the quotes that have gone quiet", queue: "office", dueInHours: 8 } },
+            ])},
+            ${sql.json(["task:write"])}, now())
+  `;
+  await sql`update public.workflow set active_version_id = ${chaseVersionId} where id = ${chaseId}`;
+  await sql`
+    insert into public.workflow_schedule (organization_id, workflow_id, expression, next_run_at)
+    values (${ORG}, ${chaseId}, '0 9 * * 1-5',
+            (date_trunc('day', now() at time zone 'America/Chicago') + interval '1 day 9 hours')
+              at time zone 'America/Chicago')
+  `;
 
   /**
    * An office queue with the two shapes in it: something a person raised, and
