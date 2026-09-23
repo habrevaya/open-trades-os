@@ -50,6 +50,24 @@ export interface RequestMeta {
    * decide with.
    */
   connectedAppId?: string | undefined;
+  /**
+   * The `idempotency-key` header, on a route that has no session.
+   *
+   * It exists because `idempotent: true` was being declared on grant and
+   * public routes and silently ignored: the dispatcher read the header only
+   * inside the session branch, so three routes advertised a guarantee that no
+   * code path could provide. Two of them survived on domain state, which is
+   * luck rather than design. The third inserts a row, so a homeowner double
+   * tapping Book on a phone with one bar made two bookings and took two slots
+   * out of a window.
+   *
+   * A caller with no session chooses this value themselves, which means it is
+   * not trusted on its own. See how booking uses it: the key narrows a
+   * fingerprint of the submission rather than acting as a lookup key, because
+   * a guessable key that returns somebody else's booking would hand out their
+   * address.
+   */
+  idempotencyKey?: string | undefined;
 }
 
 export class NotFoundError extends Error {

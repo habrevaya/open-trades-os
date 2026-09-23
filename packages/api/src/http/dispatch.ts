@@ -181,6 +181,21 @@ export async function dispatch(request: Request, deps: DispatchDeps): Promise<Re
   const meta: RequestMeta = {
     ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
     userAgent: request.headers.get("user-agent") ?? undefined,
+    /**
+     * Carried for EVERY route, not only the ones with a session.
+     *
+     * This used to be read inside the session branch alone, so a grant or
+     * public route declaring `idempotent: true` got nothing: the flag was
+     * decorative on the estimate approval, the decline and the public
+     * booking. The first two happen to be safe because approving an already
+     * approved estimate returns the existing one. The booking inserts, so a
+     * double tap made two.
+     *
+     * The header is still never read from the body: a client that
+     * regenerates its body on retry would regenerate a key inside it, which
+     * is the one thing an idempotency key must not do.
+     */
+    idempotencyKey: request.headers.get("idempotency-key") ?? undefined,
   };
 
   /**
@@ -204,8 +219,7 @@ export async function dispatch(request: Request, deps: DispatchDeps): Promise<Re
        * A retry has to send the same key as the original, and a client that
        * regenerates its body on retry would regenerate a key inside it.
        */
-      const key = request.headers.get("idempotency-key");
-      if (route.idempotent && key) ctx.idempotencyKey = key;
+      if (route.idempotent && meta.idempotencyKey) ctx.idempotencyKey = meta.idempotencyKey;
 
       const result = await handler(ctx, parsed.data);
       return json(result, route.method === "post" ? 201 : 200);

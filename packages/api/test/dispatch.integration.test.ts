@@ -208,3 +208,68 @@ run("responses", () => {
     expect(await res.text()).not.toContain("secret");
   });
 });
+
+run("the idempotency key reaches a route with no session", () => {
+  /**
+   * The header was read inside the session branch only, so three routes
+   * declaring `idempotent: true` got nothing: the estimate approval, the
+   * decline, and the public booking. The first two happen to be safe because
+   * approving an already approved estimate returns the existing one. The
+   * booking inserts a row, so a homeowner double tapping Book on a phone with
+   * one bar made two requests and took two slots out of one window.
+   *
+   * Asserted THROUGH THE DISPATCHER rather than by calling the service, which
+   * is the whole point: the service tests pass `meta` by hand and would stay
+   * green with the dispatcher change reverted. This one goes red.
+   */
+  let serviceId = "";
+  let windowId = "";
+
+  beforeAll(async () => {
+    if (!url) return;
+    const [jt] = await raw<{ id: string }[]>`insert into public.job_type
+      (organization_id, name, capacity_model)
+      values (${ORG}, 'Tune up', 'technician_dispatch') returning id`;
+    const [svc] = await raw<{ id: string }[]>`insert into public.bookable_service
+      (organization_id, job_type_id, public_name, display_price, min_notice_hours,
+       max_advance_days, max_per_window)
+      values (${ORG}, ${jt!.id}, 'Seasonal tune up', 149.0000, 0, 30, 1) returning id`;
+    serviceId = svc!.id;
+    const [w] = await raw<{ id: string }[]>`insert into public.arrival_window
+      (organization_id, name, starts_at, ends_at, days_of_week)
+      values (${ORG}, '8am to 12pm', '08:00', '12:00', ${[0, 1, 2, 3, 4, 5, 6]}) returning id`;
+    windowId = w!.id;
+    for (let d = 0; d < 7; d++) {
+      await raw`insert into public.business_hours (organization_id, day_of_week, opens_at, closes_at)
+        values (${ORG}, ${d}, '07:00', '18:00')`;
+    }
+  });
+
+  it("makes one booking out of two identical posts carrying the same key", async () => {
+    const date = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
+    const body = {
+      organizationSlug: "dispatch-http", bookableServiceId: serviceId,
+      requestedDate: date, arrivalWindowId: windowId,
+      contactName: "Rae Sandoval", contactPhone: "5125550190",
+      addressLine1: "12 Rockrose", city: "Austin", state: "TX", postalCode: "78702",
+      intakeAnswers: {}, utm: {},
+    };
+
+    const post = () => dispatch(
+      request("POST", "/v1/public/bookings", body, { "idempotency-key": "one-tap" }),
+      deps(null),
+    );
+
+    const first = await post();
+    const second = await post();
+
+    expect(first.status).toBe(201);
+    // Not a 409. The second tap is the first tap, and telling the person who
+    // just booked that the time has gone is the worst available answer.
+    expect(second.status).toBe(201);
+
+    const rows = await raw`select id from public.booking_request
+      where organization_id = ${ORG} and requested_date = ${date}`;
+    expect(rows).toHaveLength(1);
+  });
+});

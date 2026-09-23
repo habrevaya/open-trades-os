@@ -457,18 +457,129 @@ run("booking from the website", () => {
   });
 
   it("refuses a second booking into a window that filled while the page was open", async () => {
+    /**
+     * TWO PEOPLE, and the fixture had to be changed to say so.
+     *
+     * This test used to send the IDENTICAL body twice and assert a refusal,
+     * which is not a full window at all: it is one person double tapping Book
+     * on a phone that showed them nothing. The test documented that as the
+     * intended behaviour, so the real defect had a green test sitting on top
+     * of it. A window genuinely filling needs a second household.
+     */
     const date = new Date(Date.now() + 6 * 864e5).toISOString().slice(0, 10);
+    const shared = {
+      organizationSlug: "acme-sell", bookableServiceId: serviceId,
+      requestedDate: date, arrivalWindowId: windowId,
+      city: "Austin", state: "TX", intakeAnswers: {}, utm: {},
+    };
+    await booking.createRequest(db(), {
+      ...shared,
+      contactName: "Sam Ortiz", contactPhone: "5125550111",
+      addressLine1: "9 Bluebonnet Ct", postalCode: "78704",
+    });
+
+    // Better a message the requester can act on than an overbooking someone
+    // finds on the dispatch board in the morning.
+    await expect(booking.createRequest(db(), {
+      ...shared,
+      contactName: "Alex Pryor", contactPhone: "5125550122",
+      addressLine1: "41 Cedar Bend", postalCode: "78745",
+    })).rejects.toThrow(ConflictError);
+  });
+
+  it("makes one booking out of a double tap, and does not spend the slot twice", async () => {
+    /**
+     * Day offsets in this file are hand picked and the windows hold one
+     * booking each, so a repeated offset means one test fills the window
+     * another test needs. Three of these landed on 9, 10 and 11, which were
+     * already taken, and three unrelated tests below started failing with
+     * "that time has just been taken". Check the offsets already used before
+     * adding one.
+     *
+
+     * A homeowner on a phone with one bar taps Book, sees nothing, and taps
+     * again. This inserted twice: two requests with the same name at the same
+     * address in the same window, both counted against `maxPerWindow`, so one
+     * person took the last two slots of a Tuesday morning and the next real
+     * customer was told the time had gone.
+     *
+     * The route declared `idempotent: true` for months. Nothing read it.
+     */
+    const date = new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10);
     const body = {
       organizationSlug: "acme-sell", bookableServiceId: serviceId,
       requestedDate: date, arrivalWindowId: windowId,
-      contactName: "Sam Ortiz", contactPhone: "5125550111",
-      addressLine1: "9 Bluebonnet Ct", city: "Austin", state: "TX", postalCode: "78704",
+      contactName: "Priya Raman", contactPhone: "5125550133",
+      addressLine1: "77 Ivy Fall", city: "Austin", state: "TX", postalCode: "78751",
       intakeAnswers: {}, utm: {},
     };
-    await booking.createRequest(db(), body);
-    // Better a message the requester can act on than an overbooking someone
-    // finds on the dispatch board in the morning.
-    await expect(booking.createRequest(db(), body)).rejects.toThrow(ConflictError);
+
+    const first = await booking.createRequest(db(), body);
+    const second = await booking.createRequest(db(), body);
+
+    // The same booking back, not a refusal and not a second row.
+    expect(second.request.id).toBe(first.request.id);
+
+    const rows = await raw`select id from public.booking_request
+      where organization_id = ${ORG_A} and requested_date = ${date}`;
+    expect(rows).toHaveLength(1);
+  });
+
+  it("treats a different household in the same window as a different booking", async () => {
+    /**
+     * The fingerprint must not be so coarse that two neighbours booking the
+     * same morning collapse into one. That failure is worse than the
+     * duplicate: a customer who booked would never hear from anybody.
+     */
+    const date = new Date(Date.now() + 16 * 864e5).toISOString().slice(0, 10);
+    const shared = {
+      organizationSlug: "acme-sell", bookableServiceId: serviceId,
+      requestedDate: date, arrivalWindowId: windowId,
+      city: "Austin", state: "TX", intakeAnswers: {}, utm: {},
+    };
+
+    const first = await booking.createRequest(db(), {
+      ...shared, contactName: "Ivy Okonkwo", contactPhone: "5125550144",
+      addressLine1: "3 Larkspur", postalCode: "78702",
+    });
+
+    // Same window, next door. Refused for capacity, which is a real answer,
+    // but it must never come back as the neighbour's booking.
+    await expect(booking.createRequest(db(), {
+      ...shared, contactName: "Tom Beale", contactPhone: "5125550155",
+      addressLine1: "5 Larkspur", postalCode: "78702",
+    })).rejects.toThrow(ConflictError);
+
+    const rows = await raw<{ id: string }[]>`select id from public.booking_request
+      where organization_id = ${ORG_A} and requested_date = ${date}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(first.request.id);
+  });
+
+  it("lets a caller say two identical submissions are two bookings", async () => {
+    /**
+     * A key, when one is sent, narrows the fingerprint. A partner integration
+     * that genuinely means two is able to say so, and a browser that sends
+     * none still gets the deduplication above.
+     */
+    const date = new Date(Date.now() + 17 * 864e5).toISOString().slice(0, 10);
+    const body = {
+      organizationSlug: "acme-sell", bookableServiceId: serviceId,
+      requestedDate: date, arrivalWindowId: windowId,
+      contactName: "Nan Adeyemi", contactPhone: "5125550166",
+      addressLine1: "2 Quarry Rd", city: "Austin", state: "TX", postalCode: "78704",
+      intakeAnswers: {}, utm: {},
+    };
+
+    const first = await booking.createRequest(db(), body, { idempotencyKey: "intent-one" });
+    // A different intent, so not a retry. Capacity refuses it, which proves
+    // it was treated as a new submission rather than replayed.
+    await expect(
+      booking.createRequest(db(), body, { idempotencyKey: "intent-two" }),
+    ).rejects.toThrow(ConflictError);
+
+    const replay = await booking.createRequest(db(), body, { idempotencyKey: "intent-one" });
+    expect(replay.request.id).toBe(first.request.id);
   });
 
   it("matches an existing property on the address rather than the name", async () => {

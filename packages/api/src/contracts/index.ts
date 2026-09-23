@@ -20,9 +20,22 @@ export * from "./booking";
 export * from "./field";
 
 /**
- * Every route in the product. The web app consumes this, the OpenAPI document
- * is generated from it, the SDK is generated from that, and the MCP server
- * exposes it as tools. One definition, four consumers, no drift.
+ * Every route in the product, and the only description of them.
+ *
+ * Consumers, stated as what they are rather than as an ambition:
+ *
+ *   BUILT   The web app, which imports this directly.
+ *   BUILT   The HTTP dispatcher in src/http, which serves every route here
+ *           and nothing else.
+ *   BUILT   The MCP server in src/mcp, which turns each session route into a
+ *           tool and hands every call back to that same dispatcher.
+ *   NOT YET A generated client library.
+ *
+ * This comment previously said "one definition, four consumers, no drift",
+ * and one of the four existed. It is the shape of claim this codebase treats
+ * as a defect: a statement about the system that the system does not support,
+ * sitting in the file somebody reads to find out what is true. If a consumer
+ * is added or removed, this list changes with it.
  */
 export const routes = {
   ...customerRoutes,

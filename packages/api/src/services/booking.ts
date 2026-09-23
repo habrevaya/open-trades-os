@@ -17,6 +17,17 @@ import type {
 } from "../contracts/booking";
 
 const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
+
+/**
+ * How long a resubmission counts as the same submission.
+ *
+ * Long enough to cover a phone that lost signal mid-request and a person who
+ * gave up and refilled the form, short enough that the same household booking
+ * the same service for the same window a season later is the second booking it
+ * actually is. Swallowing that one would be worse than the duplicate: nobody
+ * would ever find out the work had been requested.
+ */
+const REPLAY_WINDOW_MS = 30 * 60 * 1000;
 const usd = (v: string) => m.money(v, "USD");
 
 /**
@@ -230,6 +241,97 @@ export async function createRequest(
       )).limit(1);
     if (!service) throw new NotFoundError("Service");
 
+    /**
+     * A DOUBLE TAP IS ONE BOOKING.
+     *
+     * A homeowner on a phone with one bar taps Book, sees nothing happen, and
+     * taps again. This inserted twice: two requests with the same name at the
+     * same address for the same window, both counting against
+     * `maxPerWindow`, so one person took the last two slots of a Tuesday
+     * morning and the next real customer was told the time had gone.
+     *
+     * The route has declared `idempotent: true` all along. Nothing read it:
+     * the dispatcher took the header inside the session branch only, and this
+     * route has no session. That is fixed, and this is what uses it.
+     *
+     * DEDUPED ON A FINGERPRINT OF THE SUBMISSION, not on the key alone, and
+     * that is a security decision rather than a convenience. A caller with no
+     * account chooses their own key, so a lookup keyed on it would let
+     * somebody who guessed a common value read back a stranger's booking,
+     * which carries their name, address and phone number. A fingerprint can
+     * only be reproduced by somebody who already has those details.
+     *
+     * A key, when one is sent, narrows the fingerprint further so a client
+     * that deliberately means two identical bookings can say so.
+     */
+    const fingerprint = createHash("sha256").update(JSON.stringify([
+      org.id, service.id, input.requestedDate, input.arrivalWindowId,
+      input.contactName.trim().toLowerCase(),
+      (input.contactEmail ?? input.contactPhone ?? "").trim().toLowerCase(),
+      input.addressLine1.trim().toLowerCase(), input.postalCode.trim(),
+      meta?.idempotencyKey ?? "",
+    ])).digest("hex");
+
+    const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+      .from(schema.integrationEvent)
+      .where(and(
+        /**
+         * Scoped to the organization explicitly, and this filter CANNOT
+         * currently be the one that holds. Said plainly rather than left as a
+         * claim, because deleting it changes no test and somebody will
+         * eventually notice that and wonder.
+         *
+         * Every other reader of this table runs inside `inTenant`, where row
+         * level security scopes it. A public route has no session and so no
+         * tenant context, which is why the filter is written out. It is
+         * unreachable as a decision because `org.id` is already the first
+         * element of the fingerprint, so two companies cannot collide in the
+         * first place. It stays because a future fingerprint that dropped the
+         * organization would otherwise return one company's booking, carrying
+         * a customer's name and address, to another company's widget, and the
+         * second lock costs nothing.
+         */
+        eq(schema.integrationEvent.organizationId, org.id),
+        eq(schema.integrationEvent.entityType, "booking_request"),
+        eq(schema.integrationEvent.idempotencyKey, fingerprint),
+        /**
+         * Recent only. The same household booking the same service for the
+         * same window a season later is a real second booking, not a retry,
+         * and treating it as one would silently swallow work.
+         */
+        gte(schema.integrationEvent.createdAt, new Date(Date.now() - REPLAY_WINDOW_MS)),
+      )).limit(1);
+
+    if (seen?.entityId) {
+      const [prior] = await tx.select().from(schema.bookingRequest)
+        .where(and(
+          eq(schema.bookingRequest.id, seen.entityId),
+          eq(schema.bookingRequest.organizationId, org.id),
+        )).limit(1);
+      if (prior) {
+        const priorDeposit = depositDue(service, service.displayPrice);
+        return {
+          request: shapeRequest(prior),
+          /**
+           * The ORIGINAL tracking link, reissued rather than minted again.
+           * A second grant would be a second live link to one booking, and
+           * the first is the one already on the customer's screen.
+           */
+          trackingUrl: await issueTrackingUrl(tx, org.id, prior.id),
+          depositDue: priorDeposit,
+          paymentUrl: priorDeposit ? `${PORTAL_BASE}/pay/booking/${prior.id}` : null,
+        };
+      }
+    }
+
+    /**
+     * CAPACITY IS CHECKED AFTER THE REPLAY, and the order is the fix.
+     *
+     * It was the other way round, so a retry was refused for capacity before
+     * anybody asked whether it was a retry: the second tap counted the
+     * booking the first tap had just made and was told the time had gone.
+     * The slot a retry would take is the one it already holds.
+     */
     const [{ n } = { n: 0 }] = await tx.select({ n: sql<number>`count(*)::int` })
       .from(schema.bookingRequest)
       .where(and(
@@ -272,6 +374,13 @@ export async function createRequest(
        */
       connectedAppId: meta?.connectedAppId ?? null,
     }).returning();
+
+    await tx.insert(schema.integrationEvent).values({
+      organizationId: org.id,
+      direction: "inbound", provider: "booking", eventType: "booking.request",
+      idempotencyKey: fingerprint, status: "succeeded",
+      entityType: "booking_request", entityId: row!.id,
+    });
 
     const deposit = depositDue(service, service.displayPrice);
 
