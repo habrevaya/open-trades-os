@@ -43,6 +43,19 @@ export interface DispatchDeps {
    * the app that mounts it.
    */
   resolveSession: (request: Request) => Promise<ServiceContext | null>;
+  /**
+   * The connected application behind this request, when there is one and the
+   * route did not require it.
+   *
+   * Separate from `resolveSession` because on a public route a token is not
+   * what admits the caller: booking is open to anybody with the company's
+   * slug. It is what attributes the booking, and a partner whose token
+   * expired should still be able to send work rather than silently stop.
+   *
+   * Optional, so a deployment that has no connected apps passes nothing and
+   * the behaviour is unchanged.
+   */
+  resolveApp?: (request: Request) => Promise<string | undefined>;
 }
 
 const problem = (
@@ -169,6 +182,15 @@ export async function dispatch(request: Request, deps: DispatchDeps): Promise<Re
     ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
     userAgent: request.headers.get("user-agent") ?? undefined,
   };
+
+  /**
+   * Resolved for open routes only. A `session` route already ran the token
+   * through `resolveSession`, and looking it up twice would double the work
+   * on every authenticated request to save a branch here.
+   */
+  if ((route.authorization ?? "session") !== "session" && deps.resolveApp) {
+    meta.connectedAppId = await deps.resolveApp(request);
+  }
 
   try {
     const authorization = route.authorization ?? "session";

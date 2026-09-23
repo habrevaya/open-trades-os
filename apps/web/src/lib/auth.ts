@@ -30,6 +30,18 @@ import { SESSION_COOKIE, hashToken } from "./session";
 export type CurrentUser = ResolvedSession;
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
+  return sessionFromCookie();
+}
+
+/**
+ * The cookie half of authentication, on its own.
+ *
+ * Handed to `authenticate` in the API package, which decides between this and
+ * a connected application's bearer token. Reading the cookie is genuinely the
+ * framework's job; choosing between two credentials is not, and keeping that
+ * choice here would put it where no test can reach it.
+ */
+export async function sessionFromCookie(): Promise<CurrentUser | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   return resolveSession(createClient(), hashToken(token));

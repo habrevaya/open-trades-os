@@ -29,10 +29,8 @@ import {
  * endpoint into an open one is exactly that mistake.
  */
 
-export interface RequestMeta {
-  ip?: string | undefined;
-  userAgent?: string | undefined;
-}
+import type { RequestMeta } from "../services/context";
+export type { RequestMeta };
 
 export type SessionHandler<R> = R extends RouteDefinition<infer I, infer O>
   ? (ctx: ServiceContext, input: z.infer<I>) => Promise<z.infer<O>>

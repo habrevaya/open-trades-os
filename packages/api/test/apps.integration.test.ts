@@ -5,7 +5,10 @@ import { permissionsFor } from "@opentradesos/core";
 import * as apps from "../src/services/apps";
 import * as customers from "../src/services/customers";
 import * as jobs from "../src/services/jobs";
+import * as booking from "../src/services/booking";
 import * as properties from "../src/services/properties";
+import { authenticate, attributingApp } from "../src/http/authenticate";
+import type { ResolvedSession } from "../src/services/session";
 import type { ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
@@ -57,6 +60,33 @@ beforeAll(async () => {
   await jobs.create(owner(), {
     customerId, propertyId, summary: "App job", tags: [], customFields: {},
   });
+});
+
+let serviceId = "";
+let windowId = "";
+
+beforeAll(async () => {
+  if (!url) return;
+  const [jt] = await raw<{ id: string }[]>`
+    insert into public.job_type (organization_id, name, capacity_model)
+    values (${ORG}, 'Tune up', 'technician_dispatch') returning id`;
+  const [svc] = await raw<{ id: string }[]>`
+    insert into public.bookable_service
+      (organization_id, job_type_id, public_name, display_price, min_notice_hours,
+       max_advance_days, max_per_window)
+    values (${ORG}, ${jt!.id}, 'Seasonal tune up', 149.0000, 0, 60, 5) returning id`;
+  serviceId = svc!.id;
+
+  const [w] = await raw<{ id: string }[]>`
+    insert into public.arrival_window
+      (organization_id, name, starts_at, ends_at, days_of_week)
+    values (${ORG}, '8am to 12pm', '08:00', '12:00', ${[0, 1, 2, 3, 4, 5, 6]}) returning id`;
+  windowId = w!.id;
+
+  for (let d = 0; d < 7; d += 1) {
+    await raw`insert into public.business_hours (organization_id, day_of_week, opens_at, closes_at)
+              values (${ORG}, ${d}, '07:00', '18:00')`;
+  }
 });
 
 afterAll(async () => { if (raw) await raw.end(); });
@@ -290,5 +320,170 @@ run("the credential itself", () => {
     // enough to use.
     expect(token.endsWith(rows[0]!.hint!)).toBe(true);
     expect(rows[0]!.hint!.length).toBeLessThan(8);
+  });
+});
+
+run("authenticating over HTTP", () => {
+  const request = (headers: Record<string, string> = {}) =>
+    new Request("https://example.test/api/v1/customers", { headers });
+
+  /** A signed in person, for the cases where both credentials are present. */
+  const signedIn = async (): Promise<ResolvedSession> => ({
+    actor: { userId: USER, organizationId: ORG, roles: ["owner"] as Actor["roles"] },
+    userId: USER, email: "owner@app-co.test", name: null,
+    organizationId: ORG, organizationName: "App Co", organizationSlug: "app-co",
+    organizationTimezone: "America/Chicago", setupCompleted: true,
+  });
+
+  it("accepts a bearer token and acts as the app", async () => {
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+
+    const result = await authenticate(
+      request({ authorization: `Bearer ${token}` }),
+      { db: db(), session: signedIn },
+    );
+
+    expect(result?.appId).toBe(app.id);
+    expect(result?.ctx.actor.agentId).toBe(`app:${app.id}`);
+    // So every audit entry this request causes names the app.
+    expect(result?.ctx.agentId).toBe(`app:${app.id}`);
+  });
+
+  it("prefers the token over a cookie that happens to be present", async () => {
+    /**
+     * A browser attaches cookies whether or not the caller meant to use them.
+     * If the cookie won, a partner's request would silently run as whichever
+     * user was signed in, with their permissions instead of the app's, and
+     * the audit trail would name a person who did nothing.
+     */
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+
+    const result = await authenticate(
+      request({ authorization: `Bearer ${token}` }),
+      { db: db(), session: signedIn },
+    );
+    expect(result?.ctx.actor.roles).toEqual([]);
+    expect(result?.ctx.actor.userId).not.toBe(USER);
+  });
+
+  it("refuses a rejected token rather than falling back to the cookie", async () => {
+    // Falling through would turn a revoked app's request into one made as the
+    // operator signed in on the same machine.
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+    await apps.revoke(owner(), { id: app.id });
+
+    const result = await authenticate(
+      request({ authorization: `Bearer ${token}` }),
+      { db: db(), session: signedIn },
+    );
+    /**
+     * Asserted as a boolean, not with `toBeNull()` on the result.
+     *
+     * A `ServiceContext` carries the database client, and when this assertion
+     * fails vitest tries to pretty-print it: the reporter recurses through
+     * the whole connection pool and the actual failure is buried under two
+     * hundred lines of stack from the formatter. A test whose failure cannot
+     * be read is most of the way to a test nobody trusts.
+     */
+    expect(result === null).toBe(true);
+  });
+
+  it("falls back to the cookie when no token is presented", async () => {
+    const result = await authenticate(request(), { db: db(), session: signedIn });
+    expect(result?.ctx.actor.userId).toBe(USER);
+    expect(result?.appId).toBeUndefined();
+  });
+
+  it("ignores an Authorization header that is not one of ours", async () => {
+    // Basic auth from a misconfigured proxy must not read as a refusal.
+    const result = await authenticate(
+      request({ authorization: "Basic dXNlcjpwYXNz" }),
+      { db: db(), session: signedIn },
+    );
+    expect(result?.ctx.actor.userId).toBe(USER);
+  });
+
+  it("records that the app was used", async () => {
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+    await authenticate(request({ authorization: `Bearer ${token}` }), { db: db(), session: signedIn });
+
+    // `touch` is deliberately not awaited into the request, so give it the
+    // tick it needs rather than asserting on a race.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const [row] = await raw<{ last_used_at: Date | null }[]>`
+      select last_used_at from public.connected_app where id = ${app.id}`;
+    expect(row!.last_used_at).not.toBeNull();
+  });
+});
+
+run("attribution on an open route", () => {
+  const request = (headers: Record<string, string> = {}) =>
+    new Request("https://example.test/api/v1/booking/requests", { method: "POST", headers });
+
+  it("names the app that sent the caller", async () => {
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+    expect(await attributingApp(request({ authorization: `Bearer ${token}` }), db())).toBe(app.id);
+  });
+
+  it("is absent rather than refused when there is no token", async () => {
+    // Booking is open to anybody with the company slug. A token attributes,
+    // it does not admit.
+    expect(await attributingApp(request(), db())).toBeUndefined();
+  });
+
+  it("is absent rather than refused when the token is dead", async () => {
+    // A partner whose token expired should still be able to send work rather
+    // than silently stop.
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+    await apps.revoke(owner(), { id: app.id });
+    expect(await attributingApp(request({ authorization: `Bearer ${token}` }), db())).toBeUndefined();
+  });
+});
+
+run("a partner sending work, end to end", () => {
+  const book = (meta?: { connectedAppId?: string | undefined }) => booking.createRequest(
+    db(),
+    {
+      organizationSlug: "app-co", bookableServiceId: serviceId,
+      requestedDate: new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10),
+      arrivalWindowId: windowId,
+      contactName: "Nia Partner", contactPhone: "5125550161",
+      addressLine1: "6 Partner Row", city: "Austin", state: "TX", postalCode: "78702",
+      intakeAnswers: {}, utm: {},
+    },
+    meta,
+  );
+
+  it("records which app the booking came through", async () => {
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+
+    const appId = await attributingApp(
+      new Request("https://example.test/", {
+        method: "POST", headers: { authorization: `Bearer ${token}` },
+      }),
+      db(),
+    );
+    const { request } = await book({ connectedAppId: appId });
+
+    const [row] = await raw<{ connected_app_id: string | null }[]>`
+      select connected_app_id from public.booking_request where id = ${request.id}`;
+    // Without this a partner's bookings are indistinguishable from the
+    // widget's, and an operator deciding whether the channel is worth keeping
+    // has nothing to decide with.
+    expect(row!.connected_app_id).toBe(app.id);
+  });
+
+  it("leaves it null for a booking off the widget", async () => {
+    const { request } = await book();
+    const [row] = await raw<{ connected_app_id: string | null }[]>`
+      select connected_app_id from public.booking_request where id = ${request.id}`;
+    expect(row!.connected_app_id).toBeNull();
   });
 });

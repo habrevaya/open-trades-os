@@ -39,6 +39,19 @@ export interface ServiceContext {
   portalGrantId?: string;
 }
 
+export interface RequestMeta {
+  ip?: string | undefined;
+  userAgent?: string | undefined;
+  /**
+   * The connected application that made this request, on a route that does
+   * not require one. Attribution rather than authorization: a booking through
+   * a partner has to be distinguishable from one off the widget, or an
+   * operator deciding whether a channel is worth keeping has nothing to
+   * decide with.
+   */
+  connectedAppId?: string | undefined;
+}
+
 export class NotFoundError extends Error {
   constructor(resource: string) {
     super(`${resource} not found`);

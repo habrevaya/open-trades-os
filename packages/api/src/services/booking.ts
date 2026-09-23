@@ -4,6 +4,7 @@ import { money as m } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
+  type RequestMeta,
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
 } from "./context";
@@ -200,7 +201,11 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
  * to fail here, as a message the requester can act on, rather than become an
  * overbooking somebody finds on the dispatch board on the morning.
  */
-export async function createRequest(db: Database, input: z.infer<typeof createBookingRequest.input>) {
+export async function createRequest(
+  db: Database,
+  input: z.infer<typeof createBookingRequest.input>,
+  meta?: RequestMeta,
+) {
   const org = await resolveOrg(db, input.organizationSlug);
 
   return db.transaction(async (rawTx) => {
@@ -248,6 +253,12 @@ export async function createRequest(db: Database, input: z.infer<typeof createBo
       sourceUrl: input.sourceUrl ?? null,
       referrer: input.referrer ?? null,
       utm: input.utm,
+      /**
+       * Taken from the credential on the request, never from the body. A
+       * source a caller can name is a source a caller can claim, and
+       * attribution that anybody can write is attribution nobody can use.
+       */
+      connectedAppId: meta?.connectedAppId ?? null,
     }).returning();
 
     const deposit = depositDue(service, service.displayPrice);
