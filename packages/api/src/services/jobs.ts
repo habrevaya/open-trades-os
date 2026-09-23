@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { audit } from "./customers";
 import { jobScopeFilter } from "./scope";
+import { emit } from "./events";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -268,6 +269,28 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }).where(eq(schema.job.id, input.id)).returning();
 
     await audit(tx, ctx, "job.updated", "job", input.id, before, after!);
+
+    /**
+     * Emitted in the same transaction as the update. After commit is the
+     * obvious place and it is wrong under load: the transaction commits, the
+     * process dies, and the workflow that was meant to text the customer
+     * never runs with no trace that anything was missed.
+     *
+     * A status change is its own event as well as an update, because "when a
+     * job is completed" is the thing every workflow author actually wants and
+     * making them filter `job.updated` for it is a worse product.
+     */
+    await emit(tx, ctx, {
+      name: "job.updated", entityType: "job", entityId: input.id,
+      payload: { job: after! }, previous: { job: before },
+    });
+    if (input.status !== undefined && input.status !== before.status) {
+      await emit(tx, ctx, {
+        name: `job.${input.status}`, entityType: "job", entityId: input.id,
+        payload: { job: after! }, previous: { job: before },
+      });
+    }
+
     return clean(ctx, "job", after!);
   });
 }

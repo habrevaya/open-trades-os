@@ -11,4 +11,7 @@ export * as booking from "./booking";
 export * as tradePacks from "./trade-pack";
 export * as properties from "./properties";
 export * as priceBook from "./pricebook";
+export * as events from "./events";
+export * as workflowRunner from "./workflow-runner";
+export * as workflowSteps from "./workflow-steps";
 export { writePosting } from "./ledger";
