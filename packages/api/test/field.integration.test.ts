@@ -429,6 +429,111 @@ run("the dispatch board", () => {
     expect(result.unassigned.length).toBeGreaterThan(0);
   });
 
+  it("keeps an evening visit on the day it actually happens", async () => {
+    /**
+     * THE ONE THAT SHIPPED.
+     *
+     * The board bounded its day with `new Date(`${date}T00:00:00Z`)`, which
+     * for a company in Chicago runs from seven the previous evening to seven
+     * that evening. An emergency booked for nine at night was not on that
+     * day's board at all, and the dispatcher looking at it that evening had
+     * no way to know it existed.
+     *
+     * Nothing caught it because CI runs in UTC, where the two answers are
+     * the same. The seeded demo company is in Austin, and the bug is visible
+     * in a marketing screenshot: the caption describes an unassigned
+     * emergency and the picture says "Nothing waiting".
+     */
+    const [job] = await raw`insert into public.job
+      (organization_id, number, customer_id, property_id, status, summary)
+      values (${ORG}, ${Math.floor(Math.random() * 1e6)}, ${customerId}, ${propertyId},
+              'scheduled', 'Server room at 88F') returning id`;
+    // Nine in the evening on the 12th in Chicago is two in the morning on the
+    // 13th in UTC.
+    const [visit] = await raw`insert into public.visit
+      (organization_id, job_id, status, window_start, window_end)
+      values (${ORG}, ${job!.id}, 'unassigned',
+              ${new Date("2026-05-13T02:00:00Z")}, ${new Date("2026-05-13T04:00:00Z")})
+      returning id`;
+
+    const tonight = await dispatchSvc.board(office(), { date: day });
+    expect(tonight.unassigned.map((v) => v.id)).toContain(visit!.id);
+
+    // And not on tomorrow's, which is where it used to turn up.
+    const tomorrow = await dispatchSvc.board(office(), { date: "2026-05-13" });
+    expect(tomorrow.unassigned.map((v) => v.id)).not.toContain(visit!.id);
+  });
+
+  it("leaves the previous evening off today's board", async () => {
+    // The other half of the same bug: seven to midnight the night before was
+    // inside the UTC window for today, so it sat on the board all day.
+    const [job] = await raw`insert into public.job
+      (organization_id, number, customer_id, property_id, status, summary)
+      values (${ORG}, ${Math.floor(Math.random() * 1e6)}, ${customerId}, ${propertyId},
+              'scheduled', 'Last night') returning id`;
+    // Nine in the evening on the 11th in Chicago.
+    const [visit] = await raw`insert into public.visit
+      (organization_id, job_id, status, window_start, window_end)
+      values (${ORG}, ${job!.id}, 'unassigned',
+              ${new Date("2026-05-12T02:00:00Z")}, ${new Date("2026-05-12T04:00:00Z")})
+      returning id`;
+
+    const today = await dispatchSvc.board(office(), { date: day });
+    expect(today.unassigned.map((v) => v.id)).not.toContain(visit!.id);
+    const yesterday = await dispatchSvc.board(office(), { date: "2026-05-11" });
+    expect(yesterday.unassigned.map((v) => v.id)).toContain(visit!.id);
+  });
+
+  it("syncs a technician's evening visit to their phone", async () => {
+    /**
+     * The same bug on the truck. A phone asking for "this day, one day" was
+     * handed a window that ended at seven in the evening local, so the last
+     * call of the day was missing from the only screen that works without
+     * signal, which is exactly when nobody can look it up another way.
+     */
+    const [job] = await raw`insert into public.job
+      (organization_id, number, customer_id, property_id, status, summary)
+      values (${ORG}, ${Math.floor(Math.random() * 1e6)}, ${customerId}, ${propertyId},
+              'scheduled', 'Last call of the day') returning id`;
+    // Ten at night on the 12th in Chicago.
+    const [visit] = await raw`insert into public.visit
+      (organization_id, job_id, status, window_start, window_end)
+      values (${ORG}, ${job!.id}, 'dispatched',
+              ${new Date("2026-05-13T03:00:00Z")}, ${new Date("2026-05-13T05:00:00Z")})
+      returning id`;
+    await raw`insert into public.visit_assignment (organization_id, visit_id, technician_id)
+      values (${ORG}, ${visit!.id}, ${technicianId})`;
+
+    const result = await dispatchSvc.snapshot(tech(), {
+      deviceId: await freshDevice(), from: day, days: 1,
+    });
+    expect(result.visits.map((v) => v.id)).toContain(visit!.id);
+  });
+
+  it("lets a dispatcher reorder an evening visit they can see", async () => {
+    /**
+     * Worse than the board, because the board at least failed by omission.
+     * `reorder` bounds the same day to work out which visits belong to the
+     * technician, so a card the dispatcher could see and drag came back
+     * refused as somebody else's.
+     */
+    const [job] = await raw`insert into public.job
+      (organization_id, number, customer_id, property_id, status, summary)
+      values (${ORG}, ${Math.floor(Math.random() * 1e6)}, ${customerId}, ${propertyId},
+              'scheduled', 'Evening call') returning id`;
+    const [visit] = await raw`insert into public.visit
+      (organization_id, job_id, status, window_start, window_end)
+      values (${ORG}, ${job!.id}, 'dispatched',
+              ${new Date("2026-05-13T01:00:00Z")}, ${new Date("2026-05-13T03:00:00Z")})
+      returning id`;
+    await raw`insert into public.visit_assignment (organization_id, visit_id, technician_id)
+      values (${ORG}, ${visit!.id}, ${technicianId})`;
+
+    await expect(dispatchSvc.reorder(ctxFor(["dispatcher"]), {
+      date: day, technicianId, visitIds: [visit!.id],
+    })).resolves.toBeTruthy();
+  });
+
   it("says a technician is off rather than leaving an unexplained gap", async () => {
     await raw`insert into public.time_off
       (organization_id, technician_id, starts_at, ends_at, approved)

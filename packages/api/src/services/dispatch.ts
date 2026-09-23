@@ -3,8 +3,9 @@ import { schema, type Database } from "@opentradesos/db";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
+  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf,
 } from "./context";
+import { time } from "@opentradesos/core";
 import { audit } from "./customers";
 import type {
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot,
@@ -22,8 +23,17 @@ const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
  */
 export async function board(ctx: ServiceContext, input: z.infer<typeof getDispatchBoard.input>) {
   return guardedRead(ctx, "visit:read", async (tx) => {
-    const dayStart = new Date(`${input.date}T00:00:00Z`);
-    const dayEnd = new Date(dayStart.getTime() + 864e5);
+    /**
+     * Bounded in the COMPANY's zone. `new Date(`${date}T00:00:00Z`)` reads as
+     * midnight on that day and means midnight in London: for a shop in Austin
+     * that window ran from seven the previous evening to seven that evening,
+     * so an emergency booked for nine at night was not on today's board and
+     * the evening before was, all day. It shipped, and it is visible in the
+     * marketing screenshot as an unassigned column the caption describes and
+     * the picture does not contain.
+     */
+    const { start: dayStart, end: dayEnd } =
+      time.dayBoundsIn(input.date, await timezoneOf(tx, ctx.actor.organizationId));
     const now = new Date();
 
     const technicians = await tx.select({
@@ -203,8 +213,14 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
  */
 export async function reorder(ctx: ServiceContext, input: z.infer<typeof reorderRoute.input>) {
   return guardedWrite(ctx, "visit:reschedule", async (tx) => {
-    const dayStart = new Date(`${input.date}T00:00:00Z`);
-    const dayEnd = new Date(dayStart.getTime() + 864e5);
+    /**
+     * The same local day the board drew. Bounding it in UTC here was worse
+     * than on the board: a visit the dispatcher could see and drag fell
+     * outside the window, so the reorder came back refusing a visit as
+     * somebody else's.
+     */
+    const { start: dayStart, end: dayEnd } =
+      time.dayBoundsIn(input.date, await timezoneOf(tx, ctx.actor.organizationId));
 
     const theirs = await tx.select({ visitId: schema.visitAssignment.visitId })
       .from(schema.visitAssignment)
@@ -333,8 +349,11 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       .where(eq(schema.device.id, input.deviceId)).limit(1);
     if (!device) throw new NotFoundError("Device");
 
-    const from = new Date(`${input.from}T00:00:00Z`);
-    const to = new Date(from.getTime() + input.days * 864e5);
+    // Whole local days, for the same reason the board is. A phone syncing
+    // "today and tomorrow" at eight in the evening was being handed a window
+    // that had already ended.
+    const { start: from, end: to } =
+      time.daysFrom(input.from, input.days, await timezoneOf(tx, ctx.actor.organizationId));
 
     const rows = await tx.select({
       visit: schema.visit,

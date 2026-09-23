@@ -167,3 +167,25 @@ export function paginate<T>(rows: T[], limit: number, key: (row: T) => string) {
     nextCursor: hasMore && last ? encodeCursor(key(last)) : null,
   };
 }
+
+/**
+ * The company's timezone, which is the only one a calendar day means anything
+ * in.
+ *
+ * A read rather than a value on the context, because the context is built
+ * from a session and the services are also called by the worker, by a
+ * connected app and by tests, none of which have one. Every caller getting
+ * the timezone from the same row is what stops half the product bounding a
+ * day in UTC and the other half in Central.
+ */
+export async function timezoneOf(tx: Database, organizationId: string): Promise<string> {
+  const [row] = await tx.execute<{ timezone: string | null }>(
+    sql`select timezone from public.organization where id = ${organizationId} limit 1`,
+  );
+  /**
+   * The same fallback the session resolver uses. A company with no timezone
+   * predates the column; guessing UTC for it would move every board by five
+   * hours for the one tenant least able to explain what changed.
+   */
+  return row?.timezone ?? "America/Chicago";
+}

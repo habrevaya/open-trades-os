@@ -30,6 +30,25 @@ function formatMonth(value: string): string {
 
 const NUMBER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
+/**
+ * How wide the bar on a row is, as a percentage.
+ *
+ * Measured against the largest value in the column rather than against a
+ * total, so two roughly equal rows draw two roughly equal bars instead of two
+ * half bars.
+ *
+ * The floor keeps a small value visible, and zero is exempt from it. A paid
+ * invoice group with nothing outstanding was drawing a two percent sliver
+ * next to $0.00, which is a bar saying "a little" beside a number saying
+ * "none".
+ */
+export function barWidth(value: number, peak: number): number {
+  if (!Number.isFinite(value) || peak <= 0) return 0;
+  const magnitude = Math.abs(value);
+  if (magnitude === 0) return 0;
+  return Math.min(100, Math.max((magnitude / peak) * 100, 2));
+}
+
 function Cell({
   column, value, timezone,
 }: {
@@ -95,9 +114,7 @@ export function ReportTable({
         }
       >
         {result.rows.map((row, index) => {
-          const share = primary && peak > 0
-            ? Math.abs(Number(row[primary.key] ?? 0)) / peak
-            : 0;
+          const width = primary ? barWidth(Number(row[primary.key] ?? 0), peak) : 0;
           return (
             <tr key={index}>
               {dimensions.map((c) => (
@@ -113,10 +130,7 @@ export function ReportTable({
               {primary && peak > 0 ? (
                 <Td>
                   <div className="h-2 w-full rounded-full bg-steel-100" aria-hidden="true">
-                    <div
-                      className="h-2 rounded-full bg-ink-700"
-                      style={{ width: `${Math.max(share * 100, 2)}%` }}
-                    />
+                    <div className="h-2 rounded-full bg-ink-700" style={{ width: `${width}%` }} />
                   </div>
                 </Td>
               ) : null}

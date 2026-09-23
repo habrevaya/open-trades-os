@@ -119,7 +119,9 @@ const SHOTS = [
   { name: "reports", path: "/reports", token: OWNER, ...DESK, height: 760 },
   {
     name: "report-receivables", path: "/reports/built-in/ar-aging",
-    token: OWNER, ...DESK, height: 620,
+    // Tall enough for the whole sidebar, so the capture shows where in the
+    // product this screen is rather than cropping the section it belongs to.
+    token: OWNER, ...DESK, height: 760,
   },
   {
     name: "report-builder",

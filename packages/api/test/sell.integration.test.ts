@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
-import { PermissionError } from "@opentradesos/core";
+import { PermissionError, time } from "@opentradesos/core";
 import * as estimates from "../src/services/estimates";
 import * as portal from "../src/services/portal";
 import * as booking from "../src/services/booking";
@@ -393,6 +393,40 @@ run("booking from the website", () => {
     });
     expect(slots.length).toBeGreaterThan(0);
     expect(slots.every((s) => s.arrivalWindowId === windowId)).toBe(true);
+  });
+
+  it("counts the notice period from the company's morning, not London's", async () => {
+    /**
+     * An arrival window is a WALL CLOCK time. "8am to 12pm" means eight in
+     * the morning where the company is, and `new Date(`${date}T08:00Z`)`
+     * made that eight in the morning in London: three in the morning in
+     * Austin, five hours before anyone opens.
+     *
+     * So the minimum notice a company set was measured against the wrong
+     * instant, and the calendar offered a slot the company could not staff
+     * or withheld one it could. The notice below is chosen so the two
+     * readings disagree: the buggy instant falls inside the notice period
+     * and the real one falls outside it.
+     */
+    const day = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
+    const londonMorning = Date.parse(`${day}T08:00:00Z`);
+    const austinMorning = time.startOfDayIn(day, "America/Chicago").getTime() + 8 * 3600_000;
+    const between = (londonMorning + austinMorning) / 2;
+    const notice = Math.round((between - Date.now()) / 3600_000);
+
+    const [jt] = await raw`insert into public.job_type (organization_id, name, capacity_model)
+      values (${ORG_A}, 'Notice test', 'technician_dispatch') returning id`;
+    const [svc] = await raw`insert into public.bookable_service
+      (organization_id, job_type_id, public_name, display_price, min_notice_hours,
+       max_advance_days, max_per_window)
+      values (${ORG_A}, ${jt!.id}, 'Notice tune up', 149.0000, ${notice}, 30, 1)
+      returning id`;
+
+    const { slots } = await booking.availability(db(), {
+      organizationSlug: "acme-sell", bookableServiceId: svc!.id,
+      from: day, days: 1,
+    });
+    expect(slots.find((s) => s.date === day)).toBeDefined();
   });
 
   it("caps the window the caller asked for at the company's own limit", async () => {

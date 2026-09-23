@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m } from "@opentradesos/core";
+import { money as m, time } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -34,6 +34,9 @@ async function resolveOrg(db: Database, slug: string) {
   const [org] = await db.select({
     id: schema.organization.id,
     name: schema.organization.name,
+    // Carried because every date on this screen is a calendar day, and a
+    // calendar day is only a pair of instants once you know the zone.
+    timezone: schema.organization.timezone,
   }).from(schema.organization).where(eq(schema.organization.slug, slug)).limit(1);
   if (!org) throw new NotFoundError("Company");
   return org;
@@ -168,16 +171,25 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
     for (const w of windows) {
       if (!w.daysOfWeek.includes(dow)) continue;
 
-      // A window that has already started today is not bookable today, and
-      // neither is one inside the notice period the company set.
-      const opensAt = new Date(`${date}T${w.startsAt}Z`);
+      /**
+       * A window that has already started today is not bookable today, and
+       * neither is one inside the notice period the company set.
+       *
+       * `${date}T${w.startsAt}Z` read the company's eight in the morning as
+       * eight UTC, which in Austin is three. The notice check was five hours
+       * out all summer and six all winter, which is the difference between
+       * offering a customer a slot the company can staff and one it cannot.
+       */
+      const opensAt = new Date(
+        time.startOfDayIn(date, org.timezone).getTime() + minutesInto(w.startsAt) * 60_000,
+      );
       if (opensAt < earliest) continue;
 
       const used = taken.get(takenKey(date, w.id)) ?? 0;
       const remaining = service.maxPerWindow - used;
       if (remaining <= 0) continue;
 
-      if (headcount > 0 && awayCount(off, day) >= headcount) continue;
+      if (headcount > 0 && awayCount(off, day, org.timezone) >= headcount) continue;
 
       slots.push({
         date,
@@ -643,9 +655,12 @@ function shapeRequest(r: typeof schema.bookingRequest.$inferSelect) {
 function awayCount(
   off: Array<{ startsAt: Date; endsAt: Date; technicianId: string }>,
   day: Date,
+  timeZone: string,
 ): number {
-  const dayStart = new Date(`${day.toISOString().slice(0, 10)}T00:00:00Z`);
-  const dayEnd = new Date(dayStart.getTime() + 864e5);
+  // Local bounds, like everywhere else a calendar day is turned into two
+  // instants. Time off recorded as a local working day overlapped the wrong
+  // UTC window by the offset, which at five hours is most of an afternoon.
+  const { start: dayStart, end: dayEnd } = time.dayBoundsIn(time.dateIn(day, timeZone), timeZone);
   const away = new Set(
     off.filter((o) => o.startsAt < dayEnd && o.endsAt > dayStart).map((o) => o.technicianId),
   );
@@ -653,5 +668,17 @@ function awayCount(
 }
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * `HH:MM` or `HH:MM:SS` as minutes past midnight.
+ *
+ * An arrival window is a wall clock time rather than an instant: "eight in
+ * the morning" stays eight in the morning on the day the clocks change, so it
+ * is added to that day's local start rather than stored as an offset.
+ */
+function minutesInto(clock: string): number {
+  const [hours, minutes] = clock.split(":");
+  return Number(hours ?? 0) * 60 + Number(minutes ?? 0);
+}
 const weekday = (dow: number) =>
   ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dow] ?? "";
