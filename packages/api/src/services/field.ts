@@ -238,25 +238,50 @@ async function applyOne(
     occurredAt: op.occurredAt,
   });
 
-  const status = !verdict.apply
+  const verdictStatus = !verdict.apply
     ? (verdict.conflict ? "rejected" as const : "superseded" as const)
     : verdict.conflict
       ? "conflicted" as const
       : "applied" as const;
 
   const row = await recordOperation(tx, ctx, device, meta, receivedAt, {
-    status,
+    status: verdictStatus,
     conflict: verdict.conflict,
     rejection: verdict.apply ? null : verdict.conflict,
   });
 
-  if (verdict.apply) await effect(tx, ctx, op, subjectState, row.id);
+  /**
+   * THE HANDLER'S OWN ANSWER, which nothing used to look at.
+   *
+   * `effect` returned void, so a handler that could not do its work simply
+   * returned and the operation was reported to the phone as APPLIED. A
+   * technician filled in a service report, watched it sync, and lost every
+   * field: the report row had never been created, so `set_field` looked it
+   * up, found nothing, and gave up quietly.
+   *
+   * The verdict above decides whether an operation MAY be applied, against
+   * the state machine. This decides whether it COULD be, against the data
+   * that is actually there. Both can refuse and they refuse for different
+   * reasons, so the log records which.
+   */
+  const failure = verdict.apply
+    ? await effect(tx, ctx, op, subjectState, row.id)
+    : null;
+
+  const status = failure ? "rejected" as const : verdictStatus;
+  const rejection = failure ?? (verdict.apply ? null : verdict.conflict);
+
+  if (failure) {
+    await tx.update(schema.fieldOperation)
+      .set({ status, rejection, updatedAt: new Date() })
+      .where(eq(schema.fieldOperation.id, row.id));
+  }
 
   return {
     clientId: op.clientId,
     status,
     conflict: verdict.conflict,
-    rejection: verdict.apply ? null : verdict.conflict,
+    rejection,
     occurredAt: op.occurredAt.toISOString(),
     clamped: meta.clamped,
   };
@@ -283,13 +308,95 @@ export const LOG_ONLY_OPERATIONS: readonly field.OperationKind[] = [] as const;
  * Kept in one place so that adding an operation kind means adding one case
  * here rather than finding the four places a similar one is handled.
  */
+/**
+ * What the operation does to the rest of the schema, and whether it could.
+ *
+ * Returns a rejection reason, or null when the operation landed. It used to
+ * return void, and every handler that could not do its work simply
+ * `return`ed: the sync then reported the operation as APPLIED, because
+ * nothing was looking at the result. A technician filling in a service report
+ * on their phone watched it sync successfully and lose every field.
+ */
+/**
+ * The service report this operation is about, created if it is not there yet.
+ *
+ * NOTHING IN THIS CODEBASE EVER CREATED ONE. `service_report` was the target
+ * of exactly one write, an update setting `submitted_at`, and no insert
+ * anywhere outside a test. So a technician filled in a report on their phone,
+ * the sync accepted every operation and reported success, `submit` updated
+ * zero rows, and `set_field` looked the report up, found nothing, and
+ * returned: every reading, every refrigerant weight and every chemical
+ * application went on the floor one operation at a time, silently, with the
+ * phone showing a tick.
+ *
+ * The id comes from the phone, like every other id in this protocol, because
+ * a device that is offline has to be able to reference a report before it can
+ * tell anybody about it. What the server needs and does not have is the rest:
+ * the job, the customer and the property. Those come off the visit, which the
+ * operation names in its payload.
+ *
+ * Returns a rejection reason, or null once the report exists.
+ */
+async function ensureReport(
+  tx: Database, org: string, op: field.FieldOperation,
+): Promise<string | null> {
+  const reportId = op.subjectId!;
+
+  const [existing] = await tx.select({ id: schema.serviceReport.id })
+    .from(schema.serviceReport).where(eq(schema.serviceReport.id, reportId)).limit(1);
+  if (existing) return null;
+
+  const visitId = op.payload["visitId"] as string | undefined;
+  if (!visitId) {
+    /**
+     * Refused rather than skipped. A report with no visit cannot be attached
+     * to a job, a customer or a property, so there is nowhere for it to be
+     * read back from, and accepting it would be the same silent loss under a
+     * new name.
+     */
+    return "That service report is not attached to a visit, so there is nowhere to file it.";
+  }
+
+  const [visit] = await tx.select({
+    id: schema.visit.id,
+    jobId: schema.visit.jobId,
+    customerId: schema.job.customerId,
+    propertyId: schema.job.propertyId,
+  }).from(schema.visit)
+    .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(and(eq(schema.visit.id, visitId), eq(schema.visit.organizationId, org)))
+    .limit(1);
+  if (!visit) return "That visit is not here.";
+
+  await tx.insert(schema.serviceReport).values({
+    id: reportId,
+    organizationId: org,
+    visitId: visit.id,
+    jobId: visit.jobId,
+    customerId: visit.customerId,
+    propertyId: visit.propertyId,
+  /**
+   * For the race this function cannot see, and NOT for an ordinary replay:
+   * the existence check at the top already returns before reaching here on
+   * the second arrival, which is why deleting this line breaks no test.
+   *
+   * It stays for two syncs landing at once, which two devices on one job
+   * genuinely produce: both read no report, both insert, and without this one
+   * transaction fails on the primary key and takes an entire batch of a
+   * technician's day down with it.
+   */
+  }).onConflictDoNothing();
+
+  return null;
+}
+
 async function effect(
   tx: Database,
   ctx: ServiceContext,
   op: field.FieldOperation,
   currentState: string | null,
   operationId: string,
-) {
+): Promise<string | null> {
   const org = ctx.actor.organizationId;
   const nextState = field.stateAfter(op.kind, (currentState ?? undefined) as field.VisitState | undefined);
 
@@ -299,7 +406,7 @@ async function effect(
     case "visit.start":
     case "visit.pause":
     case "visit.complete": {
-      if (!op.subjectId) return;
+      if (!op.subjectId) return "That operation names nothing to apply it to.";
       const stamp =
         op.kind === "visit.en_route" ? { enRouteAt: op.occurredAt }
         : op.kind === "visit.arrive" ? { arrivedAt: op.occurredAt }
@@ -313,18 +420,18 @@ async function effect(
       }).where(eq(schema.visit.id, op.subjectId));
 
       await customerTimeline(tx, org, op, nextState);
-      return;
+      return null;
     }
 
     case "visit.note": {
-      if (!op.subjectId) return;
+      if (!op.subjectId) return "That operation names nothing to apply it to.";
       const note = String(op.payload["text"] ?? "");
-      if (!note) return;
+      if (!note) return "That note is empty.";
       await tx.update(schema.visit).set({
         technicianNotes: sql`coalesce(${schema.visit.technicianNotes} || E'\\n', '') || ${note}`,
         updatedAt: new Date(),
       }).where(eq(schema.visit.id, op.subjectId));
-      return;
+      return null;
     }
 
     case "timeclock.punch_in": {
@@ -351,7 +458,7 @@ async function effect(
         startLatitude: (op.payload["latitude"] as string) ?? null,
         startLongitude: (op.payload["longitude"] as string) ?? null,
       });
-      return;
+      return null;
     }
 
     case "timeclock.punch_out": {
@@ -366,8 +473,10 @@ async function effect(
 
       // No open punch is not an error worth refusing. Somebody's phone lost
       // the punch in, and a punch out on its own is still evidence that they
-      // stopped; it surfaces as an open entry a supervisor fixes.
-      if (!open) return;
+      // stopped; it surfaces as an open entry a supervisor fixes. Null rather
+      // than a rejection for exactly that reason: it is not the technician's
+      // mistake and telling their phone it failed helps nobody.
+      if (!open) return null;
 
       const minutes = Math.max(
         0,
@@ -397,16 +506,16 @@ async function effect(
        * stops being something anybody can stand behind.
        */
       await freezeRate(tx, org, open.id);
-      return;
+      return null;
     }
 
     case "visit.checklist_item": {
-      if (!op.subjectId) return;
+      if (!op.subjectId) return "That operation names nothing to apply it to.";
       const itemId = String(op.payload["itemId"] ?? "");
       const done = op.payload["done"] !== false;
       const [visit] = await tx.select({ checklist: schema.visit.checklist })
         .from(schema.visit).where(eq(schema.visit.id, op.subjectId)).limit(1);
-      if (!visit) return;
+      if (!visit) return "That visit is not here.";
 
       await tx.update(schema.visit).set({
         checklist: visit.checklist.map((item) =>
@@ -415,7 +524,7 @@ async function effect(
             : item),
         updatedAt: new Date(),
       }).where(eq(schema.visit.id, op.subjectId));
-      return;
+      return null;
     }
 
     case "attachment.attach":
@@ -441,16 +550,19 @@ async function effect(
         latitude: (op.payload["latitude"] as string) ?? null,
         longitude: (op.payload["longitude"] as string) ?? null,
       }).onConflictDoNothing();
-      return;
+      return null;
     }
 
     case "service_report.submit": {
-      if (!op.subjectId) return;
+      if (!op.subjectId) return "That operation names no service report.";
+      const missing = await ensureReport(tx, org, op);
+      if (missing) return missing;
+
       await tx.update(schema.serviceReport).set({
         submittedAt: op.occurredAt,
         updatedAt: new Date(),
       }).where(eq(schema.serviceReport.id, op.subjectId));
-      return;
+      return null;
     }
 
     case "service_report.set_field": {
@@ -462,14 +574,17 @@ async function effect(
        * and both have real consequences attached, which is why the regulated
        * columns are first class rather than living in a JSON bag.
        */
-      if (!op.subjectId) return;
+      if (!op.subjectId) return "That operation names no service report.";
       const key = String(op.payload["field"] ?? "");
-      if (!key) return;
+      if (!key) return "That reading names no field.";
+
+      const missing = await ensureReport(tx, org, op);
+      if (missing) return missing;
 
       const [report] = await tx.select({
         propertyId: schema.serviceReport.propertyId,
       }).from(schema.serviceReport).where(eq(schema.serviceReport.id, op.subjectId)).limit(1);
-      if (!report) return;
+      if (!report) return "That service report could not be created.";
 
       const value = op.payload["value"];
 
@@ -497,7 +612,7 @@ async function effect(
         targetPest: (op.payload["targetPest"] as string) ?? null,
         recordedAt: op.occurredAt,
       });
-      return;
+      return null;
     }
 
     case "visit.add_line": {
@@ -510,11 +625,11 @@ async function effect(
        * lines that must never reach an invoice and must absolutely reach the
        * margin on the original job.
        */
-      if (!op.subjectId) return;
+      if (!op.subjectId) return "That operation names nothing to apply it to.";
       const [visit] = await tx.select({
         jobId: schema.visit.jobId,
       }).from(schema.visit).where(eq(schema.visit.id, op.subjectId)).limit(1);
-      if (!visit) return;
+      if (!visit) return "That visit is not here.";
 
       const technicianId = await technicianForDevice(tx, op.deviceId);
 
@@ -535,7 +650,7 @@ async function effect(
         nonBillableReason: (op.payload["nonBillableReason"] as string) ?? null,
         occurredAt: op.occurredAt,
       });
-      return;
+      return null;
     }
 
     case "equipment.record": {
@@ -548,7 +663,7 @@ async function effect(
        * same furnace and splits ten years of history down the middle.
        */
       const propertyId = op.payload["propertyId"] as string | undefined;
-      if (!propertyId) return;
+      if (!propertyId) return "That equipment record names no property.";
 
       const serial = (op.payload["serialNumber"] as string) ?? null;
 
@@ -568,7 +683,7 @@ async function effect(
             location: (op.payload["location"] as string) ?? undefined,
             updatedAt: new Date(),
           }).where(eq(schema.equipment.id, existing.id));
-          return;
+          return null;
         }
       }
 
@@ -582,7 +697,7 @@ async function effect(
         location: (op.payload["location"] as string) ?? null,
         attributes: (op.payload["attributes"] as Record<string, unknown>) ?? {},
       });
-      return;
+      return null;
     }
 
     default:
@@ -595,7 +710,7 @@ async function effect(
        * catalogue, so adding one without an effect fails rather than
        * silently discarding a technician's work.
        */
-      return;
+      return null;
   }
 }
 

@@ -991,3 +991,138 @@ run("every operation does something", () => {
     expect(rows[0]!.location).toBe("Attic, north end");
   });
 });
+
+/** A fixed morning, so a failure message names a readable time. */
+const reportAt = (hour: number, minute: number) =>
+  new Date(Date.UTC(2026, 0, 12, hour, minute)).toISOString();
+
+run("a service report that reaches the database", () => {
+  /**
+   * NOTHING EVER CREATED A SERVICE REPORT ROW. `service_report` was the
+   * target of exactly one write, an update setting `submitted_at`, and no
+   * insert anywhere outside a test file. So a technician filled in a report
+   * on their phone, the sync accepted every operation and reported success,
+   * `submit` updated zero rows, and `set_field` looked the report up, found
+   * nothing, and returned. Every reading, every refrigerant weight and every
+   * chemical application went on the floor one operation at a time, silently,
+   * with a tick on the phone.
+   *
+   * `effect` returned void, which is why nobody could have noticed.
+   */
+  const reportRow = (id: string) => raw<{
+    visit_id: string; job_id: string; customer_id: string;
+    property_id: string; submitted_at: Date | null;
+  }[]>`select visit_id, job_id, customer_id, property_id, submitted_at
+       from public.service_report where id = ${id}`;
+
+  it("creates the report from the visit the operation names", async () => {
+    const { visitId } = await makeVisit();
+    const device = await freshDevice();
+    const reportId = uuid();
+
+    const { results } = await fieldOps.sync(tech(), {
+      deviceId: device,
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "service_report.set_field",
+        occurredAt: reportAt(9, 0), subjectId: reportId,
+        payload: { visitId, field: "superheat", value: "12" },
+      }],
+    });
+
+    expect(results[0]!.status).toBe("applied");
+
+    const [row] = await reportRow(reportId);
+    expect(row!.visit_id).toBe(visitId);
+    // And the field landed, which is the whole point.
+    const fields = await raw`select key from public.service_report_field
+      where report_id = ${reportId}`;
+    expect(fields).toHaveLength(1);
+  });
+
+  it("rejects an operation it cannot file, instead of reporting success", async () => {
+    /**
+     * The failure this whole change is about. A report with no visit cannot
+     * be attached to a job, a customer or a property, so there is nowhere to
+     * read it back from. Accepting it would be the same silent loss under a
+     * new name.
+     */
+    const device = await freshDevice();
+
+    const { results } = await fieldOps.sync(tech(), {
+      deviceId: device,
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "service_report.set_field",
+        occurredAt: reportAt(9, 0), subjectId: uuid(),
+        payload: { field: "superheat", value: "12" },
+      }],
+    });
+
+    expect(results[0]!.status).toBe("rejected");
+    expect(results[0]!.rejection).toMatch(/not attached to a visit/i);
+  });
+
+  it("records the rejection in the log, not just in the reply", async () => {
+    // The phone may never come back. The office has to be able to see that
+    // something was thrown away and why.
+    const device = await freshDevice();
+    const clientId = uuid();
+
+    await fieldOps.sync(tech(), {
+      deviceId: device,
+      operations: [{
+        clientId, sequence: 1, kind: "service_report.submit",
+        occurredAt: reportAt(9, 0), subjectId: uuid(), payload: {},
+      }],
+    });
+
+    const [row] = await raw<{ status: string; rejection: string | null }[]>`
+      select status, rejection from public.field_operation where client_id = ${clientId}`;
+    expect(row!.status).toBe("rejected");
+    expect(row!.rejection).toBeTruthy();
+  });
+
+  it("submits a report the same operation stream created", async () => {
+    const { visitId } = await makeVisit();
+    const device = await freshDevice();
+    const reportId = uuid();
+
+    const { results } = await fieldOps.sync(tech(), {
+      deviceId: device,
+      operations: [
+        {
+          clientId: uuid(), sequence: 1, kind: "service_report.set_field",
+          occurredAt: reportAt(9, 0), subjectId: reportId,
+          payload: { visitId, field: "subcooling", value: "9" },
+        },
+        {
+          clientId: uuid(), sequence: 2, kind: "service_report.submit",
+          occurredAt: reportAt(9, 30), subjectId: reportId,
+          payload: { visitId },
+        },
+      ],
+    });
+
+    expect(results.map((r) => r.status)).toEqual(["applied", "applied"]);
+    expect((await reportRow(reportId))[0]!.submitted_at).not.toBeNull();
+  });
+
+  it("does not create a second report when the phone resends", async () => {
+    const { visitId } = await makeVisit();
+    const reportId = uuid();
+
+    for (const sequence of [1, 2]) {
+      const device = await freshDevice();
+      await fieldOps.sync(tech(), {
+        deviceId: device,
+        operations: [{
+          clientId: uuid(), sequence: 1, kind: "service_report.set_field",
+          occurredAt: reportAt(9, sequence), subjectId: reportId,
+          payload: { visitId, field: "superheat", value: String(sequence) },
+        }],
+      });
+    }
+
+    const rows = await raw`select id from public.service_report where id = ${reportId}`;
+    expect(rows).toHaveLength(1);
+  });
+});
