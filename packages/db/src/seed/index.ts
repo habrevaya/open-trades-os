@@ -271,6 +271,7 @@ async function main(): Promise<void> {
     await stock(sql, jobTypes);
     await payroll(sql, technicians);
     await bookingPage(sql, jobTypes);
+    await purchasing(sql, "CONT-2P");
     const links = await portalLinks(sql, customers);
     const owner = await session(sql, "owner");
     const tech = await session(sql, "ray");
@@ -1443,6 +1444,33 @@ async function payroll(sql: postgres.Sql, technicians: Map<string, string>): Pro
  * replacement, and a demo where everything is bookable teaches the opposite
  * of the model.
  */
+/**
+ * A vendor and an order on its way, so the purchasing screen has both states
+ * on it: something suggested and something already coming.
+ */
+async function purchasing(sql: postgres.Sql, itemKey: string): Promise<void> {
+  const [item] = await sql<{ id: string }[]>`
+    select id from public.price_book_item
+    where organization_id = ${ORG} and code = ${itemKey} limit 1`;
+  if (!item) return;
+
+  await sql`insert into public.vendor
+    (id, organization_id, name, account_number, phone)
+    values (${id("vendor:gulf")}, ${ORG}, 'Gulf Coast Supply', 'GC-4417', '(713) 555-0144')`;
+
+  const [order] = await sql<{ id: string }[]>`
+    insert into public.purchase_order
+      (organization_id, number, vendor_id, default_location_id, status, submitted_at, expected_at)
+    values (${ORG}, 1, ${id("vendor:gulf")}, ${id("loc")}, 'submitted', now(),
+            now() + interval '4 days')
+    returning id`;
+
+  await sql`insert into public.purchase_order_line
+    (organization_id, purchase_order_id, item_id, location_id,
+     quantity_ordered, quantity_received, unit_price, sort_order)
+    values (${ORG}, ${order!.id}, ${item.id}, ${id("loc")}, 16.0000, 0, 11.4000, 0)`;
+}
+
 async function bookingPage(sql: postgres.Sql, jobTypes: Map<string, string>): Promise<void> {
   const tuneUp = jobTypes.get("maintenance") ?? [...jobTypes.values()][0];
   if (!tuneUp) return;

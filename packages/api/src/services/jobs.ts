@@ -40,7 +40,8 @@ type CreateInput = z.infer<typeof JobCreate>;
  * numbering with gaps is a real problem in several jurisdictions.
  */
 async function nextNumber(
-  tx: Database, organizationId: string, table: "job" | "invoice" | "estimate",
+  tx: Database, organizationId: string,
+  table: "job" | "invoice" | "estimate" | "purchase_order",
 ): Promise<number> {
   await tx.execute(sql`
     select pg_advisory_xact_lock(hashtext(${`number:${table}:${organizationId}`}))

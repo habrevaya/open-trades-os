@@ -110,6 +110,8 @@ const SHOTS = [
   */
   { name: "inventory", path: "/inventory", token: OWNER, ...DESK, height: 1100 },
   { name: "timesheets", path: "/timesheets", token: OWNER, ...DESK, height: 900 },
+  { name: "purchasing", path: "/purchasing", token: OWNER, ...DESK, height: 1200 },
+  { name: "booking-setup", path: "/booking", token: OWNER, ...DESK, height: 1200 },
   /**
    * Settings as the owner, because it is the screen that shows the state of
    * the things a reader is most likely to disbelieve: whether a number is

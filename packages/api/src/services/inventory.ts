@@ -1,10 +1,11 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { inventory as inv, money as m } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { audit } from "./customers";
+import { nextNumber } from "./jobs";
 
 /**
  * PURCHASING, VENDORS AND INVENTORY
@@ -547,3 +548,189 @@ export async function levelsIn(tx: Database, itemId: string) {
 }
 
 export { inTenant };
+
+/**
+ * WHO WE BUY FROM, AND THE ORDER WE SEND THEM.
+ *
+ * `vendor`, `purchase_order` and `purchase_order_line` were written by
+ * nothing. `receivePurchaseOrder` above updates a line and an order, and
+ * `toOrder` suggests what to buy, and there was no way to turn a suggestion
+ * into an order or to name anybody to send it to. The purchasing screen was
+ * permanently empty and the receiving path updated rows that could not exist.
+ *
+ * I wrote those three tables myself, in the commit that added this module,
+ * and did not give them a create path. That is the defect this codebase
+ * treats as its most serious, committed by the person most recently complaining
+ * about it.
+ *
+ * `inv.LEGAL_TRANSITIONS` and `inv.canTransition` were exported and called by
+ * nothing for the same reason: there was no order whose status could move.
+ */
+export async function createVendor(
+  ctx: ServiceContext,
+  input: { name: string; accountNumber?: string; email?: string; phone?: string },
+) {
+  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+    const name = input.name.trim();
+    if (name === "") throw new ConflictError("A vendor needs a name.");
+
+    const [row] = await tx.insert(schema.vendor).values({
+      organizationId: ctx.actor.organizationId,
+      name,
+      accountNumber: input.accountNumber?.trim() || null,
+      email: input.email?.trim() || null,
+      phone: input.phone?.trim() || null,
+    }).returning();
+
+    await audit(tx, ctx, "vendor.created", "vendor", row!.id, null, row!);
+    return { id: row!.id, name: row!.name };
+  });
+}
+
+export async function vendors(ctx: ServiceContext) {
+  return guardedRead(ctx, "inventory:read", async (tx) => {
+    const rows = await tx.select({
+      id: schema.vendor.id,
+      name: schema.vendor.name,
+      accountNumber: schema.vendor.accountNumber,
+      email: schema.vendor.email,
+      phone: schema.vendor.phone,
+      active: schema.vendor.active,
+    }).from(schema.vendor)
+      .where(isNull(schema.vendor.deletedAt))
+      .orderBy(asc(schema.vendor.name));
+    return rows;
+  });
+}
+
+/**
+ * Turn what the shelf says into an order somebody can send.
+ *
+ * Lines are supplied rather than taken wholesale from `toOrder`, because the
+ * suggestion is advice and the order is a commitment. A person decides which
+ * of the suggestions to act on and at what price, and a system that placed
+ * them automatically would be buying stock on the strength of a reorder point
+ * nobody has revisited since the day it was typed.
+ */
+export async function createPurchaseOrder(
+  ctx: ServiceContext,
+  input: {
+    vendorId: string;
+    defaultLocationId: string;
+    expectedAt?: Date;
+    notes?: string;
+    lines: Array<{
+      itemId: string;
+      locationId?: string;
+      quantity: string;
+      unitPrice: string;
+    }>;
+  },
+) {
+  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+    if (input.lines.length === 0) {
+      throw new ConflictError("An order with no lines is not an order.");
+    }
+
+    const [vendor] = await tx.select({ id: schema.vendor.id })
+      .from(schema.vendor)
+      .where(and(eq(schema.vendor.id, input.vendorId), isNull(schema.vendor.deletedAt)))
+      .limit(1);
+    if (!vendor) throw new NotFoundError("Vendor");
+
+    for (const line of input.lines) {
+      if (inv.quantity(line.quantity) <= inv.quantity("0")) {
+        throw new ConflictError("Every line needs a positive quantity.");
+      }
+    }
+
+    /**
+     * The number is per organization and sequential, like an invoice's. A
+     * vendor asking "which PO was that" needs an answer shorter than a uuid,
+     * and the uuid is not something a person reads down a phone.
+     */
+    const number = await nextNumber(tx, ctx.actor.organizationId, "purchase_order");
+
+    const [order] = await tx.insert(schema.purchaseOrder).values({
+      organizationId: ctx.actor.organizationId,
+      number,
+      vendorId: input.vendorId,
+      defaultLocationId: input.defaultLocationId,
+      status: "draft",
+      expectedAt: input.expectedAt ?? null,
+      notes: input.notes ?? null,
+      createdByUserId: ctx.actor.userId,
+    }).returning();
+
+    await tx.insert(schema.purchaseOrderLine).values(
+      input.lines.map((line, index) => ({
+        organizationId: ctx.actor.organizationId,
+        purchaseOrderId: order!.id,
+        itemId: line.itemId,
+        /**
+         * Per line, falling back to the order's default. A vendor drops the
+         * condensers at the shop and the filters straight onto a van more
+         * often than it sounds, and one location on the order means somebody
+         * receives the whole thing to the warehouse and then transfers half
+         * of it, or simply does not.
+         */
+        locationId: line.locationId ?? input.defaultLocationId,
+        quantityOrdered: inv.quantityToString(inv.quantity(line.quantity)),
+        unitPrice: line.unitPrice,
+        sortOrder: index,
+      })),
+    );
+
+    await audit(tx, ctx, "purchase_order.created", "purchase_order", order!.id, null,
+      { number, vendorId: input.vendorId, lines: input.lines.length });
+
+    return { id: order!.id, number, status: order!.status };
+  });
+}
+
+/**
+ * Moving an order along, through the transitions core already declares.
+ *
+ * `inv.canTransition` existed and was called by nothing, because nothing
+ * could create an order whose status could move. A received order cannot go
+ * back to draft, and a cancelled one is finished: both are absorbing states,
+ * and letting somebody reopen one is how stock gets received twice against
+ * the same promise.
+ */
+export async function setPurchaseOrderStatus(
+  ctx: ServiceContext,
+  input: { id: string; status: inv.PurchaseOrderStatus },
+) {
+  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+    const [order] = await tx.select().from(schema.purchaseOrder)
+      .where(eq(schema.purchaseOrder.id, input.id)).limit(1);
+    if (!order) throw new NotFoundError("Purchase order");
+
+    const from = order.status as inv.PurchaseOrderStatus;
+    if (from === input.status) return { id: order.id, status: from };
+
+    if (!inv.canTransition(from, input.status)) {
+      throw new ConflictError(
+        `A ${inv.PURCHASE_ORDER_STATUS[from].label.toLowerCase()} order cannot become `
+        + `${inv.PURCHASE_ORDER_STATUS[input.status].label.toLowerCase()}.`,
+      );
+    }
+
+    await tx.update(schema.purchaseOrder).set({
+      status: input.status,
+      /**
+       * Stamped once, when it actually goes out. The question a buyer asks a
+       * week later is "when did we send this", and a status alone cannot
+       * answer it.
+       */
+      ...(input.status === "submitted" && !order.submittedAt
+        ? { submittedAt: new Date() } : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.purchaseOrder.id, input.id));
+
+    await audit(tx, ctx, "purchase_order.status", "purchase_order", input.id,
+      { status: from }, { status: input.status });
+
+    return { id: order.id, status: input.status };
+  });
+}

@@ -20,7 +20,7 @@ export type IconName =
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
-  | "timesheets" | "booking";
+  | "timesheets" | "booking" | "purchasing";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // A sun. One technician's own day, and the only screen they open.
@@ -137,6 +137,17 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="12" cy="12" r="8.6" />
       <path d="M3.4 12h17.2" />
       <path d="M12 3.4a13 13 0 0 1 0 17.2a13 13 0 0 1 0-17.2Z" />
+    </>
+  ),
+  // A delivery truck. Deliberately not the shelf the inventory screen uses:
+  // this one is about what is coming, which is a different question from
+  // what is here.
+  purchasing: (
+    <>
+      <rect x="2.6" y="7.2" width="11.2" height="9.2" rx="1.2" />
+      <path d="M13.8 10.4h3.6l3 3.1v2.9h-6.6Z" />
+      <circle cx="7" cy="18.4" r="1.8" />
+      <circle cx="17.2" cy="18.4" r="1.8" />
     </>
   ),
   automations: <path d="M13.4 2.6 5.2 13.2h5.4l-.9 8.2 8.2-10.6h-5.4l.9-8.2Z" />,
