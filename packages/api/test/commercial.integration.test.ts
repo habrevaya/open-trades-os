@@ -256,6 +256,42 @@ run("the ceiling", () => {
     })).rejects.toThrow(ConflictError);
   });
 
+  it("records which authorisation governed the invoice", async () => {
+    /**
+     * `invoice.authorization_id` carries the comment "Set when a ceiling
+     * governs this invoice, so a breach is checkable", and nothing set it.
+     *
+     * The ceiling itself was enforced all along, so this is narrower than it
+     * sounds: no invoice was ever billed over its limit. What was missing is
+     * the itemisation. `authorization.consumed_amount` is a running total
+     * with nothing behind it, so a commercial client asking which invoices
+     * ate their five hundred dollars had to be answered by matching job ids
+     * and dates by hand.
+     */
+    const job = await newJob();
+    const granted = await commercial.authorize(owner(), { jobId: job.id, amount: "500.00" });
+    const invoice = await billing.create(owner(), {
+      customerId: tenantId, jobId: job.id, lines: [line("120.00")],
+    });
+
+    const [row] = await raw<{ authorization_id: string | null }[]>`
+      select authorization_id from public.invoice where id = ${invoice.id}`;
+    expect(row!.authorization_id).toBe(granted.id);
+  });
+
+  it("leaves it null on an invoice no ceiling governs", async () => {
+    // A residential job has no authorisation, and pointing at one would be a
+    // worse lie than pointing at nothing.
+    const job = await newJob();
+    const invoice = await billing.create(owner(), {
+      customerId: tenantId, jobId: job.id, lines: [line("120.00")],
+    });
+
+    const [row] = await raw<{ authorization_id: string | null }[]>`
+      select authorization_id from public.invoice where id = ${invoice.id}`;
+    expect(row!.authorization_id).toBeNull();
+  });
+
   it("refuses when the authorisation was denied", async () => {
     const job = await newJob();
     await commercial.authorize(owner(), { jobId: job.id, amount: "500.00" });

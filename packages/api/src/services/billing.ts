@@ -168,6 +168,22 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       payerCustomerId: input.payerCustomerId ?? null,
       jobId: input.jobId ?? null,
       purchaseOrderNumber: input.purchaseOrderNumber ?? null,
+      /**
+       * WHICH AUTHORIZATION GOVERNED THIS INVOICE.
+       *
+       * The column's own comment says "Set when a ceiling governs this
+       * invoice, so a breach is checkable", and nothing set it, so the answer
+       * to "what were we authorised for when we billed this" was always null.
+       *
+       * The ceiling itself IS enforced, twenty lines above: an invoice over
+       * the limit is refused before it exists. What was missing is narrower
+       * and still worth having. `authorization.consumed_amount` is a running
+       * total with no itemisation behind it, so when a commercial client asks
+       * which invoices ate their two thousand five hundred dollars, the
+       * answer had to be reconstructed by matching job ids and dates. Now it
+       * is a join.
+       */
+      authorizationId: ceiling?.id ?? null,
       status: "open",
       issuedOn: new Date().toISOString().slice(0, 10),
       dueOn: input.dueOn ?? null,
