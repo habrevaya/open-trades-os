@@ -81,7 +81,14 @@ export function Coverage({
       <label className="text-sm">
         <span className="block text-ink-700">Who is paying</span>
         <select
-          name="source" defaultValue={current?.source ?? "customer"}
+          /*
+           * Defaults to nobody rather than to the customer. Nothing has been
+           * decided on this job and the line above says so, and a select
+           * sitting on "the customer" contradicts it: somebody saving the
+           * claim reference beside it would write a decision they never
+           * made, which is the one thing this module exists to prevent.
+           */
+          name="source" defaultValue={current?.source ?? ""}
           className="mt-1 h-9 rounded border border-steel-300 px-2"
         >
           <option value="">Nobody has decided</option>

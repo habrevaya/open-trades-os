@@ -497,6 +497,55 @@ async function work(
   }
 
   await invoices(sql, customers);
+  await commercialArrangement(sql, customers);
+}
+
+/**
+ * THE JOB WHERE THE CUSTOMER IS NOT ONE PERSON
+ *
+ * Every other seeded job is residential in shape: one customer who asked for
+ * the work, is there for it, and pays for it. That is the case the whole
+ * product was written around and it needs no parties at all.
+ *
+ * This is the other half of the market, and without one example of it the job
+ * screen shows "nobody named" on every job in the demo, which reads as a
+ * feature that does nothing. Suite 400 is a property management job: the
+ * managing agent asked for it and receives the invoice, and the person the
+ * technician actually rings is the tenant, who is not a customer of ours and
+ * never will be.
+ *
+ * The ceiling is the part worth seeing move. The invoice already seeded
+ * against this job is 2,480.50 against an authorised 2,500.00, so the screen
+ * shows nineteen dollars fifty of room rather than an untouched limit. A
+ * ceiling nothing has been billed against demonstrates nothing: the case that
+ * costs contractors money is the second invoice that fits on its own and does
+ * not fit on top of the first.
+ */
+async function commercialArrangement(
+  sql: postgres.Sql,
+  customers: Map<string, { customer: string; property: string }>,
+): Promise<void> {
+  const brazos = customers.get("brazos");
+  if (!brazos) throw new Error("Seed commercial arrangement names an unknown customer");
+  const jobId = id("job:brazos-suite400");
+
+  await sql`
+    insert into public.job_party
+      (id, organization_id, job_id, role, customer_id, external_name, external_reference)
+    values
+      (${id("party:brazos-requester")}, ${ORG}, ${jobId}, 'requester', ${brazos.customer}, null, null),
+      (${id("party:brazos-site")}, ${ORG}, ${jobId}, 'site_contact', null,
+       'Lindmark Design, Suite 400', 'Tenant contact: Priya Raman'),
+      (${id("party:brazos-billto")}, ${ORG}, ${jobId}, 'bill_to', ${brazos.customer}, null, 'AP ref 8841')
+  `;
+
+  await sql`
+    insert into public.authorization
+      (id, organization_id, job_id, state, amount, consumed_amount,
+       granted_by_party_id, granted_by_name, external_reference, granted_at)
+    values (${id("authz:brazos-suite400")}, ${ORG}, ${jobId}, 'granted', '2500.00', '2480.50',
+            ${id("party:brazos-requester")}, 'Brazos, Dana Whitcomb', 'PO 44812', ${at(-6)})
+  `;
 }
 
 /**

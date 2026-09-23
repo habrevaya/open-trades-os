@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { authorization as authz, money as m } from "@opentradesos/core";
+import { authorization as authz, money as m, parties as partyRoles } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -35,8 +35,12 @@ import { audit } from "./customers";
 
 const usd = (value: string) => m.money(value, "USD");
 
-export type PartyRole =
-  | "requester" | "site_contact" | "approver" | "bill_to" | "payer" | "referrer" | "owner";
+/**
+ * The role vocabulary is declared in core, with what each one means, and
+ * imported rather than restated. A second copy of a seven-value list is how
+ * a screen ends up offering a role the database will not take.
+ */
+export type PartyRole = partyRoles.PartyRole;
 
 export interface PartyInput {
   role: PartyRole;
@@ -231,7 +235,7 @@ export async function deny(ctx: ServiceContext, input: { jobId: string; reason: 
 /** The live authorisation on a job, as the shape core's decision expects. */
 export async function ceilingFor(
   tx: Database, jobId: string,
-): Promise<{ id: string; terms: authz.Authorization } | null> {
+): Promise<{ id: string; grantedByName: string | null; terms: authz.Authorization } | null> {
   const [row] = await tx.select().from(schema.authorization)
     .where(and(
       eq(schema.authorization.jobId, jobId),
@@ -243,6 +247,12 @@ export async function ceilingFor(
 
   return {
     id: row.id,
+    /**
+     * Carried out separately from the terms, because it decides nothing. The
+     * arithmetic in core is about amounts and dates; who said yes is a fact
+     * the screen needs to show back and nothing needs to compute with.
+     */
+    grantedByName: row.grantedByName,
     terms: {
       state: row.state,
       amount: row.amount ? usd(row.amount) : null,
@@ -278,6 +288,14 @@ export async function authorizationFor(ctx: ServiceContext, input: { jobId: stri
     const left = authz.remaining(found.terms);
     return {
       id: found.id,
+      /**
+       * Read back because the screen puts it in an editable box. Leaving it
+       * out did not lose the name on the way in: it lost it on the way out.
+       * Raising the ceiling supersedes rather than updates, so a form that
+       * could not show who granted the last one saved a blank over them
+       * every time somebody touched the amount.
+       */
+      grantedByName: found.grantedByName,
       state: found.terms.state,
       amount: found.terms.amount ? m.toString(found.terms.amount) : null,
       consumed: m.toString(found.terms.consumed),

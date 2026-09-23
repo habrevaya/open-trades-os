@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { jobs, commercial, entitlements, NotFoundError } from "@opentradesos/api/services";
-import { can, coverage as cov, work } from "@opentradesos/core";
+import { jobs, customers, commercial, entitlements, NotFoundError } from "@opentradesos/api/services";
+import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Authorize, Coverage } from "./Commercial";
 import { Priority } from "./Priority";
+import { Parties } from "./Parties";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
@@ -28,10 +29,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       throw error;
     });
 
-  const [parties, authorization, entitlement] = await Promise.all([
+  const [parties, authorization, entitlement, customer] = await Promise.all([
     commercial.parties(ctx, { jobId: id }),
     commercial.authorizationFor(ctx, { jobId: id }),
     entitlements.forJob(ctx, { jobId: id }),
+    customers.get(ctx, { id: job.customerId }),
   ]);
   const writes = can(user.actor, "job:write");
 
@@ -66,36 +68,71 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
 
       {/*
-        WHO IS INVOLVED, AND WHAT THEY AUTHORISED.
-        Both decisions are made before anybody invoices and usually by
-        somebody else, and whoever raises the invoice finds out about them by
-        being refused, which is the wrong moment unless the job says so first.
+        WHO IS INVOLVED, WHO IS PAYING, AND WHAT THEY AUTHORISED.
+        All three are decided before anybody invoices and usually by somebody
+        else, and whoever raises the invoice finds out about them by being
+        refused, which is the wrong moment unless the job says so first.
       */}
-      <h2 className="mt-10 text-base font-semibold">Who is paying</h2>
-      {parties.length > 0 ? (
-        <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-ink-700">
-          {parties.map((row) => (
-            <li key={row.party.id}>
-              <span className="text-ink-500">{row.party.role.replace(/_/g, " ")}</span>{" "}
-              {row.customerName ?? row.party.externalName}
-              {row.party.externalReference ? (
-                <span className="text-ink-500"> ({row.party.externalReference})</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : (
+      <h2 className="mt-10 text-base font-semibold">Who is involved</h2>
+      {parties.length === 0 ? (
         <p className="mt-2 text-sm text-ink-500">
           Nobody named, so the customer is all of them. That is the ordinary
           residential case and nothing about it is missing.
         </p>
+      ) : null}
+
+      {/*
+        The list or the form, never both. The form carries the same names in
+        its own boxes, and a screen that states the same fact twice in two
+        shapes is one where the two eventually disagree.
+      */}
+      {!writes ? (
+        parties.length > 0 ? (
+          <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-ink-700">
+            {parties.map((row) => (
+              <li key={row.party.id}>
+                <span className="text-ink-500">{roles.roleLabel(row.party.role)}</span>{" "}
+                {row.customerName ?? row.party.externalName}
+                {row.party.externalReference ? (
+                  <span className="text-ink-500"> ({row.party.externalReference})</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null
+      ) : (
+        <Parties
+          jobId={id}
+          customerId={job.customerId}
+          customerName={customer.name}
+          roles={roles.PARTY_ROLES.map((role) => {
+            const held = parties.find((row) => row.party.role === role.key);
+            return {
+              key: role.key,
+              label: role.label,
+              meaning: role.meaning,
+              current: held
+                ? {
+                    isCustomer: held.party.customerId !== null,
+                    name: held.customerName ?? held.party.externalName ?? "",
+                    reference: held.party.externalReference ?? "",
+                  }
+                : null,
+            };
+          })}
+        />
       )}
 
+      <h2 className="mt-10 text-base font-semibold">Who is paying, and why</h2>
       {entitlement ? (
         <p className="mt-2 text-sm text-ink-700">
           {entitlement.profile.description}
         </p>
-      ) : null}
+      ) : (
+        <p className="mt-2 text-sm text-ink-500">
+          Nobody decided, so the customer is billed for it.
+        </p>
+      )}
 
       {writes ? (
         <Coverage
@@ -139,8 +176,14 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
       {writes ? <Authorize jobId={id} current={authorization
         ? {
-            amount: authorization.amount,
-            grantedByName: null,
+            /**
+             * Trimmed for the box. The column keeps four decimal places
+             * because allocation needs them, and "2500.0000" in an input a
+             * person is about to retype is the storage format leaking onto
+             * a form.
+             */
+            amount: authorization.amount ? money.edit(money.money(authorization.amount, "USD")) : null,
+            grantedByName: authorization.grantedByName,
             externalReference: authorization.externalReference,
           }
         : null} /> : null}

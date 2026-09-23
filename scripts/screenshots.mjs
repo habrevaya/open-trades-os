@@ -130,13 +130,20 @@ const SHOTS = [
    * be a sentence nobody can check.
    */
   /**
-   * A job, including the two decisions that stop an invoice: who is paying,
-   * and what they authorised. Both are made before anybody invoices and
-   * usually by somebody else, so the job has to say so.
+   * A job, including the three decisions that stop an invoice: who is
+   * involved, who is paying, and what they authorised. All three are made
+   * before anybody invoices and usually by somebody else, so the job says so.
+   *
+   * Deliberately the Suite 400 job rather than the first row. It is the one
+   * seeded job with a cast: a managing agent who asked for it and receives
+   * the invoice, a tenant on site who is not a customer of ours, and a
+   * ceiling with an invoice already against it. Every other job in the demo
+   * is residential, and a shot of one of those shows the empty state of the
+   * feature this screen exists to show.
    */
   {
-    name: "job", path: "/jobs", token: OWNER, ...DESK, height: 1100,
-    click: "main table tbody tr:first-child a",
+    name: "job", path: "/jobs", token: OWNER, ...DESK, height: 1400,
+    click: 'main table tbody tr:has-text("Suite 400") a',
     lands: "/jobs/",
   },
   { name: "agreements", path: "/agreements", token: OWNER, ...DESK, height: 900 },

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   money, zero, toString, add, subtract, multiply, divide, round, allocate, split,
-  sum, compare, equals, negate, abs, isNegative, format, CurrencyMismatchError,
+  sum, compare, equals, negate, abs, isNegative, format, edit, CurrencyMismatchError,
 } from "../src/money/index.js";
 
 const usd = (v: string) => money(v, "USD");
@@ -180,5 +180,39 @@ describe("arithmetic basics", () => {
 describe("formatting is display only", () => {
   it("formats for a human", () => {
     expect(format(usd("1234.56"))).toBe("$1,234.56");
+  });
+});
+
+/**
+ * A box somebody is about to retype is not the database and not a label.
+ * Four decimal places is what the column holds; a dollar sign and a comma is
+ * what a reader wants; neither belongs in an input whose value gets posted
+ * straight back.
+ */
+describe("money for an editable box", () => {
+  it("drops the places that say nothing", () => {
+    expect(edit(usd("2500.00"))).toBe("2500.00");
+    expect(edit(usd("2500"))).toBe("2500.00");
+    expect(edit(usd("0"))).toBe("0.00");
+  });
+
+  it("keeps the places that say something", () => {
+    // An allocated instalment really is this, and rounding it in a box
+    // somebody then saves is a schedule that stops summing to the total.
+    expect(edit(usd("16.5833"))).toBe("16.5833");
+    expect(edit(usd("16.5830"))).toBe("16.583");
+  });
+
+  it("never fewer than two, so it still reads as money", () => {
+    expect(edit(usd("2500.5000"))).toBe("2500.50");
+    expect(edit(usd("-40.0000"))).toBe("-40.00");
+  });
+
+  it("posts back as itself", () => {
+    // The whole point: the box's value is a thing `money()` accepts, which
+    // `format` is not.
+    for (const value of ["2500.00", "16.5833", "-40.00", "0.00"]) {
+      expect(toString(usd(edit(usd(value))))).toBe(toString(usd(value)));
+    }
   });
 });

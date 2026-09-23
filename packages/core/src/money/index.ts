@@ -215,6 +215,25 @@ export function allocate(m: Money, ratios: string[], precision = SCALE): Money[]
 export const split = (m: Money, parts: number, precision = SCALE): Money[] =>
   allocate(m, Array.from({ length: parts }, () => "1"), precision);
 
+/**
+ * For an editable box: the fewest decimal places that lose nothing, never
+ * fewer than two.
+ *
+ * `toString` always writes four, because that is what the column holds and
+ * what allocation needs. Putting that straight into an input asks somebody to
+ * retype "2500.0000", which is the storage format leaking onto a form, and
+ * `format` is no good either because a box that posts back "$2,500.00" has to
+ * be parsed by something that knows about dollar signs and commas.
+ *
+ * Truncating to two unconditionally would be worse than either. An allocated
+ * instalment really is 16.5833, and showing it as 16.58 in a box somebody
+ * then saves is a schedule that silently stops summing to the total.
+ */
+export function edit(m: Money): string {
+  const [whole, frac = ""] = toString(m).replace(/0+$/, "").split(".");
+  return `${whole}.${frac.padEnd(2, "0")}`;
+}
+
 /** Display only. Never feed this back into a calculation. */
 export function format(m: Money, locale = "en-US"): string {
   const value = Number(toString(round(m, 2)));

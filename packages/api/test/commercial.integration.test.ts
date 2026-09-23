@@ -207,6 +207,24 @@ run("the ceiling", () => {
     })).resolves.toBeTruthy();
   });
 
+  it("reads back who granted it, because the screen edits that box", async () => {
+    /**
+     * Raising a ceiling supersedes rather than updates, so the form is
+     * repopulated from this and posted back whole. A read that leaves the
+     * name out does not lose it on the way in: it shows an empty box, and
+     * the next person to touch the amount saves a blank over whoever
+     * actually authorised the work.
+     */
+    const job = await newJob();
+    await commercial.authorize(owner(), {
+      jobId: job.id, amount: "500.00", grantedByName: "Meridian, Dana", externalReference: "PO 44812",
+    });
+
+    const state = await commercial.authorizationFor(owner(), { jobId: job.id });
+    expect(state!.grantedByName).toBe("Meridian, Dana");
+    expect(state!.externalReference).toBe("PO 44812");
+  });
+
   it("refuses one that goes over, and says what would fit", async () => {
     /**
      * The network pays five hundred and disputes the rest. The four hundred

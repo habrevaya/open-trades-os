@@ -5,6 +5,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { commercial, entitlements, jobs, ConflictError } from "@opentradesos/api/services";
 import type { coverage } from "@opentradesos/core";
+import { partiesFromForm } from "@/lib/job-parties";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -64,6 +65,35 @@ export async function setPriority(_previous: unknown, form: FormData) {
   const jobId = String(form.get("jobId") ?? "");
   try {
     await jobs.update(await ctx(), { id: jobId, priority: Number(form.get("priority") ?? 0) });
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+  revalidatePath(`/jobs/${jobId}`);
+  return { done: true };
+}
+
+/**
+ * The whole cast at once.
+ *
+ * `setParties` replaces rather than merges, so the form posts every role and
+ * this rebuilds the list from it. Saving one role at a time would mean
+ * reading the others back and resubmitting them, which is a lost update the
+ * moment two people have the job open, and it would force the service to
+ * merge, which leaves whoever used to be the approver still holding the role.
+ */
+export async function setJobParties(_previous: unknown, form: FormData) {
+  const jobId = String(form.get("jobId") ?? "");
+  const rows = partiesFromForm(
+    (field) => {
+      const value = form.get(field);
+      return typeof value === "string" ? value : null;
+    },
+    String(form.get("customerId") ?? ""),
+  );
+
+  try {
+    await commercial.setParties(await ctx(), { jobId, parties: rows });
   } catch (error) {
     if (error instanceof ConflictError) return { error: error.message };
     throw error;
