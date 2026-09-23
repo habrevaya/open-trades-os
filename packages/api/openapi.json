@@ -972,6 +972,887 @@
         ]
       }
     },
+    "/v1/calls": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listCalls",
+        "summary": "List calls",
+        "description": "Requires a session holding: message:read.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List calls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCallsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:read"
+        ]
+      },
+      "post": {
+        "operationId": "logCall",
+        "summary": "Record that a call happened",
+        "description": "Takes no recording fields on purpose. At the moment a provider webhook fires, nobody has decided anything about recording, and accepting a URL here would make the permission check optional in the one place it matters.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogCallInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record that a call happened",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogCallOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
+    "/v1/calls/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getCall",
+        "summary": "Get a call",
+        "description": "Requires a session holding: message:read.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get a call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCallOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:read"
+        ]
+      }
+    },
+    "/v1/calls/{id}/recording": {
+      "description": "Served at this path: DELETE, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "POST"
+      ],
+      "post": {
+        "operationId": "attachRecording",
+        "summary": "Store where the audio lives",
+        "description": "Refused unless the recording decision for this call already said yes. A gate that runs after the audio is stored is not a gate, it is a report.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachRecordingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Store where the audio lives",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachRecordingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteRecording",
+        "summary": "Destroy the recording",
+        "description": "Clears the address in the same statement that stamps the deletion. Works on a call whose audio has not arrived yet, which is the common case: the customer asks on the call, the webhook lands minutes later, and the attach is then refused.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteRecordingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Destroy the recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteRecordingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
+    "/v1/calls/{id}/recording-decision": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "decideRecording",
+        "summary": "Ask whether this call may be recorded",
+        "description": "Ask BEFORE the first byte. The strictest party's jurisdiction governs the whole call, a party whose location is unknown makes the whole call unknown, and a party who declined ends it. Both outcomes are written to the call.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideRecordingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ask whether this call may be recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecideRecordingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
+    "/v1/calls/{id}/transcript": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "attachTranscript",
+        "summary": "Store a transcript, redacted",
+        "description": "Malformed provider output is refused rather than repaired, because a transcript that was quietly straightened out gets believed. Card numbers and security codes are removed BEFORE the write, not on a schedule: the raw text is never bound into a statement.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachTranscriptInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Store a transcript, redacted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachTranscriptOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
     "/v1/customers": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -7194,6 +8075,348 @@
         "x-permissions": []
       }
     },
+    "/v1/recording-policies": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listRecordingPolicies",
+        "summary": "List declared recording policies",
+        "description": "Requires a session holding: settings:read.",
+        "tags": [
+          "M18"
+        ],
+        "responses": {
+          "200": {
+            "description": "List declared recording policies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRecordingPoliciesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "post": {
+        "operationId": "setRecordingPolicy",
+        "summary": "Declare or amend the recording rule for one place",
+        "description": "The whole resulting catalogue is validated, not just this row: a duplicated jurisdiction and a rule outside the catalogue are properties of the set, and the second would behave like the most permissive option.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRecordingPolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Declare or amend the recording rule for one place",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetRecordingPolicyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/recording-policies/{jurisdiction}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeRecordingPolicy",
+        "summary": "Withdraw a declaration",
+        "description": "Loosens nothing. With no policy for a place, every party in it resolves to unknown, which is treated as all party and announcement required.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "jurisdiction",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveRecordingPolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Withdraw a declaration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveRecordingPolicyOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/reports/ar-aging": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -8625,6 +9848,535 @@
         "required": [
           "ok",
           "status"
+        ]
+      },
+      "AttachRecordingInput": {
+        "type": "object",
+        "properties": {
+          "recordingUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "recordingUrl"
+        ]
+      },
+      "AttachRecordingOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "fromE164": {
+            "type": "string"
+          },
+          "toE164": {
+            "type": "string"
+          },
+          "receivedOnE164": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "answeredByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ringing",
+              "in_progress",
+              "completed",
+              "no_answer",
+              "busy",
+              "failed",
+              "voicemail",
+              "abandoned"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ringSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recordingConsent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "one_party",
+              "all_party",
+              "unknown"
+            ]
+          },
+          "recordingStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingRefusal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "policy_rejected",
+              "no_parties",
+              "party_declined",
+              "announcement_not_played",
+              "consent_missing"
+            ]
+          },
+          "announcementPlayedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordingDeletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcript": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transcriptRedactedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcriptRedactionCounts": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "disposition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attributionSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "fromE164",
+          "toE164",
+          "receivedOnE164",
+          "customerId",
+          "contactId",
+          "jobId",
+          "answeredByUserId",
+          "status",
+          "startedAt",
+          "answeredAt",
+          "endedAt",
+          "durationSeconds",
+          "ringSeconds",
+          "recordingConsent",
+          "recordingStartedAt",
+          "recordingRefusal",
+          "announcementPlayedAt",
+          "recordingUrl",
+          "recordingDeletedAt",
+          "transcript",
+          "transcriptRedactedAt",
+          "transcriptRedactionCounts",
+          "disposition",
+          "attributionSource",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "AttachTranscriptInput": {
+        "type": "object",
+        "properties": {
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "speaker": {
+                  "type": "string"
+                },
+                "startMs": {
+                  "type": "number"
+                },
+                "endMs": {
+                  "type": "number"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "speaker",
+                "startMs",
+                "endMs",
+                "text",
+                "confidence"
+              ]
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "segments"
+        ]
+      },
+      "AttachTranscriptOutput": {
+        "type": "object",
+        "properties": {
+          "call": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ]
+              },
+              "fromE164": {
+                "type": "string"
+              },
+              "toE164": {
+                "type": "string"
+              },
+              "receivedOnE164": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "customerId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "contactId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "jobId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "answeredByUserId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ringing",
+                  "in_progress",
+                  "completed",
+                  "no_answer",
+                  "busy",
+                  "failed",
+                  "voicemail",
+                  "abandoned"
+                ]
+              },
+              "startedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "answeredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "endedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "durationSeconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ringSeconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "recordingConsent": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "one_party",
+                  "all_party",
+                  "unknown"
+                ]
+              },
+              "recordingStartedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "recordingRefusal": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "policy_rejected",
+                  "no_parties",
+                  "party_declined",
+                  "announcement_not_played",
+                  "consent_missing"
+                ]
+              },
+              "announcementPlayedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "recordingUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recordingDeletedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "transcript": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "transcriptRedactedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "transcriptRedactionCounts": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "disposition": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attributionSource": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "direction",
+              "fromE164",
+              "toE164",
+              "receivedOnE164",
+              "customerId",
+              "contactId",
+              "jobId",
+              "answeredByUserId",
+              "status",
+              "startedAt",
+              "answeredAt",
+              "endedAt",
+              "durationSeconds",
+              "ringSeconds",
+              "recordingConsent",
+              "recordingStartedAt",
+              "recordingRefusal",
+              "announcementPlayedAt",
+              "recordingUrl",
+              "recordingDeletedAt",
+              "transcript",
+              "transcriptRedactedAt",
+              "transcriptRedactionCounts",
+              "disposition",
+              "attributionSource",
+              "createdAt",
+              "updatedAt"
+            ]
+          },
+          "redacted": {
+            "type": "boolean"
+          },
+          "countsByCategory": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "actOnAutomatically": {
+            "type": "boolean"
+          },
+          "meanConfidence": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "call",
+          "redacted",
+          "countsByCategory",
+          "actOnAutomatically",
+          "meanConfidence"
         ]
       },
       "CompleteVisitInput": {
@@ -11911,6 +13663,88 @@
           "updatedAt"
         ]
       },
+      "DecideRecordingInput": {
+        "type": "object",
+        "properties": {
+          "parties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "caller",
+                    "callee",
+                    "agent",
+                    "third_party"
+                  ]
+                },
+                "jurisdiction": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "consented": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "role"
+              ]
+            },
+            "minItems": 1
+          },
+          "announcementPlayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "parties",
+          "announcementPlayed"
+        ]
+      },
+      "DecideRecordingOutput": {
+        "type": "object",
+        "properties": {
+          "permitted": {
+            "type": "boolean"
+          },
+          "governing": {
+            "type": "string",
+            "enum": [
+              "one_party",
+              "all_party",
+              "unknown"
+            ]
+          },
+          "announcementRequired": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "refusal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "policy_rejected",
+              "no_parties",
+              "party_declined",
+              "announcement_not_played",
+              "consent_missing"
+            ]
+          }
+        },
+        "required": [
+          "permitted",
+          "governing",
+          "announcementRequired",
+          "message",
+          "refusal"
+        ]
+      },
       "DeclineBookingRequestInput": {
         "type": "object",
         "properties": {
@@ -12440,6 +14274,244 @@
           "ok"
         ]
       },
+      "DeleteRecordingInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "DeleteRecordingOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "fromE164": {
+            "type": "string"
+          },
+          "toE164": {
+            "type": "string"
+          },
+          "receivedOnE164": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "answeredByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ringing",
+              "in_progress",
+              "completed",
+              "no_answer",
+              "busy",
+              "failed",
+              "voicemail",
+              "abandoned"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ringSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recordingConsent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "one_party",
+              "all_party",
+              "unknown"
+            ]
+          },
+          "recordingStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingRefusal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "policy_rejected",
+              "no_parties",
+              "party_declined",
+              "announcement_not_played",
+              "consent_missing"
+            ]
+          },
+          "announcementPlayedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordingDeletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcript": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transcriptRedactedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcriptRedactionCounts": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "disposition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attributionSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "fromE164",
+          "toE164",
+          "receivedOnE164",
+          "customerId",
+          "contactId",
+          "jobId",
+          "answeredByUserId",
+          "status",
+          "startedAt",
+          "answeredAt",
+          "endedAt",
+          "durationSeconds",
+          "ringSeconds",
+          "recordingConsent",
+          "recordingStartedAt",
+          "recordingRefusal",
+          "announcementPlayedAt",
+          "recordingUrl",
+          "recordingDeletedAt",
+          "transcript",
+          "transcriptRedactedAt",
+          "transcriptRedactionCounts",
+          "disposition",
+          "attributionSource",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "GetArAgingOutput": {
         "type": "object",
         "properties": {
@@ -12552,6 +14624,231 @@
         },
         "required": [
           "slots"
+        ]
+      },
+      "GetCallOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "fromE164": {
+            "type": "string"
+          },
+          "toE164": {
+            "type": "string"
+          },
+          "receivedOnE164": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "answeredByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ringing",
+              "in_progress",
+              "completed",
+              "no_answer",
+              "busy",
+              "failed",
+              "voicemail",
+              "abandoned"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ringSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recordingConsent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "one_party",
+              "all_party",
+              "unknown"
+            ]
+          },
+          "recordingStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingRefusal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "policy_rejected",
+              "no_parties",
+              "party_declined",
+              "announcement_not_played",
+              "consent_missing"
+            ]
+          },
+          "announcementPlayedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordingDeletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcript": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transcriptRedactedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcriptRedactionCounts": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "disposition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attributionSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "fromE164",
+          "toE164",
+          "receivedOnE164",
+          "customerId",
+          "contactId",
+          "jobId",
+          "answeredByUserId",
+          "status",
+          "startedAt",
+          "answeredAt",
+          "endedAt",
+          "durationSeconds",
+          "ringSeconds",
+          "recordingConsent",
+          "recordingStartedAt",
+          "recordingRefusal",
+          "announcementPlayedAt",
+          "recordingUrl",
+          "recordingDeletedAt",
+          "transcript",
+          "transcriptRedactedAt",
+          "transcriptRedactionCounts",
+          "disposition",
+          "attributionSource",
+          "createdAt",
+          "updatedAt"
         ]
       },
       "GetCustomerOutput": {
@@ -14612,6 +16909,242 @@
           "hasMore"
         ]
       },
+      "ListCallsOutput": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ]
+                },
+                "fromE164": {
+                  "type": "string"
+                },
+                "toE164": {
+                  "type": "string"
+                },
+                "receivedOnE164": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "contactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "answeredByUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "ringing",
+                    "in_progress",
+                    "completed",
+                    "no_answer",
+                    "busy",
+                    "failed",
+                    "voicemail",
+                    "abandoned"
+                  ]
+                },
+                "startedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "answeredAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "durationSeconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "ringSeconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "recordingConsent": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "one_party",
+                    "all_party",
+                    "unknown"
+                  ]
+                },
+                "recordingStartedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "recordingRefusal": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "policy_rejected",
+                    "no_parties",
+                    "party_declined",
+                    "announcement_not_played",
+                    "consent_missing"
+                  ]
+                },
+                "announcementPlayedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "recordingUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordingDeletedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "transcript": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "transcriptRedactedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "transcriptRedactionCounts": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": {
+                    "type": "integer"
+                  }
+                },
+                "disposition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attributionSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "direction",
+                "fromE164",
+                "toE164",
+                "receivedOnE164",
+                "customerId",
+                "contactId",
+                "jobId",
+                "answeredByUserId",
+                "status",
+                "startedAt",
+                "answeredAt",
+                "endedAt",
+                "durationSeconds",
+                "ringSeconds",
+                "recordingConsent",
+                "recordingStartedAt",
+                "recordingRefusal",
+                "announcementPlayedAt",
+                "recordingUrl",
+                "recordingDeletedAt",
+                "transcript",
+                "transcriptRedactedAt",
+                "transcriptRedactionCounts",
+                "disposition",
+                "attributionSource",
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "calls"
+        ]
+      },
       "ListConflictsOutput": {
         "type": "object",
         "properties": {
@@ -15742,6 +18275,355 @@
           "hasMore"
         ]
       },
+      "ListRecordingPoliciesOutput": {
+        "type": "object",
+        "properties": {
+          "policies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jurisdiction": {
+                  "type": "string"
+                },
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "one_party",
+                    "all_party",
+                    "unknown"
+                  ]
+                },
+                "announcementRequired": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "jurisdiction",
+                "rule",
+                "announcementRequired",
+                "note"
+              ]
+            }
+          }
+        },
+        "required": [
+          "policies"
+        ]
+      },
+      "LogCallInput": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "fromE164": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "toE164": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ringing",
+              "in_progress",
+              "completed",
+              "no_answer",
+              "busy",
+              "failed",
+              "voicemail",
+              "abandoned"
+            ]
+          },
+          "receivedOnE164": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ringSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "disposition": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "providerCallId": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "direction",
+          "fromE164",
+          "toE164",
+          "status"
+        ]
+      },
+      "LogCallOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "fromE164": {
+            "type": "string"
+          },
+          "toE164": {
+            "type": "string"
+          },
+          "receivedOnE164": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "answeredByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ringing",
+              "in_progress",
+              "completed",
+              "no_answer",
+              "busy",
+              "failed",
+              "voicemail",
+              "abandoned"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ringSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recordingConsent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "one_party",
+              "all_party",
+              "unknown"
+            ]
+          },
+          "recordingStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingRefusal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "policy_rejected",
+              "no_parties",
+              "party_declined",
+              "announcement_not_played",
+              "consent_missing"
+            ]
+          },
+          "announcementPlayedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recordingUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordingDeletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcript": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transcriptRedactedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcriptRedactionCounts": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "disposition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attributionSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "fromE164",
+          "toE164",
+          "receivedOnE164",
+          "customerId",
+          "contactId",
+          "jobId",
+          "answeredByUserId",
+          "status",
+          "startedAt",
+          "answeredAt",
+          "endedAt",
+          "durationSeconds",
+          "ringSeconds",
+          "recordingConsent",
+          "recordingStartedAt",
+          "recordingRefusal",
+          "announcementPlayedAt",
+          "recordingUrl",
+          "recordingDeletedAt",
+          "transcript",
+          "transcriptRedactedAt",
+          "transcriptRedactionCounts",
+          "disposition",
+          "attributionSource",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "OpenPortalLinkOutput": {
         "type": "object",
         "properties": {
@@ -16081,6 +18963,21 @@
         "required": [
           "deviceId",
           "lastSequence"
+        ]
+      },
+      "RemoveRecordingPolicyInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveRecordingPolicyOutput": {
+        "type": "object",
+        "properties": {
+          "jurisdiction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jurisdiction"
         ]
       },
       "ReorderRouteInput": {
@@ -17136,6 +20033,66 @@
         },
         "required": [
           "days"
+        ]
+      },
+      "SetRecordingPolicyInput": {
+        "type": "object",
+        "properties": {
+          "jurisdiction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "one_party",
+              "all_party",
+              "unknown"
+            ]
+          },
+          "announcementRequired": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "jurisdiction",
+          "rule",
+          "announcementRequired",
+          "note"
+        ]
+      },
+      "SetRecordingPolicyOutput": {
+        "type": "object",
+        "properties": {
+          "jurisdiction": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "one_party",
+              "all_party",
+              "unknown"
+            ]
+          },
+          "announcementRequired": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jurisdiction",
+          "rule",
+          "announcementRequired",
+          "note"
         ]
       },
       "SyncOperationsInput": {

@@ -45,7 +45,7 @@ than pretending otherwise.
 | Invoicing, payments, card present, financing | M13 | Built |
 | Accounting sync, GL, tax (QuickBooks, Intacct) | M14 | Part built |
 | Job costing and profitability | M15 | Part built |
-| Purchasing, vendors, inventory, truck stock | M16 | Planned |
+| Purchasing, vendors, inventory, truck stock | M16 | Part built |
 | Payroll, timesheets, commissions, scorecards | M17 | Part built |
 | Phones, IVR, call recording, softphone (Phones Pro, Contact Center) | M18 | Part built |
 | Ads, attribution, call tracking, email (Marketing Pro) | M19 | Planned |

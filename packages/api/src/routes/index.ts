@@ -5,7 +5,7 @@ import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
-  fieldOps, dispatch, properties, priceBook,
+  fieldOps, dispatch, properties, priceBook, telephony,
 } from "../services/index";
 
 /**
@@ -124,6 +124,18 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Voice. Both gates run before the thing they gate, never after.
+  listRecordingPolicies: telephony.handlers.listRecordingPolicies,
+  setRecordingPolicy: telephony.handlers.setRecordingPolicy,
+  removeRecordingPolicy: telephony.handlers.removeRecordingPolicy,
+  logCall: telephony.handlers.logCall,
+  listCalls: telephony.handlers.listCalls,
+  getCall: telephony.handlers.getCall,
+  decideRecording: telephony.handlers.decideRecording,
+  attachRecording: telephony.handlers.attachRecording,
+  deleteRecording: telephony.handlers.deleteRecording,
+  attachTranscript: telephony.handlers.attachTranscript,
 
   // Dispatch
   getDispatchBoard: dispatch.board,

@@ -414,10 +414,47 @@ export const call = pgTable("call", {
   /** Time before answer. The number a shop actually manages to. */
   ringSeconds: integer("ring_seconds"),
   recordingUrl: text("recording_url"),
+  /**
+   * The rule that GOVERNED this call, resolved from every party's
+   * jurisdiction at the moment recording was asked for: one_party, all_party
+   * or unknown. Not the company's configured rule, and not a boolean. An
+   * operator answering a question about a 2024 call needs the answer the
+   * system reached then.
+   */
   recordingConsent: text("recording_consent"),
+  /** When permission was granted and the first byte could be kept. Null means no recording was ever allowed to start. */
+  recordingStartedAt: timestamp("recording_started_at", { withTimezone: true }),
+  /**
+   * Why recording was refused, as one of core's refusal codes. Stored
+   * because "there is no recording" and "we were told not to record" look
+   * identical on a row that only carries a null URL, and only one of them is
+   * a thing to go and fix.
+   */
+  recordingRefusal: text("recording_refusal"),
+  /** When the recording notice was played. The precondition, not an inference from it. */
+  announcementPlayedAt: timestamp("announcement_played_at", { withTimezone: true }),
   recordingDeletedAt: timestamp("recording_deleted_at", { withTimezone: true }),
   voicemailUrl: text("voicemail_url"),
+  /** The readable rendering, already redacted. Never the provider's raw text. */
   transcript: text("transcript"),
+  /**
+   * The redacted segments with their speakers and offsets, so a viewer can
+   * jump to a timestamp. Offsets survive redaction by construction: masking
+   * only ever replaces characters, so every segment is exactly as long as it
+   * was.
+   */
+  transcriptSegments: jsonb("transcript_segments").$type<{
+    speaker: string; startMs: number; endMs: number; text: string; confidence: number;
+  }[]>(),
+  /** When the redaction pass ran. The destruction step, dated. */
+  transcriptRedactedAt: timestamp("transcript_redacted_at", { withTimezone: true }),
+  /**
+   * How many of each category were removed. Kept so a viewer can be told a
+   * card number was taken out of this call without anybody reopening the
+   * audio to find out, and so a spike in card numbers spoken aloud is
+   * visible without reading transcripts.
+   */
+  transcriptRedactionCounts: jsonb("transcript_redaction_counts").$type<Record<string, number>>(),
   /** What the call was: booked, quote requested, wrong number, spam. */
   disposition: text("disposition"),
   attributionSource: text("attribution_source"),
@@ -428,6 +465,42 @@ export const call = pgTable("call", {
   orgIdx: index("call_org_idx").on(t.organizationId, t.startedAt),
   customerIdx: index("call_customer_idx").on(t.customerId),
   numberIdx: index("call_number_idx").on(t.organizationId, t.receivedOnE164),
+}));
+
+/* ------------------------------------------------- recording policy */
+
+/**
+ * What the operator has DECLARED about recording in one place.
+ *
+ * This table holds a claim the operator made, not a statement of law. The
+ * software's job is to hold them to it consistently and to refuse to record
+ * when their own declaration does not cover the call. Whether the declaration
+ * is correct is a question for them and their counsel, which is the same rule
+ * the trade packs follow.
+ *
+ * `jurisdiction` is matched EXACTLY against what is recorded on a party.
+ * Nothing here parses it, infers a country from it, or falls back to a prefix
+ * match, because a fuzzy match silently applies one place's rule to another.
+ *
+ * `announcement_required` is separate from `rule` rather than derived from
+ * it, because the two move independently: an operator may choose to announce
+ * everywhere, and may have advice that one place needs more than an
+ * announcement.
+ */
+export const recordingPolicy = pgTable("recording_policy", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  jurisdiction: text("jurisdiction").notNull(),
+  /** One of core's CONSENT_RULES. Checked on write, because a value outside the catalogue would fall through every comparison and behave like the most permissive one. */
+  rule: text("rule").notNull(),
+  announcementRequired: boolean("announcement_required").notNull().default(true),
+  /** The operator's own words, shown on the settings screen. Required: a blank note tells the person deciding whether to turn recording on nothing at all. */
+  note: text("note").notNull(),
+  ...timestamps,
+}, (t) => ({
+  jurisdictionIdx: uniqueIndex("recording_policy_jurisdiction_idx")
+    .on(t.organizationId, t.jurisdiction)
+    .where(sql`${t.deletedAt} is null`),
 }));
 
 /* ------------------------------------------------------------- templates */

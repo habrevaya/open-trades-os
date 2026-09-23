@@ -55,6 +55,10 @@ const ORDER = [
   // campaign, a campaign points at a brand.
   "message", "call", "conversation",
   "suppression", "communication_consent", "message_template",
+  // Nothing points at a recording policy: it is matched by jurisdiction
+  // string, never by id, which is why a party's jurisdiction can name a
+  // place the operator has not declared.
+  "recording_policy",
   "phone_number", "messaging_campaign", "messaging_brand",
   "portal_event", "portal_grant",
   "booking_request", "bookable_service", "arrival_window",

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, ConflictError } from "@opentradesos/api/services";
+import { branding, telephony, ConflictError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -90,6 +90,49 @@ export async function setTimezone(_previous: unknown, form: FormData) {
     return result.previous && result.previous !== result.timezone
       ? { done: true, note: `Now ${result.timezone}, was ${result.previous}. Published arrival windows move with it.` }
       : { done: true };
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+}
+
+/**
+ * CALL RECORDING, AND WHAT THE OPERATOR IS DECLARING
+ *
+ * Nothing here decides what the law is. The operator says what they believe
+ * the rule is in each place they work, in their own words, and the product
+ * holds them to it: a call with a party in a place they have not declared
+ * resolves to unknown, which is treated as all party and announcement
+ * required, and recording is refused until that is satisfied.
+ *
+ * Withdrawing a declaration is therefore the safe direction. A person who is
+ * no longer sure about a place should be able to remove it and have the
+ * system get stricter, not quietly keep applying yesterday's confidence.
+ */
+export async function setRecordingPolicy(_previous: unknown, form: FormData) {
+  try {
+    const policy = await telephony.setPolicy(await ctx(), {
+      jurisdiction: String(form.get("jurisdiction") ?? ""),
+      rule: String(form.get("rule") ?? ""),
+      announcementRequired: form.get("announcementRequired") === "on",
+      note: String(form.get("note") ?? ""),
+    });
+    revalidatePath("/settings");
+    return { done: true, note: `${policy.jurisdiction} is declared ${policy.rule.replace("_", " ")}.` };
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+}
+
+export async function removeRecordingPolicy(_previous: unknown, form: FormData) {
+  try {
+    await telephony.removePolicy(await ctx(), String(form.get("jurisdiction") ?? ""));
+    revalidatePath("/settings");
+    return {
+      done: true,
+      note: "Withdrawn. Calls with a party there now resolve to unknown, which needs everybody's agreement and an announcement.",
+    };
   } catch (error) {
     if (error instanceof ConflictError) return { error: error.message };
     throw error;

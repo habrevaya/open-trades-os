@@ -1,6 +1,9 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inTenant, roles as roleService, branding as brandingService } from "@opentradesos/api/services";
+import {
+  inTenant, roles as roleService, branding as brandingService,
+  telephony as telephonyService,
+} from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { and, eq, isNull } from "drizzle-orm";
@@ -9,6 +12,7 @@ import { PHONE_PURPOSE, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { Branding } from "./Branding";
 import { Timezone } from "./Timezone";
+import { Recording } from "./Recording";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +61,7 @@ export default async function SettingsPage() {
   }));
 
   const customRoles = can(user.actor, "role:write") ? await roleService.list(ctx) : [];
+  const recordingPolicies = writes ? await telephonyService.listPolicies(ctx) : [];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -80,6 +85,12 @@ export default async function SettingsPage() {
       )}
 
       {writes && data.organization && <Timezone current={data.organization.timezone} />}
+
+      {/*
+        Below the time zone because both are declarations about the world
+        that the product then applies everywhere without asking again.
+      */}
+      {writes && <Recording policies={recordingPolicies} />}
 
       <Section
         title="Phone numbers"
