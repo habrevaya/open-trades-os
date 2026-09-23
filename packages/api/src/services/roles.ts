@@ -166,25 +166,120 @@ export async function update(ctx: ServiceContext, input: { id: string } & Partia
  */
 export async function assign(
   ctx: ServiceContext,
-  input: { membershipId: string; roleId: string | null },
+  input: {
+    membershipId: string;
+    roleId: string | null;
+    /**
+     * WHERE THIS PERSON'S SCOPE POINTS, and until now nothing could set it.
+     *
+     * Two of the five scopes, `business_unit` and `location`, resolve through
+     * `membership.business_unit_id` and `membership.location_id`. Neither
+     * column was ever written by anything. `scope.ts` reads them and returns
+     * NOTHING when they are null, so an administrator who built a "Branch
+     * Manager" role with `job: "business_unit"` and assigned it watched that
+     * person open an empty job list. Not an error, not a permission message:
+     * an empty screen, which reads as "this branch has no work".
+     *
+     * `session.ts` already carries a comment about the other half of this
+     * exact bug. This is the half that was still open.
+     */
+    businessUnitId?: string | null;
+    locationId?: string | null;
+  },
 ) {
   return guardedWrite(ctx, "membership:write", async (tx) => {
-    if (input.roleId) {
-      const [target] = await tx.select().from(schema.role)
-        .where(and(eq(schema.role.id, input.roleId), isNull(schema.role.deletedAt))).limit(1);
-      if (!target) throw new NotFoundError("Role");
-      assertWithinAuthority(ctx, {
-        permissions: target.permissions as Permission[],
-        scopes: target.scopes as Partial<Record<ScopedResource, Scope>>,
-      });
-    }
-
     const [before] = await tx.select().from(schema.membership)
       .where(eq(schema.membership.id, input.membershipId)).limit(1);
     if (!before) throw new NotFoundError("Membership");
 
+    if (input.roleId) {
+      const [target] = await tx.select().from(schema.role)
+        .where(and(eq(schema.role.id, input.roleId), isNull(schema.role.deletedAt))).limit(1);
+      if (!target) throw new NotFoundError("Role");
+      const scopes = target.scopes as Partial<Record<ScopedResource, Scope>>;
+      assertWithinAuthority(ctx, {
+        permissions: target.permissions as Permission[],
+        scopes,
+      });
+
+      /**
+       * A SCOPE THAT POINTS NOWHERE IS REFUSED, LOUDLY.
+       *
+       * This is the guard that would have caught the bug above. `scope.ts`
+       * resolves `business_unit` and `location` through columns on the
+       * membership, and returns NOTHING when they are null. Assigning such a
+       * role to somebody with no anchor does not fail: it succeeds, and that
+       * person opens an empty screen that reads as "there is no work here".
+       *
+       * A refusal naming the missing anchor is the difference between an
+       * administrator fixing it in ten seconds and a technician escalating a
+       * blank screen through support.
+       */
+      const anchored = {
+        business_unit: input.businessUnitId !== undefined
+          ? input.businessUnitId : before.businessUnitId,
+        location: input.locationId !== undefined ? input.locationId : before.locationId,
+      };
+      for (const [resource, scope] of Object.entries(scopes)) {
+        const needed = scope === "business_unit" || scope === "location" ? scope : null;
+        if (needed && !anchored[needed]) {
+          throw new ConflictError(
+            `That role scopes ${resource} to this person's ${needed.replace("_", " ")}, `
+            + `and they have none set. Choose one, or they will see nothing at all.`,
+          );
+        }
+      }
+    }
+
+    /**
+     * The anchors must exist, and these lookups CANNOT be the thing that
+     * stops a foreign one. Said plainly, because deleting the organization
+     * filter below changes no test and somebody will notice that.
+     *
+     * Everything in `guardedWrite` runs inside `inTenant`, which sets the
+     * `authenticated` role and the organization, so row level security has
+     * already made another company's business unit invisible to this select.
+     * The row simply is not there, and the refusal below fires for "no such
+     * unit" rather than for "not yours".
+     *
+     * The explicit filter stays because it costs nothing and because this
+     * file would otherwise read as though an id from a form were taken on
+     * trust. What these lookups genuinely add is the refusal itself: without
+     * them a mistyped id would be written into the membership and then used,
+     * by `scope.ts`, as the filter deciding what this person sees. Nothing
+     * would leak, and they would open an empty screen nobody could explain.
+     */
+    if (input.businessUnitId) {
+      const [unit] = await tx.select({ id: schema.businessUnit.id })
+        .from(schema.businessUnit)
+        .where(and(
+          eq(schema.businessUnit.id, input.businessUnitId),
+          eq(schema.businessUnit.organizationId, ctx.actor.organizationId),
+        )).limit(1);
+      if (!unit) throw new NotFoundError("Business unit");
+    }
+    if (input.locationId) {
+      const [loc] = await tx.select({ id: schema.location.id })
+        .from(schema.location)
+        .where(and(
+          eq(schema.location.id, input.locationId),
+          eq(schema.location.organizationId, ctx.actor.organizationId),
+        )).limit(1);
+      if (!loc) throw new NotFoundError("Location");
+    }
+
     const [after] = await tx.update(schema.membership)
-      .set({ roleId: input.roleId, updatedAt: new Date() })
+      .set({
+        roleId: input.roleId,
+        /**
+         * Only written when the caller said something. Omitting the field
+         * leaves an existing anchor alone, so changing somebody's role does
+         * not silently empty the screen of a branch manager who had one.
+         */
+        ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
+        ...(input.locationId !== undefined ? { locationId: input.locationId } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.membership.id, input.membershipId))
       .returning();
 

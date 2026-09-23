@@ -9,6 +9,7 @@ import * as estimates from "../src/services/estimates";
 import * as properties from "../src/services/properties";
 import { inTenant, type ServiceContext } from "../src/services/context";
 import { jobScopeFilter, type ScopeContext } from "../src/services/scope";
+import * as roleService from "../src/services/roles";
 import type { Scope } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { and, isNull } from "drizzle-orm";
@@ -34,6 +35,9 @@ const run = url ? describe : describe.skip;
 
 const ORG = fixtureId("scope:org");
 const USER = fixtureId("scope:user");
+/** A second company, so a foreign anchor is a real id rather than a guess. */
+const OTHER_ORG = fixtureId("scope:other-org");
+const OTHER_USER = fixtureId("scope:other-user");
 
 let raw: postgres.Sql;
 const db = () => testDb(url!);
@@ -57,6 +61,7 @@ beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Scope Co", slug: "scope-co" });
+  await seedOrg(raw, { organizationId: OTHER_ORG, userId: OTHER_USER, name: "Other Co", slug: "scope-other" });
 
   const owner = ctxFor(["owner"]);
   const customer = await customers.create(owner, {
@@ -329,5 +334,91 @@ describe("the scope ladder", () => {
     expect(effectiveScope(
       { userId: "u", organizationId: "o", roles: ["technician", "dispatcher"] }, "job",
     )).toBe("all");
+  });
+});
+
+run("a scope has to point at something", () => {
+  /**
+   * `scope.ts` resolves `business_unit` and `location` through columns on the
+   * membership, and both columns were written by nothing at all. An
+   * administrator building a "Branch Manager" role with `job:
+   * "business_unit"` and assigning it watched that person open an EMPTY job
+   * list. Not an error, not a permission message: a blank screen, which reads
+   * as "this branch has no work".
+   */
+  let unitId = "";
+  let otherOrgUnitId = "";
+  let targetMembership = "";
+
+  beforeAll(async () => {
+    if (!url) return;
+    const [unit] = await raw<{ id: string }[]>`insert into public.business_unit
+      (organization_id, name) values (${ORG}, 'North Branch') returning id`;
+    unitId = unit!.id;
+    const [foreign] = await raw<{ id: string }[]>`insert into public.business_unit
+      (organization_id, name) values (${OTHER_ORG}, 'Somebody Else') returning id`;
+    otherOrgUnitId = foreign!.id;
+
+    const [m] = await raw<{ id: string }[]>`select id from public.membership
+      where organization_id = ${ORG} limit 1`;
+    targetMembership = m!.id;
+  });
+
+  const branchRole = async () => {
+    const [role] = await raw<{ id: string }[]>`insert into public.role
+      (organization_id, name, permissions, scopes)
+      values (${ORG}, ${`Branch Manager ${Math.random()}`},
+              ${JSON.stringify(["job:read"])},
+              ${JSON.stringify({ job: "business_unit" })})
+      returning id`;
+    return role!.id;
+  };
+
+  it("refuses a branch scoped role when the person has no branch", async () => {
+    await raw`update public.membership set business_unit_id = null
+              where id = ${targetMembership}`;
+
+    await expect(roleService.assign(ctxFor(["owner"]), {
+      membershipId: targetMembership, roleId: await branchRole(),
+    })).rejects.toThrow(/see nothing at all/i);
+  });
+
+  it("assigns it once the person has one, and writes it down", async () => {
+    const roleId = await branchRole();
+    await roleService.assign(ctxFor(["owner"]), {
+      membershipId: targetMembership, roleId, businessUnitId: unitId,
+    });
+
+    // THE ASSERTION THE OLD CODE FAILED. The column was never written.
+    const [row] = await raw<{ business_unit_id: string | null; role_id: string | null }[]>`
+      select business_unit_id, role_id from public.membership where id = ${targetMembership}`;
+    expect(row!.business_unit_id).toBe(unitId);
+    expect(row!.role_id).toBe(roleId);
+  });
+
+  it("does not clear an anchor just because a role changed", async () => {
+    /**
+     * Omitting the field leaves it alone. Clearing it on every role change
+     * would empty the screen of a branch manager whose title changed.
+     */
+    await roleService.assign(ctxFor(["owner"]), {
+      membershipId: targetMembership, roleId: await branchRole(), businessUnitId: unitId,
+    });
+    await roleService.assign(ctxFor(["owner"]), { membershipId: targetMembership, roleId: null });
+
+    const [row] = await raw<{ business_unit_id: string | null }[]>`
+      select business_unit_id from public.membership where id = ${targetMembership}`;
+    expect(row!.business_unit_id).toBe(unitId);
+  });
+
+  it("refuses an anchor belonging to another company", async () => {
+    /**
+     * It arrives as an id from a form. Row level security would still stop
+     * the rows crossing, so the failure would be an empty screen rather than
+     * a leak, but an empty screen nobody can explain is its own cost.
+     */
+    await expect(roleService.assign(ctxFor(["owner"]), {
+      membershipId: targetMembership, roleId: null, businessUnitId: otherOrgUnitId,
+    })).rejects.toThrow(/business unit/i);
   });
 });
