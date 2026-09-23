@@ -3,7 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { automation, type Actor, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
-import { fire } from "./workflow-runner";
+import { fire, resume } from "./workflow-runner";
 import type { RunSummary } from "./workflow-runner";
 
 /**
@@ -217,6 +217,77 @@ export async function tick(
         organizationId: row.organization_id,
         action: "skipped",
         reason: (error as Error).message,
+      });
+    }
+  }
+  return results;
+}
+
+
+// ---------------------------------------------------------------------------
+// Runs parked on a clock
+// ---------------------------------------------------------------------------
+
+export interface ResumeResult {
+  organizationId: string;
+  runId: string;
+  run: RunSummary;
+}
+
+interface DueRunRow extends Record<string, unknown> {
+  organization_id: string;
+  run_id: string;
+  resume_at: string;
+}
+
+/**
+ * Pick up the runs whose wait is over.
+ *
+ * The same shape as the schedule tick and for the same reasons: a cross
+ * tenant read that returns ids, a conditional claim inside the tenant, and
+ * one transaction covering the claim and the work so a crash rolls both back.
+ *
+ * Separate from the schedule tick rather than folded into it, because these
+ * are different questions. A schedule asks "is it time to start something";
+ * this asks "is it time to carry on", and a run that has already sent half
+ * its steps is a different risk from one that has sent none.
+ */
+/**
+ * One parked run's resume, exported for the same reason `tickOne` is: a test
+ * can drive it without reaching across tenants, and the pass is a loop over
+ * it rather than a second copy of the decision.
+ */
+export async function resumeOne(
+  db: Database, organizationId: string, runId: string, now = new Date(),
+): Promise<RunSummary> {
+  const ctx: ServiceContext = { actor: tickActor(organizationId), db };
+  return inTenant(ctx, (tx) => resume(tx, ctx, { runId, now }));
+}
+
+export async function resumeDue(
+  db: Database,
+  options: { now?: Date; limit?: number } = {},
+): Promise<ResumeResult[]> {
+  const now = options.now ?? new Date();
+  const rows = await db.execute<DueRunRow>(
+    sql`select * from app.due_workflow_runs(${options.limit ?? 200})`,
+  );
+
+  const results: ResumeResult[] = [];
+  for (const row of rows) {
+    try {
+      const run = await resumeOne(db, row.organization_id, row.run_id, now);
+      results.push({ organizationId: row.organization_id, runId: row.run_id, run });
+    } catch (error) {
+      // One run's broken step must not stop the rest. The row stays waiting,
+      // so the next pass tries again.
+      results.push({
+        organizationId: row.organization_id,
+        runId: row.run_id,
+        run: {
+          workflowId: "", runId: row.run_id, status: "failed",
+          reason: (error as Error).message, steps: 0,
+        },
       });
     }
   }

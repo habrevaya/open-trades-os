@@ -151,7 +151,18 @@ export const workflowVersion = pgTable("workflow_version", {
 }));
 
 export const runStatus = pgEnum("workflow_run_status", [
-  "pending", "running", "succeeded", "failed", "cancelled", "skipped",
+  "pending", "running",
+  /**
+   * Parked on a clock, mid run.
+   *
+   * "Wait three days, then chase" is what most automations a contractor
+   * actually wants look like, and a run that held the three days in memory
+   * would lose them to a deploy. A waiting run is a row with a time on it,
+   * so the wait survives every restart and is visible to whoever asks why
+   * nothing has happened yet.
+   */
+  "waiting",
+  "succeeded", "failed", "cancelled", "skipped",
 ]);
 
 export const workflowRun = pgTable("workflow_run", {
@@ -171,11 +182,34 @@ export const workflowRun = pgTable("workflow_run", {
   skipReason: text("skip_reason"),
   error: text("error"),
   causationDepth: integer("causation_depth").notNull().default(0),
+  /** When a waiting run becomes runnable again. Null unless it is waiting. */
+  resumeAt: timestamp("resume_at", { withTimezone: true }),
+  /**
+   * The step to start from when it does.
+   *
+   * Belt and braces with the step rows, which already record what happened:
+   * a resume reads them and skips what succeeded, so a run that sent the
+   * text and then waited does not send it again. This says where to look
+   * without scanning, and disagreeing with the rows would be caught by the
+   * unique index on (run, step).
+   */
+  resumeStepIndex: integer("resume_step_index"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   idemIdx: uniqueIndex("workflow_run_idem_idx").on(t.organizationId, t.idempotencyKey),
+  /**
+   * The only query the resume tick makes: what is due, across every tenant.
+   *
+   * Partial on `resume_at is not null` rather than on the status, and not
+   * for style: a partial index whose predicate names a new enum value cannot
+   * be created in the same transaction that adds the value, so the migration
+   * that introduced `waiting` would have failed. The column is null unless a
+   * run is waiting, so the two predicates select the same rows.
+   */
+  resumeIdx: index("workflow_run_resume_idx").on(t.resumeAt)
+    .where(sql`${t.resumeAt} is not null`),
   workflowIdx: index("workflow_run_workflow_idx").on(t.workflowId, t.createdAt),
   pendingIdx: index("workflow_run_pending_idx").on(t.status, t.createdAt)
     .where(sql`${t.status} in ('pending', 'running')`),

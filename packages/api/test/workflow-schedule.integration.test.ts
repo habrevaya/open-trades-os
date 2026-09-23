@@ -311,3 +311,249 @@ run("what the clock leaves alone", () => {
     expect(results.filter((r) => r.workflowId === id)).toHaveLength(0);
   });
 });
+
+run("waiting, mid run", () => {
+  /**
+   * "Wait three days, then chase" is what most of the automations a
+   * contractor actually wants look like. The naive version is `setTimeout`,
+   * which does not survive a deploy, and the symptom is the quietest
+   * possible one: the chase never happens and nothing records that it was
+   * supposed to.
+   */
+  /**
+   * The two tasks name different entities on purpose. `create_task` is
+   * idempotent on (run, entity), which is what stops a workflow firing every
+   * hour from raising the same "chase this estimate" task every hour, and
+   * two steps in one run with the same entity are a duplicate by that rule.
+   */
+  const CHASE = [
+    {
+      kind: "create_task",
+      config: { title: "Before", queue: "office", entityType: "job", entityId: fixtureId("ws:e1") },
+    },
+    { kind: "wait", config: { days: 3 } },
+    {
+      kind: "create_task",
+      config: { title: "After", queue: "office", entityType: "job", entityId: fixtureId("ws:e2") },
+    },
+  ];
+
+  async function titles() {
+    const rows = await raw<{ title: string }[]>`
+      select title from public.task where organization_id = ${ORG} order by created_at`;
+    return rows.map((r) => r.title);
+  }
+
+  async function runRow(workflowId: string) {
+    const [row] = await raw<{
+      status: string; resume_at: Date | null; resume_step_index: number | null;
+    }[]>`select status, resume_at, resume_step_index from public.workflow_run
+         where workflow_id = ${workflowId}`;
+    return row!;
+  }
+
+  it("parks the run rather than finishing it, and does the rest later", async () => {
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    const [fired] = await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+
+    expect(fired!.run!.status).toBe("waiting");
+    expect(await titles()).toEqual(["Before"]);
+
+    const parked = await runRow(id);
+    expect(parked.status).toBe("waiting");
+    expect(parked.resume_step_index).toBe(2);
+    // Three days from when the wait ran, not from when the run started.
+    expect(parked.resume_at!.toISOString().slice(0, 10)).toBe("2026-09-26");
+
+    // A pass before it is due does nothing.
+    await raw`update public.workflow_run set resume_at = now() + interval '1 hour'
+              where workflow_id = ${id}`;
+    expect(await schedule.resumeDue(db())).toHaveLength(0);
+    expect(await titles()).toEqual(["Before"]);
+
+    // And then it is due.
+    await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
+              where workflow_id = ${id}`;
+    const [resumed] = await schedule.resumeDue(db());
+    expect(resumed!.run.status).toBe("succeeded");
+    expect(await titles()).toEqual(["Before", "After"]);
+  });
+
+  it("does not repeat the steps it already did", async () => {
+    /**
+     * The failure that would make a wait worse than useless: a run that sent
+     * the text and then waited three days sending it again on the way back.
+     * The step rows say what happened, and a resume skips what succeeded.
+     */
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
+              where workflow_id = ${id}`;
+    await schedule.resumeDue(db());
+
+    expect(await titles()).toEqual(["Before", "After"]);
+    const steps = await raw`select step_index from public.workflow_step_run
+                            where organization_id = ${ORG}`;
+    // Three steps, three rows. A replay would have made four.
+    expect(steps).toHaveLength(3);
+  });
+
+  it("resumes once when two workers see the same run due", async () => {
+    // The steps after a wait are the ones that message the customer, so this
+    // matters more here than almost anywhere else.
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
+              where workflow_id = ${id}`;
+
+    const both = await Promise.all([schedule.resumeDue(db()), schedule.resumeDue(db())]);
+    const statuses = both.flat().map((r) => r.run.status);
+    expect(statuses.filter((s) => s === "succeeded")).toHaveLength(1);
+    /**
+     * And the loser stood down rather than crashing.
+     *
+     * Without the claim both would carry on into step two, and the second
+     * would die on the unique index over (run, step). The run still ends up
+     * looking right from the outside, which is why the first version of this
+     * test passed with the claim removed: the failure is only visible as a
+     * status nobody asserted on.
+     */
+    expect(statuses.filter((s) => s === "failed")).toHaveLength(0);
+    expect(await titles()).toEqual(["Before", "After"]);
+    expect((await runRow(id)).status).toBe("succeeded");
+  });
+
+  it("stands down on a run somebody else already took", async () => {
+    /**
+     * The claim, on its own. Two workers both resuming means the steps after
+     * a wait run twice, and those are the ones that message the customer.
+     *
+     * Driven by setting the status rather than by racing two calls, because
+     * a race is only a test when it loses. An earlier version raced two
+     * passes, never overlapped, and passed with the claim removed.
+     */
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+
+    const [run] = await raw<{ id: string }[]>`
+      select id from public.workflow_run where workflow_id = ${id}`;
+    await raw`update public.workflow_run
+              set status = 'running', resume_at = now() - interval '1 minute'
+              where id = ${run!.id}`;
+
+    const result = await schedule.resumeOne(db(), ORG, run!.id);
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toBe("claimed_elsewhere");
+    expect(await titles()).toEqual(["Before"]);
+  });
+
+  it("will not resume a run before its wait is over", async () => {
+    /**
+     * Asked directly rather than through a pass, because the pass already
+     * filters by time in SQL and would answer this whatever the service did.
+     * Somebody calling resume by hand, or a future retry path, must get the
+     * same no.
+     */
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+
+    const [run] = await raw<{ id: string }[]>`
+      select id from public.workflow_run where workflow_id = ${id}`;
+    const result = await schedule.resumeOne(db(), ORG, run!.id, at("2026-09-24T00:00:00Z"));
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toBe("not_due");
+    expect(await titles()).toEqual(["Before"]);
+  });
+
+  it("skips the steps that already succeeded, even with nothing to say where to start", async () => {
+    /**
+     * `resume_step_index` is where to start; the step rows are what actually
+     * happened. A run whose index is missing, from an older row or a crash
+     * between the two updates, must still not send the message it already
+     * sent. Belt and braces, and untested until a deliberate break showed
+     * the index alone was carrying the whole thing.
+     */
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+
+    await raw`update public.workflow_run
+              set resume_at = now() - interval '1 minute', resume_step_index = null
+              where workflow_id = ${id}`;
+    const [resumed] = await schedule.resumeDue(db());
+
+    expect(resumed!.run.status).toBe("succeeded");
+    expect(await titles()).toEqual(["Before", "After"]);
+    // Three steps, three rows. A replay would have died on the unique index.
+    expect(await raw`select step_index from public.workflow_step_run
+                     where organization_id = ${ORG}`).toHaveLength(3);
+  });
+
+  it("finishes on the version it started on, not the one it was edited into", async () => {
+    /**
+     * A workflow edited during a three day wait must finish the run it began.
+     * Resuming into new steps would mean a customer receiving something from
+     * a definition that did not exist when the run started, and whose
+     * permissions were never approved against it.
+     */
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+
+    const v2 = fixtureId(`ws:v2:${Math.random()}`);
+    await raw`insert into public.workflow_version
+                (id, organization_id, workflow_id, version, conditions, steps, required_permissions, published_at)
+              values (${v2}, ${ORG}, ${id}, 2, ${json({})},
+                      ${json([{ kind: "create_task", config: { title: "Edited", queue: "office" } }])},
+                      ${json(["task:write"])}, now())`;
+    await raw`update public.workflow set active_version_id = ${v2} where id = ${id}`;
+
+    await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
+              where workflow_id = ${id}`;
+    await schedule.resumeDue(db());
+
+    expect(await titles()).toEqual(["Before", "After"]);
+  });
+
+  it("refuses a wait it cannot read rather than skipping it", async () => {
+    /**
+     * A wait that quietly becomes zero turns "chase in three days" into
+     * "chase immediately", which is a text the customer gets one minute
+     * after the first one.
+     */
+    const id = await defineScheduled({
+      expression: "0 23 * * *",
+      steps: [{ kind: "wait", config: { days: "three" } }],
+    });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    const [fired] = await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+
+    expect(fired!.run!.status).toBe("failed");
+    expect(fired!.run!.reason).toMatch(/must be a number/);
+    expect((await runRow(id)).status).toBe("failed");
+  });
+
+  it("does not park for a wait that is already over", async () => {
+    // "Wait until the appointment" on a job booked for this morning is an
+    // ordinary case, and parking the run would cost a tick and a claim to
+    // achieve nothing.
+    await defineScheduled({
+      expression: "0 23 * * *",
+      steps: [
+        { kind: "wait", config: { until: "2020-01-01T00:00:00Z" } },
+        { kind: "create_task", config: { title: "Straight through", queue: "office" } },
+      ],
+    });
+    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    const [fired] = await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+
+    expect(fired!.run!.status).toBe("succeeded");
+    expect(await titles()).toEqual(["Straight through"]);
+  });
+});

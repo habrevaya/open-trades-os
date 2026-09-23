@@ -19,6 +19,15 @@ import { raise } from "./tasks";
 
 export type StepResult =
   | { ok: true; output?: Record<string, unknown> }
+  /**
+   * The step succeeded and the run must stop here until this time.
+   *
+   * Separate from a failure because it is not one, and separate from a plain
+   * success because the run cannot carry on in this pass. The runner parks
+   * the run with the time on the row, which is what makes the wait survive a
+   * deploy rather than living in a timer somebody's process is holding.
+   */
+  | { ok: true; waitUntil: Date; output?: Record<string, unknown> }
   | { ok: false; reason: string };
 
 /**
@@ -271,4 +280,72 @@ export async function createTask(
    * it should: it checked and did not raise a second copy.
    */
   return { ok: true, output: { taskId: result.id, created: result.created } };
+}
+
+/**
+ * WAITING
+ *
+ * "Wait three days, then chase" is what most of the automations a contractor
+ * actually wants look like, and the naive version of this step is
+ * `setTimeout`. Three days of setTimeout does not survive a deploy, a restart
+ * or a crash, and the symptom is the quietest possible one: the chase never
+ * happens and nothing anywhere records that it was supposed to.
+ *
+ * So the wait is a time written on the run. The process holds nothing, and
+ * the same tick that fires schedules picks the run back up.
+ *
+ * `until` is an absolute time, `minutes`, `hours` and `days` are relative to
+ * now. Relative is what people write; absolute is what a branch computing a
+ * date needs.
+ */
+export function waitStep(
+  config: Record<string, unknown>,
+  now = new Date(),
+): StepResult {
+  const until = config["until"];
+  if (typeof until === "string") {
+    const at = new Date(until);
+    if (Number.isNaN(at.getTime())) return { ok: false, reason: `not a time: ${until}` };
+    /**
+     * A wait that is already over is not an error and not a wait. Parking the
+     * run would mean a tick, a claim and a resume to achieve nothing, and
+     * "wait until the appointment" on a job booked for this morning is an
+     * ordinary case rather than a mistake.
+     */
+    return at <= now ? { ok: true, output: { waited: false } } : { ok: true, waitUntil: at };
+  }
+
+  const amounts = [
+    ["minutes", 60_000],
+    ["hours", 3_600_000],
+    ["days", 86_400_000],
+  ] as const;
+
+  let ms = 0;
+  let given = false;
+  for (const [key, unit] of amounts) {
+    const value = config[key];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return { ok: false, reason: `${key} must be a number` };
+    }
+    // A negative wait is somebody's arithmetic going wrong rather than an
+    // instruction, and silently treating it as zero hides that.
+    if (value < 0) return { ok: false, reason: `${key} cannot be negative` };
+    ms += value * unit;
+    given = true;
+  }
+
+  if (!given) return { ok: false, reason: "a wait needs until, minutes, hours or days" };
+  if (ms === 0) return { ok: true, output: { waited: false } };
+
+  /**
+   * A ceiling, because a workflow is not a calendar. A wait measured in
+   * years is somebody's units being wrong, and the run would sit in the
+   * table until long after anybody remembered making it.
+   */
+  const MAX = 365 * 86_400_000;
+  if (ms > MAX) return { ok: false, reason: "a wait cannot be longer than a year" };
+
+  return { ok: true, waitUntil: new Date(now.getTime() + ms) };
 }

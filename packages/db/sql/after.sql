@@ -728,3 +728,29 @@ returns table (
 
 revoke all on function app.scheduled_workflows(int) from public;
 grant execute on function app.scheduled_workflows(int) to background;
+
+-- =========================================================================
+-- RUNS PARKED ON A CLOCK
+--
+-- "Wait three days, then chase" leaves a run with a time on it. Finding the
+-- ones that are due is the same cross tenant read as the two above, and gets
+-- the same treatment: ids only, and not callable by the role the request
+-- path uses.
+-- =========================================================================
+
+create or replace function app.due_workflow_runs(p_limit int default 200)
+returns table (organization_id uuid, run_id uuid, resume_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select r.organization_id, r.id, r.resume_at
+    from public.workflow_run r
+    where r.status = 'waiting'
+      and r.resume_at is not null
+      and r.resume_at <= now()
+    -- Longest overdue first, so a backlog drains in the order it built up.
+    order by r.resume_at
+    limit p_limit
+  $$;
+
+revoke all on function app.due_workflow_runs(int) from public;
+grant execute on function app.due_workflow_runs(int) to background;

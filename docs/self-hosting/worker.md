@@ -44,10 +44,36 @@ nobody has to guess:
 | The worker was down for three days | One run, for the occurrence it was due, and then back on the normal clock. Not three |
 | An expression nothing can read | Recorded on the row with a reason, rather than quietly becoming "never" |
 
+## Waiting, mid run
+
+"Wait three days, then chase" is what most of the automations a contractor
+actually wants look like. The naive version of that step is `setTimeout`,
+which does not survive a deploy, and the symptom is the quietest possible
+one: the chase never happens and nothing anywhere records that it was
+supposed to.
+
+So a wait is a time written on the run. The process holds nothing, the run
+shows as waiting with the time it is waiting for, and the same pass picks it
+back up. A resume reads the step rows and skips what already succeeded, so a
+run that sent the text and then waited does not send it again on the way
+back, and it finishes on the version it started on rather than on whatever
+the workflow has been edited into since.
+
+```json
+{ "kind": "wait", "config": { "days": 3 } }
+{ "kind": "wait", "config": { "hours": 2, "minutes": 30 } }
+{ "kind": "wait", "config": { "until": "2026-10-01T09:00:00Z" } }
+```
+
+A wait of zero, or until a time that has passed, carries straight on rather
+than parking. A wait longer than a year is refused, because that is always
+somebody's units rather than an instruction.
+
 Two workers is a capacity decision rather than a duplicate-message incident.
-Claiming a due schedule is a conditional update on its own due time, and the
-claim and the run share one transaction, so a process that dies mid-run rolls
-back the claim and the next pass tries again.
+Claiming a due schedule is a conditional update on its own due time, claiming
+a parked run is the status transition from waiting to running, and in both
+cases the claim and the work share one transaction, so a process that dies
+mid-run rolls back the claim and the next pass tries again.
 
 ## The database role
 
