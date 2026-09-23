@@ -203,6 +203,33 @@ run("a reservation belongs to a job", () => {
     expect((await levelAt(warehouse))?.committed).toBe("1");
   });
 
+  it("refuses to issue the part another job has reserved", async () => {
+    /**
+     * The other half of the same failure, and the half the service was still
+     * getting wrong after the schema was fixed. The last compressor is spoken
+     * for by job A. Job B's technician takes it, `planIssue` checked ON HAND,
+     * and the reservation stood against an empty shelf.
+     *
+     * Note what is NOT refused: job A taking its own reserved part. Refusing
+     * that would tell a technician the shelf is empty while they are holding
+     * the part, and the thing they would learn is to stop recording issues.
+     */
+    await inventory.receive(owner(), {
+      itemId, locationId: warehouse, quantity: "1", totalCost: "100.00",
+    });
+    await inventory.reserve(owner(), { itemId, locationId: warehouse, jobId: jobA, quantity: "1" });
+
+    await expect(inventory.issue(owner(), {
+      itemId, locationId: warehouse, quantity: "1", jobId: jobB,
+    })).rejects.toThrow(/available/i);
+
+    // And the job that holds it is not blocked by its own reservation.
+    await inventory.issue(owner(), {
+      itemId, locationId: warehouse, quantity: "1", jobId: jobA,
+    });
+    expect((await levelAt(warehouse))?.onHand).toBe("0");
+  });
+
   it("refuses a reservation against stock somebody else has already reserved", async () => {
     // Available, not on hand. The entire point of the three quantities.
     await inventory.receive(owner(), {

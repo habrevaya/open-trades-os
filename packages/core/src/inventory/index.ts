@@ -197,7 +197,17 @@ export interface StockLevel {
   readonly committed: Quantity;
 }
 
-/** On hand minus committed. Derived, every time, from the two stored numbers. */
+/**
+ * On hand minus every open commitment, whoever holds it.
+ *
+ * This is the number for a screen and for a transfer: what nobody has spoken
+ * for. It is NOT the number an issue is checked against, because a job is
+ * allowed to consume its own reservation. See `planIssue`.
+ *
+ * Both halves are folded from the movement history on every read. The comment
+ * here used to say "the two stored numbers", which was true of a draft where
+ * a level was a row. Nothing is stored.
+ */
 export const available = (level: StockLevel): Quantity => level.onHand - level.committed;
 
 export const emptyLevel = (itemId: string, locationId: string): StockLevel => ({
@@ -740,31 +750,72 @@ export function planRelease(input: {
 /**
  * Consume stock on a job.
  *
- * Checked against ON HAND rather than available, which looks like a hole and
- * is not. The job doing the issuing is almost always the job that holds the
- * reservation, so checking available would refuse a technician the very part
- * that was set aside for them. The protection against two jobs taking the same
- * part lives upstream in `planCommitment`, which is where it belongs: by the
- * time somebody is standing at the shelf with the part in their hand, refusing
- * is theatre.
+ * Checked against WHAT IS LEFT FOR THIS JOB: on hand, minus every reservation
+ * held by a DIFFERENT job. Neither of the two obvious rules is right, and the
+ * reason this one is expressible at all is the reason commitments are keyed by
+ * a job rather than counted.
+ *
+ * Against ON HAND is too loose. Two jobs reserve the last compressor, the
+ * first technician to reach the shelf takes it, and the second job's
+ * reservation is now held against an empty shelf. Nobody finds out until
+ * somebody is standing at a property.
+ *
+ * Against AVAILABLE is too tight, and wrong in the common case. The job doing
+ * the issuing is usually the job holding the reservation, so subtracting its
+ * own commitment refuses a technician the very part that was set aside for
+ * them. That refusal is worse than useless: the part is in their hand, so the
+ * software has told them the shelf is empty while they are looking at it, and
+ * what they learn is to stop recording issues.
+ *
+ * Subtracting only OTHER jobs' reservations says the true thing in both cases.
+ * The earlier version of this comment argued for on hand and said the
+ * protection "lives upstream in planCommitment". It did not: a commitment is
+ * planned against available at the time it is made, and nothing rechecks it
+ * when somebody else empties the shelf an hour later.
+ *
+ * `commitments` is every open reservation at this item and location, which is
+ * what `deriveCommitments` returns. It is required rather than optional on
+ * purpose: an optional argument here means a caller that forgets it silently
+ * gets the loose rule back, which is the defect this replaces.
  */
 export function planIssue(input: {
   level: StockLevel;
   quantity: Quantity;
   jobId: string;
   stamp: MovementStamp;
+  commitments: readonly Commitment[];
 }): MovementDecision {
   if (input.quantity <= ZERO_QUANTITY) return notPositive("An issue");
 
-  if (input.quantity > input.level.onHand) {
+  const heldByOthers = input.commitments
+    .filter((c) =>
+      c.jobId !== input.jobId
+      && c.itemId === input.level.itemId
+      && c.locationId === input.level.locationId)
+    .reduce((total, c) => total + c.quantity, ZERO_QUANTITY);
+
+  /**
+   * Clamped at zero rather than allowed to go negative.
+   *
+   * A history can hold more commitment than stock: two jobs reserve against a
+   * delivery that is then short. That is a real state and it is not this
+   * function's to correct. Without the clamp the shortfall it reports is
+   * larger than the shelf, and the technician is told to find parts that were
+   * never there.
+   */
+  const forThisJob = input.level.onHand - heldByOthers > ZERO_QUANTITY
+    ? input.level.onHand - heldByOthers
+    : ZERO_QUANTITY;
+
+  if (input.quantity > forThisJob) {
     return {
       ok: false,
-      reason: "insufficient_on_hand",
+      reason: "insufficient_available",
       itemId: input.level.itemId,
       locationId: input.level.locationId,
       requested: input.quantity,
-      onHand: input.level.onHand,
-      shortfall: input.quantity - input.level.onHand,
+      availableNow: forThisJob,
+      shortfall: input.quantity - forThisJob,
     };
   }
 

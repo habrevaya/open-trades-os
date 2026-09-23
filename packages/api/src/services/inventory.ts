@@ -327,8 +327,17 @@ export async function issue(
   ctx: ServiceContext,
   input: { itemId: string; locationId: string; quantity: string; jobId: string },
 ) {
-  return decide(ctx, "inventory:adjust", ({ level, stamp }) =>
-    inv.planIssue({ level, quantity: inv.quantity(input.quantity), jobId: input.jobId, stamp }),
+  return decide(ctx, "inventory:adjust", ({ level, stamp, movements }) =>
+    inv.planIssue({
+      level, quantity: inv.quantity(input.quantity), jobId: input.jobId, stamp,
+      /**
+       * Every open reservation on this item, so core can subtract the ones
+       * belonging to OTHER jobs and leave this job its own. `movements` is
+       * the history `decide` already folded to get the level, so this costs
+       * nothing extra.
+       */
+      commitments: inv.deriveCommitments(movements),
+    }),
     input, "inventory.issued");
 }
 

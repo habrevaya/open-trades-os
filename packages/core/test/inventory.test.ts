@@ -1053,3 +1053,140 @@ describe("a reservation belongs to a job", () => {
     expect(qs(inv.deriveLevel(history, COMP, WAREHOUSE).committed)).toBe("1.0000");
   });
 });
+
+/**
+ * ISSUING A PART, WHICH HAD NO TESTS AT ALL
+ *
+ * `planIssue` decides whether a technician standing at a shelf is allowed to
+ * take what is in their hand, and until now nothing in this file called it.
+ * That is how its rule stayed wrong: it checked on hand, so the first job to
+ * reach the shelf could consume a part reserved for a different one, and the
+ * second job found out at a property.
+ */
+describe("taking a part off the shelf for a job", () => {
+  const commitment = (jobId: string, quantity: string, locationId = WAREHOUSE): inv.Commitment => ({
+    itemId: COMP, locationId, jobId, quantity: q(quantity),
+  });
+
+  it("lets a job consume the part reserved for it", () => {
+    /**
+     * The case that makes "check against available" wrong. One compressor on
+     * the shelf, reserved for this job. Available is zero. Refusing here
+     * tells a technician the shelf is empty while they are holding the part,
+     * and what they learn from that is to stop recording issues.
+     */
+    const decision = inv.planIssue({
+      level: level("1", "1"),
+      quantity: q("1"),
+      jobId: "job-a",
+      stamp: stamp("i1", 10, at(5)),
+      commitments: [commitment("job-a", "1")],
+    });
+
+    const ok = expectOk(decision);
+    expect(ok.movements).toHaveLength(1);
+    expect(ok.movements[0]!.kind).toBe("issue");
+    expect(ok.movements[0]!.jobId).toBe("job-a");
+  });
+
+  it("refuses to let one job eat another job's reservation", () => {
+    /**
+     * The case that makes "check against on hand" wrong, and the failure this
+     * whole per-job commitment design exists for. One compressor, spoken for
+     * by job A. Job B is not entitled to it, and nothing downstream would
+     * detect the theft: the level still folds correctly, job A's reservation
+     * simply stands against an empty shelf.
+     */
+    const decision = inv.planIssue({
+      level: level("1", "1"),
+      quantity: q("1"),
+      jobId: "job-b",
+      stamp: stamp("i2", 11, at(5)),
+      commitments: [commitment("job-a", "1")],
+    });
+
+    const refusal = expectRefusal(decision);
+    expect(refusal.reason).toBe("insufficient_available");
+    expect(inv.explainRefusal(refusal)).toContain("1");
+  });
+
+  it("leaves a job the balance after everybody else's reservations", () => {
+    // Five on the shelf, two held for another job, one for this one. This job
+    // may take three: its own reservation is not a ceiling on it.
+    const decision = inv.planIssue({
+      level: level("5", "3"),
+      quantity: q("3"),
+      jobId: "job-a",
+      stamp: stamp("i3", 12, at(5)),
+      commitments: [commitment("job-a", "1"), commitment("job-b", "2")],
+    });
+
+    expectOk(decision);
+
+    const tooMany = inv.planIssue({
+      level: level("5", "3"),
+      quantity: q("4"),
+      jobId: "job-a",
+      stamp: stamp("i4", 13, at(5)),
+      commitments: [commitment("job-a", "1"), commitment("job-b", "2")],
+    });
+    expect(expectRefusal(tooMany).reason).toBe("insufficient_available");
+  });
+
+  it("ignores a reservation held at another location", () => {
+    /**
+     * A part reserved off the van does not stop the warehouse issuing one.
+     * Without the location comparison, stocking a second van would refuse
+     * because of a reservation on the first.
+     */
+    const decision = inv.planIssue({
+      level: level("1", "0"),
+      quantity: q("1"),
+      jobId: "job-b",
+      stamp: stamp("i5", 14, at(5)),
+      commitments: [commitment("job-a", "1", VAN)],
+    });
+
+    expectOk(decision);
+  });
+
+  it("never reports a shortfall bigger than the shelf", () => {
+    /**
+     * Over committed stock is a real state: two jobs reserve against a
+     * delivery that arrives short. Without the clamp the arithmetic goes
+     * negative and the refusal asks a technician to find four compressors
+     * when there were never more than two.
+     */
+    const refusal = expectRefusal(inv.planIssue({
+      level: level("2", "4"),
+      quantity: q("2"),
+      jobId: "job-c",
+      stamp: stamp("i6", 15, at(5)),
+      commitments: [commitment("job-a", "2"), commitment("job-b", "2")],
+    }));
+
+    if (refusal.reason !== "insufficient_available") throw new Error("wrong refusal");
+    expect(qs(refusal.availableNow)).toBe("0.0000");
+    expect(qs(refusal.shortfall)).toBe("2.0000");
+  });
+
+  it("refuses a quantity that is not positive", () => {
+    expect(expectRefusal(inv.planIssue({
+      level: level("5"),
+      quantity: q("0"),
+      jobId: "job-a",
+      stamp: stamp("i7", 16, at(5)),
+      commitments: [],
+    })).reason).toBe("not_positive");
+  });
+
+  it("refuses more than is on the shelf even with nothing reserved", () => {
+    expect(expectRefusal(inv.planIssue({
+      level: level("2"),
+      quantity: q("3"),
+      jobId: "job-a",
+      stamp: stamp("i8", 17, at(5)),
+      commitments: [],
+    })).reason).toBe("insufficient_available");
+  });
+});
