@@ -98,7 +98,13 @@ export function ApproveForm({ token, estimate }: { token: string; estimate: Esti
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{o.name}</span>
                   {o.isRecommended && (
-                    <span className="rounded bg-ink-900 px-1.5 py-0.5 text-xs font-medium text-white">
+                    <span
+                      style={{
+                        backgroundColor: "var(--brand, #111827)",
+                        color: "var(--brand-on, #ffffff)",
+                      }}
+                      className="rounded px-1.5 py-0.5 text-xs font-medium"
+                    >
                       Recommended
                     </span>
                   )}
@@ -197,7 +203,20 @@ export function ApproveForm({ token, estimate }: { token: string; estimate: Esti
             type="button"
             onClick={onApprove}
             disabled={busy || !name.trim()}
-            className="mt-5 h-12 w-full rounded bg-ink-900 text-base font-medium text-white transition-colors hover:bg-ink-700 disabled:opacity-40"
+            /*
+              THE ONE CONTROL THAT WEARS THE COMPANY'S COLOUR.
+              This is the button a homeowner presses to spend several
+              thousand dollars with a contractor they met once, and it is
+              the single most useful place on the customer side for their
+              own brand to appear. The variables fall back to the product's
+              own ink when the company has not set a colour, so a company
+              with no branding gets exactly what it had before.
+            */
+            style={{
+              backgroundColor: "var(--brand, #111827)",
+              color: "var(--brand-on, #ffffff)",
+            }}
+            className="mt-5 h-12 w-full rounded text-base font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
           >
             {busy ? "Approving…" : `Approve ${option.name}`}
           </button>

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { portal } from "@opentradesos/api/services";
+import { PortalBrand } from "../../PortalBrand";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
   }
 
   return (
-    <div className="space-y-6">
+    <PortalBrand token={token}>
       <header className="text-center">
         <p className="text-sm font-medium text-ink-700">{job.organizationName}</p>
         <h1 className="mt-1 text-2xl font-semibold">{job.summary ?? `Job #${job.jobNumber}`}</h1>
@@ -97,6 +98,6 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
           ))}
         </ol>
       )}
-    </div>
+    </PortalBrand>
   );
 }

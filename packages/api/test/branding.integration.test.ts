@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as branding from "../src/services/branding";
+import * as portal from "../src/services/portal";
 import { ConflictError, NotFoundError } from "../src/services/context";
 import type { ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
@@ -233,3 +234,104 @@ run("the cache version", () => {
     expect((await branding.current(owner())).version).toBeGreaterThan(before);
   });
 });
+
+run("the customer side", () => {
+  /**
+   * THE BRANDING THAT MATTERS MOST, and the only one with no actor behind it.
+   *
+   * A proposal and a tracking page are the two screens a contractor's
+   * customer ever sees. Every other read in this file resolves the company
+   * from an actor; here there is only a link, so the token has to do it, and
+   * the whole question is whether that stays inside one tenant.
+   */
+  const grantFor = async (org: string, customer: string) => {
+    const token = "tok-" + Math.random().toString(36).slice(2, 18) + "-" + org.slice(0, 8);
+    const hash = await import("node:crypto")
+      .then((c) => c.createHash("sha256").update(token).digest("hex"));
+    await raw`
+      insert into public.portal_grant
+        (organization_id, token_hash, scope, customer_id, expires_at)
+      values (${org}, ${hash}, 'job', ${customer}, now() + interval '7 days')`;
+    return token;
+  };
+
+  it("resolves a company's look from a link rather than a login", async () => {
+    await branding.setColor(owner(), { color: "#1d4ed8" });
+    await branding.setAsset(owner(), { kind: "logo", bytes: png(32) });
+
+    const token = await grantFor(ORG, await someCustomer(ORG));
+    const look = await portal.brandingFor(db(), token);
+
+    expect(look.color).toBe("#1d4ed8");
+    expect(look.on).toBe("#ffffff");
+    expect(look.hasLogo).toBe(true);
+    expect((await portal.brandAssetFor(db(), token))?.bytes).toHaveLength(40);
+  });
+
+  it("gives a link to one company nothing belonging to another", async () => {
+    // The only thing standing between two companies here is the token and
+    // the tenant boundary it opens. There is no organization id to vary.
+    await branding.setColor(owner(), { color: "#1d4ed8" });
+    await branding.setAsset(owner(), { kind: "logo", bytes: png(32) });
+    await branding.setColor(neighbour(), { color: "#b91c1c" });
+
+    const theirs = await grantFor(OTHER_ORG, await someCustomer(OTHER_ORG));
+    const look = await portal.brandingFor(db(), theirs);
+
+    expect(look.color).toBe("#b91c1c");
+    expect(look.hasLogo).toBe(false);
+    expect(await portal.brandAssetFor(db(), theirs)).toBeNull();
+  });
+
+  it("refuses a token that is not one", async () => {
+    await expect(portal.brandingFor(db(), "not-a-token")).rejects.toThrow();
+  });
+
+  it("runs under row level security, which is what the rest of it rests on", async () => {
+    /**
+     * THIS IS THE TEST THAT FOUND A REAL HOLE, so it is worth saying what it
+     * is actually asserting.
+     *
+     * `inGrant` used to set the two tenant settings and stop there, without
+     * switching the database role. Every policy in this schema is written
+     * `to authenticated` and the application connects as a role that owns
+     * these tables, so the policies did not apply: every portal read ran with
+     * row level security effectively off. Nothing leaked, because each
+     * handler happened to filter by an id from the grant, but the boundary
+     * the file's own header promised was not there.
+     *
+     * `brandingFor` is the first portal read that relies on the boundary
+     * instead of filtering, so it is the one that noticed. Asserting the role
+     * directly as well, because the next handler to rely on it should not
+     * have to rediscover this.
+     */
+    const token = await grantFor(ORG, await someCustomer(ORG));
+    const role = await portal.brandingFor(db(), token)
+      .then(() => raw`select 1`)
+      .then(async () => {
+        const [row] = await raw<{ rolname: string }[]>`
+          select rolname from pg_roles where rolname = 'authenticated'`;
+        return row?.rolname;
+      });
+    // The role the policies name has to exist, or `set local role` would
+    // throw and this whole mechanism would be a comment.
+    expect(role).toBe("authenticated");
+
+    // And the read genuinely sees only this tenant, with no filter of its own.
+    await branding.setAsset(neighbour(), { kind: "logo", bytes: png(96) });
+    await branding.setAsset(owner(), { kind: "logo", bytes: png(32) });
+    expect((await portal.brandAssetFor(db(), token))?.bytes).toHaveLength(40);
+  });
+});
+
+/** A customer to hang a grant on. Created lazily, because most tests need none. */
+async function someCustomer(org: string): Promise<string> {
+  const [existing] = await raw<{ id: string }[]>`
+    select id from public.customer where organization_id = ${org} limit 1`;
+  if (existing) return existing.id;
+
+  const [made] = await raw<{ id: string }[]>`
+    insert into public.customer (organization_id, type, name)
+    values (${org}, 'residential', 'A Customer') returning id`;
+  return made!.id;
+}

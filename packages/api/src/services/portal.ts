@@ -1,10 +1,10 @@
 import { and, asc, eq, desc, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m } from "@opentradesos/core";
+import { money as m, branding as brand } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedWrite, NotFoundError, ConflictError,
+  type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError,
 } from "./context";
 import { audit } from "./customers";
 import { decide, loadEstimate } from "./estimates";
@@ -120,16 +120,38 @@ function portalContext(db: Database, grant: ResolvedGrant): ServiceContext {
   return { actor: portalActor(grant), db, portalGrantId: grant.grantId };
 }
 
-/** The tenant boundary, for a caller who has no session to establish it. */
+/**
+ * The tenant boundary, for a caller who has no session to establish it.
+ *
+ * IT DELEGATES TO `inTenant` RATHER THAN SETTING THE CONTEXT ITSELF, and
+ * that is a correction rather than a tidy up.
+ *
+ * This function used to set `app.organization_id` and `app.user_id` and stop
+ * there. It did NOT switch the database role, which `inTenant` does on the
+ * line above the two it had copied. Every row level security policy in this
+ * schema is written `to authenticated`, and the application connects as a
+ * role that owns these tables, so without that switch the policies did not
+ * apply at all: every portal read ran with row level security effectively
+ * off, and the only thing keeping one company's data away from another's
+ * link was that each handler happened to filter by an id resolved from the
+ * grant.
+ *
+ * The comment at the top of this file has claimed since it was written that
+ * a bug in a handler below cannot reach across tenants even if it tries.
+ * That was not true. It is now, and it is true because this calls the same
+ * function every other read in the product calls rather than because it
+ * carries its own copy of what that function does.
+ *
+ * I found it by adding a handler that relies on the boundary instead of
+ * filtering: a read of this company's logo with no organization in the
+ * query. It returned another company's, which is exactly what the comment
+ * said could not happen.
+ */
 async function inGrant<T>(
   db: Database, grant: ResolvedGrant, fn: (tx: Database, ctx: ServiceContext) => Promise<T>,
 ): Promise<T> {
   const ctx = portalContext(db, grant);
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select set_config('app.organization_id', ${grant.organizationId}, true)`);
-    await tx.execute(sql`select set_config('app.user_id', ${ctx.actor.userId}, true)`);
-    return fn(tx as unknown as Database, ctx);
-  });
+  return inTenant(ctx, (tx) => fn(tx, ctx));
 }
 
 function requireScope(grant: ResolvedGrant, scope: ResolvedGrant["scope"]): string {
@@ -147,6 +169,74 @@ function requireScope(grant: ResolvedGrant, scope: ResolvedGrant["scope"]): stri
 function customerOf(grant: ResolvedGrant): string {
   if (!grant.customerId) throw new InvalidGrantError();
   return grant.customerId;
+}
+
+/**
+ * THE COMPANY'S LOOK, FOR A PAGE WITH NO SESSION.
+ *
+ * This is the branding that matters most. The proposal and the tracking page
+ * are the two screens a contractor's customer actually sees, and until now
+ * they were the only ones that could not be branded: `branding.current` reads
+ * the organization off an actor, and there is no actor here.
+ *
+ * The token stands in for one. It already grants a stranger sight of this
+ * customer's estimate or job, so serving that company's public mark with it
+ * is strictly less than the caller already has.
+ *
+ * Derived colours are computed here rather than stored, exactly as in
+ * `branding.current`, because two places computing it is one place fewer than
+ * two places storing it and being asked which is right.
+ */
+export async function brandingFor(db: Database, token: string) {
+  const grant = await peek(db, token);
+  return inGrant(db, grant, async (tx) => {
+    const [org] = await tx.select({
+      name: schema.organization.name,
+      color: schema.organization.brandColor,
+      updatedAt: schema.organization.updatedAt,
+    }).from(schema.organization)
+      .where(eq(schema.organization.id, grant.organizationId)).limit(1);
+
+    const assets = await tx.select({
+      kind: schema.brandAsset.kind,
+      updatedAt: schema.brandAsset.updatedAt,
+    }).from(schema.brandAsset);
+
+    const color = org?.color ? brand.parseColor(org.color) : null;
+    const latest = [org?.updatedAt, ...assets.map((a) => a.updatedAt)]
+      .filter((at) => at !== null && at !== undefined)
+      .reduce((max, at) => (at! > max ? at! : max), new Date(0));
+
+    return {
+      organizationName: org?.name ?? "",
+      color,
+      on: color ? brand.readableOn(color) : null,
+      text: color ? brand.textSafe(color) : null,
+      hasLogo: assets.some((a) => a.kind === "logo"),
+      version: Math.floor(latest.getTime() / 1000),
+    };
+  });
+}
+
+/**
+ * The bytes of a mark, for a customer holding a link.
+ *
+ * Only the logo. A favicon on a portal page would be the contractor's mark
+ * on a browser tab the customer opened from a text message, which is a nice
+ * touch and not worth a second code path until somebody asks for it.
+ */
+export async function brandAssetFor(
+  db: Database, token: string,
+): Promise<{ bytes: Buffer; contentType: string } | null> {
+  const grant = await peek(db, token);
+  return inGrant(db, grant, async (tx) => {
+    const [found] = await tx.select({
+      bytes: schema.brandAsset.bytes,
+      contentType: schema.brandAsset.contentType,
+    }).from(schema.brandAsset)
+      .where(eq(schema.brandAsset.kind, "logo")).limit(1);
+    return found ?? null;
+  });
 }
 
 export async function openLink(db: Database, input: z.infer<typeof openPortalLink.input>) {

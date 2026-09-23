@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { branding, NotFoundError } from "@opentradesos/api/services";
+import { branding, portal, NotFoundError } from "@opentradesos/api/services";
 import { getCurrentUser } from "@/lib/auth";
 import { branding as brand } from "@opentradesos/core";
 
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 const KINDS = new Set<brand.BrandAssetKind>(["logo", "favicon"]);
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ kind: string }> },
 ) {
   const { kind } = await params;
@@ -28,14 +28,26 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const user = await getCurrentUser();
-  if (!user) return new NextResponse("Not found", { status: 404 });
+  /**
+   * TWO WAYS IN, AND NEITHER TAKES AN ORGANIZATION.
+   *
+   * A signed in member gets their own company's mark from the session. A
+   * customer holding a portal link gets that company's mark from the token,
+   * which already grants them sight of the estimate or job it belongs to, so
+   * the logo on the page is strictly less than they already have.
+   *
+   * What is NOT here is an organization id in the path. There is nothing to
+   * change to reach somebody else's mark, which is the only reason this can
+   * be served without a login at all.
+   */
+  const token = new URL(request.url).searchParams.get("t");
 
   try {
-    const asset = await branding.assetBytes(
-      { actor: user.actor, db: getDb() },
-      { kind: kind as brand.BrandAssetKind },
-    );
+    const asset = token
+      ? await portal.brandAssetFor(getDb(), token)
+      : await forSession(kind as brand.BrandAssetKind);
+
+    if (!asset) return new NextResponse("Not found", { status: 404 });
 
     return new NextResponse(new Uint8Array(asset.bytes), {
       headers: {
@@ -57,7 +69,16 @@ export async function GET(
       },
     });
   } catch (error) {
+    // A bad token and a company with no logo are the same answer, because
+    // telling the two apart is a way to test tokens.
     if (error instanceof NotFoundError) return new NextResponse("Not found", { status: 404 });
+    if (error instanceof portal.InvalidGrantError) return new NextResponse("Not found", { status: 404 });
     throw error;
   }
+}
+
+async function forSession(kind: brand.BrandAssetKind) {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  return branding.assetBytes({ actor: user.actor, db: getDb() }, { kind });
 }

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { portal } from "@opentradesos/api/services";
+import { PortalBrand } from "../../PortalBrand";
 import { ApproveForm } from "./ApproveForm";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export default async function EstimatePage({ params }: { params: Promise<{ token
     || estimate.status === "converted";
 
   return (
-    <div className="space-y-6">
+    <PortalBrand token={token}>
       <header className="text-center">
         <p className="text-sm font-medium text-ink-700">{estimate.organizationName}</p>
         <h1 className="mt-1 text-2xl font-semibold">
@@ -47,7 +48,7 @@ export default async function EstimatePage({ params }: { params: Promise<{ token
       ) : (
         <ApproveForm token={token} estimate={estimate} />
       )}
-    </div>
+    </PortalBrand>
   );
 }
 
