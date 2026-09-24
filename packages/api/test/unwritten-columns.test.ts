@@ -53,9 +53,9 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
 /**
  * SOFT DELETE THAT IS NOT OFFERED.
  *
- * Twenty seven tables filter `deleted_at is null` on every read and five can
+ * Twenty six tables filter `deleted_at is null` on every read and six can
  * ever set it. That is ONE finding repeated twenty nine times, not twenty
- * seven findings, so it is held as a group rather than as a list of entries
+ * six findings, so it is held as a group rather than as a list of entries
  * with invented reasons: a table here is one you cannot delete a row from,
  * and the filter on its reads is decoration until something writes the
  * column.
@@ -66,11 +66,11 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
  * way to remove it and will edit the row into something else instead, which
  * is how a CRM ends up with a customer called "DO NOT USE".
  *
- * The COUNT is asserted, so a twenty eighth table cannot join quietly. Deciding
+ * The COUNT is asserted, so a twenty seventh table cannot join quietly. Deciding
  * which of these get a delete is product work; letting the number drift
  * without anybody noticing is not.
  */
-const SOFT_DELETE_NOT_OFFERED = 27;
+const SOFT_DELETE_NOT_OFFERED = 26;
 
 
 /**
@@ -81,9 +81,6 @@ const SOFT_DELETE_NOT_OFFERED = 27;
  * an entry is fixed and not removed.
  */
 const KNOWN_GAPS = new Map<string, string>([
-  ["contact.customerId",
-    "Nothing inserts a contact. A property with a tenant on site has nobody to text."],
-  ["contact.propertyId", "Same row."],
   ["phoneNumber.attributionSource",
     "A tracking number cannot be told what campaign it belongs to, so call attribution resolves to nothing."],
   ["phoneNumber.releasedAt",

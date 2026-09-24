@@ -28,6 +28,7 @@ export * as comms from "./comms";
 export * as commsInbound from "./comms-inbound";
 export * as commsOutbox from "./comms-outbox";
 export * as consent from "./consent";
+export * as contacts from "./contacts";
 export * as reports from "./reports";
 export * as dashboards from "./dashboards";
 export * as roles from "./roles";

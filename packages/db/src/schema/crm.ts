@@ -117,7 +117,20 @@ export const contact = pgTable("contact", {
   phone: text("phone"),
   preferredChannel: text("preferred_channel").notNull().default("sms"),
   isPrimary: boolean("is_primary").notNull().default(false),
-  /** Written consent record for A2P 10DLC. Absence of this blocks marketing sends. */
+  /**
+   * NEITHER OF THESE GATES ANYTHING, and the comment here used to say the
+   * first one did: "absence of this blocks marketing sends". It never has.
+   * Nothing reads either column, and sending asks `communication_consent`,
+   * which records the channel, the purpose, the wording used and supersedes
+   * rather than overwrites.
+   *
+   * A timestamp on the contact cannot answer the question consent is about,
+   * which is what they agreed to and for which purpose: one column cannot
+   * hold "yes to appointment reminders, no to offers", and that distinction
+   * is the whole of the rule. Left in place because imports carry the field
+   * and losing an imported date is worse than holding one nothing consults,
+   * but a value here means a migration said so, never that we may send.
+   */
   smsConsentAt: timestamp("sms_consent_at", { withTimezone: true }),
   emailOptOutAt: timestamp("email_opt_out_at", { withTimezone: true }),
   ...sourceRef,

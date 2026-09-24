@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, consent as consentService, NotFoundError } from "@opentradesos/api/services";
+import { customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, label } from "@/lib/labels";
@@ -9,6 +9,7 @@ import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { Money } from "@opentradesos/ui";
 import { Consent } from "./Consent";
+import { Contacts } from "./Contacts";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,16 @@ export default async function CustomerPage({
     : null;
   const consentRows = customer.phone && can(user.actor, "message:read")
     ? await consentService.history(ctx, { address: customer.phone })
+    : [];
+
+  /**
+   * The people at this customer's addresses, and the addresses to attach a
+   * new one to. Both behind `customer:read`, which the page already needed
+   * to render at all.
+   */
+  const people = await contactService.list(ctx, { customerId: id });
+  const addresses = can(user.actor, "property:read")
+    ? (await propertyService.list(ctx, { limit: 50, customerId: id })).data
     : [];
 
   return (
@@ -91,6 +102,15 @@ export default async function CustomerPage({
           ? <Fact label="Balance"><Money value={customer.balance} /></Fact>
           : null}
       </Facts>
+
+      <Contacts
+        customerId={id}
+        contacts={people}
+        properties={addresses.map((property) => ({
+          id: property.id,
+          label: [property.addressLine1, property.city].filter(Boolean).join(", "),
+        }))}
+      />
 
       {contactable ? (
         <Consent
