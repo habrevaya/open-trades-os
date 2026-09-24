@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, time, marketing } from "@opentradesos/core";
+import { money as m, time, marketing, SYSTEM_USER_ID } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -8,6 +8,7 @@ import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
 } from "./context";
+import { emit } from "./events";
 import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 import * as marketingService from "./marketing";
@@ -384,6 +385,34 @@ export async function createRequest(
       direction: "inbound", provider: "booking", eventType: "booking.request",
       idempotencyKey: fingerprint, status: "succeeded",
       entityType: "booking_request", entityId: row!.id,
+    });
+
+    /**
+     * A DOMAIN EVENT AS WELL AS THE INTEGRATION ROW ABOVE.
+     *
+     * The two are not the same thing and both are needed. The integration
+     * event is a receipt for idempotency; the domain event is what a
+     * workflow subscribes to. The builder offered "when somebody books
+     * online" and this path emitted nothing, so the first automation most
+     * companies would ever write was one that never ran.
+     *
+     * Under the system actor, because a booking request has no signed in
+     * user by definition: the point of it is that a stranger made it.
+     */
+    await emit(tx, {
+      actor: {
+        userId: SYSTEM_USER_ID, organizationId: org.id, roles: [], grants: [],
+        agentId: "booking",
+      },
+      db: tx,
+    }, {
+      name: "booking.requested", entityType: "booking_request", entityId: row!.id,
+      payload: {
+        bookingRequestId: row!.id,
+        contactName: row!.contactName,
+        requestedDate: row!.requestedDate,
+        serviceId: service.id,
+      },
     });
 
     /**

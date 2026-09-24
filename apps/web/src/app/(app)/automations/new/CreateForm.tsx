@@ -6,7 +6,11 @@ import { Builder, type StepOption, type DwellShape } from "../Builder";
 
 export function CreateForm({
   events, steps, shapes,
-}: { events: string[]; steps: StepOption[]; shapes: DwellShape[] }) {
+}: {
+  events: { name: string; summary: string | null }[];
+  steps: StepOption[];
+  shapes: DwellShape[];
+}) {
   const [state, submit, pending] = useActionState(createAutomation, null);
 
   return (

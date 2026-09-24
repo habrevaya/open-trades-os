@@ -1,6 +1,6 @@
 import { sql, eq, and, gt, asc } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { isSystem } from "@opentradesos/core";
+import { isSystem, events } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 
 /**
@@ -16,7 +16,18 @@ import type { ServiceContext } from "./context";
  */
 
 export interface EmitInput {
-  name: string;
+  /**
+   * From the catalogue, not a string.
+   *
+   * A workflow subscribes by name, and the two lists that had to agree were
+   * the names emitted here and the names the builder offered. Nothing made
+   * them agree, so the builder offered thirteen triggers nothing emitted and
+   * hid five it did. A typo or an invented name produces a workflow that
+   * saves, enables, and never fires, and nothing logs a subscription that
+   * matches nothing because matching nothing is what a quiet week looks
+   * like.
+   */
+  name: events.EventName;
   entityType: string;
   entityId?: string | undefined;
   payload?: Record<string, unknown> | undefined;

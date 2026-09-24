@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { events, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
 import { fire, type RunSummary } from "./workflow-runner";
@@ -38,8 +38,16 @@ export interface DwellShape {
   entityType: string;
   /** Written here, never assembled from input. Takes one parameter: the cutoff. */
   sql: string;
-  /** The event this raises, which is what a workflow's conditions see. */
-  eventName: string;
+  /**
+   * The event this raises, which is what a workflow's conditions see.
+   *
+   * From the catalogue rather than a string, so a shape cannot raise an
+   * event name nothing can subscribe to. Dwell events are marked
+   * unsubscribable there: they carry their own trigger kind, and offering
+   * them as an event subscription produces a workflow waiting on a sweep
+   * nobody configured.
+   */
+  eventName: events.EventName;
 }
 
 export const SHAPES: DwellShape[] = [

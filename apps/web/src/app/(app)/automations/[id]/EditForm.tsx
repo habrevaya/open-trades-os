@@ -8,7 +8,7 @@ export function EditForm({
   id, events, steps, shapes, initial,
 }: {
   id: string;
-  events: string[];
+  events: { name: string; summary: string | null }[];
   steps: StepOption[];
   shapes: DwellShape[];
   initial: React.ComponentProps<typeof Builder>["initial"];

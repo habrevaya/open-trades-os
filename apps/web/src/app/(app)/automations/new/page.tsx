@@ -13,7 +13,7 @@ export default async function NewAutomationPage() {
   const ctx = { actor: user.actor, db: getDb() };
   if (!can(user.actor, "workflow:write")) notFound();
 
-  const events = await workflows.triggerEvents(ctx);
+  const events = await workflows.triggerEventCatalogue(ctx);
   const steps = workflows.availableSteps(ctx);
   const shapes = workflows.dwellShapes();
 

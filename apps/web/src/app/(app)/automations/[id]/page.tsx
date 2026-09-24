@@ -172,7 +172,7 @@ export default async function AutomationPage({
           </p>
           <EditForm
             id={workflow.id}
-            events={await workflows.triggerEvents(ctx)}
+            events={await workflows.triggerEventCatalogue(ctx)}
             steps={workflows.availableSteps(ctx)}
             shapes={workflows.dwellShapes()}
             initial={{

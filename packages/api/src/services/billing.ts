@@ -10,6 +10,7 @@ import {
 import { invoiceScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { writePosting } from "./ledger";
+import { emit } from "./events";
 import * as contracts from "./contracts";
 import * as obligations from "./obligations";
 import { nextNumber } from "./jobs";
@@ -329,6 +330,26 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       });
     }
 
+    /**
+     * BILLING EMITTED NOTHING, AT ALL.
+     *
+     * The workflow builder offered "when an invoice is paid" and "when an
+     * invoice is sent" and this module never emitted a domain event in its
+     * life. A company automating a thank-you text on payment got a workflow
+     * that saved, enabled, and never fired, and nothing logs a subscription
+     * that matches nothing because matching nothing is what a quiet week
+     * looks like.
+     */
+    await emit(tx, ctx, {
+      name: "invoice.issued", entityType: "invoice", entityId: invoice!.id,
+      payload: {
+        invoiceId: invoice!.id,
+        customerId: invoice!.customerId,
+        total: computed.totals.total ? m.toString(computed.totals.total) : "0",
+        ...(input.jobId ? { jobId: input.jobId } : {}),
+      },
+    });
+
     await audit(tx, ctx, "invoice.created", "invoice", invoice!.id, null, invoice!);
     return loadInvoice(tx, ctx, invoice!.id);
   });
@@ -512,6 +533,9 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       idempotencyKey: ctx.idempotencyKey ?? `payment-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     }).returning();
 
+    /** Invoices this payment took to zero, carried on the payment event. */
+    const settled: string[] = [];
+
     for (const allocation of allocations) {
       await tx.insert(schema.paymentAllocation).values({
         organizationId: ctx.actor.organizationId,
@@ -538,6 +562,29 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
         await tx.update(schema.job).set({ status: "paid", updatedAt: new Date() })
           .where(eq(schema.job.id, invoice.jobId));
       }
+
+      /**
+       * PAID IN FULL IS THE EVENT, not "a payment touched this invoice".
+       *
+       * A part payment on a thousand dollar invoice is not the moment to
+       * send a thank you, and a workflow author writing "when an invoice is
+       * paid" means the balance reached zero. `payment.received` below is
+       * the other event, for the automations that do care about every
+       * payment.
+       */
+      if (m.isZero(balance) || m.isNegative(balance)) {
+        settled.push(allocation.invoiceId);
+        await emit(tx, ctx, {
+          name: "invoice.paid", entityType: "invoice", entityId: allocation.invoiceId,
+          payload: {
+            invoiceId: allocation.invoiceId,
+            customerId: input.customerId,
+            total: m.toString(usd(invoice.total)),
+            ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+          },
+          previous: { balance: invoice.balance, status: invoice.status },
+        });
+      }
     }
 
     const transactionId = await writePosting(tx, ctx, ledger.postPayment({
@@ -556,6 +603,18 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
         entityType: "payment", entityId: payment!.id,
       });
     }
+
+    await emit(tx, ctx, {
+      name: "payment.received", entityType: "payment", entityId: payment!.id,
+      payload: {
+        paymentId: payment!.id,
+        customerId: input.customerId,
+        amount: m.toString(amount),
+        method: input.method,
+        /** Which invoices this cleared, so a step does not have to go and look. */
+        settledInvoiceIds: settled,
+      },
+    });
 
     await audit(tx, ctx, "payment.recorded", "payment", payment!.id, null, payment!);
 

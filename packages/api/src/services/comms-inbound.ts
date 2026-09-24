@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms, type Actor, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
+import { emit } from "./events";
 import type { InboundMessage, MessagingProvider, WebhookRequest } from "../comms/provider";
 import { recordDelivery } from "./comms-outbox";
 import { threadFor } from "./comms-send";
@@ -186,6 +187,29 @@ export async function store(
       status: "open",
       updatedAt: new Date(),
     }).where(eq(schema.conversation.id, conversationId));
+
+    /**
+     * WHAT A WORKFLOW WAITS FOR.
+     *
+     * The builder offered "when a customer texts in" and this path emitted
+     * nothing, so an automation routing after-hours replies to a task never
+     * ran once.
+     *
+     * The INTENT rides on the payload, because a STOP and a question are
+     * both inbound messages and no workflow wants to reply to the first
+     * one. A condition on `intent` is the difference between an automation
+     * that helps and one that texts somebody who just asked you to stop.
+     */
+    await emit(tx, ctx, {
+      name: "message.received", entityType: "conversation", entityId: conversationId,
+      payload: {
+        messageId: stored!.id,
+        conversationId,
+        from: inbound.from,
+        body: inbound.body,
+        intent,
+      },
+    });
 
     return { kind: "message", messageId: stored!.id, conversationId, intent } as const;
   });

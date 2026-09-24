@@ -269,6 +269,18 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       });
     }
 
+    /**
+     * The audit entry below is not an event. The audit log is what somebody
+     * reads afterwards; a domain event is what a workflow subscribes to, and
+     * the builder offered "when a job is created" while only status CHANGES
+     * emitted anything. A job booked and never moved off `scheduled` emitted
+     * nothing at all.
+     */
+    await emit(tx, ctx, {
+      name: "job.created", entityType: "job", entityId: job!.id,
+      payload: { job: job! },
+    });
+
     await audit(tx, ctx, "job.created", "job", job!.id, null, job!);
     return clean(ctx, "job", job!);
   });
@@ -379,7 +391,12 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     });
     if (input.status !== undefined && input.status !== before.status) {
       await emit(tx, ctx, {
-        name: `job.${input.status}`, entityType: "job", entityId: input.id,
+        /**
+         * Built from the status enum, and the catalogue carries a line per
+         * status, so a status added to the database without one is a
+         * compile error rather than an event nobody can subscribe to.
+         */
+        name: `job.${input.status}` as const, entityType: "job", entityId: input.id,
         payload: { job: after! }, previous: { job: before },
       });
     }

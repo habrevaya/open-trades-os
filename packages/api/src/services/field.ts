@@ -5,6 +5,7 @@ import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
+import { emit } from "./events";
 import { audit } from "./customers";
 import { freezeRate } from "./labor";
 import type {
@@ -440,6 +441,30 @@ async function effect(
             eq(schema.arrivalNotice.visitId, op.subjectId),
             isNull(schema.arrivalNotice.arrivedAt),
           ));
+      }
+
+      /**
+       * A DOMAIN EVENT, not just a portal timeline entry.
+       *
+       * `customerTimeline` below writes what the CUSTOMER sees. A workflow
+       * subscribes to something else entirely, and the builder offered "when
+       * a visit is completed" while this path emitted nothing, so the
+       * commonest automation there is, asking for a review after the work,
+       * could not be built.
+       *
+       * Only on completion. The other transitions are visible as
+       * `job.in_progress` and the rest, and an event per punch would make
+       * the log a movement feed rather than a set of facts worth acting on.
+       */
+      if (op.kind === "visit.complete") {
+        await emit(tx, ctx, {
+          name: "visit.completed", entityType: "visit", entityId: op.subjectId,
+          payload: {
+            visitId: op.subjectId,
+            /** The operation's own time, because the phone may have synced hours later. */
+            completedAt: op.occurredAt.toISOString(),
+          },
+        });
       }
 
       await customerTimeline(tx, org, op, nextState);

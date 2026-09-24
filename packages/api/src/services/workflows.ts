@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { schema } from "@opentradesos/db";
-import { automation, permissionsFor } from "@opentradesos/core";
+import { schema, type Database } from "@opentradesos/db";
+import { automation, events, permissionsFor } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, inTenant,
   ConflictError, NotFoundError, type ServiceContext,
@@ -248,13 +248,49 @@ export interface WorkflowInput {
  * between a message somebody can act on and a workflow that quietly fails
  * every night.
  */
-function check(ctx: ServiceContext, input: WorkflowInput): string | null {
+function check(
+  ctx: ServiceContext,
+  input: WorkflowInput,
+  /** Names this company's log already holds, which stay valid whatever this build emits. */
+  seenEvents: ReadonlySet<string> = new Set(),
+): string | null {
   if (input.name.trim() === "") return "An automation needs a name.";
   if (input.steps.length === 0) return "An automation needs at least one step.";
 
   if (input.triggerKind === "event") {
     if ((input.triggerEvents ?? []).length === 0) {
       return "An event automation needs at least one event to trigger on.";
+    }
+    /**
+     * REFUSED AT THE SAVE, because there is no later moment.
+     *
+     * An automation subscribed to an event nothing emits saves, enables,
+     * appears in the list and never runs. There is no error, no log line
+     * and no screen that can tell it apart from a quiet month: a
+     * subscription matching nothing looks exactly like nothing having
+     * happened.
+     *
+     * A name the log has ALREADY SEEN is allowed even if this version does
+     * not emit it. It is a real thing in that company's history, written by
+     * an older build or a migration, and refusing it would break automations
+     * that work.
+     */
+    const unknown = (input.triggerEvents ?? []).filter(
+      (name) => !events.isEventName(name) && !seenEvents.has(name),
+    );
+    if (unknown.length > 0) {
+      return `Nothing in this product emits ${unknown.join(" or ")}, so an automation on it would `
+        + "never run. Pick an event from the list.";
+    }
+    const silent = (input.triggerEvents ?? []).filter(
+      (name) => events.isEventName(name)
+        && !(events.SUBSCRIBABLE as string[]).includes(name)
+        && !seenEvents.has(name),
+    );
+    if (silent.length > 0) {
+      const owed = silent.map((name) => events.eventSpec(name as events.EventName).owedBy).filter(Boolean);
+      return `${silent.join(" and ")} is not emitted yet, so an automation on it would never run.`
+        + (owed.length > 0 ? ` ${owed.join(" ")}` : "");
     }
   } else if (input.triggerKind === "schedule") {
     if (!input.schedule) return "A scheduled automation needs a schedule.";
@@ -294,6 +330,21 @@ function check(ctx: ServiceContext, input: WorkflowInput): string | null {
 }
 
 /**
+ * Event names this company's log already holds.
+ *
+ * Read inside the transaction that is about to validate, so a workflow
+ * subscribing to something an older build emitted stays valid. Refusing
+ * those would break automations that work, which is a worse outcome than
+ * allowing a name this version happens not to know.
+ */
+async function seenEventNames(tx: Database, organizationId: string): Promise<Set<string>> {
+  const rows = await tx.selectDistinct({ name: schema.domainEvent.name })
+    .from(schema.domainEvent)
+    .where(eq(schema.domainEvent.organizationId, organizationId));
+  return new Set(rows.map((row: { name: string }) => row.name));
+}
+
+/**
  * Create a workflow and publish its first version, switched off.
  *
  * Off, deliberately. A new automation that starts running the moment it is
@@ -301,7 +352,7 @@ function check(ctx: ServiceContext, input: WorkflowInput): string | null {
  */
 export async function create(ctx: ServiceContext, input: WorkflowInput) {
   return guardedWrite(ctx, "workflow:write", async (tx) => {
-    const refusal = check(ctx, input);
+    const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId));
     if (refusal) throw new ConflictError(refusal);
 
     const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
@@ -358,7 +409,7 @@ export async function publish(ctx: ServiceContext, input: { id: string } & Workf
       .where(and(eq(schema.workflow.id, input.id), isNull(schema.workflow.deletedAt))).limit(1);
     if (!before) throw new NotFoundError("Workflow");
 
-    const refusal = check(ctx, input);
+    const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId));
     if (refusal) throw new ConflictError(refusal);
     const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
     if (!required.ok) throw new ConflictError("This definition cannot be published.");
@@ -409,27 +460,55 @@ export async function remove(ctx: ServiceContext, input: { id: string }) {
 }
 
 /**
- * The events a workflow can trigger on, as the product actually emits them.
+ * The events a workflow can trigger on.
  *
- * A free text field here is a workflow that silently never fires, because an
- * event name with a typo in it matches nothing and says nothing. Drawn from
- * what the log has actually seen, plus the ones we ship, so a company that
- * has never completed a job can still automate one.
+ * This was a hand written list of fourteen names that nothing kept in step
+ * with the emitters. Exactly ONE of the fourteen was ever emitted. A company
+ * building "when an invoice is paid, text the customer" got a workflow that
+ * saved, enabled, appeared in the list and never fired, and nothing logs a
+ * subscription matching nothing, because matching nothing is what a quiet
+ * week looks like. It failed the other way too: five events the product did
+ * emit were absent, so the one part of it with a working event stream could
+ * not be automated.
+ *
+ * It now comes from the catalogue in core, which `emit` is typed against, so
+ * the two lists cannot drift: a name in one and not the other is a compile
+ * error.
+ *
+ * NAMES THE LOG HAS SEEN ARE STILL INCLUDED, and deliberately. An event
+ * written by an older version of this product, or by a migration, is a real
+ * thing in that company's history and a workflow should be able to reach it.
+ * What is no longer possible is offering a name that has neither been
+ * emitted nor declared.
  */
-const KNOWN_EVENTS = [
-  "job.created", "job.updated", "job.completed",
-  "visit.scheduled", "visit.completed",
-  "estimate.sent", "estimate.approved", "estimate.declined",
-  "invoice.sent", "invoice.paid", "invoice.overdue",
-  "payment.failed",
-  "message.received",
-  "booking.requested",
-];
-
 export async function triggerEvents(ctx: ServiceContext): Promise<string[]> {
   const seen = await inTenant(ctx, async (tx) =>
     tx.selectDistinct({ name: schema.domainEvent.name }).from(schema.domainEvent));
-  return [...new Set([...KNOWN_EVENTS, ...seen.map((r: { name: string }) => r.name)])].sort();
+  return [...new Set([
+    ...events.SUBSCRIBABLE,
+    ...seen.map((r: { name: string }) => r.name),
+  ])].sort();
+}
+
+/**
+ * The same list with what each one means, for a builder that can show it.
+ *
+ * A column of `agreement.visit_unskipped` next to a checkbox asks somebody
+ * to guess. The summary is the sentence they are completing.
+ *
+ * A name this company's log holds and the catalogue does not gets a null
+ * summary rather than being dropped. It is a real event in their history and
+ * an automation on it works; what it does not have is a sentence, and
+ * showing the bare name is better than hiding a trigger that fires.
+ */
+export async function triggerEventCatalogue(
+  ctx: ServiceContext,
+): Promise<{ name: string; summary: string | null }[]> {
+  const names = await triggerEvents(ctx);
+  return names.map((name) => ({
+    name,
+    summary: events.isEventName(name) ? events.eventSpec(name).summary : null,
+  }));
 }
 
 /** The steps this build can actually perform, with what each one needs. */

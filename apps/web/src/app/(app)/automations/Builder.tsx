@@ -31,7 +31,7 @@ export interface DwellShape {
 export function Builder({
   events, steps, shapes, initial,
 }: {
-  events: string[];
+  events: { name: string; summary: string | null }[];
   steps: StepOption[];
   shapes: DwellShape[];
   initial?: {
@@ -105,22 +105,41 @@ export function Builder({
 
         {triggerKind === "event" ? (
           <div className="mt-3">
-            <p className="text-xs text-ink-500">
-              Picked from a list rather than typed. An event name with a typo in
-              it matches nothing and says nothing.
+            <p className="max-w-prose text-xs text-ink-500">
+              {/*
+                The list used to be fourteen names of which one was ever
+                emitted, so the commonest automation anybody would write was
+                one that saved, enabled, and never ran. Everything offered
+                here fires.
+              */}
+              Picked from a list rather than typed, and every one of these is
+              something the product actually emits. An automation on an event
+              nothing raises never runs, and nothing can tell you: a
+              subscription matching nothing looks exactly like a quiet month.
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {events.map((name) => (
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {events.map((event) => (
                 <label
-                  key={name}
-                  className="inline-flex items-center gap-2 rounded border border-steel-300 px-3 py-1.5 font-mono text-xs hover:bg-steel-100"
+                  key={event.name}
+                  className="flex items-start gap-2 rounded border border-steel-300 px-3 py-2 text-sm hover:bg-steel-100"
                 >
                   <input
-                    type="checkbox" name="triggerEvent" value={name}
-                    defaultChecked={initial?.triggerEvents.includes(name)}
-                    className="h-4 w-4"
+                    type="checkbox" name="triggerEvent" value={event.name}
+                    defaultChecked={initial?.triggerEvents.includes(event.name)}
+                    className="mt-0.5 h-4 w-4 shrink-0"
                   />
-                  {name}
+                  <span>
+                    {/*
+                      The sentence first and the name second. A column of
+                      `agreement.visit_unskipped` next to a checkbox asks
+                      somebody to guess; the summary is the sentence they
+                      are completing.
+                    */}
+                    <span className="block text-ink-900">
+                      {event.summary ?? event.name}
+                    </span>
+                    <span className="block font-mono text-xs text-ink-500">{event.name}</span>
+                  </span>
                 </label>
               ))}
             </div>

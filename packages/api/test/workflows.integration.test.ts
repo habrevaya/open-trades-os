@@ -59,7 +59,7 @@ run("making one", () => {
      */
     const flow = await workflows.create(owner(), {
       name: "Chase an estimate", triggerKind: "event",
-      triggerEvents: ["estimate.sent"], steps: [TASK_STEP],
+      triggerEvents: ["invoice.issued"], steps: [TASK_STEP],
     });
     expect(flow.enabled).toBe(false);
     expect(flow.activeVersionId).toBeTruthy();
@@ -67,7 +67,7 @@ run("making one", () => {
 
   it("records what the author was allowed to approve", async () => {
     const flow = await workflows.create(owner(), {
-      name: "Chase", triggerKind: "event", triggerEvents: ["estimate.sent"],
+      name: "Chase", triggerKind: "event", triggerEvents: ["invoice.issued"],
       steps: [TASK_STEP],
     });
     const [version] = await raw<{ required_permissions: string[] }[]>`
@@ -207,11 +207,11 @@ run("changing one", () => {
      * that gets asked.
      */
     const flow = await workflows.create(owner(), {
-      name: "Chase", triggerKind: "event", triggerEvents: ["estimate.sent"], steps: [TASK_STEP],
+      name: "Chase", triggerKind: "event", triggerEvents: ["invoice.issued"], steps: [TASK_STEP],
     });
     await workflows.publish(owner(), {
       id: flow.id, name: "Chase, harder", triggerKind: "event",
-      triggerEvents: ["estimate.sent"], steps: [TASK_STEP, { kind: "wait", config: { days: 1 } }],
+      triggerEvents: ["invoice.issued"], steps: [TASK_STEP, { kind: "wait", config: { days: 1 } }],
     });
 
     const versions = await raw<{ version: number }[]>`
@@ -227,10 +227,10 @@ run("changing one", () => {
     // Otherwise "create something harmless, then edit it into something
     // else" is the whole escalation with one extra step.
     const flow = await workflows.create(owner(), {
-      name: "Chase", triggerKind: "event", triggerEvents: ["estimate.sent"], steps: [TASK_STEP],
+      name: "Chase", triggerKind: "event", triggerEvents: ["invoice.issued"], steps: [TASK_STEP],
     });
     await expect(workflows.publish(as(["dispatcher"]), {
-      id: flow.id, name: "Chase", triggerKind: "event", triggerEvents: ["estimate.sent"],
+      id: flow.id, name: "Chase", triggerKind: "event", triggerEvents: ["invoice.issued"],
       steps: [{ kind: "record_payment" }],
     })).rejects.toThrow();
   });
@@ -334,8 +334,67 @@ run("seeing what happened", () => {
 
   it("offers events from a list rather than a text box", async () => {
     // An event name with a typo in it matches nothing and says nothing.
-    const events = await workflows.triggerEvents(owner());
-    expect(events).toContain("estimate.sent");
-    expect(events).toContain("job.completed");
+    const offered = await workflows.triggerEvents(owner());
+    expect(offered).toContain("invoice.paid");
+    expect(offered).toContain("job.completed");
+  });
+
+  /**
+   * THE LIST OFFERED ONLY EVENTS THAT COULD NEVER FIRE.
+   *
+   * Fourteen names were on it and exactly one of them was emitted anywhere
+   * in the product. A company building "when an invoice is paid, text the
+   * customer" got a workflow that saved, enabled, appeared in the list and
+   * never ran. Nothing can report that: a subscription matching nothing
+   * looks exactly like nothing having happened.
+   *
+   * These fixtures used to be built on `estimate.sent`, which is one of the
+   * thirteen. The tests were encoding the defect.
+   */
+  it("offers nothing the product does not emit", async () => {
+    const offered = await workflows.triggerEvents(owner());
+    for (const name of ["estimate.sent", "estimate.approved", "invoice.overdue", "payment.failed"]) {
+      expect(offered, `${name} cannot fire and must not be offered`).not.toContain(name);
+    }
+  });
+
+  it("does not offer a dwell event as an event subscription", async () => {
+    /**
+     * Dwell events are raised by a sweep and carry their own trigger kind.
+     * Subscribing to one as an event produces a workflow waiting on a sweep
+     * nobody configured, which is the same silence by a different route.
+     */
+    const offered = await workflows.triggerEvents(owner());
+    expect(offered).not.toContain("estimate.dwelling");
+  });
+
+  it("refuses to save a subscription to an event nothing emits", async () => {
+    await expect(workflows.create(owner(), {
+      name: "Never runs", triggerKind: "event",
+      triggerEvents: ["estimate.approved"], steps: [TASK_STEP],
+    })).rejects.toThrow(/never run/i);
+  });
+
+  it("refuses an invented name outright", async () => {
+    await expect(workflows.create(owner(), {
+      name: "Typo", triggerKind: "event",
+      triggerEvents: ["invoice.payed"], steps: [TASK_STEP],
+    })).rejects.toThrow(/Nothing in this product emits/i);
+  });
+
+  it("allows a name this company's own log already holds", async () => {
+    /**
+     * An event written by an older build or a migration is a real thing in
+     * that company's history. Refusing it would break automations that work,
+     * which is worse than allowing a name this version happens not to know.
+     */
+    await raw`insert into public.domain_event
+      (organization_id, sequence, name, entity_type, payload)
+      values (${ORG}, 990001, 'legacy.thing_happened', 'job', '{}'::jsonb)`;
+
+    await expect(workflows.create(owner(), {
+      name: "Legacy", triggerKind: "event",
+      triggerEvents: ["legacy.thing_happened"], steps: [TASK_STEP],
+    })).resolves.toBeTruthy();
   });
 });
