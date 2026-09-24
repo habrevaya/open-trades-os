@@ -81,10 +81,6 @@ const SOFT_DELETE_NOT_OFFERED = 26;
  * an entry is fixed and not removed.
  */
 const KNOWN_GAPS = new Map<string, string>([
-  ["phoneNumber.attributionSource",
-    "A tracking number cannot be told what campaign it belongs to, so call attribution resolves to nothing."],
-  ["phoneNumber.releasedAt",
-    "A number cannot be released. Sending picks the newest registered number and would keep picking one that has gone back to the carrier."],
   ["reviewRequest.sendAt",
     "A review request cannot be scheduled, only sent now, so the policy's delay after a visit is unreachable."],
   ["wageScale.effectiveFrom",

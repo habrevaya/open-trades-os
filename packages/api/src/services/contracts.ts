@@ -520,9 +520,10 @@ export async function overview(ctx: ServiceContext) {
 
     const cards = await tx.select({
       card: schema.rateCard,
+      /** Qualified by hand. See the note on `trackingUsage` for why drizzle cannot. */
       lines: sql<number>`(
-        select count(*)::int from ${schema.rateCardLine}
-        where ${schema.rateCardLine.rateCardId} = ${schema.rateCard.id}
+        select count(*)::int from "rate_card_line" l
+        where l.rate_card_id = "rate_card"."id"
       )`,
     }).from(schema.rateCard)
       .where(and(

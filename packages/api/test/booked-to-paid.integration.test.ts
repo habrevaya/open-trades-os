@@ -222,6 +222,70 @@ run("a payment spanning invoices", () => {
     expect(b.balance).toBe("118.0000");
   });
 
+  /**
+   * "OLDEST" HAS TO BE A TOTAL ORDER.
+   *
+   * The test above passed for months on an ordering that was a tie. Both its
+   * invoices are issued today, because the product issues on create, and
+   * ordering by issue date alone left Postgres to return them in whatever
+   * order the heap held. It broke the moment another suite put rows in the
+   * table, which is the tell: it was asserting physical row order.
+   *
+   * The two below pin the rule itself. A company invoicing four jobs in one
+   * morning is the ordinary case, not the edge one.
+   */
+  it("clears the most overdue first when two are issued the same day", async () => {
+    const created = await customers.create(ctx(), {
+      type: "residential", name: "Same Day", paymentTermsDays: 0,
+      taxExempt: false, tags: [], customFields: {},
+    });
+    const cid = created.id as string;
+
+    /** Created newest due first, so passing cannot be insertion order. */
+    const later = await billing.create(ctx(), {
+      customerId: cid, dueOn: "2026-10-01",
+      lines: [{ name: "Later", quantity: "1", unitPrice: "100.00", discountAmount: "0", taxable: false }],
+    });
+    const sooner = await billing.create(ctx(), {
+      customerId: cid, dueOn: "2026-07-01",
+      lines: [{ name: "Sooner", quantity: "1", unitPrice: "100.00", discountAmount: "0", taxable: false }],
+    });
+
+    await billing.pay(ctx(), { customerId: cid, method: "check", amount: "100.00", tipAmount: "0" });
+
+    expect((await billing.get(ctx(), { id: sooner.id as string })).status).toBe("paid");
+    expect((await billing.get(ctx(), { id: later.id as string })).status).toBe("open");
+  });
+
+  it("falls to the invoice number when the due dates tie as well", async () => {
+    const created = await customers.create(ctx(), {
+      type: "residential", name: "Four In A Morning", paymentTermsDays: 0,
+      taxExempt: false, tags: [], customFields: {},
+    });
+    const cid = created.id as string;
+
+    const made = [];
+    for (let i = 0; i < 3; i += 1) {
+      made.push(await billing.create(ctx(), {
+        customerId: cid, dueOn: "2026-11-01",
+        lines: [{ name: `Job ${i}`, quantity: "1", unitPrice: "50.00", discountAmount: "0", taxable: false }],
+      }));
+    }
+
+    await billing.pay(ctx(), { customerId: cid, method: "check", amount: "50.00", tipAmount: "0" });
+
+    /**
+     * The number is the last tie break because it is sequential and it is
+     * what the statement shows, so two invoices from the same morning clear
+     * in the order the customer can see.
+     */
+    const statuses = [];
+    for (const invoice of made) {
+      statuses.push((await billing.get(ctx(), { id: invoice.id as string })).status);
+    }
+    expect(statuses).toEqual(["paid", "open", "open"]);
+  });
+
   it("refuses to allocate more than the payment", async () => {
     const created = await customers.create(ctx(), {
       type: "residential", name: "Overallocate", paymentTermsDays: 0,

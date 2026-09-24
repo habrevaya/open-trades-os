@@ -29,6 +29,7 @@ export * as commsInbound from "./comms-inbound";
 export * as commsOutbox from "./comms-outbox";
 export * as consent from "./consent";
 export * as contacts from "./contacts";
+export * as phoneNumbers from "./phone-numbers";
 export * as reports from "./reports";
 export * as dashboards from "./dashboards";
 export * as roles from "./roles";

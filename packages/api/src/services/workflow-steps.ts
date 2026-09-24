@@ -1,5 +1,6 @@
 import { and, eq, isNull, desc } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import * as phoneNumbers from "./phone-numbers";
 import { comms } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import { raise } from "./tasks";
@@ -99,16 +100,10 @@ export async function sendMessage(
    * is refused rather than attempted: an unregistered send is not merely
    * rejected by the carrier, it counts against the sender.
    */
-  const [from] = await tx.select().from(schema.phoneNumber)
-    .where(and(
-      eq(schema.phoneNumber.organizationId, organizationId),
-      isNull(schema.phoneNumber.releasedAt),
-      channel === "sms" || channel === "mms"
-        ? eq(schema.phoneNumber.smsRegistered, true)
-        : undefined,
-    ))
-    .orderBy(desc(schema.phoneNumber.createdAt))
-    .limit(1);
+  /** The same rule the direct sender uses. See `senderFor` for why not the newest. */
+  const from = await phoneNumbers.senderFor(tx, organizationId, {
+    smsRequired: channel === "sms" || channel === "mms",
+  });
 
   if (!from && channel !== "email") {
     return { ok: false, reason: "no registered sending number" };

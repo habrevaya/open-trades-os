@@ -523,3 +523,68 @@ run("invoicing under a contract", () => {
     expect(Number(line!.unit_price)).toBe(380);
   });
 });
+
+run("the overview the screen reads", () => {
+  /**
+   * THE LINE COUNT IS THE WHOLE POINT OF THAT SCREEN.
+   *
+   * It leads with "cards in force, and priced lines across them", because a
+   * contract with a card and no lines is the quiet failure: it looks
+   * complete, every item quoted comes back out of scope, and the person
+   * quoting reads that as a fussy client.
+   *
+   * The count shipped as a correlated subquery drizzle rendered with bare
+   * column names, so it compared `rate_card_line.rate_card_id` to
+   * `rate_card_line.id` and came back zero for every card. Valid SQL, no
+   * warning, and the screen's own warning fired on every contract there was.
+   */
+  it("counts the lines on each card, rather than zero", async () => {
+    const { card } = await contractWithCard([
+      { priceBookItemId: filterId, description: "Filter", price: "31.50" },
+      { priceBookItemId: coilId, description: "Coil clean", price: "260.00" },
+      { externalCode: "NW-X", description: "Their own code", price: "12.00" },
+    ]);
+
+    const rows = await contracts.overview(owner());
+    expect(rows).toHaveLength(1);
+    const found = rows[0]!.cards.find((c) => c.id === card.id);
+    expect(found?.lines).toBe(3);
+    expect(rows[0]!.pricedLines).toBe(3);
+  });
+
+  it("reports an empty card as empty, which is the state worth warning about", async () => {
+    await contractWithCard([]);
+    const rows = await contracts.overview(owner());
+    expect(rows[0]!.cards).toHaveLength(1);
+    expect(rows[0]!.pricedLines).toBe(0);
+  });
+
+  it("reads in force from the dates rather than the flag", async () => {
+    await contractWithCard(
+      [{ priceBookItemId: filterId, description: "Filter", price: "31.50" }],
+      { startsOn: "2020-01-01", endsOn: "2020-12-31" },
+    );
+    const rows = await contracts.overview(owner());
+    expect(rows[0]).toMatchObject({ inForce: false, ended: true });
+  });
+
+  it("carries the site ceilings, falling back to the contract default", async () => {
+    const { contract } = await contractWithCard([]);
+    await contracts.addSite(owner(), {
+      contractId: contract.id, propertyId: warehouseId, siteNumber: "DC-1", notToExceed: "1000.00",
+    });
+    await contracts.addSite(owner(), {
+      contractId: contract.id, propertyId: retailId, siteNumber: "RT-7", notToExceed: null,
+    });
+
+    const rows = await contracts.overview(owner());
+    const sites = rows[0]!.sites;
+    expect(sites).toHaveLength(2);
+    expect(sites.find((s) => s.siteNumber === "DC-1")).toMatchObject({
+      notToExceed: "1000.0000", fromSite: true,
+    });
+    expect(sites.find((s) => s.siteNumber === "RT-7")).toMatchObject({
+      notToExceed: "500.0000", fromSite: false,
+    });
+  });
+});

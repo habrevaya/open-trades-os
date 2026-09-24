@@ -2,9 +2,9 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
-  telephony as telephonyService,
+  telephony as telephonyService, phoneNumbers as numberService,
 } from "@opentradesos/api/services";
-import { can, ROLE_PRESETS } from "@opentradesos/core";
+import { can, ROLE_PRESETS, marketing as mk } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { Chip, Phone } from "@opentradesos/ui";
@@ -13,6 +13,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { Branding } from "./Branding";
 import { Timezone } from "./Timezone";
 import { Recording } from "./Recording";
+import { Numbers } from "./Numbers";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,13 @@ export default async function SettingsPage() {
 
   const writes = can(user.actor, "settings:write");
   const brand = await brandingService.current(ctx).catch(() => null);
+
+  /**
+   * Through the service rather than the raw table, so the row knows which
+   * number texts come from. That is a consequence of purpose, registration
+   * and age, and the page was reading three columns and showing none of it.
+   */
+  const numbers = await numberService.list(ctx, {});
 
   const data = await inTenant(ctx, async (tx) => ({
     numbers: await tx.select().from(schema.phoneNumber)
@@ -96,14 +104,25 @@ export default async function SettingsPage() {
         title="Phone numbers"
         description="A number must be registered before it can send. An unregistered send is not merely rejected by the carrier: it counts against the sender."
       >
-        {data.numbers.length === 0 ? (
+        {/*
+          Editable now, where it used to be a read only table. The page said
+          so at the top, honestly, while the two columns that matter most on
+          this table could not be set by anything at all: what a tracking
+          number attributes to, and whether a number has been handed back.
+        */}
+        {writes ? (
+          <Numbers
+            numbers={numbers}
+            sources={mk.LEAD_SOURCES.map((source) => ({ key: source.key, label: source.label }))}
+          />
+        ) : numbers.length === 0 ? (
           <Empty title="No numbers connected">
             Connect a carrier and add a number to send appointment reminders
             and take replies.
           </Empty>
         ) : (
           <Table head={<><Th>Number</Th><Th>Purpose</Th><Th>Label</Th><Th>SMS</Th></>}>
-            {data.numbers.map((number) => (
+            {numbers.map((number) => (
               <tr key={number.id}>
                 <Td><Phone value={number.e164} /></Td>
                 <Td className="text-ink-700">{label(PHONE_PURPOSE, number.purpose)}</Td>

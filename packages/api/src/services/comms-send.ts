@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import * as phoneNumbers from "./phone-numbers";
 import { comms } from "@opentradesos/core";
 
 /**
@@ -29,14 +30,19 @@ import { comms } from "@opentradesos/core";
  * type a reply, and asking it twice in two ways is how the answers diverge.
  */
 export async function sendability(tx: Database, organizationId: string, address: string) {
-  const [from] = await tx.select().from(schema.phoneNumber)
-    .where(and(
-      eq(schema.phoneNumber.organizationId, organizationId),
-      isNull(schema.phoneNumber.releasedAt),
-      eq(schema.phoneNumber.smsRegistered, true),
-    ))
-    .orderBy(desc(schema.phoneNumber.createdAt))
-    .limit(1);
+  /**
+   * WHICH NUMBER A TEXT COMES FROM IS A DECISION, and this used to make it by
+   * taking whichever number was created last. That was harmless only while
+   * tracking numbers could not exist. Now that they can, the newest
+   * registered number is often one, and sending from a tracking number
+   * poisons the measurement it exists for: the customer replies, the reply
+   * lands on the campaign number, and the campaign is credited with a lead
+   * that is a reply to our own text.
+   *
+   * The rule lives in one place so this and the workflow sender cannot
+   * disagree about who a customer hears from.
+   */
+  const from = await phoneNumbers.senderFor(tx, organizationId, { smsRequired: true });
 
   const consents = await tx.select().from(schema.communicationConsent)
     .where(and(

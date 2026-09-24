@@ -1,4 +1,4 @@
-import { and, eq, desc, lt, inArray, sql, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, lt, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { authorization as authz, coverage, ledger, money as m } from "@opentradesos/core";
 import type { z } from "zod";
@@ -416,6 +416,19 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
  * payments, and the allocations are what connect them. Left unspecified, the
  * payment is applied oldest balance first, which is what a bookkeeper does by
  * hand and what a customer expects.
+ *
+ * "OLDEST" HAS TO BE A TOTAL ORDER, and it was not. This ordered by issue
+ * date alone, and a company invoicing four jobs in one morning gives four
+ * invoices the same issue date: Postgres then returns them in whatever order
+ * the heap holds, and a customer paying part of what they owe has the money
+ * land on an arbitrary one of them. The comment above said oldest first and
+ * the behaviour was "whichever", which is worse than an admitted arbitrary
+ * rule because the statements it produces look deliberate.
+ *
+ * The tie breaks are below, and the first of them is the due date rather
+ * than the issue date. That is the order the aging report buckets by and the
+ * order the customer is chased in, so it is the one a part payment should
+ * clear.
  */
 export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayment.input>) {
   return guardedWrite(ctx, "payment:collect", async (tx) => {
@@ -447,13 +460,24 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
     const allocations = input.allocations?.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) })) ?? [];
 
     if (allocations.length === 0) {
-      // Oldest balance first.
+      /**
+       * Oldest balance first, as a TOTAL order: most overdue, then oldest
+       * issued, then by invoice number. The number is the last tie break
+       * because it is sequential and it is the thing on the statement, so
+       * two invoices from the same morning clear in the order the customer
+       * can see. An invoice with no due date sorts last: it is not overdue
+       * because nobody has said when it is due.
+       */
       const open = await tx.select().from(schema.invoice)
         .where(and(
           eq(schema.invoice.customerId, input.customerId),
           inArray(schema.invoice.status, ["open", "partially_paid"]),
         ))
-        .orderBy(schema.invoice.issuedOn);
+        .orderBy(
+          sql`${schema.invoice.dueOn} asc nulls last`,
+          asc(schema.invoice.issuedOn),
+          asc(schema.invoice.number),
+        );
 
       let remaining = amount;
       for (const invoice of open) {

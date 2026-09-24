@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, telephony, ConflictError } from "@opentradesos/api/services";
+import { branding, telephony, phoneNumbers, ConflictError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -137,4 +137,42 @@ export async function removeRecordingPolicy(_previous: unknown, form: FormData) 
     if (error instanceof ConflictError) return { error: error.message };
     throw error;
   }
+}
+
+export async function addNumber(_previous: unknown, form: FormData) {
+  try {
+    await phoneNumbers.add(await ctx(), {
+      e164: String(form.get("e164") ?? ""),
+      purpose: String(form.get("purpose") ?? "main") as "main",
+      label: String(form.get("label") ?? "") || null,
+      attributionSource: String(form.get("attributionSource") ?? "") || null,
+      smsRegistered: form.get("smsRegistered") === "yes",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true };
+}
+
+/**
+ * Hand a number back.
+ *
+ * The result carries what texts now come from, and the screen surfaces it,
+ * because releasing the last sendable number is allowed and silently stops
+ * every message. Returned rather than refused: a company leaving a provider
+ * releases everything, and a product that blocks the last one makes them
+ * edit the database.
+ */
+export async function releaseNumber(_previous: unknown, form: FormData) {
+  let result;
+  try {
+    result = await phoneNumbers.release(await ctx(), { id: String(form.get("id") ?? "") });
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true, nowSendingFrom: result.nowSendingFrom };
 }
