@@ -419,6 +419,29 @@ async function effect(
         updatedAt: new Date(),
       }).where(eq(schema.visit.id, op.subjectId));
 
+      /**
+       * ARRIVING CLOSES THE NOTICE THAT PROMISED IT.
+       *
+       * `arrival_notice.arrived_at` was read by the customer portal and
+       * written by nothing. The portal shows the estimate only while a
+       * notice is open, so a technician who arrived left one open forever
+       * and the customer kept being told somebody was twenty minutes away
+       * from a house they were already standing in.
+       *
+       * Stamped from the operation's own time, not the clock. The phone
+       * records when it happened and syncs later, and a notice closed at
+       * upload time would say the technician arrived when the signal came
+       * back rather than when they knocked.
+       */
+      if (op.kind === "visit.arrive") {
+        await tx.update(schema.arrivalNotice)
+          .set({ arrivedAt: op.occurredAt, updatedAt: new Date() })
+          .where(and(
+            eq(schema.arrivalNotice.visitId, op.subjectId),
+            isNull(schema.arrivalNotice.arrivedAt),
+          ));
+      }
+
       await customerTimeline(tx, org, op, nextState);
       return null;
     }

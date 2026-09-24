@@ -260,6 +260,46 @@ run("a full offline day", () => {
     expect(events.map((e) => e.kind)).toEqual(["on_the_way", "arrived"]);
     expect(events.every((e) => e.is_customer_visible)).toBe(true);
   });
+
+  /**
+   * ARRIVING CLOSES THE NOTICE THAT PROMISED IT.
+   *
+   * `arrival_notice.arrived_at` was read by the customer portal and written
+   * by nothing. The portal shows the estimate only while a notice is open,
+   * so a technician who arrived left one open forever and the customer kept
+   * being told somebody was twenty minutes away from a house they were
+   * standing in.
+   */
+  it("closes the on-my-way notice when the technician arrives", async () => {
+    const { visitId } = await makeVisit();
+    await dispatchSvc.onMyWay(tech(), { id: visitId, channel: "sms", etaMinutes: 20, includeTracking: false });
+
+    const [before] = await raw<{ id: string; arrived_at: Date | null }[]>`
+      select id, arrived_at from public.arrival_notice where visit_id = ${visitId}`;
+    /** The notice has to exist, or the assertion below passes on nothing. */
+    expect(before).toBeDefined();
+    expect(before!.arrived_at).toBeNull();
+
+    const arrivedAt = new Date(Date.now() - 600_000);
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "visit.arrive", subjectId: visitId,
+        occurredAt: arrivedAt.toISOString(), payload: {},
+      }],
+    });
+
+    const [after] = await raw<{ arrived_at: Date | null }[]>`
+      select arrived_at from public.arrival_notice where visit_id = ${visitId}`;
+    expect(after!.arrived_at).not.toBeNull();
+    /**
+     * Stamped from the operation's own time, not the clock. The phone
+     * records when it happened and syncs later, and a notice closed at
+     * upload time would say the technician arrived when the signal came back
+     * rather than when they knocked.
+     */
+    expect(after!.arrived_at!.getTime()).toBe(arrivedAt.getTime());
+  });
 });
 
 run("the connection coming and going", () => {
@@ -692,9 +732,15 @@ run("on my way", () => {
      * And one text. The notice count was the whole of this assertion while
      * the function sent nothing, so it proved only that the row was written
      * once.
+     *
+     * Scoped to THIS visit, not to the organization. Counting every outbound
+     * message in the org read as "one text was sent" and measured "this
+     * company has ever sent exactly one text", which held only while nothing
+     * else in the file sent anything and broke the moment something did.
      */
-    const messages = await raw`select id from public.message
-      where organization_id = ${ORG} and direction = 'outbound'`;
+    const messages = await raw`select m.id from public.message m
+      join public.arrival_notice n on n.message_id = m.id
+      where n.visit_id = ${visitId} and m.direction = 'outbound'`;
     expect(messages).toHaveLength(1);
   });
 
