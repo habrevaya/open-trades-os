@@ -43,7 +43,7 @@ export const listObligations = defineRoute({
   summary: "What is live, soonest first",
   description:
     "Past due rows come first, because they sort by due date and theirs is in the past. Rows somebody has finished with (satisfied, waived, cancelled) are excluded in the query, not after the page is cut.",
-  module: "M09",
+  module: "M34",
   permissions: ["task:read"],
   input: z.object({
     overdueOnly: z.coerce.boolean().optional(),
@@ -59,7 +59,7 @@ export const satisfyObligation = defineRoute({
   summary: "It was met",
   description:
     "satisfiedByEvent is required. A scorecard built from rows recording only that somebody clicked cannot be defended to the customer holding the contract it came from.",
-  module: "M09",
+  module: "M34",
   permissions: ["task:write"],
   idempotent: true,
   input: z.object({ id: Uuid, satisfiedByEvent: z.string().min(1).max(500) }),
@@ -72,7 +72,7 @@ export const waiveObligation = defineRoute({
   summary: "It will not be met, and that is a decision",
   description:
     "Distinct from satisfying and from cancelling, because the three are different answers: we did it, we agreed not to, and the thing it was attached to went away. A scorecard that collapsed them would be useless.",
-  module: "M09",
+  module: "M34",
   permissions: ["task:write"],
   idempotent: true,
   input: z.object({ id: Uuid, reason: z.string().min(1).max(500) }),
@@ -85,7 +85,7 @@ export const sweepObligations = defineRoute({
   summary: "Stamp what has gone past and note what needs escalating",
   description:
     "Does NOT make a breach visible: the list computes overdue from the clock, so this running late, or not at all, delays a stamp and never hides a deadline. Idempotent, so it is safe on any schedule.",
-  module: "M09",
+  module: "M34",
   permissions: ["task:write"],
   idempotent: true,
   input: z.object({}),

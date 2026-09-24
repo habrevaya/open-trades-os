@@ -17,58 +17,80 @@
   ],
   "tags": [
     {
-      "name": "M03"
+      "name": "M01",
+      "description": "Core, Tenancy and Access"
     },
     {
-      "name": "M05"
+      "name": "M03",
+      "description": "CRM"
     },
     {
-      "name": "M06"
+      "name": "M05",
+      "description": "Customer Portal and Online Booking"
     },
     {
-      "name": "M07"
+      "name": "M06",
+      "description": "Price Book"
     },
     {
-      "name": "M09"
+      "name": "M07",
+      "description": "Estimates and Proposals"
     },
     {
-      "name": "M10"
+      "name": "M09",
+      "description": "Scheduling and Dispatch"
     },
     {
-      "name": "M11"
+      "name": "M10",
+      "description": "Jobs and Work Orders"
     },
     {
-      "name": "M12"
+      "name": "M11",
+      "description": "Mobile Field App"
     },
     {
-      "name": "M13"
+      "name": "M13",
+      "description": "Invoicing and Payments"
     },
     {
-      "name": "M15"
+      "name": "M15",
+      "description": "Job Costing and Profitability"
     },
     {
-      "name": "M16"
+      "name": "M16",
+      "description": "Purchasing, Vendors and Inventory"
     },
     {
-      "name": "M17"
+      "name": "M17",
+      "description": "Payroll, Time and Commissions"
     },
     {
-      "name": "M18"
+      "name": "M18",
+      "description": "Communications Infrastructure"
     },
     {
-      "name": "M19"
+      "name": "M19",
+      "description": "Marketing Operations and Attribution"
     },
     {
-      "name": "M20"
+      "name": "M20",
+      "description": "Reviews and Reputation"
     },
     {
-      "name": "M23"
+      "name": "M23",
+      "description": "Documents, Compliance and Safety"
     },
     {
-      "name": "M25"
+      "name": "M25",
+      "description": "Integrations and Provider Framework"
     },
     {
-      "name": "M27"
+      "name": "M31",
+      "description": "Commercial Parties, Contracts and Third-Party Billing"
+    },
+    {
+      "name": "M34",
+      "description": "Tasks and the Office Work Queue"
     }
   ],
   "paths": {
@@ -2373,7 +2395,7 @@
         "summary": "Set up a commercial contract",
         "description": "Requires a session holding: contract:write.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {
@@ -2496,7 +2518,7 @@
         "summary": "Commercial contracts",
         "description": "Requires a session holding: contract:read.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {
@@ -2605,7 +2627,7 @@
         "summary": "The spend limit for work at a property",
         "description": "The site's own limit wins over the contract default, because that is how facilities clients write them. Null when no contract covers the property, which is not the same as a limit of zero.\n\nRequires a session holding: contract:read.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {
@@ -2723,7 +2745,7 @@
         "summary": "What may we charge this customer for this item",
         "description": "NOT COVERED IS A REFUSAL, NEVER A FALLBACK. An item that is not on the client's card comes back as not covered rather than as our list price, because falling back is what makes a contract job invoice at list and get rejected. The two uncovered cases are told apart: no card applies, where our price book is the right answer, and a card applies and this is not on it, where somebody has to ring the client before doing the work.\n\nRequires a session holding: pricebook:read.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {
@@ -2859,7 +2881,7 @@
         "summary": "Put a property on a contract, with its own ceiling",
         "description": "A limit per SITE rather than only per contract, because that is how facilities clients write them: a thousand at the distribution centre and two hundred at the retail unit, under one agreement. A single contract level ceiling would have somebody approving work at the wrong limit.\n\nRequires a session holding: contract:write.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {
@@ -9372,7 +9394,7 @@
         "summary": "Offboard somebody, or bring them back",
         "description": "Deactivated, not deleted: every job they ran and every timeclock entry they closed points at them, and 'who was on site' has to have an answer years later. Existing sessions are revoked in the same transaction, because flipping the flag alone leaves anybody already signed in signed in for days, and an offboarding that takes effect on Thursday is not an offboarding.\n\nRequires a session holding: user:write.",
         "tags": [
-          "M27"
+          "M01"
         ],
         "parameters": [
           {
@@ -9510,7 +9532,7 @@
         "summary": "What is live, soonest first",
         "description": "Past due rows come first, because they sort by due date and theirs is in the past. Rows somebody has finished with (satisfied, waived, cancelled) are excluded in the query, not after the page is cut.\n\nRequires a session holding: task:read.",
         "tags": [
-          "M09"
+          "M34"
         ],
         "parameters": [
           {
@@ -9641,7 +9663,7 @@
         "summary": "Stamp what has gone past and note what needs escalating",
         "description": "Does NOT make a breach visible: the list computes overdue from the clock, so this running late, or not at all, delays a stamp and never hides a deadline. Idempotent, so it is safe on any schedule.\n\nRequires a session holding: task:write.",
         "tags": [
-          "M09"
+          "M34"
         ],
         "parameters": [
           {
@@ -9770,7 +9792,7 @@
         "summary": "It was met",
         "description": "satisfiedByEvent is required. A scorecard built from rows recording only that somebody clicked cannot be defended to the customer holding the contract it came from.\n\nRequires a session holding: task:write.",
         "tags": [
-          "M09"
+          "M34"
         ],
         "parameters": [
           {
@@ -9908,7 +9930,7 @@
         "summary": "It will not be met, and that is a decision",
         "description": "Distinct from satisfying and from cancelling, because the three are different answers: we did it, we agreed not to, and the thing it was attached to went away. A scorecard that collapsed them would be useless.\n\nRequires a session holding: task:write.",
         "tags": [
-          "M09"
+          "M34"
         ],
         "parameters": [
           {
@@ -12963,7 +12985,7 @@
         "summary": "A price authority that is not ours",
         "description": "A contract card with no contract is refused: there would be no customer it applies to, so it would never be found when a price is resolved.\n\nRequires a session holding: pricebook:write.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {
@@ -13093,7 +13115,7 @@
         "summary": "What a card prices",
         "description": "Requires a session holding: pricebook:read.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {
@@ -13196,7 +13218,7 @@
         "summary": "Load a card's prices",
         "description": "Replaces rather than appends, because a rate card arrives as a document: the client sends next year's schedule as one spreadsheet, and merging it into last year's leaves every line they DELETED still priced and still quotable. A line mapping to neither their code nor one of our items is refused, since nothing could ever match it.\n\nRequires a session holding: pricebook:write.",
         "tags": [
-          "M12"
+          "M31"
         ],
         "parameters": [
           {

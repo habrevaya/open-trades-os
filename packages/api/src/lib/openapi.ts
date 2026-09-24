@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { extendZodWithOpenApi, OpenAPIRegistry, OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi";
+import { modules as moduleRegistry } from "@opentradesos/core";
 import type { Authorization, Method, RouteDefinition } from "./define";
 
 /**
@@ -307,7 +308,13 @@ export function buildOpenApiDocument(
       license: { name: "AGPL-3.0-only", identifier: "AGPL-3.0-only" },
     },
     servers: [...(options.servers ?? [{ url: "/api", description: "The reference deployment mounts the dispatcher here." }])],
-    tags: modules.map((name) => ({ name })),
+    /**
+     * The tag carries the module's NAME, not only its code. A reference
+     * grouped into M13, M16 and M31 makes a reader hold a lookup table in
+     * their head, and the one thing they cannot do with a bare code is
+     * notice that a route is filed under the wrong one.
+     */
+    tags: modules.map((name) => ({ name, description: moduleRegistry.titleOf(name) })),
     paths: sortedPaths,
     components: {
       securitySchemes: SECURITY_SCHEMES,

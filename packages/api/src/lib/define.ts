@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { modules } from "@opentradesos/core";
 
 /**
  * ROUTE DEFINITION
@@ -45,8 +46,16 @@ export interface RouteDefinition<
   path: string;
   summary: string;
   description?: string;
-  /** Module code, so docs and the permission matrix group the same way. */
-  module: string;
+  /**
+   * Module code, so docs and the permission matrix group the same way.
+   *
+   * The UNION rather than a string, because this was a string and a whole
+   * surface shipped tagged M12 (Projects) when it was M31 (Commercial
+   * Contracts). The type cannot catch a code that is real and wrong for the
+   * route, but it catches every code that is not a module at all, and the
+   * registry it names is checked against the module docs by a test.
+   */
+  module: modules.ModuleCode;
   /** Every permission the caller must hold. Checked before the handler runs. */
   permissions: readonly string[];
   /**

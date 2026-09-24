@@ -20,7 +20,7 @@ export const setMembershipActive = defineRoute({
   summary: "Offboard somebody, or bring them back",
   description:
     "Deactivated, not deleted: every job they ran and every timeclock entry they closed points at them, and 'who was on site' has to have an answer years later. Existing sessions are revoked in the same transaction, because flipping the flag alone leaves anybody already signed in signed in for days, and an offboarding that takes effect on Thursday is not an offboarding.",
-  module: "M27",
+  module: "M01",
   permissions: ["user:write"],
   idempotent: true,
   input: z.object({

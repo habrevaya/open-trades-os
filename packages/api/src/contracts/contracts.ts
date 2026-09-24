@@ -48,7 +48,7 @@ export const listContracts = defineRoute({
   method: "get",
   path: "/v1/contracts",
   summary: "Commercial contracts",
-  module: "M12",
+  module: "M31",
   permissions: ["contract:read"],
   input: z.object({ customerId: Uuid.optional() }),
   output: z.object({ contracts: z.array(ServiceContract) }),
@@ -58,7 +58,7 @@ export const createContract = defineRoute({
   method: "post",
   path: "/v1/contracts",
   summary: "Set up a commercial contract",
-  module: "M12",
+  module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
   input: z.object({
@@ -82,7 +82,7 @@ export const addContractSite = defineRoute({
   summary: "Put a property on a contract, with its own ceiling",
   description:
     "A limit per SITE rather than only per contract, because that is how facilities clients write them: a thousand at the distribution centre and two hundred at the retail unit, under one agreement. A single contract level ceiling would have somebody approving work at the wrong limit.",
-  module: "M12",
+  module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
   input: z.object({
@@ -102,7 +102,7 @@ export const createRateCard = defineRoute({
   summary: "A price authority that is not ours",
   description:
     "A contract card with no contract is refused: there would be no customer it applies to, so it would never be found when a price is resolved.",
-  module: "M12",
+  module: "M31",
   permissions: ["pricebook:write"],
   idempotent: true,
   input: z.object({
@@ -133,7 +133,7 @@ export const setRateCardLines = defineRoute({
   summary: "Load a card's prices",
   description:
     "Replaces rather than appends, because a rate card arrives as a document: the client sends next year's schedule as one spreadsheet, and merging it into last year's leaves every line they DELETED still priced and still quotable. A line mapping to neither their code nor one of our items is refused, since nothing could ever match it.",
-  module: "M12",
+  module: "M31",
   permissions: ["pricebook:write"],
   idempotent: true,
   input: z.object({
@@ -151,7 +151,7 @@ export const listRateCardLines = defineRoute({
   method: "get",
   path: "/v1/rate-cards/{rateCardId}/lines",
   summary: "What a card prices",
-  module: "M12",
+  module: "M31",
   permissions: ["pricebook:read"],
   input: z.object({ rateCardId: Uuid }),
   output: z.object({
@@ -165,7 +165,7 @@ export const resolveContractPrice = defineRoute({
   summary: "What may we charge this customer for this item",
   description:
     "NOT COVERED IS A REFUSAL, NEVER A FALLBACK. An item that is not on the client's card comes back as not covered rather than as our list price, because falling back is what makes a contract job invoice at list and get rejected. The two uncovered cases are told apart: no card applies, where our price book is the right answer, and a card applies and this is not on it, where somebody has to ring the client before doing the work.",
-  module: "M12",
+  module: "M31",
   permissions: ["pricebook:read"],
   input: z.object({
     customerId: Uuid,
@@ -194,7 +194,7 @@ export const getPropertyCeiling = defineRoute({
   summary: "The spend limit for work at a property",
   description:
     "The site's own limit wins over the contract default, because that is how facilities clients write them. Null when no contract covers the property, which is not the same as a limit of zero.",
-  module: "M12",
+  module: "M31",
   permissions: ["contract:read"],
   input: z.object({ customerId: Uuid, propertyId: Uuid }),
   output: z.object({
