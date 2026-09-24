@@ -105,6 +105,7 @@ export const NAV: NavGroup[] = [
           { href: "/reports/new", label: "Build one" },
         ],
       },
+      { href: "/reviews", label: "Reviews", permission: "review:respond", icon: "reviews" },
       {
         href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
         children: [

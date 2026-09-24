@@ -41,3 +41,4 @@ export * as files from "./files";
 export * as marketing from "./marketing";
 export * as leadIntake from "./lead-intake";
 export * as forms from "./forms";
+export * as reviews from "./reviews";

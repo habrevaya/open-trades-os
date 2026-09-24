@@ -180,7 +180,17 @@ export async function tickOne(db: Database, row: DueRow, now: Date): Promise<Tic
       payload: { workflowId: row.workflow_id, scheduledFor: due.toISOString() },
     });
 
-    const run = await fire(tx, ctx, { workflowId: row.workflow_id, eventId: event.id });
+    /**
+     * Fired against the moment it was DUE, not against the moment this pass
+     * happened to run. The two are the same on a healthy schedule and
+     * differ on a catch-up after an outage, which is exactly when a wait
+     * measured from the wrong end goes wrong: a Tuesday schedule that ran
+     * on Thursday would chase three days from Thursday, so "three days
+     * after the estimate" lands five days after it.
+     */
+    const run = await fire(tx, ctx, {
+      workflowId: row.workflow_id, eventId: event.id, now: due,
+    });
     return { ...base, action: "fired" as const, run, nextRunAt: next.nextRunAt };
   });
 }

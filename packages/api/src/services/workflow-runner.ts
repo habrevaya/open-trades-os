@@ -156,6 +156,8 @@ export async function fire(
      * new id. Keying on the record is what makes it once, ever.
      */
     idempotencyKey?: string;
+    /** The clock this run is measured against. See `advance`. */
+    now?: Date | undefined;
   },
 ): Promise<RunSummary> {
   const [row] = await tx.select({
@@ -197,6 +199,7 @@ export async function fire(
   return execute(tx, ctx, {
     workflow: row.workflow, version: row.version, event,
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    ...(input.now ? { now: input.now } : {}),
   });
 }
 
@@ -208,6 +211,7 @@ async function execute(
     version: typeof schema.workflowVersion.$inferSelect;
     event: typeof schema.domainEvent.$inferSelect;
     idempotencyKey?: string;
+    now?: Date | undefined;
   },
 ): Promise<RunSummary> {
   const { workflow, version, event } = input;
@@ -235,7 +239,10 @@ async function execute(
     return { workflowId: workflow.id, runId: null, status: "skipped", reason: "already_run", steps: 0 };
   }
 
-  return advance(tx, ctx, { workflow, version, event, runId, from: 0 });
+  return advance(tx, ctx, {
+    workflow, version, event, runId, from: 0,
+    ...(input.now ? { now: input.now } : {}),
+  });
 }
 
 /**
@@ -257,9 +264,25 @@ async function advance(
     event: typeof schema.domainEvent.$inferSelect;
     runId: string;
     from: number;
+    /**
+     * THE CLOCK THE RUN IS MEASURED AGAINST, NOT WALL TIME.
+     *
+     * A wait computed from `new Date()` inside the step is a wait measured
+     * from whenever this process happened to get to it, and the two differ
+     * in exactly the case that matters: a catch-up tick after an outage.
+     * A schedule that fired for Tuesday and ran on Thursday would wait
+     * three days from Thursday, so "chase them three days after the
+     * estimate" lands five days after it.
+     *
+     * Defaulted rather than required, because every caller outside a test
+     * genuinely does mean now, and a required parameter here is one more
+     * place to pass the wrong thing.
+     */
+    now?: Date | undefined;
   },
 ): Promise<RunSummary> {
   const { workflow, version, event, runId } = input;
+  const now = input.now ?? new Date();
   const actor = runnerActor(event.organizationId, version.requiredPermissions);
   const steps = version.steps as { kind: string; config?: Record<string, unknown> }[];
 
@@ -288,7 +311,7 @@ async function advance(
 
     let result: StepResult;
     try {
-      result = await perform(tx, { ...ctx, actor }, step, event, runId);
+      result = await perform(tx, { ...ctx, actor }, step, event, runId, now);
     } catch (error) {
       result = { ok: false, reason: (error as Error).message };
     }
@@ -349,6 +372,7 @@ async function perform(
   step: { kind: string; config?: Record<string, unknown> },
   event: typeof schema.domainEvent.$inferSelect,
   runId: string,
+  now: Date,
 ): Promise<StepResult> {
   /**
    * The permission is checked here, against the actor the run was given,
@@ -372,7 +396,7 @@ async function perform(
     case "create_task":
       return createTask(tx, ctx, step.config ?? {}, event, runId);
     case "wait":
-      return waitStep(step.config ?? {});
+      return waitStep(step.config ?? {}, now);
     default:
       return { ok: false, reason: `step kind not implemented: ${step.kind}` };
   }
@@ -480,5 +504,12 @@ export async function resume(
   return advance(tx, ctx, {
     workflow: row.workflow, version: row.version, event,
     runId: claimed.id, from: claimed.resumeStepIndex ?? 0,
+    /**
+     * A resume measures any further wait from the moment it was DUE, not
+     * from when the worker picked it up. A run parked until Tuesday and
+     * resumed on Thursday should not push its next wait out by the two days
+     * the worker was down.
+     */
+    now: input.now,
   });
 }

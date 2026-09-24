@@ -20,3 +20,4 @@ export * from "./comms";
 export * from "./automation";
 export * from "./inventory";
 export * from "./marketing";
+export * from "./reviews";

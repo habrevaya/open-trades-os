@@ -83,6 +83,12 @@ const ORDER = [
    * matched to it.
    */
   "form_submission", "web_form", "marketing_touch", "ad_spend",
+  /**
+   * Reviews: a request points at a job and a customer, a review at both
+   * plus a technician. The policy and the platform list point at nothing,
+   * which is why a company can declare them before it has any reviews.
+   */
+  "review_request", "review", "review_platform", "review_policy",
   "attachment", "stored_file",
   "audit_log", "integration_event", "webhook_endpoint",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",

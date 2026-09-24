@@ -49,7 +49,7 @@ than pretending otherwise.
 | Payroll, timesheets, commissions, scorecards | M17 | Part built |
 | Phones, IVR, call recording, softphone (Phones Pro, Contact Center) | M18 | Part built |
 | Ads, attribution, call tracking, email (Marketing Pro) | M19 | Part built |
-| Reviews and reputation | M20 | Planned |
+| Reviews and reputation | M20 | Part built |
 | Reporting, dashboards, custom reports | M21 | Part built |
 | Fleet and GPS (Fleet Pro) | M22 | Planned |
 | Documents, licences, compliance, safety | M23 | Planned |

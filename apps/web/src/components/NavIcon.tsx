@@ -20,9 +20,13 @@ export type IconName =
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
-  | "timesheets" | "booking" | "purchasing" | "marketing";
+  | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Reviews: a star, outlined rather than filled, since the rating is not a score this product awards. */
+  reviews: (
+    <path d="M12 4.5l2.35 4.76 5.25.77-3.8 3.7.9 5.23L12 16.5l-4.7 2.46.9-5.23-3.8-3.7 5.25-.77Z" />
+  ),
   /**
    * Marketing: a megaphone. Deliberately not a funnel, which is the usual
    * choice and which draws a shape this product refuses to publish, since

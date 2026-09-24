@@ -6,7 +6,7 @@ import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
-  obligations, files, marketing, leadIntake, forms,
+  obligations, files, marketing, leadIntake, forms, reviews,
 } from "../services/index";
 
 /**
@@ -125,6 +125,23 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Reviews. No endpoint here can carry a predicted rating, because asking
+  // only the customers who will say something nice is what gets a listing
+  // wiped, and an absent field is a better defence than a policy.
+  setReviewPolicy: reviews.handlers.setReviewPolicy,
+  listReviewPlatforms: reviews.handlers.listReviewPlatforms,
+  setReviewPlatform: reviews.handlers.setReviewPlatform,
+  requestReview: reviews.handlers.requestReview,
+  listDueRequests: reviews.handlers.listDueRequests,
+  markRequestSent: reviews.handlers.markRequestSent,
+  listWithheld: reviews.handlers.listWithheld,
+  recordReview: reviews.handlers.recordReview,
+  getReviewWorkList: reviews.handlers.getReviewWorkList,
+  respondToReview: reviews.handlers.respondToReview,
+  markReviewRecovered: reviews.handlers.markReviewRecovered,
+  getRating: reviews.handlers.getRating,
+  getRatingByTechnician: reviews.handlers.getRatingByTechnician,
 
   // Forms. A refused submission is a row, because a form that drops what
   // it cannot parse is a form whose losses are invisible.

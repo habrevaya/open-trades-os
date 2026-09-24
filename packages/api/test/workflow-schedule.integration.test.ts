@@ -392,6 +392,43 @@ run("waiting, mid run", () => {
     expect(await titles()).toEqual(["Before", "After"]);
   });
 
+  it("measures a wait from when it was DUE, not from when it caught up", async () => {
+    /**
+     * THE BUG THIS TEST EXISTS FOR, AND WHY THE ONE ABOVE MISSED IT.
+     *
+     * `waitStep` takes a clock and the runner never gave it one, so every
+     * wait was computed from `new Date()` at the moment the process got to
+     * it. On a healthy schedule that is indistinguishable from correct; on
+     * a catch-up after an outage it is not. A Tuesday schedule that runs on
+     * Thursday would chase three days from Thursday, so "chase them three
+     * days after the estimate" lands five days after it, and nothing
+     * anywhere says so.
+     *
+     * The test above asserted a real date and therefore passed only on the
+     * day its fixtures happened to be near. This one fires at a time a
+     * fortnight in the past and asserts the offset, so it cannot pass by
+     * coincidence on any day.
+     */
+    const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
+
+    const DUE = "2026-09-09T04:00:00Z";
+    await schedule.tick(db(), { now: at("2026-09-08T17:00:00Z") });
+    const [fired] = ours(await schedule.tick(db(), { now: at(DUE) }));
+    expect(fired!.run!.status).toBe("waiting");
+
+    const parked = await runRow(id);
+    const waited = parked.resume_at!.getTime() - Date.parse(DUE);
+    /**
+     * Exactly three days after the scheduled fire. Measured as an offset
+     * rather than against a literal date, because a literal date in a test
+     * about clocks is how the original defect survived.
+     */
+    expect(waited).toBe(3 * 86_400_000);
+
+    /** And a fortnight in the past, which wall time could not have produced. */
+    expect(parked.resume_at!.getTime()).toBeLessThan(Date.now());
+  });
+
   it("does not repeat the steps it already did", async () => {
     /**
      * The failure that would make a wait worse than useless: a run that sent
