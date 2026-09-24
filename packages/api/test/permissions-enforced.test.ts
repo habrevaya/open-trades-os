@@ -43,8 +43,6 @@ const SRC = [
  * the reassuring direction.
  */
 const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
-  ["equipment:read", "M04, customer equipment. The table exists; no service reads it as equipment."],
-  ["equipment:write", "M04."],
   ["servicereport:read", "M11 reports exist as templates and fields; the report itself has no service."],
   ["servicereport:write", "M11."],
   ["servicereport:publish", "M11."],

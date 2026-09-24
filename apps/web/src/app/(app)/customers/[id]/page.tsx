@@ -116,6 +116,33 @@ export default async function CustomerPage({
           : null}
       </Facts>
 
+      {addresses.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-base font-semibold">Addresses</h2>
+          {/*
+            Linked now, where the list was only ever a dropdown on the
+            contact form. The property page is where the equipment register
+            lives, and the register was unreachable from anywhere.
+          */}
+          <ul className="mt-2 space-y-1 text-sm">
+            {addresses.map((property) => (
+              <li key={property.id}>
+                <a href={`/properties/${property.id}`} className="hover:underline">
+                  {[property.addressLine1, property.city].filter(Boolean).join(", ")}
+                </a>
+                {property.equipmentCount > 0 && (
+                  <span className="ml-2 text-xs text-ink-500">
+                    {property.equipmentCount === 1
+                      ? "1 unit"
+                      : `${property.equipmentCount} units`}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <Contacts
         customerId={id}
         contacts={people}

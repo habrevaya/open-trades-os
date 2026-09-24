@@ -134,13 +134,40 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       .limit(input.limit + 1);
 
     const page = paginate(rows, input.limit, (r) => r.createdAt.toISOString());
-    const links = await linksFor(tx, page.data.map((r) => r.id));
+    const ids = page.data.map((r) => r.id);
+    const links = await linksFor(tx, ids);
+
+    /**
+     * How many units are at each address, as ONE grouped query rather than
+     * one per row. `get` already returned this for a single property and
+     * the list did not, so a landlord's forty addresses gave no clue which
+     * one has the rooftop units on it.
+     *
+     * Counted here rather than stored, same as everywhere else: a stored
+     * count is a number that drifts the first time a row is inserted by
+     * something that forgot to increment it.
+     */
+    const counts = new Map<string, number>();
+    if (ids.length > 0) {
+      const tallied = await tx.select({
+        propertyId: schema.equipment.propertyId,
+        n: sql<number>`count(*)::int`,
+      }).from(schema.equipment)
+        .where(and(
+          eq(schema.equipment.organizationId, ctx.actor.organizationId),
+          inArray(schema.equipment.propertyId, ids),
+          isNull(schema.equipment.deletedAt),
+        ))
+        .groupBy(schema.equipment.propertyId);
+      for (const row of tallied) counts.set(row.propertyId, row.n);
+    }
 
     return {
       ...page,
       data: cleanAll(ctx, "property", page.data).map((row) => ({
         ...shape(row),
         customers: links.get(row.id) ?? [],
+        equipmentCount: counts.get(row.id) ?? 0,
       })),
     };
   });

@@ -53,9 +53,9 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
 /**
  * SOFT DELETE THAT IS NOT OFFERED.
  *
- * Twenty five tables filter `deleted_at is null` on every read and seven can
+ * Twenty four tables filter `deleted_at is null` on every read and eight can
  * ever set it. That is ONE finding repeated twenty nine times, not twenty
- * five findings, so it is held as a group rather than as a list of entries
+ * four findings, so it is held as a group rather than as a list of entries
  * with invented reasons: a table here is one you cannot delete a row from,
  * and the filter on its reads is decoration until something writes the
  * column.
@@ -66,11 +66,11 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
  * way to remove it and will edit the row into something else instead, which
  * is how a CRM ends up with a customer called "DO NOT USE".
  *
- * The COUNT is asserted, so a twenty sixth table cannot join quietly. Deciding
+ * The COUNT is asserted, so a twenty fifth table cannot join quietly. Deciding
  * which of these get a delete is product work; letting the number drift
  * without anybody noticing is not.
  */
-const SOFT_DELETE_NOT_OFFERED = 25;
+const SOFT_DELETE_NOT_OFFERED = 24;
 
 
 /**
@@ -81,6 +81,10 @@ const SOFT_DELETE_NOT_OFFERED = 25;
  * an entry is fixed and not removed.
  */
 const KNOWN_GAPS = new Map<string, string>([
+  ["visitAsset.completedAt",
+    "M33. The equipment history reads per-unit inspection outcomes; nothing writes visit_asset yet, so that section is always empty."],
+  ["deficiency.equipmentId",
+    "M33. Same read. Deficiencies have no writer at all, so no fault is ever attached to a unit."],
 ]);
 
 type Dep = { table: string; column: string; where: string };
