@@ -73,6 +73,14 @@ export const PERMISSIONS = {
   "portal:revoke": "Withdraw a customer link",
   "membership:read": "View memberships and agreements",
   "membership:write": "Sell and edit memberships",
+  /**
+   * A commercial contract, which is a different thing from a consumer
+   * membership and is usually a different person's job. An MSA carries a
+   * rate card that becomes the price authority for that client, so editing
+   * one changes what every future job for them may be charged at.
+   */
+  "contract:read": "View commercial contracts and their rate cards",
+  "contract:write": "Create and edit commercial contracts",
 
   // --- Money ---------------------------------------------------------------
   "invoice:read": "View invoices",

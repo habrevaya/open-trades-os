@@ -101,6 +101,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
     permissions: [
       ...OFFICE_BASE,
       "customer:merge", "customer.financials:read", "customer.financials:write",
+      "contract:read", "contract:write",
       "visit:dispatch", "visit:reschedule",
       "estimate:discount", "estimate:approve",
       "booking:configure",
@@ -184,6 +185,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
     description: "The ledger, payroll, reconciliation and reporting. No dispatch, no customer editing.",
     permissions: [
       "customer:read", "customer.financials:read",
+      "contract:read",
       "property:read",
       "pricebook:read", "pricebook.cost:read",
       "job:read", "job.cost:read",

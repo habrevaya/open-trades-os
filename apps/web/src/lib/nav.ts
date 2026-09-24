@@ -74,6 +74,13 @@ export const NAV: NavGroup[] = [
     label: "Customers",
     items: [
       { href: "/customers", label: "Customers", permission: "customer:read", icon: "customers" },
+      /**
+       * Under Customers rather than under Money, because the question it
+       * answers is about a client ("whose price governs for them?") rather
+       * than about a number. Somebody opens this before quoting, not while
+       * invoicing.
+       */
+      { href: "/contracts", label: "Contracts", permission: "contract:read", icon: "contracts" },
       { href: "/inbox", label: "Inbox", permission: "message:read", icon: "inbox" },
     ],
   },

@@ -10,6 +10,8 @@ import {
 import { invoiceScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { writePosting } from "./ledger";
+import * as contracts from "./contracts";
+import * as obligations from "./obligations";
 import { nextNumber } from "./jobs";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
@@ -61,13 +63,45 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       : [];
     const byItem = new Map(versions.map((v) => [v.itemId, v]));
 
+    /**
+     * WHOSE PRICE GOVERNS, PER LINE.
+     *
+     * Our price book is not the authority when the customer holds a
+     * contract with a rate card: the schema has said so since it was
+     * written, and until now nothing read it, so every commercial job
+     * invoiced at our list price and got rejected.
+     *
+     * Resolved per line rather than once per invoice, because a card covers
+     * some items and not others. A line the card prices takes the card's
+     * price; a line it does not is left at ours AND recorded, so the caller
+     * is told rather than finding out when the client rejects the invoice.
+     *
+     * COST IS NEVER TAKEN FROM THE CARD. The price is theirs and the cost is
+     * ours, which is the whole reason margin reporting still works on work
+     * we did not price.
+     */
+    const contracted = new Map<string, contracts.PriceResolution>();
+    const uncovered: string[] = [];
+    for (const itemId of new Set(itemIds)) {
+      const resolution = await contracts.priceFor(ctx, {
+        customerId: input.customerId,
+        priceBookItemId: itemId,
+      });
+      contracted.set(itemId, resolution);
+      if (!resolution.covered && resolution.cardApplies) {
+        uncovered.push(byItem.get(itemId)?.name ?? itemId);
+      }
+    }
+
     const resolved = input.lines.map((line) => {
       const version = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
+      const contract = line.priceBookItemId ? contracted.get(line.priceBookItemId) : undefined;
+      const contractPrice = contract?.covered ? contract.price : undefined;
       return {
         name: version?.name ?? line.name,
         description: line.description ?? null,
         quantity: line.quantity,
-        unitPrice: usd(version?.price ?? line.unitPrice),
+        unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
         unitCost: version?.cost ? usd(version.cost) : null,
         discountAmount: usd(line.discountAmount),
         taxable: version?.taxable ?? line.taxable,
@@ -194,6 +228,35 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       balance: m.toString(computed.totals.total),
       memo: input.memo ?? null,
     }).returning();
+
+    /**
+     * A LINE THE CLIENT'S CARD DOES NOT PRICE IS SOMEBODY'S PROBLEM BEFORE
+     * IT IS THE CLIENT'S.
+     *
+     * Not a refusal: an out of scope item genuinely can be agreed by phone,
+     * and blocking the invoice would have somebody delete the line to get
+     * past it. Raised as an obligation instead, which is this product's one
+     * primitive for work a person owes, so it appears on the deadlines list
+     * beside every other approaching thing rather than in a log nobody
+     * opens.
+     *
+     * The alternative, which is what every system does, is to invoice at
+     * list and find out when the client rejects it: a month of somebody's
+     * time to re-bill and a conversation about whether we read the
+     * agreement.
+     */
+    if (uncovered.length > 0) {
+      await obligations.raise(tx, ctx.actor.organizationId, {
+        kind: "contract.price_not_on_card",
+        entityType: "invoice",
+        entityId: invoice!.id,
+        dueAt: new Date(),
+        consequence:
+          `${uncovered.length === 1 ? "An item is" : `${uncovered.length} items are`} `
+          + `not on this customer's rate card (${uncovered.slice(0, 3).join(", ")}), `
+          + "so they are priced at our list. Agree a price before this goes out.",
+      });
+    }
 
     /**
      * The link the schema has always had a column for and nothing wrote.

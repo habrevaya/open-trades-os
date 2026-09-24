@@ -7,7 +7,7 @@ import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
-  roles as roleService,
+  roles as roleService, contracts as contractService,
 } from "../services/index";
 
 /**
@@ -126,6 +126,16 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Commercial contracts. Whose price governs, when it is not ours.
+  listContracts: contractService.handlers.listContracts,
+  createContract: contractService.handlers.createContract,
+  addContractSite: contractService.handlers.addContractSite,
+  createRateCard: contractService.handlers.createRateCard,
+  setRateCardLines: contractService.handlers.setRateCardLines,
+  listRateCardLines: contractService.handlers.listRateCardLines,
+  resolveContractPrice: contractService.handlers.resolveContractPrice,
+  getPropertyCeiling: contractService.handlers.getPropertyCeiling,
 
   // Things a published field needed before it could ever be written.
   updateProperty: properties.update,

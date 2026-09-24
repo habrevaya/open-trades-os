@@ -20,9 +20,21 @@ export type IconName =
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
-  | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring";
+  | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
+  | "contracts";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /**
+   * Contracts: a document with a signature line, not a handshake or a seal.
+   * The thing on this screen is a written schedule somebody can be held to.
+   */
+  contracts: (
+    <>
+      <path d="M6 3h8l4 4v14H6z" />
+      <path d="M14 3v4h4" />
+      <path d="M9 15c1.2-1.6 2-1.6 3 0s1.8 1.6 3 0" />
+    </>
+  ),
   /** Recurring: a loop with an arrowhead, so it reads as coming back rather than as a refresh. */
   recurring: (
     <>
