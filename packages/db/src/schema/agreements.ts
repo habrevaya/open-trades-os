@@ -2,7 +2,7 @@ import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueInde
 import { pk, timestamps, sourceRef, money, rate } from "./_shared";
 import { organization, businessUnit } from "./tenancy";
 import { customer, property, equipment } from "./crm";
-import { job } from "./work";
+import { job, jobType } from "./work";
 import { invoice } from "./billing";
 
 /**
@@ -72,6 +72,26 @@ export const recurringSchedule = pgTable("recurring_schedule", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   model: recurrenceModel("model").notNull().default("rule"),
+
+  /**
+   * WHO THE RECURRING WORK IS FOR.
+   *
+   * The table shipped with a recurrence spec and no subject: a cadence, a
+   * horizon and an exception list, with nothing saying whose pool it was.
+   * Nothing could have created a job from it, which is why nothing did.
+   *
+   * Distinct from an agreement's included visits, which have their own
+   * table. A pool route, a quarterly pest treatment and a commercial filter
+   * change are recurring WORK, billed per visit or on a contract, and a
+   * company can run them without selling anybody a membership.
+   */
+  label: text("label").notNull().default(""),
+  customerId: uuid("customer_id").references(() => customer.id, { onDelete: "cascade" }),
+  propertyId: uuid("property_id").references(() => property.id, { onDelete: "cascade" }),
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),
+  /** What goes on the job. The customer's words for the work, not a code. */
+  summary: text("summary").notNull().default(""),
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
 
   /** iCalendar RRULE for the rule model. Null for the others. */
   rule: text("rule"),
@@ -148,6 +168,18 @@ export const agreementPlan = pgTable("agreement_plan", {
   visitIntervalDays: integer("visit_interval_days"),
   /** Seasonal plans pin visits to months: spring cooling, autumn heating. */
   visitAnchorMonths: jsonb("visit_anchor_months").$type<number[]>().notNull().default([]),
+  /**
+   * Which day of an anchor month, clamped to the month's length.
+   *
+   * Null means the day the agreement was SOLD, which is what this product
+   * did before the column existed and is why it defaults to null rather
+   * than to a number: picking one would move every future sale's visit
+   * dates the day it shipped, and nothing on any screen would say why.
+   *
+   * A company that wants its spring visits on the 15th sets it here. One
+   * that never looks keeps the behaviour it already had.
+   */
+  visitAnchorDay: integer("visit_anchor_day"),
 
   /** Member benefits, which are the reason anyone renews. */
   discountRate: rate("discount_rate"),

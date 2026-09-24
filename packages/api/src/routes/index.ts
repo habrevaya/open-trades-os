@@ -6,7 +6,7 @@ import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
-  obligations, files, marketing, leadIntake, forms, reviews,
+  obligations, files, marketing, leadIntake, forms, reviews, recurring,
 } from "../services/index";
 
 /**
@@ -125,6 +125,18 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Recurring work. Four models because reconstructing the wrong one
+  // silently drifts every future date, and only one future occurrence is
+  // knowable for the model measured from completion.
+  listRecurringSchedules: recurring.handlers.listRecurringSchedules,
+  createRecurringSchedule: recurring.handlers.createRecurringSchedule,
+  previewRecurringSchedule: recurring.handlers.previewRecurringSchedule,
+  materialiseRecurringSchedule: recurring.handlers.materialiseRecurringSchedule,
+  recordRecurringCompletion: recurring.handlers.recordRecurringCompletion,
+  exceptRecurringOccurrence: recurring.handlers.exceptRecurringOccurrence,
+  setRecurringScheduleActive: recurring.handlers.setRecurringScheduleActive,
+  listRecurringDue: recurring.handlers.listRecurringDue,
 
   // Reviews. No endpoint here can carry a predicted rating, because asking
   // only the customers who will say something nice is what gets a listing

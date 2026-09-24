@@ -1,0 +1,1 @@
+ALTER TABLE "agreement_plan" ADD COLUMN "visit_anchor_day" integer;

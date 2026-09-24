@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { ledger, money as m, time } from "@opentradesos/core";
+import { ledger, money as m, time, recurrence } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -66,49 +66,68 @@ export function addMonths(date: string, months: number): string {
 /**
  * When the visits a term owes should land.
  *
- * Seasonal plans pin to months, because a heating tune up belongs in autumn
- * regardless of when the agreement was sold. Everything else spreads the
- * visits evenly across the term, which is what a customer means by "two a
- * year" and is not the same as "two, both in March".
+ * THIS USED TO BE A SECOND IMPLEMENTATION OF `recurrence.agreementVisitDates`.
+ *
+ * Core had one and this file had another, and they disagreed on every
+ * seasonal case: a plan sold on 10 January with spring and autumn anchors
+ * produced 10 April here and 15 April there. Neither was wrong in principle,
+ * which is what made it dangerous. Core pins to a configurable day of the
+ * anchor month; this walked forward from the sale date and kept the sale's
+ * day of month. Both are defensible policies and the product held both at
+ * once, so which one a company got depended on which function somebody
+ * happened to call.
+ *
+ * There is one implementation now, in core, and this resolves the policy
+ * question rather than re-deciding it: `anchorDay` comes from the plan when
+ * the operator set one, and falls back to the day the agreement was sold,
+ * which is exactly what this function did before. Nobody's existing plans
+ * move, and a company that wants the 15th can now say so.
+ *
+ * The non-seasonal spread was already identical in both and stays in core.
  */
 export function visitDueDates(input: {
   startedOn: string;
   termMonths: number;
   count: number;
   anchorMonths?: number[];
+  anchorDay?: number | null;
   intervalDays?: number | null;
 }): string[] {
   if (input.count < 1) return [];
 
   const anchors = input.anchorMonths ?? [];
   if (anchors.length > 0) {
-    const dates: string[] = [];
-    let cursor = input.startedOn;
-    // Walk forward a month at a time looking for the next anchor month, so a
-    // plan sold in October with an autumn anchor gets this autumn, not next.
-    for (let step = 0; step < input.termMonths + 12 && dates.length < input.count; step += 1) {
-      const candidate = addMonths(input.startedOn, step);
-      const month = Number(candidate.slice(5, 7));
-      if (anchors.includes(month) && candidate >= cursor) {
-        dates.push(candidate);
-        cursor = addMonths(candidate, 1);
-      }
-    }
+    const dates = recurrence.agreementVisitDates({
+      startsOn: input.startedOn,
+      termMonths: input.termMonths,
+      includedVisits: input.count,
+      anchorMonths: anchors,
+      /**
+       * The plan's day when it has one, otherwise the sale's. Core clamps
+       * it to the month's length, so a plan sold on the 31st gets 30 April
+       * rather than rolling into May.
+       */
+      anchorDay: input.anchorDay ?? Number(input.startedOn.slice(8, 10)),
+    });
+    /**
+     * Falling through when the term does not contain enough anchor months
+     * is behaviour this file had and core does not: core returns what it
+     * found. Owing fewer visits than the plan sold is a billing problem, so
+     * the shortfall is spread instead.
+     */
     if (dates.length === input.count) return dates;
-    // Not enough anchor months inside the term. Fall through and spread,
-    // rather than silently owing fewer visits than the plan sold.
   }
 
   if (input.intervalDays && input.intervalDays > 0) {
-    return Array.from({ length: input.count }, (_, i) => {
-      const at = new Date(`${input.startedOn}T00:00:00Z`);
-      at.setUTCDate(at.getUTCDate() + input.intervalDays! * (i + 1));
-      return at.toISOString().slice(0, 10);
-    });
+    return Array.from({ length: input.count }, (_, i) =>
+      recurrence.addDays(input.startedOn, input.intervalDays! * (i + 1)));
   }
 
-  const spacing = Math.max(1, Math.round(input.termMonths / input.count));
-  return Array.from({ length: input.count }, (_, i) => addMonths(input.startedOn, spacing * (i + 1)));
+  return recurrence.agreementVisitDates({
+    startsOn: input.startedOn,
+    termMonths: input.termMonths,
+    includedVisits: input.count,
+  });
 }
 
 /** When each billing instalment falls due, and what each one is. */
@@ -275,6 +294,7 @@ export async function sell(ctx: ServiceContext, input: SellInput) {
       termMonths: plan.termMonths,
       count: plan.includedVisitsPerTerm,
       anchorMonths: plan.visitAnchorMonths ?? [],
+      anchorDay: plan.visitAnchorDay,
       intervalDays: plan.visitIntervalDays,
     });
 

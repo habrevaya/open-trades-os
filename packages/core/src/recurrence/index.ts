@@ -266,10 +266,25 @@ export function agreementVisitDates(opts: {
     return dates.slice(0, includedVisits);
   }
 
-  // No anchors: spread evenly across the term, first visit one interval in
-  // rather than on the day of sale, since a tune up on the signing day is
-  // both unlikely and a wasted included visit.
-  const spacing = Math.max(1, Math.round(termMonths / includedVisits));
-  return Array.from({ length: includedVisits }, (_, i) => addMonths(startsOn, spacing * (i + 1)))
+  /**
+   * No anchors: spread across the term, first visit one interval in rather
+   * than on the day of sale, since a tune up on the signing day is both
+   * unlikely and a wasted included visit.
+   *
+   * EACH DATE IS COMPUTED FROM ITS OWN POSITION, not by stepping a rounded
+   * interval, and the difference is a bug rather than a nicety. A rounded
+   * step of `termMonths / includedVisits` compounds: four visits in six
+   * months rounds to two, so the fourth lands at eight months, falls outside
+   * the term, and is dropped by the filter below. The member paid for four
+   * visits and the schedule owes them three, which is the one answer here
+   * that is definitely wrong.
+   *
+   * Rounding each position separately keeps the last one exactly at the term
+   * end, and gives the same dates as before whenever the count divides the
+   * term evenly, which is most plans. Where it does not, a five visit year
+   * now runs to December instead of finishing in October.
+   */
+  return Array.from({ length: includedVisits }, (_, i) =>
+    addMonths(startsOn, Math.max(1, Math.round((termMonths * (i + 1)) / includedVisits))))
     .filter((d) => d <= termEnd);
 }

@@ -20,9 +20,16 @@ export type IconName =
   | "customers" | "inbox"
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
-  | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews";
+  | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Recurring: a loop with an arrowhead, so it reads as coming back rather than as a refresh. */
+  recurring: (
+    <>
+      <path d="M4.5 12a7.5 7.5 0 0 1 12.8-5.3l2.2 2.2M19.5 12a7.5 7.5 0 0 1-12.8 5.3l-2.2-2.2" />
+      <path d="M19.5 4.2v4.7h-4.7M4.5 19.8v-4.7h4.7" />
+    </>
+  ),
   /** Reviews: a star, outlined rather than filled, since the rating is not a score this product awards. */
   reviews: (
     <path d="M12 4.5l2.35 4.76 5.25.77-3.8 3.7.9 5.23L12 16.5l-4.7 2.46.9-5.23-3.8-3.7 5.25-.77Z" />

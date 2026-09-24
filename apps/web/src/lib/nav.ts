@@ -67,6 +67,7 @@ export const NAV: NavGroup[] = [
       { href: "/schedule", label: "Schedule", permission: "visit:read", icon: "schedule" },
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
       { href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks" },
+      { href: "/recurring", label: "Recurring", permission: "job:read", icon: "recurring" },
     ],
   },
   {
