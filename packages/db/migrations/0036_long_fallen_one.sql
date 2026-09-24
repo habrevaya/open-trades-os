@@ -1,0 +1,1 @@
+ALTER TABLE "deficiency" ADD COLUMN "observation" jsonb;

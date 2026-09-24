@@ -21,9 +21,17 @@ export type IconName =
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts";
+  | "contracts" | "inspections";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Inspections: a clipboard with a tick, which is what the thing physically is. */
+  inspections: (
+    <>
+      <path d="M9 4h6v3H9z" />
+      <path d="M7 5.5H5.5v15h13v-15H17" />
+      <path d="m9 13 2 2 4-4" />
+    </>
+  ),
   /**
    * Contracts: a document with a signature line, not a handshake or a seal.
    * The thing on this screen is a written schedule somebody can be held to.

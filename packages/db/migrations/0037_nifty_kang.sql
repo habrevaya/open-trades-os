@@ -1,0 +1,1 @@
+ALTER TABLE "deficiency" ADD COLUMN "remedies" jsonb DEFAULT '[]'::jsonb NOT NULL;

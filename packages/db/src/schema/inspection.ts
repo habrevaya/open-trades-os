@@ -70,6 +70,34 @@ export const inspectionProgram = pgTable("inspection_program", {
     assetCategory?: string | undefined;
     requiresReading?: boolean | undefined;
     unit?: string | undefined;
+  /**
+   * A reading has to be judgeable against something.
+   *
+   * Core refuses a reading item with no range, because "records a reading
+   * with no acceptable range" means no reading can ever be judged: the
+   * number goes in the report and nothing decides whether it is a finding.
+   * The checkpoint shape had `requiresReading` and a unit and NO RANGE, so
+   * no trade pack could ever ship a judgeable reading, and the refusal was
+   * unreachable because nothing called the validator.
+   */
+    range?: { min: number | null; max: number | null; borderlineWithin?: number | undefined } | undefined;
+    /**
+     * What this failure suggests selling, declared on the CHECKPOINT.
+     *
+     * Core has carried a `Remedy` type since it was written and the
+     * checkpoint shape had nowhere to put one, so every finding came out of
+     * the proposal builder as `unmapped`: real, shown, and with no work
+     * behind it. A backlog where nothing can ever be quoted is a backlog
+     * that turns into a list somebody stops reading.
+     *
+     * A key into the contractor's own price book and never a price. The
+     * mapping from "the backflow preventer failed" to "which part number we
+     * sell for that" is a decision each contractor makes differently and has
+     * to be able to see and argue with.
+     */
+    remedies?: Array<{
+      priceBookItemKey: string; label: string; quantity: number; rationale: string;
+    }> | undefined;
     failIsDeficiency?: boolean | undefined;
     severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
   }>>().notNull().default([]),
@@ -140,6 +168,41 @@ export const deficiency = pgTable("deficiency", {
   code: text("code"),
   description: text("description").notNull(),
   recommendedAction: text("recommended_action"),
+  /**
+   * WHAT WAS ACTUALLY SEEN, kept with the finding.
+   *
+   * The proposal builder in core refuses to price a deficiency that carries
+   * no observation, because a price with a story and no evidence is the one
+   * artefact that module exists to make impossible. That refusal only means
+   * anything if the evidence survives the visit: a finding whose photo and
+   * reading live in a report and not on the row is a finding that becomes
+   * unevidenced the moment somebody opens the backlog a week later.
+   *
+   * The whole `Observation`: who recorded it, when, the photo ids, and the
+   * reading with its own range evaluation, so the number and the spec it was
+   * judged against travel together.
+   */
+  observation: jsonb("observation").$type<{
+    itemKey: string;
+    prompt: string;
+    recorded: string;
+    at: string;
+    by: string;
+    photoIds: string[];
+    reading?: unknown;
+  } | null>(),
+  /**
+   * The remedies the checkpoint declared, frozen onto the finding.
+   *
+   * Copied rather than looked up through the programme, for the same reason
+   * the inspection stamps its programme version: revising a checkpoint must
+   * not silently change what a finding from last March proposed. A quote
+   * that changes when somebody edits a template is a quote nobody can stand
+   * behind.
+   */
+  remedies: jsonb("remedies").$type<Array<{
+    priceBookItemKey: string; label: string; quantity: number; rationale: string;
+  }>>().notNull().default([]),
 
   foundOn: date("found_on"),
   /** Statutory correction window, where the standard sets one. */

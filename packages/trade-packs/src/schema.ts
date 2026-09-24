@@ -102,6 +102,41 @@ export const InspectionProgramSeed = z.object({
     assetCategory: z.string().max(60).optional(),
     requiresReading: z.boolean().default(false),
     unit: z.string().max(20).optional(),
+  /**
+   * A reading has to be judgeable against something.
+   *
+   * Core refuses a reading item with no range, because "records a reading
+   * with no acceptable range" means no reading can ever be judged: the
+   * number goes in the report and nothing decides whether it is a finding.
+   * The checkpoint shape had `requiresReading` and a unit and NO RANGE, so
+   * no trade pack could ever ship a judgeable reading, and the refusal was
+   * unreachable because nothing called the validator.
+   */
+    range: z.object({
+      min: z.number().nullable(),
+      max: z.number().nullable(),
+      borderlineWithin: z.number().positive().optional(),
+    }).optional(),
+    /**
+     * What this failure suggests selling, declared on the CHECKPOINT.
+     *
+     * Core has carried a `Remedy` type since it was written and the
+     * checkpoint shape had nowhere to put one, so every finding came out of
+     * the proposal builder as `unmapped`: real, shown, and with no work
+     * behind it. A backlog where nothing can ever be quoted is a backlog
+     * that turns into a list somebody stops reading.
+     *
+     * A key into the contractor's own price book and never a price. The
+     * mapping from "the backflow preventer failed" to "which part number we
+     * sell for that" is a decision each contractor makes differently and has
+     * to be able to see and argue with.
+     */
+    remedies: z.array(z.object({
+      priceBookItemKey: z.string().min(1).max(60),
+      label: z.string().min(1).max(200),
+      quantity: z.number().positive(),
+      rationale: z.string().min(1).max(500),
+    })).optional(),
     failIsDeficiency: z.boolean().default(true),
     severityOnFail: z.enum(["critical", "major", "minor", "advisory"]).default("minor"),
   })),

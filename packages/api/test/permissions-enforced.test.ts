@@ -50,8 +50,6 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
   ["asset:write", "M22."],
   ["asset:checkout", "M22."],
   ["document:write", "M23, documents and compliance. Planned."],
-  ["compliance:read", "M23."],
-  ["compliance:write", "M23."],
   ["commission:read", "M17 pays hours; commissions are not built."],
   ["commission:configure", "M17."],
   ["campaign:read", "M19 measures; it does not yet send a campaign."],

@@ -253,6 +253,20 @@
       "when": 1790279752111,
       "tag": "0035_parched_metal_master",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790285871663,
+      "tag": "0036_long_fallen_one",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790286084946,
+      "tag": "0037_nifty_kang",
+      "breakpoints": true
     }
   ]
 }
