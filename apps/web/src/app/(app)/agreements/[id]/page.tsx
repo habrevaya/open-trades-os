@@ -105,12 +105,20 @@ export default async function AgreementPage({
             </Td>
             <Td className="text-right"><Money value={visit.recognitionAmount} /></Td>
             <Td>
-              {writes && !visit.skippedOn ? (
+              {/*
+                Rendered for a skipped visit too, which it was not before.
+                The row said "skipped" and offered nothing, so a member
+                ringing back to reinstate the visit they cancelled had no
+                path through this screen at all.
+              */}
+              {writes ? (
                 <VisitActions
                   agreementId={agreement.id}
                   agreementVisitId={visit.id}
                   booked={visit.jobId !== null}
                   delivered={visit.deliveredOn !== null}
+                  skipped={visit.skippedOn !== null}
+                  skipReason={visit.skipReason}
                 />
               ) : null}
             </Td>

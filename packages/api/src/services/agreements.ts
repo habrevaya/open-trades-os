@@ -653,6 +653,168 @@ export async function deliver(ctx: ServiceContext, input: { agreementVisitId: st
 }
 
 /**
+ * SKIPPING A VISIT THE MEMBER DOES NOT WANT
+ *
+ * `skipped_on` and `skip_reason` have been on this table since the first
+ * migrations, and the owed report and the booking guard both read them.
+ * Nothing wrote either. So a member who rang up and said "not this spring,
+ * we are away" had no path: the visit stayed owed, sat at the top of the
+ * report forever, and somebody eventually booked it against their wishes or
+ * the report stopped being read. Both of those happened for the same reason.
+ *
+ * A SKIP DOES NOT RECOGNISE THE REVENUE, and this is the decision the whole
+ * function turns on.
+ *
+ * The temptation is obvious: the member declined, we were available, the
+ * money is ours. It is also wrong twice over. The member did not buy four
+ * visits, they bought a year of cover that includes four; an unused visit is
+ * breakage, and breakage is earned at the end of the term, not on the day
+ * somebody declined. And a skip is reversible, which recognised revenue is
+ * not: recognising here would mean a phone call five minutes later
+ * ("actually, can we do June?") needs a reversing entry against a closed
+ * period.
+ *
+ * So the deferred slice stays exactly where it is, unrecognised and
+ * unreleased, and the return value says so out loud. "Skipped" in a list
+ * reads as finished with, and in the ledger this visit is not finished with
+ * at all.
+ *
+ * A BOOKED VISIT IS NOT SKIPPABLE. It has a job on it, and a job is a
+ * technician in a van on a morning. Skipping without touching the schedule
+ * sends somebody to a house nobody is expecting them at, and the person
+ * clicking skip in the office cannot see that. Unbook it first, which is a
+ * decision about the schedule made where the schedule is.
+ */
+export async function skip(
+  ctx: ServiceContext,
+  input: { agreementVisitId: string; reason: string; on?: string },
+) {
+  return guardedWrite(ctx, "membership:write", async (tx) => {
+    const reason = input.reason.trim();
+    if (reason === "") {
+      /**
+       * A skip with no reason is indistinguishable from a mistake, and this
+       * is the field somebody reads a year later when the member says they
+       * never agreed to it.
+       */
+      throw new ConflictError(
+        "A skipped visit needs a reason. It is the only record of why the member did not get what they paid for.",
+      );
+    }
+
+    const [row] = await tx.select({
+      visit: schema.agreementVisit,
+      agreement: schema.agreement,
+    })
+      .from(schema.agreementVisit)
+      .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
+      .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
+    if (!row) throw new NotFoundError("Agreement visit");
+
+    if (row.visit.deliveredOn) {
+      throw new ConflictError(
+        "That visit was delivered. Work that happened cannot be skipped: it can be credited, which is a decision about money.",
+      );
+    }
+    if (row.visit.skippedOn) throw new ConflictError("That visit is already skipped.");
+    if (row.visit.jobId) {
+      throw new ConflictError(
+        "That visit is booked. Cancel or unbook the job first, so whoever is scheduled for it finds out.",
+      );
+    }
+
+    const on = input.on ?? time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+
+    const [after] = await tx.update(schema.agreementVisit)
+      .set({ skippedOn: on, skipReason: reason, updatedAt: new Date() })
+      .where(and(
+        eq(schema.agreementVisit.id, input.agreementVisitId),
+        isNull(schema.agreementVisit.skippedOn),
+        isNull(schema.agreementVisit.deliveredOn),
+      ))
+      .returning();
+    if (!after) throw new ConflictError("That visit is already skipped.");
+
+    await emit(tx, ctx, {
+      name: "agreement.visit_skipped",
+      entityType: "agreement",
+      entityId: row.agreement.id,
+      payload: {
+        agreementId: row.agreement.id,
+        agreementVisitId: input.agreementVisitId,
+        customerId: row.agreement.customerId,
+        reason,
+        /**
+         * Carried on the event so a workflow can act on the amount still
+         * sitting deferred, rather than assuming a skip settled it.
+         */
+        stillDeferred: row.visit.recognitionAmount ?? "0",
+      },
+    });
+
+    await audit(tx, ctx, "agreement_visit.skipped", "agreement_visit",
+      input.agreementVisitId, row.visit, after);
+
+    return {
+      id: after.id,
+      skippedOn: after.skippedOn,
+      skipReason: after.skipReason,
+      /** Unrecognised and unreleased. Skipped is not the same as settled. */
+      stillDeferred: row.visit.recognitionAmount ?? "0",
+    };
+  });
+}
+
+/**
+ * Put a skipped visit back on the owed list.
+ *
+ * Here because `book` already refuses a skipped visit with "that visit was
+ * skipped", which is only a sensible thing to say if there is a way back.
+ * Without one that message is a dead end dressed as an explanation, and the
+ * member who rings to reinstate the visit they cancelled gets told no by a
+ * product rather than by a person.
+ *
+ * Nothing to undo in the ledger, which is the point of not having recognised
+ * anything on the way in.
+ */
+export async function unskip(ctx: ServiceContext, input: { agreementVisitId: string }) {
+  return guardedWrite(ctx, "membership:write", async (tx) => {
+    const [row] = await tx.select({
+      visit: schema.agreementVisit,
+      agreement: schema.agreement,
+    })
+      .from(schema.agreementVisit)
+      .innerJoin(schema.agreement, eq(schema.agreement.id, schema.agreementVisit.agreementId))
+      .where(eq(schema.agreementVisit.id, input.agreementVisitId)).limit(1);
+    if (!row) throw new NotFoundError("Agreement visit");
+    if (!row.visit.skippedOn) throw new ConflictError("That visit is not skipped.");
+
+    const [after] = await tx.update(schema.agreementVisit)
+      .set({ skippedOn: null, skipReason: null, updatedAt: new Date() })
+      .where(eq(schema.agreementVisit.id, input.agreementVisitId))
+      .returning();
+
+    await emit(tx, ctx, {
+      name: "agreement.visit_unskipped",
+      entityType: "agreement",
+      entityId: row.agreement.id,
+      payload: {
+        agreementId: row.agreement.id,
+        agreementVisitId: input.agreementVisitId,
+        customerId: row.agreement.customerId,
+        /** What it said before, because that is the part somebody disputes. */
+        wasSkippedFor: row.visit.skipReason,
+      },
+    });
+
+    await audit(tx, ctx, "agreement_visit.unskipped", "agreement_visit",
+      input.agreementVisitId, row.visit, after!);
+
+    return { id: after!.id, dueOn: after!.dueOn };
+  });
+}
+
+/**
  * Bill one instalment, as an invoice that is a LIABILITY rather than revenue.
  *
  * `postAgreementBilling` is what makes that true: the receivable moves

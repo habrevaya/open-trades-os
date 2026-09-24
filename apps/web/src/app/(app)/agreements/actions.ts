@@ -38,6 +38,45 @@ export async function deliverVisit(_previous: unknown, form: FormData) {
   return { done: true };
 }
 
+/**
+ * The member does not want this one.
+ *
+ * The reason is required by the service and typed here rather than picked
+ * from a list, because the reasons are the whole of why an agreement book
+ * churns and a fixed list turns all of them into "other".
+ */
+export async function skipVisit(_previous: unknown, form: FormData) {
+  const agreementId = String(form.get("agreementId") ?? "");
+  let result;
+  try {
+    result = await agreements.skip(await ctx(), {
+      agreementVisitId: String(form.get("agreementVisitId") ?? ""),
+      reason: String(form.get("reason") ?? ""),
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+  revalidatePath(`/agreements/${agreementId}`);
+  revalidatePath("/agreements");
+  return { done: true, stillDeferred: result.stillDeferred };
+}
+
+export async function unskipVisit(_previous: unknown, form: FormData) {
+  const agreementId = String(form.get("agreementId") ?? "");
+  try {
+    await agreements.unskip(await ctx(), {
+      agreementVisitId: String(form.get("agreementVisitId") ?? ""),
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+  revalidatePath(`/agreements/${agreementId}`);
+  revalidatePath("/agreements");
+  return { done: true };
+}
+
 export async function billInstalment(_previous: unknown, form: FormData) {
   const agreementId = String(form.get("agreementId") ?? "");
   try {

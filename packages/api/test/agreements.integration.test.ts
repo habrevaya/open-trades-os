@@ -484,3 +484,215 @@ run("cancelling it", () => {
       .rejects.toThrow(/already cancelled/);
   });
 });
+
+/**
+ * SKIPPING A VISIT THE MEMBER DOES NOT WANT
+ *
+ * `skipped_on` and `skip_reason` were on the table from the first migrations.
+ * The owed report filtered on one of them and the booking guard refused on
+ * it with "that visit was skipped". Nothing wrote either, ever, so the filter
+ * was over a column nothing could set and the refusal named a state nothing
+ * could reach.
+ *
+ * What that cost: a member who rang up to say "not this spring, we are away"
+ * had no path. The visit stayed at the top of the owed list forever, until
+ * either somebody booked it against their wishes or the list stopped being
+ * read. Both happen, and they happen for the same reason.
+ */
+run("skipping a visit", () => {
+  const firstVisit = async () => {
+    const sold = await sellOne();
+    const [visit] = await raw<{ id: string; recognition_amount: string }[]>`
+      select id, recognition_amount from public.agreement_visit
+      where agreement_id = ${sold.id} order by sequence limit 1`;
+    return { agreementId: sold.id, visit: visit! };
+  };
+
+  it("takes it off the owed list and says why", async () => {
+    const { agreementId, visit } = await firstVisit();
+
+    const before = await agreements.owed(owner(), { through: "2027-12-31" });
+    expect(before.map((row) => row.visit.id)).toContain(visit.id);
+
+    const result = await agreements.skip(owner(), {
+      agreementVisitId: visit.id, reason: "Away until August, asked us to drop the spring one.",
+    });
+    expect(result.skipReason).toBe("Away until August, asked us to drop the spring one.");
+
+    const after = await agreements.owed(owner(), { through: "2027-12-31" });
+    expect(after.map((row) => row.visit.id)).not.toContain(visit.id);
+
+    const detail = await agreements.get(owner(), { id: agreementId });
+    const row = detail.visits.find((v) => v.id === visit.id);
+    expect(row?.skippedOn).not.toBeNull();
+    expect(row?.skipReason).toMatch(/Away until August/);
+  });
+
+  it("does not recognise the revenue, and says so", async () => {
+    const { agreementId, visit } = await firstVisit();
+    const unearnedBefore = await agreements.unearned(owner());
+
+    const result = await agreements.skip(owner(), {
+      agreementVisitId: visit.id, reason: "Member declined.",
+    });
+
+    /**
+     * THE DECISION THE WHOLE FUNCTION TURNS ON. The member did not buy four
+     * visits, they bought a year of cover that includes four. An unused one
+     * is breakage, earned at the end of the term, not on the day somebody
+     * declined. Recognising here would also make the skip irreversible in
+     * the ledger while staying reversible in the UI, which is the worst of
+     * both.
+     */
+    expect(result.stillDeferred).toBe(visit.recognition_amount);
+    expect(await agreements.unearned(owner())).toEqual(unearnedBefore);
+
+    /**
+     * The entry has to EXIST before its nulls mean anything. Without this
+     * line the two assertions below pass on a visit that never had a
+     * deferred slice at all, which is the shape of vacuous test that reads
+     * as coverage and is not.
+     */
+    const [entry] = await raw<{ recognized_on: string | null; released_on: string | null }[]>`
+      select recognized_on, released_on from public.deferred_revenue_entry
+      where agreement_visit_id = ${visit.id}`;
+    expect(entry).toBeDefined();
+    expect(entry!.recognized_on).toBeNull();
+    expect(entry!.released_on).toBeNull();
+
+    /** And no ledger movement against this visit. */
+    const count = async (id: string) => {
+      const [row] = await raw<{ n: number }[]>`
+        select count(*)::int as n from public.ledger_entry
+        where organization_id = ${ORG} and source_id = ${id}`;
+      return row!.n;
+    };
+    expect(await count(visit.id)).toBe(0);
+
+    /**
+     * The positive control, because a count of zero proves nothing if the
+     * query could never find anything. Delivering the OTHER visit on the
+     * same agreement posts against it, and that one is not zero.
+     */
+    const [other] = await raw<{ id: string }[]>`
+      select id from public.agreement_visit
+      where agreement_id = ${agreementId} and id <> ${visit.id} limit 1`;
+    await agreements.deliver(owner(), { agreementVisitId: other!.id, on: "2027-01-15" });
+    expect(await count(other!.id)).toBeGreaterThan(0);
+    expect(await count(visit.id)).toBe(0);
+  });
+
+  it("does not count towards visits delivered", async () => {
+    const { agreementId, visit } = await firstVisit();
+    await agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Declined." });
+
+    const [row] = await raw<{ n: number }[]>`
+      select visits_delivered_this_term as n from public.agreement where id = ${agreementId}`;
+    expect(row!.n).toBe(0);
+  });
+
+  it("refuses a skip with no reason", async () => {
+    const { visit } = await firstVisit();
+    /**
+     * A skip with no reason is indistinguishable from a mistake, and it is
+     * the only record of why the member did not get what they paid for.
+     */
+    await expect(agreements.skip(owner(), { agreementVisitId: visit.id, reason: "   " }))
+      .rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("refuses to skip a booked visit", async () => {
+    const { visit } = await firstVisit();
+    await agreements.book(owner(), { agreementVisitId: visit.id });
+
+    /**
+     * A job is a technician in a van on a morning. Skipping without touching
+     * the schedule sends somebody to a house nobody is expecting them at,
+     * and the person clicking skip in the office cannot see that.
+     */
+    await expect(agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Declined." }))
+      .rejects.toThrow(/booked/i);
+  });
+
+  it("refuses to skip work that was done", async () => {
+    const { visit } = await firstVisit();
+    await agreements.deliver(owner(), { agreementVisitId: visit.id, on: "2026-07-15" });
+
+    await expect(agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Declined." }))
+      .rejects.toThrow(/delivered/i);
+  });
+
+  it("refuses to skip the same visit twice", async () => {
+    const { visit } = await firstVisit();
+    await agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Declined." });
+    await expect(agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Again." }))
+      .rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("refuses to book one, which is only sensible because there is a way back", async () => {
+    const { visit } = await firstVisit();
+    await agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Declined." });
+    await expect(agreements.book(owner(), { agreementVisitId: visit.id }))
+      .rejects.toThrow(/skipped/i);
+  });
+
+  it("puts one back on the owed list when the member changes their mind", async () => {
+    const { visit } = await firstVisit();
+    await agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Away in April." });
+
+    await agreements.unskip(owner(), { agreementVisitId: visit.id });
+
+    const owedNow = await agreements.owed(owner(), { through: "2027-12-31" });
+    expect(owedNow.map((row) => row.visit.id)).toContain(visit.id);
+
+    /**
+     * BOTH COLUMNS CLEAR, not just the date. A restored visit carrying "away
+     * in April" is a row that contradicts itself: it is owed, and it says
+     * the member declined it. Nothing on the screen would show it, because
+     * the screen reads the date, which is exactly why it would survive into
+     * an export or a dispute and be read as fact there.
+     */
+    const [row] = await raw<{ skipped_on: string | null; skip_reason: string | null }[]>`
+      select skipped_on, skip_reason from public.agreement_visit where id = ${visit.id}`;
+    expect(row!.skipped_on).toBeNull();
+    expect(row!.skip_reason).toBeNull();
+
+    /** And bookable again, which is the whole point of the refusal above. */
+    await expect(agreements.book(owner(), { agreementVisitId: visit.id })).resolves.toBeTruthy();
+  });
+
+  it("refuses to unskip one that is not skipped", async () => {
+    const { visit } = await firstVisit();
+    await expect(agreements.unskip(owner(), { agreementVisitId: visit.id }))
+      .rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("records both the skip and the change of mind as events", async () => {
+    const { visit } = await firstVisit();
+    await agreements.skip(owner(), { agreementVisitId: visit.id, reason: "Away in April." });
+    await agreements.unskip(owner(), { agreementVisitId: visit.id });
+
+    const events = await raw<{ name: string; payload: Record<string, unknown> }[]>`
+      select name, payload from public.domain_event
+      where organization_id = ${ORG} and name like 'agreement.visit_%skipped'
+      order by occurred_at`;
+
+    expect(events.map((e) => e.name)).toEqual([
+      "agreement.visit_skipped", "agreement.visit_unskipped",
+    ]);
+    /**
+     * The amount still sitting deferred rides on the event, so a workflow
+     * acting on a skip does not assume it settled the money.
+     */
+    expect(events[0]!.payload["stillDeferred"]).toBe(visit.recognition_amount);
+    /** And the reason survives the undo, because that is the part disputed. */
+    expect(events[1]!.payload["wasSkippedFor"]).toBe("Away in April.");
+  });
+
+  it("refuses a skip to a role without membership:write", async () => {
+    const { visit } = await firstVisit();
+    await expect(agreements.skip(as(["technician"]), {
+      agreementVisitId: visit.id, reason: "Declined.",
+    })).rejects.toBeInstanceOf(PermissionError);
+  });
+});
