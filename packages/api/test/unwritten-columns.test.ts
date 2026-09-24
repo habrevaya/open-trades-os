@@ -83,9 +83,6 @@ const SOFT_DELETE_NOT_OFFERED = 26;
 const KNOWN_GAPS = new Map<string, string>([
   ["reviewRequest.sendAt",
     "A review request cannot be scheduled, only sent now, so the policy's delay after a visit is unreachable."],
-  ["wageScale.effectiveFrom",
-    "A wage scale cannot be created through the service layer, so labour cost resolves against nothing."],
-  ["wageScale.effectiveTo", "Same row."],
 ]);
 
 type Dep = { table: string; column: string; where: string };

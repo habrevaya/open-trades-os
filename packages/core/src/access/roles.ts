@@ -90,7 +90,8 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
     label: "Administrator",
     description: "Runs the system. Payroll and the ledger are deliberately not included; grant them explicitly.",
     permissions: ALL_PERMISSIONS.filter((p) => ![
-      "payroll:read", "payroll:export", "ledger:post", "accounting:close",
+      "payroll:read", "payroll:export", "payroll:configure",
+      "ledger:post", "accounting:close",
       "billing:manage", "data:export",
     ].includes(p)),
   },
@@ -200,7 +201,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "vendor:read", "vendor:write", "po:read", "po:approve",
       "inventory:read",
       "timesheet:read", "timesheet:approve",
-      "payroll:read", "payroll:export",
+      "payroll:read", "payroll:export", "payroll:configure",
       "commission:read", "commission:configure",
       "adspend:read",
       "audit:read",

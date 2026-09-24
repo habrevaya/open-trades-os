@@ -1,8 +1,9 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { labor } from "@opentradesos/api/services";
+import { labor, laborSettings } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
+import { Policy } from "./Policy";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,10 @@ export default async function TimesheetsPage({
   }
 
   const weekOf = params.week ?? new Date().toISOString().slice(0, 10);
+  const declares = can(user.actor, "payroll:configure");
+  const declared = declares
+    ? (await laborSettings.policies(ctx)).find((policy) => policy.active) ?? null
+    : null;
 
   let result: Awaited<ReturnType<typeof labor.week>> | null = null;
   let refusal: string | null = null;
@@ -66,15 +71,27 @@ export default async function TimesheetsPage({
       <PageHeader title="Timesheets" />
 
       {refusal ? (
-        <Empty title="No overtime policy is set">
-          {refusal}
-        </Empty>
+        <>
+          <Empty title="No overtime policy is set">
+            {refusal}
+          </Empty>
+          {/*
+            The form is HERE, under the refusal, rather than behind a link to
+            settings. The refusal named an action nobody could take for as
+            long as this product has existed; putting the action anywhere but
+            next to the sentence demanding it repeats the same mistake more
+            politely.
+          */}
+          {declares && <Policy current={null} />}
+        </>
       ) : (
         <>
           <p className="mt-1 max-w-prose text-sm text-ink-500">
             Week of {result!.weekStart}, under {result!.policy.label}.{" "}
             {result!.policy.note}
           </p>
+
+          {declares && <Policy current={declared?.label ?? null} />}
 
           {result!.rows.length === 0 ? (
             <Empty title="Nobody was on the clock this week">

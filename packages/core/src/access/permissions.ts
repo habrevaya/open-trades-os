@@ -116,6 +116,13 @@ export const PERMISSIONS = {
   "timesheet:approve": "Approve timesheets",
   "payroll:read": "View pay rates and payroll data",
   "payroll:export": "Run a payroll export",
+  /**
+   * Separate from reading payroll and from running an export, because it is
+   * neither. Declaring the overtime policy and loading a wage scale is
+   * stating what people are owed, and the person who runs the export is
+   * usually not the person entitled to decide that.
+   */
+  "payroll:configure": "Declare the overtime policy and load wage scales",
   "commission:read": "View commission calculations",
   "commission:configure": "Create and edit commission plans",
 
