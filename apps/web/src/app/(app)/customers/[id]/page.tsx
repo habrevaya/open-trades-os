@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, NotFoundError } from "@opentradesos/api/services";
+import { customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, label } from "@/lib/labels";
@@ -10,6 +10,7 @@ import { Table, Th, Td, Empty } from "@/components/Table";
 import { Money } from "@opentradesos/ui";
 import { Consent } from "./Consent";
 import { Contacts } from "./Contacts";
+import { Lifecycle } from "./Lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,18 @@ export default async function CustomerPage({
    * new one to. Both behind `customer:read`, which the page already needed
    * to render at all.
    */
+  /**
+   * Whether this record can go, and what a merge could join it to. Both
+   * behind the permissions that do the work, so the section is absent rather
+   * than present and refusing.
+   */
+  const removable = can(user.actor, "customer:delete")
+    ? await customerLifecycle.deletability(ctx, { id })
+    : null;
+  const mergeable = can(user.actor, "customer:merge")
+    ? (await customers.list(ctx, { limit: 50, includeInactive: false })).data.filter((row) => row.id !== id)
+    : [];
+
   const people = await contactService.list(ctx, { customerId: id });
   const addresses = can(user.actor, "property:read")
     ? (await propertyService.list(ctx, { limit: 50, customerId: id })).data
@@ -111,6 +124,17 @@ export default async function CustomerPage({
           label: [property.addressLine1, property.city].filter(Boolean).join(", "),
         }))}
       />
+
+      {(removable || mergeable.length > 0) && (
+        <Lifecycle
+          id={id}
+          name={customer.name}
+          deletable={removable?.deletable ?? false}
+          blockedBy={removable?.blockedBy ?? []}
+          wouldRemove={removable?.wouldRemove ?? []}
+          candidates={mergeable.map((row) => ({ id: row.id, name: row.name }))}
+        />
+      )}
 
       {contactable ? (
         <Consent

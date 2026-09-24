@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { consent, contacts, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { consent, contacts, customerLifecycle, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -113,4 +114,47 @@ export async function makePrimary(_previous: unknown, form: FormData) {
   }
   revalidatePath(`/customers/${customerId}`);
   return { done: true };
+}
+
+/**
+ * Take a customer off the books.
+ *
+ * Refused by the service when money points at them, and the refusal names
+ * what. The screen asks `deletability` first so the button only appears when
+ * it would work, but the guard stays in the service: a check on a page load
+ * is stale by the time somebody clicks.
+ */
+export async function removeCustomer(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  try {
+    await customerLifecycle.remove(await ctx(), {
+      id, reason: String(form.get("reason") ?? ""),
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return { error: error.message };
+    throw error;
+  }
+  revalidatePath("/customers");
+  redirect("/customers");
+}
+
+export async function mergeCustomer(_previous: unknown, form: FormData) {
+  const keepId = String(form.get("keepId") ?? "");
+  let result;
+  try {
+    result = await customerLifecycle.merge(await ctx(), {
+      keepId, mergeId: String(form.get("mergeId") ?? ""),
+    });
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      return { error: error.message };
+    }
+    throw error;
+  }
+  revalidatePath(`/customers/${keepId}`);
+  return {
+    done: true,
+    moved: result.moved.map((m) => `${m.n} ${m.label}`),
+    filled: result.filled,
+  };
 }

@@ -48,6 +48,20 @@ export const customer = pgTable("customer", {
   notes: text("notes"),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
+  /**
+   * Where this record went when it was merged into another.
+   *
+   * A merged duplicate is soft deleted and KEPT, rather than removed,
+   * because its id is in a link somebody emailed, in an integration that
+   * stored it, and in every audit row naming it. Without this column those
+   * all resolve to a deleted row, which is the same dead end as having
+   * removed it; with it they resolve to an answer.
+   *
+   * Self referencing and nullable: a live customer has no pointer, and
+   * following one twice is how a chain of merges resolves to the record
+   * that is actually current.
+   */
+  mergedIntoId: uuid("merged_into_id"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({

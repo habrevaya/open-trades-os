@@ -488,7 +488,7 @@ export async function receivePurchaseOrder(
   ctx: ServiceContext,
   input: { purchaseOrderId: string; lines: { lineId: string; quantity: string }[] },
 ) {
-  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+  return guardedWrite(ctx, "po:write", async (tx) => {
     const [order] = await tx.select().from(schema.purchaseOrder)
       .where(and(
         eq(schema.purchaseOrder.id, input.purchaseOrderId),
@@ -570,7 +570,7 @@ export async function createVendor(
   ctx: ServiceContext,
   input: { name: string; accountNumber?: string; email?: string; phone?: string },
 ) {
-  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+  return guardedWrite(ctx, "vendor:write", async (tx) => {
     const name = input.name.trim();
     if (name === "") throw new ConflictError("A vendor needs a name.");
 
@@ -588,7 +588,7 @@ export async function createVendor(
 }
 
 export async function vendors(ctx: ServiceContext) {
-  return guardedRead(ctx, "inventory:read", async (tx) => {
+  return guardedRead(ctx, "vendor:read", async (tx) => {
     const rows = await tx.select({
       id: schema.vendor.id,
       name: schema.vendor.name,
@@ -627,7 +627,7 @@ export async function createPurchaseOrder(
     }>;
   },
 ) {
-  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+  return guardedWrite(ctx, "po:write", async (tx) => {
     if (input.lines.length === 0) {
       throw new ConflictError("An order with no lines is not an order.");
     }
@@ -701,7 +701,19 @@ export async function setPurchaseOrderStatus(
   ctx: ServiceContext,
   input: { id: string; status: inv.PurchaseOrderStatus },
 ) {
-  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+  /**
+   * SUBMITTING IS THE APPROVAL. Everything else on this function is
+   * bookkeeping about an order that already exists.
+   *
+   * Guarding the whole transition on `po:approve` would stop a buyer
+   * cancelling their own draft, which makes the permission something people
+   * work around. Guarding it all on `po:write` would let anybody who can
+   * type an order commit the company to paying for it, which is the thing
+   * `po:approve` exists to prevent and the reason the two are separate
+   * entries in the catalogue at all.
+   */
+  const permission = input.status === "submitted" ? "po:approve" as const : "po:write" as const;
+  return guardedWrite(ctx, permission, async (tx) => {
     const [order] = await tx.select().from(schema.purchaseOrder)
       .where(eq(schema.purchaseOrder.id, input.id)).limit(1);
     if (!order) throw new NotFoundError("Purchase order");

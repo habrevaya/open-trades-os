@@ -31,6 +31,7 @@ export * as consent from "./consent";
 export * as contacts from "./contacts";
 export * as phoneNumbers from "./phone-numbers";
 export * as laborSettings from "./labor-settings";
+export * as customerLifecycle from "./customer-lifecycle";
 export * as reports from "./reports";
 export * as dashboards from "./dashboards";
 export * as roles from "./roles";

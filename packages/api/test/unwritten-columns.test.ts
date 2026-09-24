@@ -53,9 +53,9 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
 /**
  * SOFT DELETE THAT IS NOT OFFERED.
  *
- * Twenty six tables filter `deleted_at is null` on every read and six can
+ * Twenty five tables filter `deleted_at is null` on every read and seven can
  * ever set it. That is ONE finding repeated twenty nine times, not twenty
- * six findings, so it is held as a group rather than as a list of entries
+ * five findings, so it is held as a group rather than as a list of entries
  * with invented reasons: a table here is one you cannot delete a row from,
  * and the filter on its reads is decoration until something writes the
  * column.
@@ -66,11 +66,11 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
  * way to remove it and will edit the row into something else instead, which
  * is how a CRM ends up with a customer called "DO NOT USE".
  *
- * The COUNT is asserted, so a twenty seventh table cannot join quietly. Deciding
+ * The COUNT is asserted, so a twenty sixth table cannot join quietly. Deciding
  * which of these get a delete is product work; letting the number drift
  * without anybody noticing is not.
  */
-const SOFT_DELETE_NOT_OFFERED = 26;
+const SOFT_DELETE_NOT_OFFERED = 25;
 
 
 /**
@@ -81,8 +81,6 @@ const SOFT_DELETE_NOT_OFFERED = 26;
  * an entry is fixed and not removed.
  */
 const KNOWN_GAPS = new Map<string, string>([
-  ["reviewRequest.sendAt",
-    "A review request cannot be scheduled, only sent now, so the policy's delay after a visit is unreachable."],
 ]);
 
 type Dep = { table: string; column: string; where: string };
@@ -209,6 +207,25 @@ const PREDICATES = new Set([
   "innerJoin", "leftJoin", "rightJoin", "fullJoin",
 ]);
 
+/**
+ * A WRITE THROUGH A VARIABLE IS STILL A WRITE.
+ *
+ * This scanner credited only object literals it could see at the call:
+ * `.values({ sendAt })` counted, and `const values = {...}; .values(values)`
+ * did not. `reviews.create` builds its row that way, so `review_request.
+ * send_at` was reported as written by nothing, and the known gap list
+ * carried a sentence saying review requests could not be scheduled. They
+ * could. The sentence was wrong.
+ *
+ * A false finding is worse than a missed one. A missed one leaves a defect
+ * where it was; a false one sends somebody to fix working code, and once one
+ * entry on a list is wrong the whole list is something to argue with rather
+ * than act on.
+ *
+ * So object literals bound to a local are resolved, including the two arms
+ * of a ternary, which is exactly the shape `reviews.create` uses to pick
+ * between a queued row and a withheld one.
+ */
 function scan() {
   const depended: Dep[] = [];
   const written = new Set<string>();
@@ -219,6 +236,31 @@ function scan() {
     const text = readFileSync(path, "utf8");
     const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true);
     const relative = path.slice(API_SRC.length + 1);
+
+    /**
+     * Local names bound to an object literal, so a row assembled before the
+     * call is credited to the call. Per file and by name only: two locals
+     * called `values` in one file merge, which over-credits rather than
+     * under-credits, and over-crediting here hides a gap where the
+     * alternative invents one.
+     */
+    const bound = new Map<string, string[]>();
+    const bind = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        const literals: ts.ObjectLiteralExpression[] = [];
+        const dig = (inner: ts.Node) => {
+          if (ts.isObjectLiteralExpression(inner)) { literals.push(inner); return; }
+          if (ts.isConditionalExpression(inner)) { dig(inner.whenTrue); dig(inner.whenFalse); return; }
+          if (ts.isAsExpression(inner) || ts.isParenthesizedExpression(inner)) dig(inner.expression);
+        };
+        dig(node.initializer);
+        if (literals.length > 0) {
+          bound.set(node.name.text, literals.flatMap(keysOf));
+        }
+      }
+      ts.forEachChild(node, bind);
+    };
+    bind(file);
 
     const visit = (node: ts.Node, insidePredicate: boolean) => {
       let predicate = insidePredicate;
@@ -241,6 +283,9 @@ function scan() {
                * inside a callback, so it is not an argument: find any object
                * literal beneath this argument and credit its keys.
                */
+              if (ts.isIdentifier(argument)) {
+                for (const key of bound.get(argument.text) ?? []) written.add(`${table}.${key}`);
+              }
               if (!ts.isObjectLiteralExpression(argument) && !ts.isArrayLiteralExpression(argument)) {
                 const collect = (inner: ts.Node) => {
                   if (ts.isObjectLiteralExpression(inner)) {

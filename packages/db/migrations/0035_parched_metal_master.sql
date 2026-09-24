@@ -1,0 +1,1 @@
+ALTER TABLE "customer" ADD COLUMN "merged_into_id" uuid;
