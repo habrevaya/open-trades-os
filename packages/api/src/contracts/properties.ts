@@ -44,6 +44,44 @@ export const PropertyCreate = z.object({
   customerRole: PropertyRole.default("owner"),
 });
 
+/**
+ * A PROPERTY COULD BE CREATED AND NEVER EDITED.
+ *
+ * There was no update route at all, which made several published fields
+ * unreachable rather than merely awkward. `territoryId` could be FILTERED on
+ * and never set, so the filter's only possible answer was none. A gate code
+ * that changed, a dog that arrived, a hazard a technician found on the third
+ * visit: all of it had to be typed into a new property or left wrong.
+ *
+ * The address is deliberately absent. A property IS its address, the service
+ * record is what makes it worth anything, and letting somebody retype it
+ * turns one house into another with ten years of history attached. A
+ * genuinely wrong address is a correction somebody should have to think
+ * about, not a field on a form.
+ */
+export const updateProperty = defineRoute({
+  method: "patch",
+  path: "/v1/properties/{id}",
+  summary: "Update a property",
+  module: "M03",
+  permissions: ["property:write"],
+  input: z.object({
+    id: Uuid,
+    nickname: z.string().max(100).nullable().optional(),
+    /** Which route this falls in. Filtered on everywhere and settable nowhere until now. */
+    territoryId: Uuid.nullable().optional(),
+    squareFeet: z.string().max(20).nullable().optional(),
+    yearBuilt: z.string().max(10).nullable().optional(),
+    gateCode: z.string().max(50).nullable().optional(),
+    accessNotes: z.string().max(2000).nullable().optional(),
+    /** Shown to a technician before they get out of the truck. */
+    hazardNotes: z.string().max(2000).nullable().optional(),
+    hasDog: z.boolean().optional(),
+    customFields: z.record(z.unknown()).optional(),
+  }),
+  output: Property,
+});
+
 export const listProperties = defineRoute({
   method: "get",
   path: "/v1/properties",
@@ -105,5 +143,6 @@ export const linkCustomerToProperty = defineRoute({
 });
 
 export const propertyRoutes = {
+  updateProperty,
   listProperties, getProperty, createProperty, linkCustomerToProperty,
 } as const;

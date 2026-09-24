@@ -301,3 +301,54 @@ async function load(tx: Database, itemId: string): Promise<ItemRow | undefined> 
 
 /** Exported for the tests that check version windows never gap or overlap. */
 export const currentVersionFilter = CURRENT;
+
+/**
+ * RETIRE AN ITEM, OR BRING IT BACK.
+ *
+ * `price_book_item.active` was filtered on by `list`, published as
+ * `includeInactive` on the contract, and had no way to become false. The
+ * filter's only possible answer was "everything", so the flag on the screen
+ * did nothing and an item sold last season stayed on every technician's
+ * tablet forever.
+ *
+ * RETIRED, NOT DELETED, and that is the whole reason for a flag rather than
+ * a soft delete. Every invoice line that ever used this item points at a
+ * VERSION of it, and those have to keep resolving: a customer asking what
+ * they paid for in 2024 gets an answer, and the margin report for that
+ * quarter still has a cost. Deactivating stops it being SOLD; it changes
+ * nothing about what was.
+ */
+export async function setActive(
+  ctx: ServiceContext,
+  input: { id: string; active: boolean; reason?: string | undefined },
+) {
+  return guardedWrite(ctx, "pricebook:write", async (tx) => {
+    const [before] = await tx.select().from(schema.priceBookItem)
+      .where(and(
+        eq(schema.priceBookItem.id, input.id),
+        eq(schema.priceBookItem.organizationId, ctx.actor.organizationId),
+        isNull(schema.priceBookItem.deletedAt),
+      )).limit(1);
+    if (!before) throw new NotFoundError("Price book item");
+
+    if (before.active === input.active) {
+      /**
+       * Absorbing rather than an error. Two people retiring the same
+       * discontinued part on the same afternoon is ordinary, and the second
+       * one has not done anything wrong.
+       */
+      return { id: before.id, code: before.code, active: input.active };
+    }
+
+    const [row] = await tx.update(schema.priceBookItem)
+      .set({ active: input.active, updatedAt: new Date() })
+      .where(eq(schema.priceBookItem.id, input.id))
+      .returning();
+
+    await audit(tx, ctx, input.active ? "pricebook.item_restored" : "pricebook.item_retired",
+      "price_book_item", input.id, { active: before.active },
+      { active: input.active, reason: input.reason ?? null });
+
+    return { id: row!.id, code: row!.code, active: row!.active };
+  });
+}

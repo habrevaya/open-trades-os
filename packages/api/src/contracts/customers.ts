@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, Address, MoneyString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, Address, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
 
 export const CustomerType = z.enum(["residential", "commercial"]);
 
@@ -22,11 +22,43 @@ export const Customer = z.object({
    * Only present when the caller holds customer.financials:read. Field
    * redaction happens once at the API boundary rather than in the UI, because
    * hiding a number in the UI means it already crossed the wire.
+   *
+   * `balance` is COMPUTED from the open invoices on every read, never stored.
+   * A stored balance is a number two writers race to update, and the one
+   * that loses leaves a customer owing money the system thinks they paid.
+   *
+   * `creditLimit` used to be published here and there was no column for it,
+   * no service that set one and nothing that enforced one. A generated
+   * client had a field that was always undefined. It is removed rather than
+   * given a column, because a credit limit that is stored and not enforced
+   * is worse than none: it reads on a screen as a control that is operating.
    */
   balance: MoneyString.optional(),
-  creditLimit: MoneyString.nullable().optional(),
   discountRate: MoneyString.nullable().optional(),
 }).merge(Timestamps);
+
+/**
+ * The fields a create does not take and an update does.
+ *
+ * Kept apart deliberately. Marking somebody as not to be serviced is a
+ * decision about a relationship that exists; it is not a thing anybody sets
+ * while typing in a new customer, and offering it on the create form invites
+ * it to be set by accident on the day somebody is added.
+ */
+export const CustomerStanding = z.object({
+  doNotService: z.boolean().optional(),
+  /**
+   * Required by the service when the flag goes on. A customer nobody may
+   * work for, with no reason recorded, is a decision the next person cannot
+   * evaluate and will not overturn.
+   */
+  doNotServiceReason: z.string().max(1000).nullable().optional(),
+  /**
+   * Writable only by a caller holding customer.financials:write. A standing
+   * discount is a price change on every future invoice.
+   */
+  discountRate: RateString.nullable().optional(),
+});
 
 export const CustomerCreate = z.object({
   type: CustomerType.default("residential"),
@@ -95,7 +127,18 @@ export const updateCustomer = defineRoute({
   summary: "Update a customer",
   module: "M03",
   permissions: ["customer:write"],
-  input: CustomerCreate.partial().omit({ property: true }).extend({ id: Uuid }),
+  /**
+   * Nullable on every field that is nullable on the row, which `.partial()`
+   * alone does not give: `.optional()` means "leave it" and a caller also
+   * needs "clear it". Without this a customer whose email is wrong can have
+   * it replaced and never removed.
+   */
+  input: CustomerCreate.partial().omit({ property: true }).extend({
+    id: Uuid,
+    email: z.string().email().nullable().optional(),
+    phone: z.string().max(40).nullable().optional(),
+    leadSource: z.string().max(100).nullable().optional(),
+  }).merge(CustomerStanding),
   output: Customer,
 });
 

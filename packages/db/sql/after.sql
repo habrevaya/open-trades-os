@@ -837,3 +837,76 @@ returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
 
 revoke all on function app.dwell_workflows(int) from public;
 grant execute on function app.dwell_workflows(int) to background;
+
+-- ---- Ending somebody else's sessions ------------------------------------
+-- `session_self_access` above limits the application role to its OWN
+-- sessions, which is right: a policy letting any authenticated role read the
+-- session table is a policy letting them read live tokens.
+--
+-- It also means an administrator offboarding a leaver cannot revoke that
+-- person's sessions. The first version of `roles.setMembershipActive` tried
+-- exactly that, ran as `authenticated`, matched zero rows under this policy,
+-- and reported "2 sessions revoked" as zero while the leaver stayed signed
+-- in. An offboarding that reports success and ends nothing is worse than one
+-- that is missing.
+--
+-- So the revoke runs here, SECURITY DEFINER, and the authority check runs in
+-- the database rather than being trusted from the caller: the actor must
+-- hold an ACTIVE membership of the same organization as the target, in a
+-- role that can edit users. Passing a different organization, or naming
+-- somebody who is not a member of it, revokes nothing.
+create or replace function app.revoke_sessions_for(
+  p_user_id uuid, p_organization_id uuid, p_actor_user_id uuid
+) returns integer
+  language plpgsql
+  volatile
+  security definer
+  set search_path = public, pg_temp
+  as $$
+  declare
+    revoked integer;
+  begin
+    -- The actor's authority, checked here rather than taken on trust. A
+    -- function that revoked whatever it was asked to would be a way for any
+    -- authenticated role to sign anybody out of anything.
+    -- `owner` and `admin` are the presets that hold `user:write`, which is
+    -- what the service checks before it gets here. Listed rather than
+    -- derived, because a role list in the database cannot see a custom role
+    -- and a permissive guess here would be a way around the whole check.
+    -- A company using a custom role for offboarding grants it in the
+    -- application and reaches this with an owner or admin membership.
+    if not exists (
+      select 1 from public.membership
+       where organization_id = p_organization_id
+         and user_id = p_actor_user_id
+         and active
+         and role in ('owner', 'admin')
+    ) then
+      return 0;
+    end if;
+
+    -- And the target's. Somebody who is not a member of this organization is
+    -- not this organization's to sign out.
+    if not exists (
+      select 1 from public.membership
+       where organization_id = p_organization_id
+         and user_id = p_user_id
+    ) then
+      return 0;
+    end if;
+
+    with ended as (
+      update public.session
+         set revoked_at = now(), updated_at = now()
+       where user_id = p_user_id
+         and revoked_at is null
+      returning id
+    )
+    select count(*)::integer into revoked from ended;
+
+    return revoked;
+  end;
+  $$;
+
+revoke all on function app.revoke_sessions_for(uuid, uuid, uuid) from public;
+grant execute on function app.revoke_sessions_for(uuid, uuid, uuid) to authenticated;

@@ -7,6 +7,7 @@ import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
+  roles as roleService,
 } from "../services/index";
 
 /**
@@ -125,6 +126,11 @@ export const handlers = {
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
   resolveConflict: fieldOps.resolve,
+
+  // Things a published field needed before it could ever be written.
+  updateProperty: properties.update,
+  setPriceBookItemActive: priceBook.setActive,
+  setMembershipActive: roleService.setMembershipActive,
 
   // Recurring work. Four models because reconstructing the wrong one
   // silently drifts every future date, and only one future occurrence is

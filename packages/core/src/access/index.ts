@@ -198,6 +198,13 @@ export const FIELD_PERMISSIONS: Record<string, Permission> = {
   "jobLine.unitCost": "job.cost:read",
   "customer.discountRate": "customer.financials:read",
   /**
+   * What they owe. Computed from the open invoices on every read rather
+   * than stored, so it is redacted here like any other field on the row
+   * instead of being attached after the redaction pass, which would have
+   * sent it to everybody.
+   */
+  "customer.balance": "customer.financials:read",
+  /**
    * Wages, at both ends. The scale is what a class of worker is paid; the
    * timeclock entry is what was actually applied to a shift, which is the
    * same fact about a named person on a named day and is if anything more

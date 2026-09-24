@@ -27,7 +27,13 @@ export const PERMISSIONS = {
   "customer:write": "Create and edit customers",
   "customer:delete": "Delete customers",
   "customer:merge": "Merge duplicate customers",
-  "customer.financials:read": "See a customer's balance, credit limit and payment history",
+  "customer.financials:read": "See a customer's balance and payment history",
+  /**
+   * Separate from `customer:write`, because a standing discount is a price
+   * change on every future invoice for that customer. The person who
+   * corrects a phone number is not always the person who may do that.
+   */
+  "customer.financials:write": "Set a customer's standing discount",
   "property:read": "View properties",
   "property:write": "Create and edit properties",
   "equipment:read": "View installed equipment and service history",

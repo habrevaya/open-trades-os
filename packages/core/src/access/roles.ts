@@ -100,7 +100,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
     description: "Back office. Customers, jobs, invoicing, purchasing and the schedule.",
     permissions: [
       ...OFFICE_BASE,
-      "customer:merge", "customer.financials:read",
+      "customer:merge", "customer.financials:read", "customer.financials:write",
       "visit:dispatch", "visit:reschedule",
       "estimate:discount", "estimate:approve",
       "booking:configure",

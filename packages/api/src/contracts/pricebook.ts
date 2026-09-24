@@ -95,4 +95,22 @@ export const revisePriceBookItem = defineRoute({
   output: PriceBookItem,
 });
 
-export const priceBookRoutes = { listPriceBook, createPriceBookItem, revisePriceBookItem } as const;
+export const setPriceBookItemActive = defineRoute({
+  method: "post",
+  path: "/v1/pricebook/items/{id}/active",
+  summary: "Retire an item, or bring it back",
+  description:
+    "`active` was filtered on by the list and published as includeInactive, and nothing could make it false: the filter's only possible answer was everything. Retired, not deleted, because every invoice line that used this item points at a version of it and those have to keep resolving. It stops being sold; nothing about what was sold changes.",
+  module: "M06",
+  permissions: ["pricebook:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    active: z.boolean(),
+    reason: z.string().max(500).optional(),
+  }),
+  output: z.object({ id: Uuid, code: z.string(), active: z.boolean() }),
+});
+
+export const priceBookRoutes = {
+  setPriceBookItemActive, listPriceBook, createPriceBookItem, revisePriceBookItem } as const;

@@ -63,6 +63,9 @@
     },
     {
       "name": "M25"
+    },
+    {
+      "name": "M27"
     }
   ],
   "paths": {
@@ -8731,6 +8734,144 @@
         ]
       }
     },
+    "/v1/memberships/{membershipId}/active": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setMembershipActive",
+        "summary": "Offboard somebody, or bring them back",
+        "description": "Deactivated, not deleted: every job they ran and every timeclock entry they closed points at them, and 'who was on site' has to have an answer years later. Existing sessions are revoked in the same transaction, because flipping the flag alone leaves anybody already signed in signed in for days, and an offboarding that takes effect on Thursday is not an offboarding.\n\nRequires a session holding: user:write.",
+        "tags": [
+          "M27"
+        ],
+        "parameters": [
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMembershipActiveInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Offboard somebody, or bring them back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMembershipActiveOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write"
+        ]
+      }
+    },
     "/v1/obligations": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -10370,6 +10511,144 @@
         ]
       }
     },
+    "/v1/pricebook/items/{id}/active": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setPriceBookItemActive",
+        "summary": "Retire an item, or bring it back",
+        "description": "`active` was filtered on by the list and published as includeInactive, and nothing could make it false: the filter's only possible answer was everything. Retired, not deleted, because every invoice line that used this item points at a version of it and those have to keep resolving. It stops being sold; nothing about what was sold changes.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M06"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPriceBookItemActiveInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Retire an item, or bring it back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPriceBookItemActiveOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      }
+    },
     "/v1/pricebook/items/{id}/revise": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -10779,9 +11058,10 @@
       }
     },
     "/v1/properties/{id}": {
-      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
-        "GET"
+        "GET",
+        "PATCH"
       ],
       "get": {
         "operationId": "getProperty",
@@ -10884,6 +11164,129 @@
         "x-authorization": "session",
         "x-permissions": [
           "property:read"
+        ]
+      },
+      "patch": {
+        "operationId": "updateProperty",
+        "summary": "Update a property",
+        "description": "Requires a session holding: property:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePropertyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update a property",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdatePropertyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "property:write"
         ]
       }
     },
@@ -20205,13 +20608,6 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
-          "creditLimit": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
-          },
           "discountRate": {
             "type": [
               "string",
@@ -21070,6 +21466,24 @@
             "additionalProperties": {},
             "default": {}
           },
+          "parentJobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isWarranty": {
+            "type": "boolean"
+          },
+          "priceSource": {
+            "type": "string",
+            "enum": [
+              "price_book",
+              "rate_card",
+              "warranty_schedule",
+              "manufacturer_allowance",
+              "insurance_schedule",
+              "bid"
+            ]
+          },
           "parties": {
             "type": "array",
             "items": {
@@ -21269,7 +21683,15 @@
             "format": "uuid"
           },
           "priceSource": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "price_book",
+              "rate_card",
+              "warranty_schedule",
+              "manufacturer_allowance",
+              "insurance_schedule",
+              "bid"
+            ]
           },
           "purchaseOrderNumber": {
             "type": [
@@ -23590,13 +24012,6 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
-          "creditLimit": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
-          },
           "discountRate": {
             "type": [
               "string",
@@ -24718,7 +25133,15 @@
             "format": "uuid"
           },
           "priceSource": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "price_book",
+              "rate_card",
+              "warranty_schedule",
+              "manufacturer_allowance",
+              "insurance_schedule",
+              "bid"
+            ]
           },
           "purchaseOrderNumber": {
             "type": [
@@ -27154,13 +27577,6 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
-                "creditLimit": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
-                },
                 "discountRate": {
                   "type": [
                     "string",
@@ -27711,7 +28127,15 @@
                   "format": "uuid"
                 },
                 "priceSource": {
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "price_book",
+                    "rate_card",
+                    "warranty_schedule",
+                    "manufacturer_allowance",
+                    "insurance_schedule",
+                    "bid"
+                  ]
                 },
                 "purchaseOrderNumber": {
                   "type": [
@@ -32188,6 +32612,76 @@
           "days"
         ]
       },
+      "SetMembershipActiveInput": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "active"
+        ]
+      },
+      "SetMembershipActiveOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "sessionsRevoked": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "active",
+          "sessionsRevoked"
+        ]
+      },
+      "SetPriceBookItemActiveInput": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "active"
+        ]
+      },
+      "SetPriceBookItemActiveOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "active"
+        ]
+      },
       "SetPurchaseOrderStatusInput": {
         "type": "object",
         "properties": {
@@ -33047,11 +33541,17 @@
             "maxLength": 200
           },
           "email": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "email"
           },
           "phone": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "maxLength": 40
           },
           "billingAddress": {
@@ -33096,7 +33596,10 @@
             ]
           },
           "leadSource": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "maxLength": 100
           },
           "paymentTermsDays": {
@@ -33120,6 +33623,23 @@
             "type": "object",
             "additionalProperties": {},
             "default": {}
+          },
+          "doNotService": {
+            "type": "boolean"
+          },
+          "doNotServiceReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "discountRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
           }
         }
       },
@@ -33226,13 +33746,6 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
-          "creditLimit": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
-          },
           "discountRate": {
             "type": [
               "string",
@@ -33327,6 +33840,24 @@
             "type": "object",
             "additionalProperties": {},
             "default": {}
+          },
+          "parentJobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isWarranty": {
+            "type": "boolean"
+          },
+          "priceSource": {
+            "type": "string",
+            "enum": [
+              "price_book",
+              "rate_card",
+              "warranty_schedule",
+              "manufacturer_allowance",
+              "insurance_schedule",
+              "bid"
+            ]
           },
           "status": {
             "type": "string",
@@ -33429,7 +33960,15 @@
             "format": "uuid"
           },
           "priceSource": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "price_book",
+              "rate_card",
+              "warranty_schedule",
+              "manufacturer_allowance",
+              "insurance_schedule",
+              "bid"
+            ]
           },
           "purchaseOrderNumber": {
             "type": [
@@ -33628,6 +34167,204 @@
           "tags",
           "customFields",
           "visits",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UpdatePropertyInput": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "territoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "squareFeet": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          },
+          "yearBuilt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10
+          },
+          "gateCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "accessNotes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "hazardNotes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "hasDog": {
+            "type": "boolean"
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      },
+      "UpdatePropertyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "line1": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "line2": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "city": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "state": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "postalCode": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "country": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 2,
+                "default": "US"
+              }
+            },
+            "required": [
+              "line1",
+              "city",
+              "state",
+              "postalCode"
+            ]
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "territoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "squareFeet": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "yearBuilt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gateCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "accessNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hazardNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasDog": {
+            "type": "boolean"
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "address",
+          "latitude",
+          "longitude",
+          "territoryId",
+          "squareFeet",
+          "yearBuilt",
+          "gateCode",
+          "accessNotes",
+          "hazardNotes",
+          "hasDog",
+          "customFields",
           "createdAt",
           "updatedAt"
         ]

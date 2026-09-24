@@ -131,6 +131,38 @@ describe("the document and the tool list describe the same API", () => {
      * calls a string and the tool list calls a number puts an IEEE 754 float
      * into whichever of the two a client trusted.
      */
+    /**
+     * A NULLABLE money field is allowed and a NUMBER is not, which is the
+     * distinction this test is actually about.
+     *
+     * It used to assert the type was exactly `"string"`, and that held only
+     * because no input had yet needed a nullable money field. The first one
+     * that did was a customer's standing discount, where null is how you
+     * clear it, and the test failed on `["string", "null"]` while the thing
+     * it was written to prevent, a float, was nowhere near.
+     */
+    /**
+     * The two generators spell nullable differently and both are valid
+     * JSON Schema: the OpenAPI one emits `type: ["string", "null"]` and the
+     * MCP one emits `anyOf: [{type:"string"}, {type:"null"}]`. Reading only
+     * `.type` sees `undefined` for the second and fails on a field that is
+     * perfectly correct.
+     */
+    const isStringy = (schema: { type?: unknown; anyOf?: unknown } | undefined): boolean => {
+      if (!schema) return false;
+      const type = schema.type;
+      if (type === "string") return true;
+      if (Array.isArray(type)) {
+        return type.includes("string") && type.every((t) => t === "string" || t === "null");
+      }
+      if (Array.isArray(schema.anyOf)) {
+        const branches = schema.anyOf as { type?: unknown }[];
+        return branches.some((b) => b.type === "string")
+          && branches.every((b) => b.type === "string" || b.type === "null");
+      }
+      return false;
+    };
+
     let checked = 0;
     for (const tool of allTools()) {
       const documented = documentedFields(tool.routeName);
@@ -138,8 +170,11 @@ describe("the document and the tool list describe the same API", () => {
         const pattern = schema.pattern;
         if (typeof pattern !== "string" || !pattern.includes("\\d{1,")) continue;
         checked += 1;
-        expect(schema.type).toBe("string");
-        expect(tool.inputSchema.properties?.[name]?.type).toBe("string");
+        expect(isStringy(schema), `${tool.name}.${name} in the document`).toBe(true);
+        expect(
+          isStringy(tool.inputSchema.properties?.[name]),
+          `${tool.name}.${name} in the tool list`,
+        ).toBe(true);
       }
     }
     expect(checked).toBeGreaterThan(0);

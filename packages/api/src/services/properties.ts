@@ -317,3 +317,66 @@ export async function link(ctx: ServiceContext, input: z.infer<typeof linkCustom
     return { ok: true as const };
   });
 }
+
+/**
+ * Edit a property.
+ *
+ * There was no update path, which made `territoryId` a filter whose only
+ * possible answer was none, and left a gate code that changed or a hazard
+ * found on the third visit with nowhere to go.
+ *
+ * THE ADDRESS IS NOT HERE. A property IS its address and the service record
+ * is what makes it worth anything; letting somebody retype it turns one
+ * house into another with ten years of history attached.
+ */
+export async function update(
+  ctx: ServiceContext,
+  input: {
+    id: string;
+    nickname?: string | null | undefined;
+    territoryId?: string | null | undefined;
+    squareFeet?: string | null | undefined;
+    yearBuilt?: string | null | undefined;
+    gateCode?: string | null | undefined;
+    accessNotes?: string | null | undefined;
+    hazardNotes?: string | null | undefined;
+    hasDog?: boolean | undefined;
+    customFields?: Record<string, unknown> | undefined;
+  },
+) {
+  return guardedWrite(ctx, "property:write", async (tx) => {
+    const [before] = await tx.select().from(schema.property)
+      .where(and(eq(schema.property.id, input.id), isNull(schema.property.deletedAt)))
+      .limit(1);
+    if (!before) throw new NotFoundError("Property");
+
+    /**
+     * A territory from another company is already invisible to this query
+     * under RLS, so the lookup simply misses. Checked anyway so a bad id
+     * comes back as "no such territory" rather than as a silent null that
+     * quietly takes the property off every route.
+     */
+    if (input.territoryId) {
+      const [territory] = await tx.select({ id: schema.territory.id })
+        .from(schema.territory)
+        .where(eq(schema.territory.id, input.territoryId)).limit(1);
+      if (!territory) throw new NotFoundError("Territory");
+    }
+
+    const [after] = await tx.update(schema.property).set({
+      ...(input.nickname !== undefined ? { nickname: input.nickname } : {}),
+      ...(input.territoryId !== undefined ? { territoryId: input.territoryId } : {}),
+      ...(input.squareFeet !== undefined ? { squareFeet: input.squareFeet } : {}),
+      ...(input.yearBuilt !== undefined ? { yearBuilt: input.yearBuilt } : {}),
+      ...(input.gateCode !== undefined ? { gateCode: input.gateCode } : {}),
+      ...(input.accessNotes !== undefined ? { accessNotes: input.accessNotes } : {}),
+      ...(input.hazardNotes !== undefined ? { hazardNotes: input.hazardNotes } : {}),
+      ...(input.hasDog !== undefined ? { hasDog: input.hasDog } : {}),
+      ...(input.customFields !== undefined ? { customFields: input.customFields } : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.property.id, input.id)).returning();
+
+    await audit(tx, ctx, "property.updated", "property", input.id, before, after!);
+    return after!;
+  });
+}

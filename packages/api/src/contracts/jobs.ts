@@ -2,6 +2,24 @@ import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, PageRequest, pageOf, Timestamps } from "./common";
 
+/**
+ * WHOSE PRICE GOVERNS.
+ *
+ * Published as a bare string while nothing wrote it, so a generated client
+ * had a field that was always the literal "price_book". The five values are
+ * the segments where our price book is not the authority, named in the
+ * schema's own comment: a commercial contract rate card, a warranty network
+ * schedule, a manufacturer labour allowance, an insurance price list, or a
+ * bid we submitted.
+ *
+ * Cost tracking stays ours regardless, which is what keeps margin reporting
+ * honest on work we did not price.
+ */
+export const PriceSource = z.enum([
+  "price_book", "rate_card", "warranty_schedule",
+  "manufacturer_allowance", "insurance_schedule", "bid",
+]);
+
 export const JobStatus = z.enum([
   "lead", "estimating", "scheduled", "in_progress", "on_hold",
   "completed", "invoiced", "paid", "cancelled",
@@ -63,7 +81,7 @@ export const Job = z.object({
   isWarranty: z.boolean(),
   parentJobId: Uuid.nullable(),
   /** Whose price governs. See the commercial schema. */
-  priceSource: z.string(),
+  priceSource: PriceSource,
   purchaseOrderNumber: z.string().nullable(),
   costCode: z.string().nullable(),
   total: MoneyString.nullable(),
@@ -93,6 +111,30 @@ export const JobCreate = z.object({
   priority: z.number().int().min(0).max(2).optional(),
   tags: z.array(z.string()).default([]),
   customFields: z.record(z.unknown()).default({}),
+  /**
+   * THE JOB THIS ONE IS A RETURN VISIT FOR.
+   *
+   * Published since the beginning and written by nothing, which made two
+   * things impossible rather than merely absent. The callback rate, which
+   * is the single number a service manager watches, had no numerator. And
+   * the review request rule that withholds an ask while a callback is open
+   * could never fire, so customers were asked to review work we were still
+   * coming back to fix.
+   */
+  parentJobId: Uuid.optional(),
+  /**
+   * Rework we are not charging for. Separate from `parentJobId` because the
+   * two come apart in both directions: a return visit for a different fault
+   * is billable, and a goodwill job with no parent is not.
+   */
+  isWarranty: z.boolean().optional(),
+  /**
+   * Whose price governs. The price book is not the authority in five
+   * segments, and a job priced off a commercial rate card that reported
+   * `price_book` would make every margin report wrong about work we did not
+   * price.
+   */
+  priceSource: PriceSource.optional(),
   /**
    * Parties beyond the customer. Omit entirely for residential, where the
    * customer holds every role and the degenerate case should stay simple.

@@ -41,6 +41,13 @@ const COMPUTED = new Set<string>([
   // Derived per option in services/estimates.ts.
   "estimateOption.cost",
   "estimateOption.margin",
+  /**
+   * Summed from the open invoices in services/customers.ts on every read.
+   * Not a column deliberately: a stored balance is a number two writers
+   * race to update, and the one that loses leaves a customer owing money
+   * the system believes they paid.
+   */
+  "customer.balance",
 ]);
 
 describe("field redaction", () => {

@@ -115,6 +115,44 @@ export async function get(ctx: ServiceContext, input: z.infer<typeof getJob.inpu
   });
 }
 
+/**
+ * A callback has to point at real work for the same customer.
+ *
+ * Both halves matter. A parent from another company is a cross tenant read
+ * dressed as a field, and RLS already hides it so the lookup simply misses.
+ * A parent belonging to a DIFFERENT customer is the one that would slip
+ * through: it makes the callback rate count a return visit against work
+ * nobody connected to it, and the review rule withhold an ask from the
+ * wrong person.
+ */
+async function assertCallbackParent(
+  tx: Database,
+  organizationId: string,
+  input: { parentJobId: string; customerId: string; selfId?: string },
+): Promise<void> {
+  if (input.selfId && input.parentJobId === input.selfId) {
+    throw new ConflictError("A job cannot be a return visit for itself.");
+  }
+
+  const [parent] = await tx.select({
+    id: schema.job.id,
+    customerId: schema.job.customerId,
+  }).from(schema.job)
+    .where(and(
+      eq(schema.job.id, input.parentJobId),
+      eq(schema.job.organizationId, organizationId),
+      isNull(schema.job.deletedAt),
+    )).limit(1);
+
+  if (!parent) throw new NotFoundError("The job this is a return visit for");
+  if (parent.customerId !== input.customerId) {
+    throw new ConflictError(
+      "That job belongs to a different customer, so this is not a return visit for it. "
+      + "A callback counted against unrelated work makes the callback rate meaningless.",
+    );
+  }
+}
+
 export async function create(ctx: ServiceContext, input: CreateInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -128,6 +166,13 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         const [existing] = await tx.select().from(schema.job).where(eq(schema.job.id, seen.entityId)).limit(1);
         if (existing) return clean(ctx, "job", existing);
       }
+    }
+
+    if (input.parentJobId) {
+      await assertCallbackParent(tx, ctx.actor.organizationId, {
+        parentJobId: input.parentJobId,
+        customerId: input.customerId,
+      });
     }
 
     const number = await nextNumber(tx, ctx.actor.organizationId, "job");
@@ -149,6 +194,16 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       status: input.visit ? "scheduled" : "lead",
       tags: input.tags,
       customFields: input.customFields,
+      /**
+       * The three the contract published and nothing wrote. Without
+       * `parentJobId` the callback rate has no numerator and the review
+       * request rule that withholds an ask while a callback is open can
+       * never fire, so customers were asked to review work we were still
+       * coming back to fix.
+       */
+      parentJobId: input.parentJobId ?? null,
+      isWarranty: input.isWarranty ?? false,
+      priceSource: input.priceSource ?? "price_book",
     }).returning();
 
     /**
@@ -271,6 +326,14 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
      * rest. When it is genuinely needed it wants its own endpoint that moves
      * all of it together.
      */
+    if (input.parentJobId) {
+      await assertCallbackParent(tx, ctx.actor.organizationId, {
+        parentJobId: input.parentJobId,
+        customerId: before.customerId,
+        selfId: input.id,
+      });
+    }
+
     const [after] = await tx.update(schema.job).set({
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
       ...(input.description !== undefined ? { description: input.description } : {}),
@@ -282,6 +345,9 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
       ...(input.tags !== undefined ? { tags: input.tags } : {}),
       ...(input.customFields !== undefined ? { customFields: input.customFields } : {}),
+      ...(input.parentJobId !== undefined ? { parentJobId: input.parentJobId } : {}),
+      ...(input.isWarranty !== undefined ? { isWarranty: input.isWarranty } : {}),
+      ...(input.priceSource !== undefined ? { priceSource: input.priceSource } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       // Completion is a timestamp as well as a status, and a job that reaches
       // "completed" without one is invisible to every report that asks what

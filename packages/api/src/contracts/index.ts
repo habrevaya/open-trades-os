@@ -16,6 +16,7 @@ import { marketingRoutes } from "./marketing";
 import { connectorRoutes } from "./connectors";
 import { reviewRoutes } from "./reviews";
 import { recurringRoutes } from "./recurring";
+import { peopleRoutes } from "./people";
 
 export * from "./common";
 export * from "./customers";
@@ -36,6 +37,7 @@ export * from "./marketing";
 export * from "./connectors";
 export * from "./reviews";
 export * from "./recurring";
+export * from "./people";
 
 /**
  * Every route in the product, and the only description of them.
@@ -74,6 +76,7 @@ export const routes = {
   ...connectorRoutes,
   ...reviewRoutes,
   ...recurringRoutes,
+  ...peopleRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

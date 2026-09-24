@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import {
   canDefineRole, isScope, ALL_PERMISSIONS,
@@ -369,5 +369,115 @@ export async function remove(ctx: ServiceContext, input: { id: string }) {
       .where(eq(schema.role.id, input.id));
 
     await audit(tx, ctx, "role.deleted", "role", input.id, before, null);
+  });
+}
+
+/**
+ * OFFBOARD SOMEBODY, OR BRING THEM BACK.
+ *
+ * `membership.active` decides whether a login succeeds: the sign in path
+ * looks for an active membership and refuses when there is none. Nothing
+ * could set it to false. An employee who left on Friday kept a working
+ * password, their sessions, and every permission their role carried, and the
+ * only way to stop them was to delete the user row, which takes the audit
+ * trail of everything they did with it.
+ *
+ * DEACTIVATED, NOT DELETED. Every job they ran, every invoice they took and
+ * every timeclock entry they closed points at them, and those have to keep
+ * resolving: the question "who was on site" has to have an answer years
+ * later. This stops them getting in; it changes nothing about what they did.
+ *
+ * SESSIONS ARE REVOKED IN THE SAME TRANSACTION. Flipping the flag alone
+ * would leave anybody already signed in signed in, for as long as their
+ * session lasts, which on this product is days. An offboarding that takes
+ * effect on Thursday is not an offboarding.
+ */
+export async function setMembershipActive(
+  ctx: ServiceContext,
+  input: { membershipId: string; active: boolean; reason?: string | undefined },
+) {
+  return guardedWrite(ctx, "user:write", async (tx) => {
+    const [before] = await tx.select().from(schema.membership)
+      .where(and(
+        eq(schema.membership.id, input.membershipId),
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+      )).limit(1);
+    if (!before) throw new NotFoundError("Membership");
+
+    /**
+     * Locking yourself out is refused rather than allowed with a warning.
+     * The person doing it is the one who would have to undo it, and the
+     * account that can undo it is the one they just disabled.
+     */
+    if (!input.active && before.userId === ctx.actor.userId) {
+      throw new ConflictError(
+        "That is your own membership. Deactivating it would lock you out of the company, "
+        + "and the account that could undo it is the one you just turned off.",
+      );
+    }
+
+    /**
+     * The last owner is refused for the same reason one layer up: a company
+     * with no owner cannot grant anybody the permission to become one.
+     */
+    if (!input.active && before.role === "owner") {
+      const owners = await tx.select({ id: schema.membership.id })
+        .from(schema.membership)
+        .where(and(
+          eq(schema.membership.organizationId, ctx.actor.organizationId),
+          eq(schema.membership.role, "owner"),
+          eq(schema.membership.active, true),
+        ));
+      if (owners.length <= 1) {
+        throw new ConflictError(
+          "That is the only active owner. A company with none cannot grant anybody the permission to become one.",
+        );
+      }
+    }
+
+    if (before.active === input.active) {
+      return { id: before.id, active: input.active, sessionsRevoked: 0 };
+    }
+
+    await tx.update(schema.membership)
+      .set({ active: input.active, updatedAt: new Date() })
+      .where(eq(schema.membership.id, input.membershipId));
+
+    let sessionsRevoked = 0;
+    if (!input.active) {
+      /**
+       * THROUGH A DEFINER FUNCTION, BECAUSE THE POLICY FORBIDS THE DIRECT
+       * WRITE AND FORBIDS IT CORRECTLY.
+       *
+       * `session_self_access` limits the application role to its OWN
+       * sessions: a policy letting any authenticated role read that table
+       * is a policy letting them read live tokens. The first version of
+       * this function updated `session` directly, ran as `authenticated`,
+       * matched zero rows, and returned "revoked" while the leaver stayed
+       * signed in for the week their session had left.
+       *
+       * The function re-checks the authority in the database rather than
+       * trusting that this code did: the actor must hold an active
+       * membership of this organization in a role that edits users, and the
+       * target must be a member of it. One that revoked whatever it was
+       * asked to would be a way for anybody to sign anybody out.
+       */
+      const [result] = await tx.execute<{ revoked: number }>(sql`
+        select app.revoke_sessions_for(
+          ${before.userId}::uuid,
+          ${ctx.actor.organizationId}::uuid,
+          ${ctx.actor.userId}::uuid
+        ) as revoked
+      `);
+      sessionsRevoked = Number(result?.revoked ?? 0);
+    }
+
+    await audit(tx, ctx,
+      input.active ? "membership.reactivated" : "membership.deactivated",
+      "membership", input.membershipId,
+      { active: before.active },
+      { active: input.active, reason: input.reason ?? null, sessionsRevoked });
+
+    return { id: before.id, active: input.active, sessionsRevoked };
   });
 }

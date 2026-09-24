@@ -1,9 +1,10 @@
-import { and, eq, desc, lt, or, ilike, isNull } from "drizzle-orm";
+import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { assertCan } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
-  decodeCursor, paginate, NotFoundError, scopeOf,
+  decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
 } from "./context";
 import { customerScopeFilter } from "./scope";
 import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
@@ -59,7 +60,41 @@ export async function get(ctx: ServiceContext, input: z.infer<typeof getCustomer
     // RLS already scoped this to the tenant, so a miss is genuinely a miss
     // rather than a permission problem wearing a disguise.
     if (!row) throw new NotFoundError("Customer");
-    return clean(ctx, "customer", row);
+
+    /**
+     * WHAT THEY OWE, COMPUTED ON EVERY READ.
+     *
+     * The contract has published `balance` since the beginning and nothing
+     * ever produced it: there is no column, no service set one, and a
+     * generated client's `customer.balance` was permanently undefined.
+     *
+     * Computed rather than stored, and that is the design rather than the
+     * cheap option. A stored balance is a number two writers race to
+     * update, and the one that loses leaves a customer owing money the
+     * system believes they paid. The invoices are the record; this is a
+     * sum over them.
+     *
+     * Summed by PAYER, not by the customer named on the job. A tenant whose
+     * landlord is billed owes nothing, and a balance that ignored that
+     * would have somebody chasing the wrong person.
+     */
+    const [owed] = await tx.select({
+      total: sql<string>`coalesce(sum(${schema.invoice.balance}), 0)::text`,
+    }).from(schema.invoice)
+      .where(and(
+        eq(schema.invoice.organizationId, ctx.actor.organizationId),
+        sql`coalesce(${schema.invoice.payerCustomerId}, ${schema.invoice.customerId}) = ${input.id}`,
+        inArray(schema.invoice.status, ["open", "partially_paid"]),
+        isNull(schema.invoice.deletedAt),
+      ));
+
+    /**
+     * Redaction runs over the merged row, so the balance is hidden from a
+     * caller without `customer.financials:read` by the same rule that hides
+     * the discount. Putting it on afterwards would have sent it to
+     * everybody.
+     */
+    return clean(ctx, "customer", { ...row, balance: owed?.total ?? "0" });
   });
 }
 
@@ -163,6 +198,44 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
       .where(and(eq(schema.customer.id, input.id), isNull(schema.customer.deletedAt))).limit(1);
     if (!before) throw new NotFoundError("Customer");
 
+    /**
+     * A standing discount is a price change on every future invoice, so it
+     * needs the permission that sees prices rather than the one that edits
+     * a phone number. Refused rather than ignored: silently dropping it
+     * would be the defect this whole function was rewritten to remove.
+     */
+    if (input.discountRate !== undefined) {
+      assertCan(ctx.actor, "customer.financials:write");
+    }
+
+    /**
+     * A customer nobody may work for, with no reason recorded, is a decision
+     * the next person cannot evaluate and will not overturn. The reason is
+     * required when the flag goes ON, and cleared with it, so a customer
+     * reinstated in March does not keep last year's note.
+     */
+    if (input.doNotService === true) {
+      const reason = input.doNotServiceReason ?? before.doNotServiceReason;
+      if (!reason || reason.trim() === "") {
+        throw new ConflictError(
+          "Say why this customer should not be serviced. Without a reason the next person cannot judge whether it still applies, so it never gets lifted.",
+        );
+      }
+    }
+
+    /**
+     * EVERY FIELD THE CONTRACT ACCEPTS IS WRITTEN HERE.
+     *
+     * It used to write seven of them. `paymentTermsDays`, `billingAddress`
+     * and `customFields` were accepted by the input schema, validated,
+     * answered with a 200 and thrown away: the caller sent a value, got a
+     * success, and read back the old one they were trying to replace. That
+     * is quieter than an unknown field, which at least fails validation.
+     *
+     * `patch-writes.integration.test.ts` sends every accepted field and
+     * asserts the row changed, so the next one added to the contract and
+     * not to this list fails a test rather than a customer's account terms.
+     */
     const [after] = await tx.update(schema.customer).set({
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.email !== undefined ? { email: input.email } : {}),
@@ -171,6 +244,28 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
       ...(input.leadSource !== undefined ? { leadSource: input.leadSource } : {}),
       ...(input.taxExempt !== undefined ? { taxExempt: input.taxExempt } : {}),
       ...(input.tags !== undefined ? { tags: input.tags } : {}),
+      /** Stored as text, because net terms arrive from imports as "30 days". */
+      ...(input.paymentTermsDays !== undefined
+        ? { paymentTermsDays: String(input.paymentTermsDays) } : {}),
+      ...(input.customFields !== undefined ? { customFields: input.customFields } : {}),
+      ...(input.billingAddress !== undefined ? {
+        billingAddressLine1: input.billingAddress.line1 ?? null,
+        billingAddressLine2: input.billingAddress.line2 ?? null,
+        billingCity: input.billingAddress.city ?? null,
+        billingState: input.billingAddress.state ?? null,
+        billingPostalCode: input.billingAddress.postalCode ?? null,
+        ...(input.billingAddress.country ? { billingCountry: input.billingAddress.country } : {}),
+      } : {}),
+      ...(input.doNotService !== undefined ? {
+        doNotService: input.doNotService,
+        /** Cleared with the flag, so a reinstated customer keeps no stale note. */
+        doNotServiceReason: input.doNotService
+          ? (input.doNotServiceReason ?? before.doNotServiceReason)
+          : null,
+      } : {}),
+      ...(input.doNotServiceReason !== undefined && input.doNotService === undefined
+        ? { doNotServiceReason: input.doNotServiceReason } : {}),
+      ...(input.discountRate !== undefined ? { discountRate: input.discountRate } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.customer.id, input.id)).returning();
 
