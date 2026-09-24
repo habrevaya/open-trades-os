@@ -81,10 +81,6 @@ const SOFT_DELETE_NOT_OFFERED = 27;
  * an entry is fixed and not removed.
  */
 const KNOWN_GAPS = new Map<string, string>([
-  ["communicationConsent.customerId",
-    "Nothing can record consent, so the marketing gate refuses every marketing message with no_consent forever."],
-  ["communicationConsent.supersededAt",
-    "Same row. A grant can never be replaced by a revocation because neither can be written."],
   ["contact.customerId",
     "Nothing inserts a contact. A property with a tenant on site has nobody to text."],
   ["contact.propertyId", "Same row."],

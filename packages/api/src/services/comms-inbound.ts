@@ -102,6 +102,41 @@ export async function store(
         channel: "sms",
         reason: `inbound: ${inbound.body.trim().slice(0, 100)}`,
       }).onConflictDoNothing();
+
+      /**
+       * AND RECORDED AS A WITHDRAWAL, not only as a suppression.
+       *
+       * The suppression is what stops the sending, and on its own it is
+       * enough to stop it. What it is not is an answer to "did this person
+       * consent": a marketing grant from a web form stays the current
+       * consent row forever after a STOP, so the consent history says yes
+       * while the customer has plainly said no. Somebody reading that record
+       * a year later, or exporting it, gets the opposite of the truth.
+       *
+       * Written for marketing rather than for every purpose, because
+       * transactional messages are implied by work in flight and a STOP does
+       * not cancel the job. The suppression covers those, absolutely and at
+       * the channel, which is where a carrier level opt out belongs.
+       */
+      await tx.update(schema.communicationConsent)
+        .set({ supersededAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(schema.communicationConsent.organizationId, organizationId),
+          eq(schema.communicationConsent.address, inbound.from),
+          eq(schema.communicationConsent.channel, "sms"),
+          eq(schema.communicationConsent.purpose, "marketing"),
+          isNull(schema.communicationConsent.supersededAt),
+        ));
+
+      await tx.insert(schema.communicationConsent).values({
+        organizationId,
+        address: inbound.from,
+        channel: "sms",
+        purpose: "marketing",
+        state: "revoked",
+        method: "sms_reply",
+        proofText: inbound.body.trim().slice(0, 500),
+      });
     }
 
     /**

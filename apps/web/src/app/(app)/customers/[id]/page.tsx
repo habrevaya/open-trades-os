@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, NotFoundError } from "@opentradesos/api/services";
+import { customers, jobs, consent as consentService, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, label } from "@/lib/labels";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
+import { Money } from "@opentradesos/ui";
+import { Consent } from "./Consent";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,18 @@ export default async function CustomerPage({
   const work = await jobs.list(ctx, { limit: 20, customerId: id });
   const seesMoney = can(user.actor, "customer.financials:read");
 
+  /**
+   * Whether this number may be texted about offers, asked of the same
+   * function the sender asks. Reimplementing the rule here is how a screen
+   * comes to say yes while the sender says no.
+   */
+  const contactable = customer.phone && can(user.actor, "message:read")
+    ? await consentService.marketable(ctx, { address: customer.phone })
+    : null;
+  const consentRows = customer.phone && can(user.actor, "message:read")
+    ? await consentService.history(ctx, { address: customer.phone })
+    : [];
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <Crumb href="/customers">Customers</Crumb>
@@ -60,15 +74,32 @@ export default async function CustomerPage({
           customer.financials:read, so this check is not the guard: it is what
           stops the page rendering an empty heading where a number the caller
           may not see would have gone.
-
-          A balance would belong here and is not shown, because nothing
-          computes one yet and a hardcoded zero on a customer record is worse
-          than an absent row: somebody will believe it.
         */}
         {seesMoney && customer.discountRate
           ? <Fact label="Discount">{`${(Number(customer.discountRate) * 100).toFixed(0)}%`}</Fact>
           : null}
+        {/*
+          The balance IS shown now. It used to say here that nothing computed
+          one, which stopped being true when `get` started summing the open
+          invoices by payer, and a comment explaining an absence outlives the
+          absence more reliably than anything else in a file.
+
+          Summed live rather than stored, so it is the invoices talking. It
+          is redacted by the same rule as the discount, hence the same guard.
+        */}
+        {seesMoney && customer.balance != null
+          ? <Fact label="Balance"><Money value={customer.balance} /></Fact>
+          : null}
       </Facts>
+
+      {contactable ? (
+        <Consent
+          address={customer.phone!}
+          allowed={contactable.allowed}
+          reason={contactable.reason}
+          hasRecord={consentRows.some((row) => row.current && row.purpose === "marketing")}
+        />
+      ) : null}
 
       <h2 className="mt-10 text-base font-semibold">Work</h2>
       {work.data.length === 0 ? (
