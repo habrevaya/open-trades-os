@@ -17,29 +17,12 @@ Self-hostable. Your database, your data.
 
 Home services software is a closed, expensive oligopoly. ServiceTitan runs $300
 to $500 per technician per month with five figure implementation fees and multi
-year contracts. Jobber and Housecall Pro are cheaper but cap out fast. All of
+year contracts. Jobber and Housecall Pro are cheaper but all of
 them treat your customer list, price book and job history as a retention lever.
 
-CRM has Twenty. Scheduling has Cal.com. Billing has Lago. E-signature has
-Documenso. Support has Chatwoot. Field service management for the trades, a
-multi billion dollar category, has no equivalent.
+I'm building something to give trades back ownership of their own systems. So that there doesn't have to be reliance on massive software bills. 
 
-Not nothing, and it is worth being precise about that. [OCA/field-service](https://github.com/OCA/field-service)
-is real, actively maintained and good, and Dolibarr and Axelor both ship an
-interventions module. But they model the *intervention document*, not the
-dispatched job, and the Odoo dispatch board and mobile app that would complete
-the picture are Enterprise only. That is the honest shape of the gap: the back
-office exists in open source, the front line does not.
-
-Worth knowing why, because it is not that people tried and failed. Searching
-the archives turns up no graveyard of serious attempts, only solo projects
-abandoned before their second user. Open source usually survives on a loop
-where users are developers who file issues and become contributors. HVAC owners
-are not developers, so the loop never closes. For calibration: the ServiceTitan
-S-1, documenting a multi billion dollar outcome in this exact market, got 5
-points and no comments on Hacker News.
-
-That is the actual risk here, and it is distribution rather than engineering.
+This is for the trades businesses that want to own their own software. You should be relatively tech savvy, live a lot of your day in Claude Code, Codex, or other LLM models if you want to get the most out of OpenTradeOS. 
 
 ## What it does
 
