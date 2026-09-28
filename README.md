@@ -20,7 +20,7 @@ to $500 per technician per month with five figure implementation fees and multi
 year contracts. Jobber and Housecall Pro are cheaper but all of
 them treat your customer list, price book and job history as a retention lever.
 
-I'm building something to give trades back ownership of their own systems. So that there doesn't have to be reliance on massive software bills. 
+OpenTradeOS was built to give trades back ownership of their own systems. So that there doesn't have to be reliance on massive software bills. 
 
 This is for the trades businesses that want to own their own software. You should be relatively tech savvy, live a lot of your day in Claude Code, Codex, or other LLM models if you want to get the most out of OpenTradeOS. 
 
