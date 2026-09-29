@@ -18,6 +18,8 @@ import { reviewRoutes } from "./reviews";
 import { recurringRoutes } from "./recurring";
 import { peopleRoutes } from "./people";
 import { contractRoutes } from "./contracts";
+import { webhookRoutes } from "./webhooks";
+import { customFieldRoutes } from "./custom-fields";
 
 export * from "./common";
 export * from "./customers";
@@ -40,6 +42,8 @@ export * from "./reviews";
 export * from "./recurring";
 export * from "./people";
 export * from "./contracts";
+export * from "./webhooks";
+export * from "./custom-fields";
 
 /**
  * Every route in the product, and the only description of them.
@@ -80,6 +84,8 @@ export const routes = {
   ...recurringRoutes,
   ...peopleRoutes,
   ...contractRoutes,
+  ...webhookRoutes,
+  ...customFieldRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

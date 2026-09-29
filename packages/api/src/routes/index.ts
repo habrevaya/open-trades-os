@@ -7,7 +7,7 @@ import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
-  roles as roleService, contracts as contractService,
+  roles as roleService, contracts as contractService, customFields, webhooks,
 } from "../services/index";
 
 /**
@@ -265,6 +265,20 @@ export const handlers = {
   createBookableService: booking.createService,
   setArrivalWindows: booking.setWindows,
   setBusinessHours: booking.setHours,
+
+  defineCustomField: customFields.handlers.defineCustomField,
+  listCustomFields: customFields.handlers.listCustomFields,
+  updateCustomField: customFields.handlers.updateCustomField,
+  deleteCustomField: customFields.handlers.deleteCustomField,
+  getCustomFieldUsage: customFields.handlers.getCustomFieldUsage,
+  validateCustomFields: customFields.handlers.validateCustomFields,
+
+  registerWebhookEndpoint: webhooks.handlers.registerWebhookEndpoint,
+  listWebhookEndpoints: webhooks.handlers.listWebhookEndpoints,
+  updateWebhookEndpoint: webhooks.handlers.updateWebhookEndpoint,
+  deleteWebhookEndpoint: webhooks.handlers.deleteWebhookEndpoint,
+  getWebhookPosition: webhooks.handlers.getWebhookPosition,
+  listWebhookEvents: webhooks.handlers.listWebhookEvents,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

@@ -267,6 +267,13 @@
       "when": 1790286084946,
       "tag": "0037_nifty_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790683118530,
+      "tag": "0038_demonic_psynapse",
+      "breakpoints": true
     }
   ]
 }

@@ -51,3 +51,5 @@ export * as forms from "./forms";
 export * as reviews from "./reviews";
 export * as recurring from "./recurring";
 export * as contracts from "./contracts";
+export * as webhooks from "./webhooks";
+export * as customFields from "./custom-fields";

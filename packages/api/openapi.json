@@ -85,6 +85,14 @@
       "description": "Integrations and Provider Framework"
     },
     {
+      "name": "M26",
+      "description": "Public API, Webhooks and SDKs"
+    },
+    {
+      "name": "M29",
+      "description": "Custom Fields, Objects and Workflow Builder"
+    },
+    {
       "name": "M31",
       "description": "Commercial Parties, Contracts and Third-Party Billing"
     },
@@ -3006,6 +3014,746 @@
         "x-authorization": "session",
         "x-permissions": [
           "contract:write"
+        ]
+      }
+    },
+    "/v1/custom-fields": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "defineCustomField",
+        "summary": "Declare a field this company tracks",
+        "description": "Refused when the key is already defined on that entity, and refused when stored data already under that key contradicts the type being declared, because a definition that half the rows fail is worse than none. Comes back with how many records already hold a value and, on a required field, how many do not.\n\nRequires a session holding: customfield:write.",
+        "tags": [
+          "M29"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineCustomFieldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Declare a field this company tracks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefineCustomFieldOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customfield:write"
+        ]
+      },
+      "get": {
+        "operationId": "listCustomFields",
+        "summary": "Every field this company has declared",
+        "description": "Ordered by entity, then sort order, then key. The last term is not decoration: sort order defaults to zero on every row, so without it the order is whatever the heap returned and it changes between two reads of the same unedited screen.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M29"
+        ],
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "customer",
+                "property",
+                "job"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every field this company has declared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCustomFieldsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/custom-fields/usage": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getCustomFieldUsage",
+        "summary": "What is defined, and what is actually in the data",
+        "description": "Two questions the definitions alone cannot answer. A field nobody fills in costs a row on every form anybody opens. A key nothing defines is real data that no screen shows and no export names, and an import can put one there tomorrow.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M29"
+        ],
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "customer",
+                "property",
+                "job"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What is defined, and what is actually in the data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCustomFieldUsageOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/custom-fields/validate": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "validateCustomFields",
+        "summary": "Check a draft record's custom values before saving it",
+        "description": "Every problem at once rather than the first, because a form with three bad fields corrected one at a time is three round trips and the third is where somebody types whatever gets past it. This is the question a screen asks; the save path runs its own check.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M29"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateCustomFieldsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Check a draft record's custom values before saving it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateCustomFieldsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/custom-fields/{id}": {
+      "description": "Served at this path: DELETE, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "delete": {
+        "operationId": "deleteCustomField",
+        "summary": "Retire a field",
+        "description": "Refused while records still hold a value for it, because removing the definition does not remove the values: they stay in the record and stop being shown. Send force to remove it anyway. The answer says how many values were orphaned, and zero is the good answer.\n\nRequires a session holding: customfield:write.",
+        "tags": [
+          "M29"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteCustomFieldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Retire a field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteCustomFieldOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customfield:write"
+        ]
+      },
+      "patch": {
+        "operationId": "updateCustomField",
+        "summary": "Change the label, the type, the options or whether it is required",
+        "description": "The key cannot be changed and neither can the entity. Every value stored under the old key is matched by that string and nothing else, so a rename orphans all of them at once: they stay in the database, stop being found, and read as deleted.\n\nRequires a session holding: customfield:write.",
+        "tags": [
+          "M29"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomFieldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change the label, the type, the options or whether it is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateCustomFieldOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customfield:write"
         ]
       }
     },
@@ -18399,6 +19147,696 @@
           "message:send"
         ]
       }
+    },
+    "/v1/webhooks/endpoints": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listWebhookEndpoints",
+        "summary": "Every endpoint this company has registered",
+        "description": "Carries the failure count and the last attempt, so a dead endpoint and a new one do not look the same. Carries no secret.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "responses": {
+          "200": {
+            "description": "Every endpoint this company has registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWebhookEndpointsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      },
+      "post": {
+        "operationId": "registerWebhookEndpoint",
+        "summary": "Send these events to this URL",
+        "description": "Returns the signing secret, once. Nothing reads it back afterwards, so store it when this call returns or register a replacement endpoint. Refused when an event name is one nothing in this product emits, because a subscription that matches nothing looks exactly like a quiet week.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterWebhookEndpointInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Send these events to this URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterWebhookEndpointOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
+    "/v1/webhooks/endpoints/{id}": {
+      "description": "Served at this path: DELETE, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "delete": {
+        "operationId": "deleteWebhookEndpoint",
+        "summary": "Stop delivering to this endpoint",
+        "description": "The row is kept and stops being delivered to, so the audit trail for every delivery that ever went to it still names something. Its position in the event log is dropped, because a position is not a record.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteWebhookEndpointInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stop delivering to this endpoint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteWebhookEndpointOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      },
+      "patch": {
+        "operationId": "updateWebhookEndpoint",
+        "summary": "Change the URL, the events, or whether it is on",
+        "description": "The signing secret is not changeable here. Rotating it breaks every receiver still holding the old one, and an operator fixing a typo in a URL should not find that out from their own error log.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWebhookEndpointInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change the URL, the events, or whether it is on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateWebhookEndpointOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
+    "/v1/webhooks/endpoints/{id}/position": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getWebhookPosition",
+        "summary": "How far behind this endpoint is",
+        "description": "The one number that answers whether a receiver has had everything, and it lives in a table nobody looking at webhooks would think to open.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How far behind this endpoint is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetWebhookPositionOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
+    },
+    "/v1/webhooks/events": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listWebhookEvents",
+        "summary": "The event names an endpoint may subscribe to",
+        "description": "The catalogue, plus any name this company's own log already holds, which an older build or a migration may have written. A name with no summary is one of those.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "responses": {
+          "200": {
+            "description": "The event names an endpoint may subscribe to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWebhookEventsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
     }
   },
   "components": {
@@ -24388,6 +25826,144 @@
           "ok"
         ]
       },
+      "DefineCustomFieldInput": {
+        "type": "object",
+        "properties": {
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "property",
+              "job"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "dataType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "boolean",
+              "date",
+              "select",
+              "multiselect"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 200
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": -1000,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "entityType",
+          "key",
+          "label"
+        ]
+      },
+      "DefineCustomFieldOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "dataType": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "rowsWithValue": {
+            "type": "integer"
+          },
+          "rowsMissingValue": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "entityType",
+          "key",
+          "label",
+          "dataType",
+          "options",
+          "required",
+          "sortOrder",
+          "rowsWithValue",
+          "rowsMissingValue"
+        ]
+      },
+      "DeleteCustomFieldInput": {
+        "type": "object",
+        "properties": {
+          "force": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DeleteCustomFieldOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "orphanedValues": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "removed",
+          "orphanedValues"
+        ]
+      },
       "DeleteRecordingInput": {
         "type": "object",
         "properties": {
@@ -24624,6 +26200,24 @@
           "attributionSource",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "DeleteWebhookEndpointInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DeleteWebhookEndpointOutput": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "ok"
         ]
       },
       "DisconnectConnectorInput": {
@@ -25129,6 +26723,106 @@
         "required": [
           "model",
           "rows"
+        ]
+      },
+      "GetCustomFieldUsageOutput": {
+        "type": "object",
+        "properties": {
+          "report": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entityType": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": "integer"
+                },
+                "defined": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "entityType": {
+                        "type": "string"
+                      },
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "dataType": {
+                        "type": "string"
+                      },
+                      "options": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sortOrder": {
+                        "type": "integer"
+                      },
+                      "rowsWithValue": {
+                        "type": "integer"
+                      },
+                      "rowsMissingValue": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "entityType",
+                      "key",
+                      "label",
+                      "dataType",
+                      "options",
+                      "required",
+                      "sortOrder",
+                      "rowsWithValue",
+                      "rowsMissingValue"
+                    ]
+                  }
+                },
+                "undefinedKeys": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "rowsWithValue": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "rowsWithValue"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "entityType",
+                "rows",
+                "defined",
+                "undefinedKeys"
+              ]
+            }
+          }
+        },
+        "required": [
+          "report"
         ]
       },
       "GetCustomerOutput": {
@@ -27418,6 +29112,26 @@
           "abandoned"
         ]
       },
+      "GetWebhookPositionOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deliveredThrough": {
+            "type": "integer"
+          },
+          "pending": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "deliveredThrough",
+          "pending"
+        ]
+      },
       "ImportSpendInput": {
         "type": "object",
         "properties": {
@@ -28830,6 +30544,60 @@
         },
         "required": [
           "contracts"
+        ]
+      },
+      "ListCustomFieldsOutput": {
+        "type": "object",
+        "properties": {
+          "definitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "entityType": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "dataType": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "sortOrder": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "entityType",
+                "key",
+                "label",
+                "dataType",
+                "options",
+                "required",
+                "sortOrder"
+              ]
+            }
+          }
+        },
+        "required": [
+          "definitions"
         ]
       },
       "ListCustomersOutput": {
@@ -31066,6 +32834,88 @@
           "vendors"
         ]
       },
+      "ListWebhookEndpointsOutput": {
+        "type": "object",
+        "properties": {
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "failureCount": {
+                  "type": "integer"
+                },
+                "lastDeliveryAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "url",
+                "events",
+                "active",
+                "failureCount",
+                "lastDeliveryAt",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "endpoints"
+        ]
+      },
+      "ListWebhookEventsOutput": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "summary"
+              ]
+            }
+          }
+        },
+        "required": [
+          "events"
+        ]
+      },
       "ListWithheldOutput": {
         "type": "object",
         "properties": {
@@ -32294,6 +34144,79 @@
         "required": [
           "deviceId",
           "lastSequence"
+        ]
+      },
+      "RegisterWebhookEndpointInput": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      },
+      "RegisterWebhookEndpointOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastDeliveryAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "active",
+          "failureCount",
+          "lastDeliveryAt",
+          "createdAt",
+          "secret"
         ]
       },
       "ReleaseStockInput": {
@@ -35091,6 +37014,95 @@
           "movements"
         ]
       },
+      "UpdateCustomFieldInput": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "dataType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "boolean",
+              "date",
+              "select",
+              "multiselect"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 200
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": -1000,
+            "maximum": 1000
+          }
+        }
+      },
+      "UpdateCustomFieldOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "dataType": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "rowsWithValue": {
+            "type": "integer"
+          },
+          "rowsMissingValue": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "entityType",
+          "key",
+          "label",
+          "dataType",
+          "options",
+          "required",
+          "sortOrder",
+          "rowsWithValue",
+          "rowsMissingValue"
+        ]
+      },
       "UpdateCustomerInput": {
         "type": "object",
         "properties": {
@@ -35934,6 +37946,122 @@
           "customFields",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "UpdateWebhookEndpointInput": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateWebhookEndpointOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastDeliveryAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "active",
+          "failureCount",
+          "lastDeliveryAt",
+          "createdAt"
+        ]
+      },
+      "ValidateCustomFieldsInput": {
+        "type": "object",
+        "properties": {
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "property",
+              "job"
+            ]
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "entityType",
+          "customFields"
+        ]
+      },
+      "ValidateCustomFieldsOutput": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "problem": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "problem"
+              ]
+            }
+          }
+        },
+        "required": [
+          "valid",
+          "problems"
         ]
       },
       "ViewPortalEstimateOutput": {

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
-import type { Database } from "@opentradesos/db";
-import { assertCan, redact, redactMany, effectiveScope, type Actor, type Permission, type ScopedResource } from "@opentradesos/core";
+import { schema, type Database } from "@opentradesos/db";
+import { assertCan, isSystem, redact, redactMany, effectiveScope, type Actor, type Permission, type ScopedResource } from "@opentradesos/core";
 
 /**
  * THE SERVICE LAYER
@@ -226,4 +226,52 @@ export async function timezoneOf(tx: Database, organizationId: string): Promise<
    * hours for the one tenant least able to explain what changed.
    */
   return row?.timezone ?? "America/Chicago";
+}
+
+/**
+ * EVERY MUTATION WRITES HERE, and an AI agent is named as the actor when one
+ * is acting. Being able to answer "what did the agent do, and when" is what
+ * makes an agent layer something an owner will actually turn on.
+ *
+ * It lives beside `guardedWrite` rather than in `customers.ts`, where it was
+ * defined and where half the services still import it from. That was fine
+ * while nothing customers.ts imports ever needed to audit anything. It stopped
+ * being fine the moment a service customers.ts calls also wrote an audit line:
+ * the two files then import each other, which happens to work today because
+ * neither calls the other at module scope, and stops working silently the
+ * first time somebody adds a top level constant derived from an import.
+ *
+ * `customers.ts` re-exports it, so the twenty-odd call sites that name it
+ * there are untouched and correct.
+ */
+export async function audit(
+  tx: Database, ctx: ServiceContext, action: string,
+  entityType: string, entityId: string,
+  before: unknown, after: unknown,
+): Promise<void> {
+  await tx.insert(schema.auditLog).values({
+    organizationId: ctx.actor.organizationId,
+    /**
+     * A portal caller has no user, and NEITHER DOES THE SYSTEM.
+     *
+     * The worker, the scheduler, a workflow run and the webhook delivery pass
+     * all act as the nil uuid, which is not a row in `user`. Writing it breaks
+     * a foreign key five layers below anybody who could read the error, and
+     * the whole surrounding transaction rolls back: the audit line does not
+     * merely go missing, it takes the business action with it.
+     *
+     * `emit` in `events.ts` has handled this since a scheduled workflow's
+     * first event hit it. This function did not, so every background caller
+     * that wanted an audit row had to either write one by hand or discover
+     * the constraint. It is the same rule and it belongs in both places.
+     */
+    actorUserId: ctx.portalGrantId || isSystem(ctx.actor) ? null : ctx.actor.userId,
+    actorPortalGrantId: ctx.portalGrantId ?? null,
+    actorAgentId: ctx.agentId ?? ctx.actor.agentId ?? null,
+    action,
+    entityType,
+    entityId,
+    before: (before ?? null) as Record<string, unknown> | null,
+    after: (after ?? null) as Record<string, unknown> | null,
+  });
 }

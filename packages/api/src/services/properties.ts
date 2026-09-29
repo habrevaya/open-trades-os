@@ -5,6 +5,7 @@ import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
   decodeCursor, paginate, NotFoundError,
 } from "./context";
+import { enforceWithin } from "./custom-fields";
 import { audit } from "./customers";
 import type {
   listProperties, getProperty, createProperty, linkCustomerToProperty,
@@ -221,6 +222,10 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       }
     }
 
+    await enforceWithin(
+      tx, ctx.actor.organizationId, "property", input.customFields,
+    );
+
     const [property] = await tx.insert(schema.property).values({
       organizationId: ctx.actor.organizationId,
       nickname: input.nickname ?? null,
@@ -388,6 +393,12 @@ export async function update(
         .from(schema.territory)
         .where(eq(schema.territory.id, input.territoryId)).limit(1);
       if (!territory) throw new NotFoundError("Territory");
+    }
+
+    if (input.customFields !== undefined) {
+      await enforceWithin(
+        tx, ctx.actor.organizationId, "property", input.customFields, before.customFields,
+      );
     }
 
     const [after] = await tx.update(schema.property).set({

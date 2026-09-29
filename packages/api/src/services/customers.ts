@@ -4,8 +4,9 @@ import { assertCan } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
-  decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
+  decodeCursor, paginate, NotFoundError, ConflictError, scopeOf, audit,
 } from "./context";
+import { enforceWithin } from "./custom-fields";
 import { customerScopeFilter } from "./scope";
 import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
 
@@ -120,6 +121,10 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         if (existing) return clean(ctx, "customer", existing);
       }
     }
+
+    await enforceWithin(
+      tx, ctx.actor.organizationId, "customer", input.customFields,
+    );
 
     const [customer] = await tx.insert(schema.customer).values({
       organizationId: ctx.actor.organizationId,
@@ -236,6 +241,12 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
      * asserts the row changed, so the next one added to the contract and
      * not to this list fails a test rather than a customer's account terms.
      */
+    if (input.customFields !== undefined) {
+      await enforceWithin(
+        tx, ctx.actor.organizationId, "customer", input.customFields, before.customFields,
+      );
+    }
+
     const [after] = await tx.update(schema.customer).set({
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.email !== undefined ? { email: input.email } : {}),
@@ -274,30 +285,5 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
   });
 }
 
-/**
- * Every mutation writes here, and an AI agent is named as the actor when one
- * is acting. Being able to answer "what did the agent do, and when" is what
- * makes an agent layer something an owner will actually turn on.
- */
-async function audit(
-  tx: Database, ctx: ServiceContext, action: string,
-  entityType: string, entityId: string,
-  before: unknown, after: unknown,
-): Promise<void> {
-  await tx.insert(schema.auditLog).values({
-    organizationId: ctx.actor.organizationId,
-    // A portal caller has no user. Writing the synthetic id into a uuid column
-    // fails loudly, which is better than a column of fake users, but the real
-    // answer is to name the grant.
-    actorUserId: ctx.portalGrantId ? null : ctx.actor.userId,
-    actorPortalGrantId: ctx.portalGrantId ?? null,
-    actorAgentId: ctx.agentId ?? ctx.actor.agentId ?? null,
-    action,
-    entityType,
-    entityId,
-    before: (before ?? null) as Record<string, unknown> | null,
-    after: (after ?? null) as Record<string, unknown> | null,
-  });
-}
-
+/** Defined in `context.ts`, beside the guard every caller of it is already inside. */
 export { audit };

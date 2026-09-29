@@ -5,6 +5,7 @@ import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
 } from "./context";
+import { enforceWithin } from "./custom-fields";
 import { audit } from "./customers";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
@@ -177,6 +178,10 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
 
     const number = await nextNumber(tx, ctx.actor.organizationId, "job");
 
+    await enforceWithin(
+      tx, ctx.actor.organizationId, "job", input.customFields,
+    );
+
     const [job] = await tx.insert(schema.job).values({
       organizationId: ctx.actor.organizationId,
       number,
@@ -344,6 +349,12 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
         customerId: before.customerId,
         selfId: input.id,
       });
+    }
+
+    if (input.customFields !== undefined) {
+      await enforceWithin(
+        tx, ctx.actor.organizationId, "job", input.customFields, before.customFields,
+      );
     }
 
     const [after] = await tx.update(schema.job).set({

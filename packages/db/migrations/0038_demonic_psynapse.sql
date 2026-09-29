@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "custom_field_definition_key_idx" ON "custom_field_definition" USING btree ("organization_id","entity_type","key") WHERE "custom_field_definition"."deleted_at" is null;

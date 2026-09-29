@@ -94,7 +94,26 @@ export const customFieldDefinition = pgTable("custom_field_definition", {
   required: boolean("required").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps,
-}, (t) => ({ orgIdx: index("custom_field_definition_org_idx").on(t.organizationId, t.entityType) }));
+}, (t) => ({
+  orgIdx: index("custom_field_definition_org_idx").on(t.organizationId, t.entityType),
+  /**
+   * ONE KEY IS ONE FIELD, and enforced here rather than only in the service.
+   *
+   * The service checks that the key is free before inserting, which is the
+   * right error message and the wrong place to rely on. Two `define` calls in
+   * separate transactions both read no row, both pass the check and both
+   * insert, and the company is left with two definitions over the same stored
+   * value: the label, the type and whether it is required are then decided by
+   * whichever row a query happens to read first, and no screen anywhere shows
+   * that there are two.
+   *
+   * Partial on `deleted_at is null`, because removing a field is soft and a
+   * company that retires `warranty_expires` is entitled to define it again.
+   */
+  keyIdx: uniqueIndex("custom_field_definition_key_idx")
+    .on(t.organizationId, t.entityType, t.key)
+    .where(sql`${t.deletedAt} is null`),
+}));
 
 /**
  * A COMPANY'S LOGO AND FAVICON, AS BYTES IN THE DATABASE

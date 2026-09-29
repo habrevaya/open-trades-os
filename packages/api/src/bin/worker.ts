@@ -16,6 +16,7 @@ import { createClient } from "@opentradesos/db";
 import { SYSTEM_USER_ID } from "@opentradesos/core";
 import { runWorker } from "../services/workflow-worker";
 import { flush, providerFor, recoverStuck } from "../services/comms-outbox";
+import { deliver } from "../services/webhooks";
 import { inTenant } from "../services/context";
 import { ProviderNotConfiguredError } from "../comms/provider";
 // Registers the carrier adapters. Drop this import and the worker still runs;
@@ -77,12 +78,57 @@ async function sendQueued(organizationId: string): Promise<void> {
   await flush(db, organizationId, { provider });
 }
 
+/**
+ * Push this tenant's new events at the URLs they registered.
+ *
+ * Same hook as the outbox and for the same reason: `afterDrain` fires for
+ * each organization that had events, which is exactly the set with something
+ * to deliver. Polling every tenant on a timer would do the same work and be
+ * wrong about which ones need it.
+ */
+async function sendWebhooks(organizationId: string): Promise<void> {
+  const pass = await deliver(db, organizationId);
+  const failed = pass.attempts.filter((attempt) => !attempt.ok);
+  if (failed.length > 0) {
+    console.warn(
+      `[worker] ${failed.length} webhook deliveries failed for ${organizationId}: `
+      + failed.map((attempt) => `${attempt.eventName} -> ${attempt.endpointId}`).join(", "),
+    );
+  }
+}
+
+/**
+ * BOTH RUN, AND NEITHER CAN STOP THE OTHER.
+ *
+ * `afterDrain` is awaited inside the worker's pass, so a throw from either of
+ * these ends the pass and every tenant behind this one in it waits for the
+ * next tick. A carrier outage should not hold up webhooks and a receiver's
+ * expired certificate should not hold up text messages, and neither should
+ * stall a third company that has nothing wrong with it at all.
+ *
+ * Logged rather than swallowed. A background failure nobody prints is the
+ * same as one that did not happen until somebody asks why their integration
+ * is quiet, and by then there is nothing to read.
+ */
+async function afterDrain(organizationId: string): Promise<void> {
+  for (const step of [sendQueued, sendWebhooks]) {
+    try {
+      await step(organizationId);
+    } catch (error) {
+      console.error(
+        `[worker] ${step.name} failed for ${organizationId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+}
+
 console.info(`[worker] draining every ${interval}ms`);
 await runWorker({
   db,
   intervalMs: interval,
   signal: controller.signal,
-  afterDrain: sendQueued,
+  afterDrain,
   onPass: (results) => {
     const events = results.reduce((n, r) => n + r.events, 0);
     if (events > 0) {

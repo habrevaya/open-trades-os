@@ -58,7 +58,6 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
   ["accounting:close", "M14."],
   ["billing:manage", "The company's own subscription to this product. Not a module here."],
   ["agent:configure", "M27, AI agents. Planned."],
-  ["customfield:write", "M29 stores custom fields; defining them has no service."],
   ["apikey:write", "M26 issues app tokens through connected apps, not bare API keys."],
   ["data:export", "M30. Export exists per report; a whole-tenant export does not."],
   ["job.cost:read", "M15. Job costing reads through reports, which carry their own permission."],
