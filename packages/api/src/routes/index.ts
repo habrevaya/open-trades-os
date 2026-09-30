@@ -7,7 +7,7 @@ import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
-  roles as roleService, contracts as contractService, customFields, webhooks,
+  roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
 } from "../services/index";
 
 /**
@@ -279,6 +279,29 @@ export const handlers = {
   deleteWebhookEndpoint: webhooks.handlers.deleteWebhookEndpoint,
   getWebhookPosition: webhooks.handlers.getWebhookPosition,
   listWebhookEvents: webhooks.handlers.listWebhookEvents,
+
+  getPaymentsStatus: payments.handlers.getPaymentsStatus,
+  createPaymentIntent: payments.handlers.createPaymentIntent,
+  refundPayment: payments.handlers.refundPayment,
+
+  queueEmail: email.handlers.queueEmail,
+  listEmailMessages: email.handlers.listEmailMessages,
+  sendQueuedEmail: email.handlers.sendQueuedEmail,
+  listEmailSuppressions: email.handlers.listEmailSuppressions,
+  suppressEmailAddress: email.handlers.suppressEmailAddress,
+  liftEmailSuppression: email.handlers.liftEmailSuppression,
+
+  getAccountingStatus: accounting.handlers.getAccountingStatus,
+  listAccountingAccounts: accounting.handlers.listAccountingAccounts,
+  listAccountMappings: accounting.handlers.listAccountMappings,
+  setAccountMapping: accounting.handlers.setAccountMapping,
+  runAccountingSync: accounting.handlers.runAccountingSync,
+  listAccountingRuns: accounting.handlers.listAccountingRuns,
+  listAccountingProblems: accounting.handlers.listAccountingProblems,
+  retryAccountingDocument: accounting.handlers.retryAccountingDocument,
+  listAccountingPeriods: accounting.handlers.listAccountingPeriods,
+  closeAccountingPeriod: accounting.handlers.closeAccountingPeriod,
+  reopenAccountingPeriod: accounting.handlers.reopenAccountingPeriod,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

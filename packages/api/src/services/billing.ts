@@ -477,6 +477,8 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
 
     const amount = usd(input.amount);
     const tip = usd(input.tipAmount);
+    const fee = usd(input.feeAmount ?? "0");
+    const surcharge = usd(input.surchargeAmount ?? "0");
 
     const allocations = input.allocations?.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) })) ?? [];
 
@@ -526,6 +528,8 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       status: "succeeded",
       amount: m.toString(amount),
       tipAmount: m.toString(tip),
+      feeAmount: m.toString(fee),
+      surchargeAmount: m.toString(surcharge),
       receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
       checkNumber: input.checkNumber ?? null,
       notes: input.notes ?? null,
@@ -587,11 +591,23 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       }
     }
 
+    /**
+     * THE FEE IS A LEDGER LEG, not a note on the payment row.
+     *
+     * `postPayment` has taken a `processingFee` since it was written and
+     * debits it to an expense account, so cash goes up by what actually
+     * landed in the bank and the fee is an expense the company can see. This
+     * call passed neither it nor the surcharge, so both legs were always
+     * zero: the books said the full amount reached the bank, which is wrong
+     * by the fee on every card payment ever taken here.
+     */
     const transactionId = await writePosting(tx, ctx, ledger.postPayment({
       paymentId: payment!.id,
       occurredAt: new Date(),
       appliedAmount: allocatedTotal,
       tipAmount: tip,
+      surchargeAmount: surcharge,
+      processingFee: fee,
       customerId: input.customerId,
     }));
 

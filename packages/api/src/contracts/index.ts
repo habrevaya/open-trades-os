@@ -20,6 +20,9 @@ import { peopleRoutes } from "./people";
 import { contractRoutes } from "./contracts";
 import { webhookRoutes } from "./webhooks";
 import { customFieldRoutes } from "./custom-fields";
+import { paymentRoutes } from "./payments";
+import { emailRoutes } from "./email";
+import { accountingRoutes } from "./accounting";
 
 export * from "./common";
 export * from "./customers";
@@ -44,6 +47,9 @@ export * from "./people";
 export * from "./contracts";
 export * from "./webhooks";
 export * from "./custom-fields";
+export * from "./payments";
+export * from "./email";
+export * from "./accounting";
 
 /**
  * Every route in the product, and the only description of them.
@@ -86,6 +92,9 @@ export const routes = {
   ...contractRoutes,
   ...webhookRoutes,
   ...customFieldRoutes,
+  ...paymentRoutes,
+  ...emailRoutes,
+  ...accountingRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

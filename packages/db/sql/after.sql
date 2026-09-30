@@ -639,6 +639,42 @@ revoke all on function app.messaging_webhook_connection(text) from public;
 grant execute on function app.messaging_webhook_connection(text) to authenticated;
 
 -- -------------------------------------------------------------------------
+-- RESOLVING AN EMAIL PROVIDER WEBHOOK
+--
+-- The same problem as the carrier webhook above and the same answer, keyed on
+-- the email capability instead. It is a second function rather than a
+-- parameter on the first because the capability is what decides which
+-- adapter registry the caller reaches for, and a caller that could pass its
+-- own capability could aim an email webhook at a messaging connection.
+--
+-- A deployment whose email provider reports nothing back (generic SMTP) never
+-- calls this. Nothing here assumes an email connection has a webhook token.
+create or replace function app.email_webhook_connection(p_token text)
+  returns table (
+    connection_id uuid,
+    organization_id uuid,
+    provider text,
+    settings jsonb,
+    credential_ref text
+  )
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.id, c.organization_id, c.provider, c.settings, c.credential_ref
+    from public.integration_connection c
+    where c.capability = 'email'
+      and c.status = 'connected'
+      and c.settings ->> 'webhookToken' = p_token
+      -- Same floor as the messaging token. A token short enough to guess is
+      -- not a token, and refusing here means a deployment that sets a weak
+      -- one gets no webhooks rather than an endpoint anyone can post to.
+      and length(p_token) >= 32
+    limit 1
+  $$;
+
+revoke all on function app.email_webhook_connection(text) from public;
+grant execute on function app.email_webhook_connection(text) to authenticated;
+
+-- -------------------------------------------------------------------------
 -- RESOLVING AN APPLICATION TOKEN
 --
 -- Same shape as a session, and for the same reason: the tenant is not known

@@ -127,6 +127,23 @@ export const recordPayment = defineRoute({
     method: PaymentMethod,
     amount: MoneyString,
     tipAmount: MoneyString.default("0"),
+    /**
+     * What the processor kept, when one was involved.
+     *
+     * The column and the ledger's fee leg have both existed since the first
+     * migration and nothing ever fed either of them, so every card payment
+     * posted its gross amount to cash. That overstates the bank by the fee on
+     * every card the company has ever taken, and the difference is invisible
+     * until somebody reconciles against a statement.
+     *
+     * Optional rather than defaulted, unlike `tipAmount` above, because a
+     * default here would have to be applied by every internal caller that
+     * does not go through the HTTP layer, and the honest shape of this field
+     * is "a fee if there was one".
+     */
+    feeAmount: MoneyString.optional(),
+    /** What was added for taking a card, where the company adds one. */
+    surchargeAmount: MoneyString.optional(),
     receivedAt: z.string().datetime().optional(),
     checkNumber: z.string().max(50).optional(),
     notes: z.string().max(1000).optional(),

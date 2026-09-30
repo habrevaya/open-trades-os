@@ -93,8 +93,15 @@ export const SETUP_STEPS: SetupStep[] = [
   },
   {
     key: "integrations",
-    title: "Accounting and calendar",
-    summary: "QuickBooks or Xero, and Google or Outlook calendar.",
+    /**
+     * NAMES WHAT EXISTS. This said "QuickBooks or Xero, and Google or Outlook
+     * calendar" while there was no accounting adapter at all and no calendar
+     * capability of any kind. QuickBooks is now built; the other three are
+     * not, and a setup step offering them is a person spending an afternoon
+     * looking for a screen that was never written.
+     */
+    title: "Accounting",
+    summary: "Put every invoice and payment into QuickBooks Online.",
     essential: false,
     permission: "integration:write",
   },

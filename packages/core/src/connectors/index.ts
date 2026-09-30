@@ -54,7 +54,20 @@ export type ConnectorCapability =
   | "reviews"
   | "email"
   | "messaging"
-  | "telephony";
+  | "telephony"
+  /**
+   * Taking money, which is the first capability here that is not about
+   * marketing.
+   *
+   * This file began as the map of what a marketing operation needs, and the
+   * comment above still reads that way. It is now the map of every outside
+   * system the product speaks to, because there is no second place for an
+   * owner to look and a catalogue that covers most of the integrations is one
+   * whose silences mean nothing.
+   */
+  | "payments"
+  /** The books of record, which this product posts to and never owns. */
+  | "accounting";
 
 /**
  * How the operator proves who they are.
@@ -86,7 +99,25 @@ export type ConnectorFlow =
   | "reviews_in"
   | "reviews_out"
   /** Marketing sends, as opposed to the transactional ones M18 already does. */
-  | "campaigns_out";
+  | "campaigns_out"
+  /**
+   * Transactional sends: the arrival notice, the invoice, the receipt.
+   *
+   * Added because the two email adapters send these and cannot send a
+   * campaign, there being no campaign engine. Declaring `campaigns_out` for
+   * them would have been exactly the claim this file exists to prevent, and
+   * declaring nothing would have made the honest half of the feature
+   * invisible in the only place an owner looks.
+   */
+  | "messages_out"
+  /** Money in: a card charged, and the processor's word that it cleared. */
+  | "payments_in"
+  /** Money back out: a refund issued from here rather than from their dashboard. */
+  | "refunds_out"
+  /** Invoices, payments and credits pushed into the books of record. */
+  | "books_out"
+  /** What changed over there read back, so the two do not silently diverge. */
+  | "books_in";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -282,6 +313,68 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     setup: "An API key from the sending provider, and a verified sending domain with SPF, DKIM and DMARC.",
     limitation:
       "Marketing consent is a different question from transactional consent, and a customer who asked for an arrival notice has not asked for a spring promotion. This connector sends; it never decides whether it may.",
+  },
+
+  /* ----------------------------------------------------------- messages out */
+  {
+    key: "resend",
+    label: "Resend",
+    capability: "email",
+    auth: "api_key",
+    flows: ["messages_out"],
+    state: "built",
+    purpose:
+      "Send from your own Resend account and learn what happened to each message: delivered, bounced, or reported as spam.",
+    setup:
+      "An API key from your own Resend account, a sending domain verified there with SPF, DKIM and DMARC, and a webhook endpoint pointed at the URL on this screen plus the signing secret it gives you. Both go in your secret store; this product holds the names, never the values.",
+    limitation:
+      "Delivery reporting depends entirely on the webhook, so a connection whose signing secret is missing or wrong sends perfectly well and never learns that anything arrived or bounced. Opens and clicks are not recorded at all, because a tracking pixel that Apple Mail fetches on its own is not evidence a person read anything.",
+  },
+  {
+    key: "smtp",
+    label: "Any SMTP server",
+    capability: "email",
+    auth: "api_key",
+    flows: ["messages_out"],
+    state: "built",
+    purpose:
+      "Send through the mail server you already pay for: a Google Workspace or Microsoft 365 mailbox, your web host's relay, or your own Postfix. No vendor account to open, which is the point of it.",
+    setup:
+      "The host, port, username and password your mail client already uses, plus whether it wants TLS or STARTTLS. Nothing else, and no signup anywhere.",
+    limitation:
+      "SMTP cannot tell you what happened. It ends at the receiving server's 250 OK; a bounce comes back hours later as a separate email to the envelope sender and a spam complaint goes to a feedback loop, neither of which this product reads. Delivery, bounce and complaint stay empty for everything sent this way, and the do not email list only ever grows from what somebody puts on it by hand.",
+  },
+
+  /* --------------------------------------------------------------- books */
+  {
+    key: "quickbooks",
+    label: "QuickBooks Online",
+    capability: "accounting",
+    auth: "oauth",
+    flows: ["books_out", "books_in"],
+    state: "built",
+    purpose:
+      "Put every invoice, payment and write-off into the books your accountant already works in, and read back what changed over there, so nobody keys the same figure twice.",
+    setup:
+      "Connect the QuickBooks company you already use, then map your account codes to your own chart of accounts on the screen that follows. Nothing is mapped for you: a posting whose code has no mapping stops and names the code, because a default that quietly picks a plausible income account is a year of misfiled revenue found by an accountant in March.",
+    limitation:
+      "Intuit meters READS and refuses the overage with a 429 rather than billing it, so a pass that runs out of read budget stops reading, says so on the run, and keeps pushing: the invoices still land, the change feed waits for the next window. Connecting it does not import history either; it starts from the day you connect, because their change feed will not answer for anything older than thirty days.",
+  },
+
+  /* ------------------------------------------------------------ payments in */
+  {
+    key: "stripe",
+    label: "Stripe",
+    capability: "payments",
+    auth: "api_key",
+    flows: ["payments_in", "refunds_out"],
+    state: "built",
+    purpose:
+      "Take a card on the customer portal or in the field, and have the invoice close itself when the money actually clears. Refunds go out from here rather than from a second dashboard nobody in the office has a login for.",
+    setup:
+      "A restricted API key from your own Stripe account, scoped to payment intents, charges and refunds, plus a webhook endpoint pointed at the URL on this screen and the signing secret it gives you. Both go in your secret store; this product holds the names of them, never the values. The money goes to your account, on your rate, and nothing here takes a cut.",
+    limitation:
+      "The webhook is what closes an invoice, so a connection whose signing secret is missing or wrong takes cards perfectly well and never learns that any of them succeeded. It also means a payment taken while this product is down is reconciled when it comes back, not at the moment the customer pays.",
   },
 ];
 

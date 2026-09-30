@@ -1,0 +1,1 @@
+ALTER TYPE "public"."accounting_link_state" ADD VALUE 'deleted';

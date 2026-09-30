@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
@@ -130,6 +130,18 @@ export async function flush(
       .where(and(
         eq(schema.message.status, "queued"),
         eq(schema.message.direction, "outbound"),
+        /**
+         * SCOPED TO THE CHANNELS A CARRIER CAN CARRY.
+         *
+         * `message` holds every channel, and it has since the first
+         * migration: the enum has listed `email`, `voice` and `webchat`
+         * alongside `sms` from the beginning. This select did not say which
+         * it wanted, which was harmless only while nothing else wrote a
+         * queued outbound row. The moment the email outbox did, this loop
+         * picked up an email, handed its plain text part to Twilio as the
+         * body of a text, and marked it sent.
+         */
+        inArray(schema.message.channel, ["sms", "mms"]),
       ))
       .orderBy(asc(schema.message.createdAt))
       .limit(limit));

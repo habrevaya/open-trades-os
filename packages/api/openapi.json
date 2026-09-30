@@ -53,6 +53,10 @@
       "description": "Invoicing and Payments"
     },
     {
+      "name": "M14",
+      "description": "Accounting and General Ledger"
+    },
+    {
       "name": "M15",
       "description": "Job Costing and Profitability"
     },
@@ -102,6 +106,1255 @@
     }
   ],
   "paths": {
+    "/v1/accounting/accounts": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listAccountingAccounts",
+        "summary": "The chart of accounts to map onto",
+        "description": "The only call in this module that reads the remote chart of accounts, and it runs when a person opens the mapping screen rather than on a worker tick. That is why the mapping stores a resolved id: the sync does a join and never pays for this.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "responses": {
+          "200": {
+            "description": "The chart of accounts to map onto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountingAccountsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/mappings": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "listAccountMappings",
+        "summary": "Which of our account codes point where",
+        "description": "Requires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which of our account codes point where",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountMappingsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      },
+      "put": {
+        "operationId": "setAccountMapping",
+        "summary": "Point one account code at an account over there",
+        "description": "Audited, because remapping moves where every future posting on that code lands. 'Revenue started going somewhere else in September' is a question with an answer only if somebody recorded that it happened and who did it.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAccountMappingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Point one account code at an account over there",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAccountMappingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/periods": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listAccountingPeriods",
+        "summary": "Which periods are closed",
+        "description": "Requires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which periods are closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountingPeriodsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/periods/close": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "closeAccountingPeriod",
+        "summary": "Declare a period filed",
+        "description": "A different permission from running the sync, because they are different powers. After a close, the sync will not push anything dated inside the period, so a late invoice cannot change a number that has already gone to a tax authority. The worker holds accounting:sync and deliberately does not hold this.\n\nRequires a session holding: accounting:close.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseAccountingPeriodInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Declare a period filed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseAccountingPeriodOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:close"
+        ]
+      }
+    },
+    "/v1/accounting/periods/reopen": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "reopenAccountingPeriod",
+        "summary": "Reopen a period that was closed by mistake",
+        "description": "Same permission as closing, and the reason is required. A close that cannot be undone is not a control, it is an obstacle, and people get around obstacles by back-dating documents into a period that is still open, which is worse and leaves no trace.\n\nRequires a session holding: accounting:close.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReopenAccountingPeriodInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reopen a period that was closed by mistake",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReopenAccountingPeriodOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:close"
+        ]
+      }
+    },
+    "/v1/accounting/problems": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listAccountingProblems",
+        "summary": "Documents that need a person",
+        "description": "A document stops being retried after five attempts, so a line naming a deleted item does not sit in a loop forever looking like nothing is wrong. Everything that stopped is here with the reason it stopped.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "responses": {
+          "200": {
+            "description": "Documents that need a person",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountingProblemsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/problems/{id}/retry": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "retryAccountingDocument",
+        "summary": "Offer a failed document again",
+        "description": "Resets the attempt counter and nothing else. The claim row, and therefore the guarantee that this document cannot be created twice, survives the retry.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryAccountingDocumentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Offer a failed document again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryAccountingDocumentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/runs": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listAccountingRuns",
+        "summary": "Sync history",
+        "description": "What an operator opens when somebody says the books look stale. A run that read nothing and was blocked says so, so a metering ceiling is distinguishable from a broken credential.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sync history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAccountingRunsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/status": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getAccountingStatus",
+        "summary": "Whether the books are connected and up to date",
+        "description": "The unmapped account codes are the important field. A code with no mapping stops every document that posts to it, by design, because guessing which income account a company's revenue belongs in is how a year gets misfiled.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the books are connected and up to date",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAccountingStatusOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
+    "/v1/accounting/sync": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "runAccountingSync",
+        "summary": "Run one sync pass now",
+        "description": "Idempotent in the way that matters: a document already in the books is skipped from a local row, not re-sent, and running this twice in a row cannot produce two invoices. `blockedReason` set to read_budget_exhausted means the accounting system refused further reads, which is not a failure: the outbound half still ran and the cursor was not advanced.\n\nRequires a session holding: accounting:sync.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAccountingSyncInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Run one sync pass now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunAccountingSyncOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "accounting:sync"
+        ]
+      }
+    },
     "/v1/attachments": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -4930,6 +6183,740 @@
         "x-authorization": "session",
         "x-permissions": [
           "visit:reschedule"
+        ]
+      }
+    },
+    "/v1/email/messages": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listEmailMessages",
+        "summary": "What has been sent, and what happened to it",
+        "description": "Requires a session holding: message:read.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "sending",
+                "sent",
+                "delivered",
+                "undelivered",
+                "failed",
+                "received"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What has been sent, and what happened to it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEmailMessagesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:read"
+        ]
+      },
+      "post": {
+        "operationId": "queueEmail",
+        "summary": "Put an email in the outbox",
+        "description": "Queued, never sent: the row says queued until a provider has accepted it, because a log that claims a send the company cannot stand behind is worse than no log. A recipient who has unsubscribed, hard bounced or complained comes back as a refusal rather than an error, since 'they asked us to stop' is an answer and throwing would roll back whatever the caller was recording. Malformed mail is refused outright: no subject, no body, HTML with no plain text alternative, or marketing with no unsubscribe URL. The last one is CAN-SPAM and the Gmail and Yahoo bulk sender rules, and this is the only place it can be enforced.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueEmailInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put an email in the outbox",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueEmailOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
+    "/v1/email/send-queued": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "sendQueuedEmail",
+        "summary": "Hand the queue to the provider",
+        "description": "Oldest first, and each row is claimed with a conditional update before the provider is called, so a process that dies mid send leaves a message visibly stuck rather than one that quietly goes out twice. A retryable failure goes back to the queue and a permanent one stays failed: a 451 greylisting is the normal first answer from a well configured receiver, and treating it as permanent means a self hoster's first email to every new customer fails. Session authorized rather than background only, because a fresh self hosted install has no worker running yet and 'wait for a cron you have not set up' is not an answer.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendQueuedEmailInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Hand the queue to the provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendQueuedEmailOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
+    "/v1/email/suppressions": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listEmailSuppressions",
+        "summary": "Who this company can no longer email, and why",
+        "description": "The reason is on every row because somebody will have to decide a year from now whether lifting one is safe, and a hard bounce, a spam complaint and an operator marking a customer do-not-contact are three different answers to that question.\n\nRequires a session holding: message:read.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Who this company can no longer email, and why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEmailSuppressionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:read"
+        ]
+      },
+      "post": {
+        "operationId": "suppressEmailAddress",
+        "summary": "Stop emailing an address",
+        "description": "Guarded by message:send rather than a settings permission, because it changes who this company can contact. A reason is required: a suppression nobody can explain is a customer nobody can email and nobody can decide about.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuppressEmailAddressInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop emailing an address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuppressEmailAddressOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
+    "/v1/email/suppressions/{address}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "liftEmailSuppression",
+        "summary": "Take an address off the do-not-email list",
+        "description": "The only way off. Lifting rather than deleting, so the record that they were suppressed and why survives: a customer who hard bounced, moved mailbox and came back is a different story from one who was never on the list.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 320,
+              "format": "email"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiftEmailSuppressionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take an address off the do-not-email list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiftEmailSuppressionOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
         ]
       }
     },
@@ -10932,6 +12919,371 @@
         "x-authorization": "session",
         "x-permissions": [
           "payment:collect"
+        ]
+      }
+    },
+    "/v1/payments/connection": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getPaymentsStatus",
+        "summary": "Whether cards can be taken, and what the form needs",
+        "description": "Says separately whether a processor is connected and whether its webhook is configured, because the two fail differently. A connection with no signing secret takes cards perfectly well and never learns that any of them succeeded: every invoice stays open, every customer is chased for money they have already paid, and the settings screen says connected.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M13"
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether cards can be taken, and what the form needs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPaymentsStatusOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
+    },
+    "/v1/payments/intents": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "createPaymentIntent",
+        "summary": "Start a card payment",
+        "description": "Name the invoices and the amount is read from their balances rather than taken from the caller, because the caller is usually a browser and a browser that can name both can name a number that suits it. Returns a client secret and records the attempt. It does not create a payment: that happens when the processor says the money moved.\n\nRequires a session holding: payment:collect.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentIntentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Start a card payment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatePaymentIntentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:collect"
+        ]
+      }
+    },
+    "/v1/payments/{paymentId}/refund": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "refundPayment",
+        "summary": "Give a card payment back",
+        "description": "Refuses more than is left to refund, and refuses a payment that never went through a processor: money that arrived as a cheque goes back as a cheque. The payment row is not changed here. Stripe answers with a refund that is pending, and the row changes when the webhook says the money actually moved, so there is one path to that column rather than two that disagree the day a refund is created and then fails.\n\nRequires a session holding: payment:refund.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefundPaymentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give a card payment back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundPaymentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:refund"
         ]
       }
     },
@@ -21355,6 +23707,43 @@
           "meanConfidence"
         ]
       },
+      "CloseAccountingPeriodInput": {
+        "type": "object",
+        "properties": {
+          "periodEnd": {
+            "type": "string",
+            "format": "date"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "periodEnd"
+        ]
+      },
+      "CloseAccountingPeriodOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periodEnd": {
+            "type": "string"
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "periodEnd",
+          "closedAt"
+        ]
+      },
       "CompleteVisitInput": {
         "type": "object",
         "properties": {
@@ -24490,6 +26879,96 @@
           "updatedAt"
         ]
       },
+      "CreatePaymentIntentInput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "invoiceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 50
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "receiptEmail": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email"
+          }
+        },
+        "required": [
+          "customerId"
+        ]
+      },
+      "CreatePaymentIntentOutput": {
+        "type": "object",
+        "properties": {
+          "attemptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "intentId": {
+            "type": "string"
+          },
+          "clientSecret": {
+            "type": "string"
+          },
+          "publishableKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "amount"
+              ]
+            }
+          }
+        },
+        "required": [
+          "attemptId",
+          "intentId",
+          "clientSecret",
+          "publishableKey",
+          "amount",
+          "currency",
+          "allocations"
+        ]
+      },
       "CreatePriceBookItemInput": {
         "type": "object",
         "properties": {
@@ -26329,6 +28808,108 @@
           "status",
           "attempts",
           "willRetry"
+        ]
+      },
+      "GetAccountingStatusOutput": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unmappedAccountCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pendingDocuments": {
+            "type": "integer"
+          },
+          "failedDocuments": {
+            "type": "integer"
+          },
+          "linkedDocuments": {
+            "type": "integer"
+          },
+          "lastRun": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "finishedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "recordsRead": {
+                "type": "integer"
+              },
+              "recordsWritten": {
+                "type": "integer"
+              },
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blockedReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "startedAt",
+              "finishedAt",
+              "recordsRead",
+              "recordsWritten",
+              "cursor",
+              "blockedReason",
+              "error"
+            ]
+          },
+          "closedThrough": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "connected",
+          "provider",
+          "unmappedAccountCodes",
+          "pendingDocuments",
+          "failedDocuments",
+          "linkedDocuments",
+          "lastRun",
+          "closedThrough"
         ]
       },
       "GetArAgingOutput": {
@@ -28368,6 +30949,57 @@
           "cost"
         ]
       },
+      "GetPaymentsStatusOutput": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publishableKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhookConfigured": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "webhookPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "connected",
+          "provider",
+          "publishableKey",
+          "webhookConfigured",
+          "connectionId",
+          "webhookPath",
+          "lastError"
+        ]
+      },
       "GetPerformanceOutput": {
         "type": "object",
         "properties": {
@@ -29550,6 +32182,25 @@
           "movements"
         ]
       },
+      "LiftEmailSuppressionInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "LiftEmailSuppressionOutput": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "lifted": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "address",
+          "lifted"
+        ]
+      },
       "LinkCustomerToPropertyInput": {
         "type": "object",
         "properties": {
@@ -29596,6 +32247,302 @@
         },
         "required": [
           "ok"
+        ]
+      },
+      "ListAccountMappingsOutput": {
+        "type": "object",
+        "properties": {
+          "mappings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accountCode": {
+                  "type": "string"
+                },
+                "externalId": {
+                  "type": "string"
+                },
+                "externalName": {
+                  "type": "string"
+                },
+                "externalKind": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accountCode",
+                "externalId",
+                "externalName",
+                "externalKind"
+              ]
+            }
+          }
+        },
+        "required": [
+          "mappings"
+        ]
+      },
+      "ListAccountingAccountsOutput": {
+        "type": "object",
+        "properties": {
+          "blocked": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retryAfterSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "externalId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "classification": {
+                  "type": "string",
+                  "enum": [
+                    "income",
+                    "expense",
+                    "asset",
+                    "liability",
+                    "equity",
+                    "other"
+                  ]
+                },
+                "number": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "externalId",
+                "name",
+                "kind",
+                "classification",
+                "number",
+                "active"
+              ]
+            }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "blocked",
+          "retryAfterSeconds",
+          "accounts",
+          "error"
+        ]
+      },
+      "ListAccountingPeriodsOutput": {
+        "type": "object",
+        "properties": {
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "periodEnd": {
+                  "type": "string"
+                },
+                "closedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reopenedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "reopenedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "periodEnd",
+                "closedAt",
+                "note",
+                "reopenedAt",
+                "reopenedReason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "periods"
+        ]
+      },
+      "ListAccountingProblemsOutput": {
+        "type": "object",
+        "properties": {
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "customer",
+                    "invoice",
+                    "payment",
+                    "credit_memo"
+                  ]
+                },
+                "entityId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "idempotencyKey": {
+                  "type": "string"
+                },
+                "attempts": {
+                  "type": "integer"
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "entityId",
+                "idempotencyKey",
+                "attempts",
+                "lastError",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "problems"
+        ]
+      },
+      "ListAccountingRunsOutput": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "direction": {
+                  "type": "string"
+                },
+                "entityType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordsRead": {
+                  "type": "integer"
+                },
+                "recordsWritten": {
+                  "type": "integer"
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "finishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "blockedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "direction",
+                "entityType",
+                "cursor",
+                "recordsRead",
+                "recordsWritten",
+                "startedAt",
+                "finishedAt",
+                "blockedReason",
+                "error"
+              ]
+            }
+          }
+        },
+        "required": [
+          "runs"
         ]
       },
       "ListAttachmentsOutput": {
@@ -30805,6 +33752,128 @@
         },
         "required": [
           "requests"
+        ]
+      },
+      "ListEmailMessagesOutput": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "providerMessageId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "errorCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "errorMessage": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sentAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "deliveredAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "to",
+                "from",
+                "subject",
+                "purpose",
+                "status",
+                "providerMessageId",
+                "errorCode",
+                "errorMessage",
+                "sentAt",
+                "deliveredAt",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      },
+      "ListEmailSuppressionsOutput": {
+        "type": "object",
+        "properties": {
+          "suppressions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "suppressedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "address",
+                "purpose",
+                "reason",
+                "suppressedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "suppressions"
         ]
       },
       "ListEstimatesOutput": {
@@ -33443,6 +36512,95 @@
           "onlyOneKnowable"
         ]
       },
+      "QueueEmailInput": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 500000
+          },
+          "html": {
+            "type": "string",
+            "maxLength": 2000000
+          },
+          "replyTo": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "marketing"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "unsubscribeUrl": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri"
+          }
+        },
+        "required": [
+          "to",
+          "subject"
+        ]
+      },
+      "QueueEmailOutput": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "messageId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "conversationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "explanation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "queued",
+          "messageId",
+          "conversationId",
+          "reason",
+          "explanation"
+        ]
+      },
       "ReceivePurchaseOrderInput": {
         "type": "object",
         "properties": {
@@ -33641,6 +36799,14 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$",
             "default": "0"
+          },
+          "feeAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "surchargeAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "receivedAt": {
             "type": "string",
@@ -34094,6 +37260,51 @@
           "updatedAt"
         ]
       },
+      "RefundPaymentInput": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "RefundPaymentOutput": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "refundId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "status": {
+            "type": "string"
+          },
+          "settled": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "paymentId",
+          "refundId",
+          "amount",
+          "status",
+          "settled"
+        ]
+      },
       "RegisterDeviceInput": {
         "type": "object",
         "properties": {
@@ -34354,6 +37565,48 @@
         },
         "required": [
           "jurisdiction"
+        ]
+      },
+      "ReopenAccountingPeriodInput": {
+        "type": "object",
+        "properties": {
+          "periodEnd": {
+            "type": "string",
+            "format": "date"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "periodEnd",
+          "reason"
+        ]
+      },
+      "ReopenAccountingPeriodOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periodEnd": {
+            "type": "string"
+          },
+          "reopenedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "periodEnd",
+          "reopenedAt"
         ]
       },
       "ReorderRouteInput": {
@@ -34854,6 +38107,36 @@
           "respondedAt"
         ]
       },
+      "RetryAccountingDocumentInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetryAccountingDocumentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "invoice",
+              "payment",
+              "credit_memo"
+            ]
+          },
+          "attempts": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "attempts"
+        ]
+      },
       "RevisePriceBookItemInput": {
         "type": "object",
         "properties": {
@@ -35032,6 +38315,85 @@
         },
         "required": [
           "ok"
+        ]
+      },
+      "RunAccountingSyncInput": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        }
+      },
+      "RunAccountingSyncOutput": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "pushed": {
+            "type": "integer"
+          },
+          "adopted": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "reads": {
+            "type": "integer"
+          },
+          "writes": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changesSeen": {
+            "type": "integer"
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "blockedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "runId",
+          "provider",
+          "pushed",
+          "adopted",
+          "skipped",
+          "failed",
+          "reads",
+          "writes",
+          "cursor",
+          "changesSeen",
+          "more",
+          "blockedReason",
+          "error"
         ]
       },
       "SatisfyObligationInput": {
@@ -35897,6 +39259,112 @@
           "expiresAt"
         ]
       },
+      "SendQueuedEmailInput": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "SendQueuedEmailOutput": {
+        "type": "object",
+        "properties": {
+          "deliveryReporting": {
+            "type": "string"
+          },
+          "deliveryNote": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "messageId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "sent",
+                    "failed",
+                    "skipped"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "messageId",
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "deliveryReporting",
+          "results"
+        ]
+      },
+      "SetAccountMappingInput": {
+        "type": "object",
+        "properties": {
+          "accountCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "externalName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "externalKind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          }
+        },
+        "required": [
+          "accountCode",
+          "externalId",
+          "externalName",
+          "externalKind"
+        ]
+      },
+      "SetAccountMappingOutput": {
+        "type": "object",
+        "properties": {
+          "accountCode": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalName": {
+            "type": "string"
+          },
+          "externalKind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountCode",
+          "externalId",
+          "externalName",
+          "externalKind"
+        ]
+      },
       "SetArrivalWindowsInput": {
         "type": "object",
         "properties": {
@@ -36712,6 +40180,51 @@
           "submissionId",
           "refusals",
           "customerId"
+        ]
+      },
+      "SuppressEmailAddressInput": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "marketing"
+            ]
+          }
+        },
+        "required": [
+          "address",
+          "reason"
+        ]
+      },
+      "SuppressEmailAddressOutput": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "suppressed": {
+            "type": "boolean"
+          },
+          "alreadySuppressed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "address",
+          "suppressed",
+          "alreadySuppressed"
         ]
       },
       "SweepObligationsInput": {

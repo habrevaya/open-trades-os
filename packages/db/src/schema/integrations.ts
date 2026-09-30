@@ -1,4 +1,5 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user } from "./tenancy";
 import { customer, property } from "./crm";
@@ -89,8 +90,220 @@ export const syncRun = pgTable("sync_run", {
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   error: text("error"),
+  /**
+   * Why a pass stopped short WITHOUT failing.
+   *
+   * The only value today is `read_budget_exhausted`, and it exists because of
+   * the metering note at the top of this file: Intuit charges for reads and
+   * refuses the overage with a 429 instead of billing it. A pass that hits
+   * that ceiling has not failed. It has run out of reads until the window
+   * rolls, it will resume from the same cursor, and nobody needs to do
+   * anything.
+   *
+   * Writing that into `error` instead would be cheaper by one column and
+   * wrong in the direction that costs money: an operator's failed-sync list
+   * would fill up with a condition that clears by waiting, and the one row in
+   * it that is a real credential failure would be indistinguishable from the
+   * noise. A condition that resolves on its own and a condition that needs a
+   * person are different facts and they get different columns.
+   */
+  blockedReason: text("blocked_reason"),
   ...timestamps,
 }, (t) => ({ connIdx: index("sync_run_connection_idx").on(t.connectionId, t.startedAt) }));
+
+/**
+ * ACCOUNTING BRIDGE STATE
+ *
+ * Three tables, and between them they are the answer to the metering problem
+ * stated at the top of this file. The sync must be able to answer "have I
+ * already sent this, and where did it land" WITHOUT asking QuickBooks,
+ * because asking is the metered operation and the one that gets refused.
+ * Every one of these is a local cache that exists so a read does not happen.
+ */
+
+/** What kind of thing a link points at. Closed, because a link to a kind the
+ *  sync cannot push is a row nothing will ever resolve. */
+export const accountingEntityKind = pgEnum("accounting_entity_kind", [
+  "customer", "invoice", "payment", "credit_memo",
+]);
+
+/**
+ * `pending` is the state that makes this table load bearing rather than
+ * decorative. It is written BEFORE the HTTP call and it means "a push for
+ * this entity is in flight or died in flight", which is exactly the case a
+ * naive "look it up afterwards" design cannot tell apart from "never sent".
+ */
+export const accountingLinkState = pgEnum("accounting_link_state", [
+  "pending", "linked", "failed",
+  /**
+   * The document reached the books and somebody removed it there.
+   *
+   * A distinct state rather than `failed`, because the two need opposite
+   * treatment. A failed push is offered again on the next pass; a document a
+   * bookkeeper deleted on purpose must NOT be, or the sync spends every tick
+   * arguing with the person whose books these are. Getting it back is a
+   * deliberate act through the retry surface.
+   */
+  "deleted",
+]);
+
+/**
+ * OUR ENTITY ID, AND THE ONE THE ACCOUNTING SYSTEM GAVE IT.
+ *
+ * A table rather than a jsonb bag on the entity, for three reasons that all
+ * bite in production:
+ *
+ *   1. The UNIQUE index on (connection, kind, entity) is the idempotency
+ *      guard itself. Two workers racing on the same invoice both try to
+ *      insert; Postgres lets exactly one in, and the loser skips rather than
+ *      creating a second invoice in the customer's books. A jsonb field
+ *      updated after the fact cannot do that, because the check and the write
+ *      are two statements with a window between them.
+ *   2. A company can disconnect QuickBooks and connect Xero. The ids are
+ *      scoped to the CONNECTION, so the Xero pass starts empty instead of
+ *      inheriting QuickBooks ids that name nothing in Xero.
+ *   3. "Which invoices have not reached the books" is a query with an index
+ *      behind it rather than a scan of every invoice's jsonb.
+ */
+export const accountingEntityLink = pgTable("accounting_entity_link", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  connectionId: uuid("connection_id").notNull().references(() => integrationConnection.id, { onDelete: "cascade" }),
+  kind: accountingEntityKind("kind").notNull(),
+  /** Our id: an invoice id, a payment id, a customer id. */
+  entityId: uuid("entity_id").notNull(),
+  /**
+   * A deterministic marker derived from our entity and written onto the
+   * document in the accounting system, in a field that system can be queried
+   * on.
+   *
+   * It is the recovery path for the one window this table cannot close on its
+   * own: the claim row is committed, the create succeeds, and the process
+   * dies before the response is stored. The next pass finds a `pending` row
+   * with no external id and has to decide between "it never went" and "it
+   * went and I lost the receipt". Asking by this key answers that in one
+   * read, which is a read worth paying for because the alternative is a
+   * duplicate invoice in somebody's books.
+   */
+  idempotencyKey: text("idempotency_key").notNull(),
+  state: accountingLinkState("state").notNull().default("pending"),
+  /** The accounting system's own id. Null until the push comes back. */
+  externalId: text("external_id"),
+  /**
+   * The provider's optimistic concurrency token, QuickBooks calls it
+   * SyncToken. Kept because updating a document there requires the current
+   * one, and fetching it is a metered read we already paid for once.
+   */
+  externalVersion: text("external_version"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  pushedAt: timestamp("pushed_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  /** THE GUARD. One entity, one document, per connection. */
+  entityIdx: uniqueIndex("accounting_entity_link_entity_idx").on(t.connectionId, t.kind, t.entityId),
+  /**
+   * And the other direction, so two of our records cannot both claim one
+   * document in the books. Partial, because every row is null here until its
+   * push returns and a plain unique index would allow only one such row.
+   */
+  externalIdx: uniqueIndex("accounting_entity_link_external_idx")
+    .on(t.connectionId, t.kind, t.externalId)
+    .where(sql`${t.externalId} is not null`),
+  /** The work list: what has not landed yet. */
+  pendingIdx: index("accounting_entity_link_state_idx").on(t.organizationId, t.state),
+}));
+
+/**
+ * OUR ACCOUNT CODE, AND WHAT IT IS CALLED OVER THERE.
+ *
+ * `packages/core/src/ledger` has said since it was written that account codes
+ * "are the default rather than the law: a company maps them to their own
+ * chart during setup, and the mapping lives in account_mapping". There was no
+ * account_mapping. This is it, and the sentence is now true.
+ *
+ * Why the database and not a config file or an environment variable: a
+ * mapping is per company and per connection, it is edited by a bookkeeper
+ * rather than by whoever can deploy, and it has to be identical for every
+ * worker process in the fleet at the same instant. A file gives none of
+ * those, and the failure mode of getting it wrong is not an error: it is
+ * twelve months of revenue posted to the wrong account, discovered by an
+ * accountant in March.
+ *
+ * Why not `integration_connection.settings`, which is already jsonb and
+ * already there: a unique index cannot be put on a key inside a jsonb
+ * document, so two mappings for one account code would be expressible, and
+ * "which of our codes are still unmapped" would be a scan with no index.
+ *
+ * NOTHING IS GUESSED. A posting whose account code has no row here is
+ * refused, loudly, with the code named. A default that silently picks an
+ * income account is how a bookkeeper's year goes wrong quietly.
+ */
+export const accountMapping = pgTable("account_mapping", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  connectionId: uuid("connection_id").notNull().references(() => integrationConnection.id, { onDelete: "cascade" }),
+  /** Ours: "4000", "2200", "1200". See ACCOUNTS in packages/core/src/ledger. */
+  accountCode: text("account_code").notNull(),
+  /** Theirs, opaque. We do not parse it and we do not assume it is a number. */
+  externalId: text("external_id").notNull(),
+  /**
+   * What the operator saw when they chose it, frozen at the moment of
+   * choosing. Shown on the mapping screen so the screen costs no reads, and
+   * kept even when it goes stale: "you mapped this to Sales Income" is a more
+   * useful thing to show than a bare id, even if somebody has since renamed
+   * the account over there.
+   */
+  externalName: text("external_name").notNull(),
+  /**
+   * The provider's own object type behind the id, because it is genuinely not
+   * always an account. QuickBooks invoice lines reference an Item, which
+   * carries the income account behind it; a journal entry references an
+   * Account directly. Storing which kind this id is means the adapter does
+   * not have to guess from the shape of the string.
+   */
+  externalKind: text("external_kind").notNull(),
+  ...timestamps,
+}, (t) => ({
+  codeIdx: uniqueIndex("account_mapping_code_idx").on(t.connectionId, t.accountCode),
+  orgIdx: index("account_mapping_org_idx").on(t.organizationId),
+}));
+
+/**
+ * A PERIOD SOMEBODY HAS FILED ON.
+ *
+ * Once a quarter has been closed and a return filed against it, a sync that
+ * pushes a late invoice back into it changes a number that has already been
+ * reported to a tax authority. The company then has an amended return and no
+ * record of what changed it.
+ *
+ * So closing is an explicit act by somebody holding `accounting:close`, it
+ * names who and when, and the sync refuses to push anything dated on or
+ * before the close. The refusal is recorded on the entity link rather than
+ * silently skipped, because an invoice that will never reach the books
+ * without a human decision is exactly the thing somebody needs to be told
+ * about.
+ *
+ * Reopening is possible and is the same permission, because a period closed
+ * by mistake is otherwise a permanent hole that people work around by
+ * back-dating documents, which is worse than the mistake.
+ */
+export const accountingPeriod = pgTable("accounting_period", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The last day the close covers. Everything on or before it is frozen. */
+  periodEnd: date("period_end").notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+  closedByUserId: uuid("closed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Why, in the closer's own words. "Q1 filed 2026-04-12." */
+  note: text("note"),
+  reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+  reopenedByUserId: uuid("reopened_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  reopenedReason: text("reopened_reason"),
+  ...timestamps,
+}, (t) => ({
+  periodIdx: uniqueIndex("accounting_period_end_idx").on(t.organizationId, t.periodEnd),
+}));
 
 /**
  * LEAD SOURCE CONNECTORS

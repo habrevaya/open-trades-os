@@ -54,8 +54,6 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
   ["commission:configure", "M17."],
   ["campaign:read", "M19 measures; it does not yet send a campaign."],
   ["campaign:write", "M19."],
-  ["accounting:sync", "M14, the accounting bridge. Planned."],
-  ["accounting:close", "M14."],
   ["billing:manage", "The company's own subscription to this product. Not a module here."],
   ["agent:configure", "M27, AI agents. Planned."],
   ["apikey:write", "M26 issues app tokens through connected apps, not bare API keys."],
@@ -73,7 +71,6 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
   ["ledger:post", "M14. Postings are a consequence of a guarded business action, never a bare entry. A manual journal has no surface."],
   ["invoice:send", "M13 writes invoice_delivery rows through no service; delivery is not built."],
   ["payment:read", "M13 records payments and lists none. The invoice carries its own."],
-  ["payment:refund", "M13 refunds a deposit, not a payment."],
   ["deposit:read", "M13 requests, records, applies and refunds a deposit, and reads none back."],
   ["estimate.discount.unlimited", "M07 has no discount cap, so there is nothing to exceed."],
 ]);

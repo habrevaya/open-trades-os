@@ -66,7 +66,15 @@ const ORDER = [
   "retention_policy", "regulatory_submission",
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   "rental", "rentable_asset", "territory", "business_hours",
-  "lead_offer", "lead_source_connector", "sync_run", "integration_connection",
+  "lead_offer", "lead_source_connector", "sync_run",
+  /**
+   * The accounting bridge, before the connection every one of them
+   * cascades from. A period close points at no connection at all, which
+   * is deliberate: a filed quarter outlives whichever accounting system
+   * the company was using when it filed.
+   */
+  "accounting_entity_link", "account_mapping", "accounting_period",
+  "integration_connection",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.
   "app_token", "connected_app",

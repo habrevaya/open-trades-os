@@ -164,7 +164,19 @@ export async function sendTransactional(tx: Database, input: {
 
   const decision = await sendability(tx, input.organizationId, input.address);
   if (!decision.allowed || !decision.from) {
-    const reason = decision.reason ?? "channel_unregistered";
+    /**
+     * TWO DIFFERENT FAILURES, and they were collapsed into one stale string.
+     *
+     * A refused decision means consent says no. `!decision.from` means
+     * consent is fine and this company has no number registered to send
+     * from, which is a settings problem rather than a customer one. The
+     * fallback here was `"channel_unregistered"`, a value `canSend` has never
+     * returned and `refusal` has never had a case for, so the operator got
+     * the identifier printed at them either way.
+     */
+    const reason: comms.SendRefusal = decision.allowed
+      ? "channel_not_registered"
+      : decision.reason;
     return { sent: false, reason, explanation: refusal(reason) };
   }
 
@@ -203,15 +215,42 @@ export async function sendTransactional(tx: Database, input: {
  *
  * "Forbidden" sends somebody to support. "They replied STOP" tells them what
  * happened and that there is nothing to fix.
+ *
+ * TWO OF THESE CASES USED TO BE DEAD, AND THE TYPE IS WHY THEY COULD BE.
+ *
+ * This took `string | undefined` and switched on `"revoked"` and
+ * `"channel_unregistered"`, while `canSend` has always answered
+ * `"consent_revoked"` and `"channel_not_registered"`. Both fell through to
+ * the default, so a customer who withdrew consent produced "Cannot send:
+ * consent_revoked" on a technician's screen, and the one screen where a
+ * plain sentence matters most showed an identifier instead.
+ *
+ * Nothing caught it because a wider parameter type made every branch look
+ * plausible. Taking `SendRefusal` means the compiler now rejects a case that
+ * cannot happen and, more usefully, the exhaustiveness check below fails to
+ * build the day somebody adds a refusal reason and forgets to write its
+ * sentence. A list of strings that has to agree with another list of strings,
+ * with nothing making them agree, is how this got here.
+ *
+ * `undefined` is still accepted because a caller can have no reason at all,
+ * which is not the same as a reason nobody wrote words for.
  */
-export function refusal(reason: string | undefined): string {
+export function refusal(reason: comms.SendRefusal | undefined): string {
   switch (reason) {
     case "suppressed": return "They have replied STOP. You cannot text this number until they opt back in.";
     case "no_consent": return "No consent on record for this number.";
-    case "revoked": return "They withdrew consent for this number.";
-    case "channel_unregistered": return "No registered sending number. Register one before sending.";
+    case "consent_revoked": return "They withdrew consent for this number.";
+    case "channel_not_registered": return "No registered sending number. Register one before sending.";
     case "quiet_hours": return "Outside the hours this customer may be contacted.";
-    case "empty": return "Nothing to send.";
-    default: return reason ? `Cannot send: ${reason}` : "Cannot send to this number.";
+    case undefined: return "Cannot send to this number.";
+    default: {
+      /**
+       * Unreachable while every reason above is covered, and a build error
+       * the moment one is not. That is the whole point: the sentences and the
+       * union cannot drift apart silently again.
+       */
+      const unwritten: never = reason;
+      return `Cannot send: ${String(unwritten)}`;
+    }
   }
 }

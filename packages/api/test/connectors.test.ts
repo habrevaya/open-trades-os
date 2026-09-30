@@ -5,6 +5,19 @@ import {
   csvSpendSource, webhookLeadSource, signLeadWebhook,
   SIGNATURE_HEADER, TIMESTAMP_HEADER, MAX_SKEW_MS,
 } from "../src/marketing/index";
+/**
+ * Imported for its registration side effect as well as its registry.
+ *
+ * The catalogue covers payments now, so "registered" has to mean registered
+ * in ANY of the product's provider registries. A sweep that knew about two of
+ * the three would have called a real, working Stripe adapter a lie, and the
+ * version of that mistake that matters is the other way round: a fourth
+ * registry added later and not named here makes this test quietly stop
+ * covering it.
+ */
+import { registeredPaymentProviders } from "../src/payments/index";
+import { registeredEmailProviders } from "../src/email/index";
+import { registeredProviders as registeredAccountingProviders } from "../src/accounting/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -36,7 +49,11 @@ describe("the connector catalogue", () => {
   });
 
   it("has a registered adapter behind everything it calls built", () => {
-    const registered = new Set([...registeredSpendSources(), ...registeredLeadSources()]);
+    const registered = new Set([
+      ...registeredSpendSources(), ...registeredLeadSources(),
+      ...registeredPaymentProviders(), ...registeredEmailProviders(),
+      ...registeredAccountingProviders(),
+    ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
       .filter((key) => !registered.has(key));
@@ -54,7 +71,11 @@ describe("the connector catalogue", () => {
      * turn on, which is the same waste as the reverse with none of the
      * visibility.
      */
-    const registered = [...registeredSpendSources(), ...registeredLeadSources()];
+    const registered = [
+      ...registeredSpendSources(), ...registeredLeadSources(),
+      ...registeredPaymentProviders(), ...registeredEmailProviders(),
+      ...registeredAccountingProviders(),
+    ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);
   });
@@ -71,6 +92,8 @@ describe("the connector catalogue", () => {
       "google_ads", "google_lsa", "meta_ads", "bing_ads",
       "ga4", "search_console", "google_business_profile",
       "angi", "thumbtack", "lead_webhook", "spend_csv",
+      /** Not marketing, and the catalogue covers every outside system now. */
+      "stripe", "resend", "smtp", "quickbooks",
     ]) {
       expect(keys.has(needed), `${needed} is not in the catalogue`).toBe(true);
     }

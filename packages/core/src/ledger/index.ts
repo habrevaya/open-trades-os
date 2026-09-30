@@ -14,7 +14,11 @@ import { type Money, add, subtract, zero, toString, isZero, isNegative, allocate
  *
  * ACCOUNT CODES follow a conventional chart of accounts. They are the default
  * rather than the law: a company maps them to their own chart during setup,
- * and the mapping lives in account_mapping.
+ * and the mapping lives in account_mapping, one row per code per accounting
+ * connection. That table did not exist when this sentence was first written,
+ * which made this comment a claim about a table nobody could find; it exists
+ * now, and the accounting bridge refuses to send a document whose code has no
+ * mapping rather than defaulting to a plausible account.
  */
 export const ACCOUNTS = {
   AR: "1200",                 // Accounts receivable

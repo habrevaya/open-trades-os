@@ -274,6 +274,27 @@
       "when": 1790683118530,
       "tag": "0038_demonic_psynapse",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790767868384,
+      "tag": "0039_spooky_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790768024072,
+      "tag": "0040_simple_warpath",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790769263751,
+      "tag": "0041_outgoing_fixer",
+      "breakpoints": true
     }
   ]
 }

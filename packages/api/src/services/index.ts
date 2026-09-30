@@ -53,3 +53,6 @@ export * as recurring from "./recurring";
 export * as contracts from "./contracts";
 export * as webhooks from "./webhooks";
 export * as customFields from "./custom-fields";
+export * as payments from "./payments";
+export * as email from "./email";
+export * as accounting from "./accounting";

@@ -19,9 +19,13 @@ import { flush, providerFor, recoverStuck } from "../services/comms-outbox";
 import { deliver } from "../services/webhooks";
 import { inTenant } from "../services/context";
 import { ProviderNotConfiguredError } from "../comms/provider";
+import * as accounting from "../services/accounting";
+import { AccountingNotConfiguredError } from "../accounting/provider";
 // Registers the carrier adapters. Drop this import and the worker still runs;
 // the outbox simply finds no provider and leaves messages queued.
 import "../comms";
+// Same for the accounting adapters, and for the same reason.
+import "../accounting";
 
 const url = process.env["WORKER_DATABASE_URL"] ?? process.env["DATABASE_URL"];
 if (!url) {
@@ -98,20 +102,59 @@ async function sendWebhooks(organizationId: string): Promise<void> {
 }
 
 /**
+ * Push this tenant's invoices and payments into its books, and read back what
+ * moved over there.
+ *
+ * Hooked here rather than on a timer of its own, for the same reason as the
+ * outbox: `afterDrain` fires for the organizations that had events, which is
+ * exactly the set with something new to send. A company with a quiet day
+ * costs nothing, and that matters more here than anywhere else in this file
+ * because the accounting API is METERED ON READS and refuses the overage with
+ * a 429. A poll would spend the budget on organizations with nothing to sync.
+ *
+ * A pass that cannot read is not a failure. `sync` records
+ * `read_budget_exhausted` on the run, keeps the cursor where it was, and
+ * still pushes, because the outbound half needs no reads at all.
+ */
+async function syncAccounting(organizationId: string): Promise<void> {
+  const ctx = { actor: accounting.syncActor(organizationId), db };
+
+  const resolved = await accounting.resolveProvider(ctx).catch((error: unknown) => {
+    // No books connected is an ordinary state, exactly like no carrier.
+    if (error instanceof AccountingNotConfiguredError) return null;
+    throw error;
+  });
+  if (!resolved) return;
+
+  const outcome = await accounting.sync(ctx, { provider: resolved.provider });
+
+  if (outcome.error) {
+    console.error(`[worker] accounting sync for ${organizationId}: ${outcome.error}`);
+  }
+  if (outcome.blockedReason) {
+    console.warn(
+      `[worker] accounting reads are spent for ${organizationId}; `
+      + `${outcome.pushed} documents still went out and the cursor is held.`,
+    );
+  }
+}
+
+/**
  * BOTH RUN, AND NEITHER CAN STOP THE OTHER.
  *
- * `afterDrain` is awaited inside the worker's pass, so a throw from either of
+ * `afterDrain` is awaited inside the worker's pass, so a throw from any of
  * these ends the pass and every tenant behind this one in it waits for the
- * next tick. A carrier outage should not hold up webhooks and a receiver's
- * expired certificate should not hold up text messages, and neither should
- * stall a third company that has nothing wrong with it at all.
+ * next tick. A carrier outage should not hold up webhooks, a receiver's
+ * expired certificate should not hold up text messages, and an accounting
+ * connection that needs reauthorising should not hold up either, nor should
+ * any of them stall a third company with nothing wrong with it at all.
  *
  * Logged rather than swallowed. A background failure nobody prints is the
  * same as one that did not happen until somebody asks why their integration
  * is quiet, and by then there is nothing to read.
  */
 async function afterDrain(organizationId: string): Promise<void> {
-  for (const step of [sendQueued, sendWebhooks]) {
+  for (const step of [sendQueued, sendWebhooks, syncAccounting]) {
     try {
       await step(organizationId);
     } catch (error) {

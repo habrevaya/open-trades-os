@@ -341,6 +341,33 @@ export const message = pgTable("message", {
   fromAddress: text("from_address").notNull(),
   toAddress: text("to_address").notNull(),
   body: text("body"),
+  /**
+   * THE THREE THINGS EMAIL HAS AND A TEXT DOES NOT.
+   *
+   * Email shares everything else on this table with SMS: a direction, a
+   * purpose, two addresses, a status, a provider id, a delivery stamp. Giving
+   * it a table of its own would split the customer timeline in half and hand
+   * the product two outbound paths and one suppression check, which is the
+   * exact failure comms-send.ts was written to close.
+   *
+   * `subject` is per message rather than per conversation because a reply
+   * renames the thread ("Re: Invoice 1042") and `conversation.subject` can
+   * only hold one of those. What went out is what the log has to show.
+   *
+   * `body_html` sits beside `body` rather than replacing it, because an email
+   * carries both parts and the plain text one is what a spam filter reads
+   * when the HTML is missing. Null on SMS, where there is no such thing.
+   *
+   * `headers` is what we ASKED the provider to set, kept because the header
+   * that matters is List-Unsubscribe: a marketing send that went without one
+   * is a compliance problem, and a column nobody wrote would leave the
+   * question unanswerable after the fact. Reply-To lives in here too, since
+   * it is a header; the provider seam surfaces it separately only because
+   * every provider API models it separately.
+   */
+  subject: text("subject"),
+  bodyHtml: text("body_html"),
+  headers: jsonb("headers").$type<Record<string, string>>().notNull().default({}),
   /** Attachments by reference. The bytes live in object storage. */
   media: jsonb("media").$type<{ url: string; contentType: string; bytes?: number }[]>()
     .notNull().default([]),
