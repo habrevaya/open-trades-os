@@ -558,6 +558,29 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
 
 export async function addVisit(ctx: ServiceContext, input: z.infer<typeof scheduleVisit.input>) {
   return guardedWrite(ctx, "visit:write", async (tx) => {
+    /**
+     * THE CONTRACT SAID IDEMPOTENT AND THIS DID NOT READ THE KEY.
+     *
+     * The dispatcher handed the Idempotency-Key over and nothing looked at
+     * it, so a retried request after a dropped response added a second
+     * visit, and a technician was sent twice. Checked inside the
+     * transaction like every other create, so two simultaneous retries
+     * cannot both pass.
+     */
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "visit"),
+        )).limit(1);
+      if (seen?.entityId) {
+        const [existing] = await tx.select().from(schema.visit)
+          .where(eq(schema.visit.id, seen.entityId)).limit(1);
+        if (existing) return { ...withProvenance(existing), technicianIds: await assignedTo(tx, existing.id) };
+      }
+    }
+
     const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, input.id)).limit(1);
     if (!job) throw new NotFoundError("Job");
     await assertUnclaimed(tx, "visit", input.externalRef);
@@ -586,6 +609,15 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
           visitId: visit!.id, technicianId, isLead: i === 0,
         })),
       );
+    }
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "visit.schedule",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "visit", entityId: visit!.id,
+      });
     }
 
     await audit(tx, ctx, "visit.scheduled", "visit", visit!.id, null, visit!);

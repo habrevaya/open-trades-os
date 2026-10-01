@@ -269,3 +269,19 @@ run("reading back what a migration needs to map and reconcile", () => {
     expect((second.data as Array<{ id: string }>).map((p) => p.id)).toEqual([applied.id]);
   });
 });
+
+run("adding a visit, retried", () => {
+  it("is a no-op with the same idempotency key, as the contract has always said", async () => {
+    const customer = await ok("createCustomer", { name: "Retry" });
+    const property = await ok("createProperty", { address, customerId: customer.id });
+    const job = await ok("createJob", { customerId: customer.id, propertyId: property.id, summary: "Retried" });
+    const body = { id: job.id, windowStart: "2026-11-02T15:00:00.000Z", windowEnd: "2026-11-02T17:00:00.000Z" };
+    const first = await ok("scheduleVisit", body, { key: "visit-retry-1" });
+    const again = await ok("scheduleVisit", body, { key: "visit-retry-1" });
+    expect(again.id).toBe(first.id);
+    const read = await ok("getJob", { id: job.id });
+    expect((read.visits as unknown[]).length).toBe(1);
+    const other = await ok("scheduleVisit", body, { key: "visit-retry-2" });
+    expect(other.id).not.toBe(first.id);
+  });
+});
