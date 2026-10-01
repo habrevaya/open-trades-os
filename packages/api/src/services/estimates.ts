@@ -1,13 +1,14 @@
 import { and, eq, desc, lt, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { estimate as est, money as m } from "@opentradesos/core";
+import { estimate as est, money as m, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
-  scopeOf,
+  scopeOf, timezoneOf,
 } from "./context";
+import { admitDate } from "./history";
 import { estimateScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { nextNumber } from "./jobs";
@@ -70,6 +71,15 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       : [];
     const byItem = new Map(versions.map((v) => [v.itemId, v]));
 
+    /**
+     * The day it was written. A migrated estimate from 2021 written on the
+     * day of the cutover makes close rate by month meaningless for every
+     * month before it.
+     */
+    const issuedOn = input.issuedOn
+      ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+    if (input.issuedOn) await admitDate(tx, ctx, input.issuedOn, "issuedOn");
+
     const number = await nextNumber(tx, ctx.actor.organizationId, "estimate");
 
     const [row] = await tx.insert(schema.estimate).values({
@@ -79,6 +89,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       propertyId: input.propertyId,
       jobId: input.jobId ?? null,
       title: input.title ?? null,
+      issuedOn,
       expiresOn: input.expiresOn ?? null,
       status: "draft",
     }).returning({ id: schema.estimate.id });
@@ -170,6 +181,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
       propertyId: schema.estimate.propertyId,
       jobId: schema.estimate.jobId,
       title: schema.estimate.title,
+      issuedOn: schema.estimate.issuedOn,
       expiresOn: schema.estimate.expiresOn,
       sentAt: schema.estimate.sentAt,
       viewedAt: schema.estimate.viewedAt,

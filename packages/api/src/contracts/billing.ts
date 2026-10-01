@@ -66,6 +66,14 @@ export const createInvoice = defineRoute({
     payerCustomerId: Uuid.optional(),
     jobId: Uuid.optional(),
     purchaseOrderNumber: z.string().max(100).optional(),
+    /**
+     * The day the invoice was issued, in the company's calendar. Omit for
+     * today. The ledger posting is dated by it, so revenue lands in the
+     * period it was earned. Up to a week back is ordinary late entry; earlier
+     * than that is recording history and needs `data:import`. Never in the
+     * future, and never inside a closed period.
+     */
+    issuedOn: z.string().date().optional(),
     dueOn: z.string().date().optional(),
     memo: z.string().max(2000).optional(),
     lines: z.array(z.object({
@@ -144,6 +152,13 @@ export const recordPayment = defineRoute({
     feeAmount: MoneyString.optional(),
     /** What was added for taking a card, where the company adds one. */
     surchargeAmount: MoneyString.optional(),
+    /**
+     * When the money arrived. Omit for now. The ledger posting is dated by
+     * it, so cash lands in the period it was received rather than the period
+     * somebody typed it in. Up to a week back is ordinary late entry; earlier
+     * needs `data:import`. Never in the future, and never inside a closed
+     * period.
+     */
     receivedAt: z.string().datetime().optional(),
     checkNumber: z.string().max(50).optional(),
     notes: z.string().max(1000).optional(),

@@ -123,6 +123,27 @@ export class ConflictError extends Error {
 }
 
 /**
+ * A request that was well formed and cannot be what it says.
+ *
+ * The schema check in the dispatcher answers "is this the right shape", and a
+ * 422 from there names the field. Some refusals can only be made once the
+ * service has done its arithmetic: an invoice whose stated total is not what
+ * its lines add up to, a line whose stated tax is not what its rate gives, a
+ * payment dated tomorrow. Those are the same kind of answer, so they come back
+ * the same way, as a 422 with the field that is wrong, rather than as a 409
+ * that reads like a clash with somebody else's write.
+ */
+export class UnprocessableError extends Error {
+  constructor(
+    message: string,
+    public readonly issues: Array<{ path: string; message: string }> = [],
+  ) {
+    super(message);
+    this.name = "UnprocessableError";
+  }
+}
+
+/**
  * The application role every request runs as. Overridable because a
  * self hoster may name it differently, but never optional.
  */
@@ -197,11 +218,39 @@ export async function guardedWrite<T>(
 export const scopeOf = (ctx: ServiceContext, resource: ScopedResource) =>
   effectiveScope(ctx.actor, resource);
 
+/**
+ * Where a record came from, when it came from another system.
+ *
+ * Every table that can be imported carries `source_system` and `source_id`,
+ * and for a long time nothing wrote them and nothing returned them, so the
+ * answer to "which Jobber invoice did this become" lived only in whatever
+ * local file the migration kept. They go out as one object because they mean
+ * nothing apart, and the raw columns and the source payload do not go out at
+ * all: the payload is whatever the other system sent, which is nobody's
+ * contract.
+ */
+export interface ExternalRef { source: string; id: string }
+
+type Provenanced<T> = T extends { sourceSystem: unknown; sourceId: unknown }
+  ? Omit<T, "sourceSystem" | "sourceId" | "sourcePayload"> & { externalRef: ExternalRef | null }
+  : T;
+
+export function withProvenance<T extends Record<string, unknown>>(row: T): Provenanced<T> {
+  if (!("sourceSystem" in row) || !("sourceId" in row)) return row as Provenanced<T>;
+  const { sourceSystem, sourceId, sourcePayload: _payload, ...rest } = row as Record<string, unknown>;
+  return {
+    ...rest,
+    externalRef: typeof sourceSystem === "string" && typeof sourceId === "string"
+      ? { source: sourceSystem, id: sourceId }
+      : null,
+  } as Provenanced<T>;
+}
+
 export const clean = <T extends Record<string, unknown>>(ctx: ServiceContext, entity: string, row: T) =>
-  redact(ctx.actor, entity, row);
+  redact(ctx.actor, entity, withProvenance(row));
 
 export const cleanAll = <T extends Record<string, unknown>>(ctx: ServiceContext, entity: string, rows: T[]) =>
-  redactMany(ctx.actor, entity, rows);
+  redactMany(ctx.actor, entity, rows.map(withProvenance));
 
 /**
  * Cursor pagination over a monotonic key.

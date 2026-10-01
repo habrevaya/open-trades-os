@@ -1,6 +1,6 @@
 import { PermissionError } from "@opentradesos/core";
 import {
-  NotFoundError, ConflictError, InvalidGrantError, OrganizationSuspendedError,
+  NotFoundError, ConflictError, InvalidGrantError, OrganizationSuspendedError, UnprocessableError,
 } from "../services/context";
 
 /**
@@ -54,6 +54,14 @@ export function errorResponse(error: unknown): Response {
   }
   if (error instanceof NotFoundError) return problem(404, error.message);
   if (error instanceof ConflictError) return problem(409, error.message);
+  /**
+   * The same shape as the dispatcher's own 422, with the field that is wrong,
+   * so a client handles "the schema refused it" and "the arithmetic refused
+   * it" with one branch.
+   */
+  if (error instanceof UnprocessableError) {
+    return problem(422, error.message, error.issues.length > 0 ? { issues: error.issues } : {});
+  }
 
   /**
    * 410, and it used to be a 500.

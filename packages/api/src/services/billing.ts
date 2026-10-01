@@ -1,12 +1,13 @@
 import { and, asc, eq, desc, lt, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { authorization as authz, coverage, ledger, money as m } from "@opentradesos/core";
+import { authorization as authz, coverage, history, ledger, money as m, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
-  scopeOf,
+  scopeOf, timezoneOf,
 } from "./context";
+import { admitDate, admitInstant } from "./history";
 import { invoiceScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { writePosting } from "./ledger";
@@ -39,6 +40,20 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
         )).limit(1);
       if (seen?.entityId) return loadInvoice(tx, ctx, seen.entityId);
     }
+
+    /**
+     * THE DAY IT WAS ISSUED, which used to be whatever day the request
+     * arrived. A migrated invoice from 2023 was issued on the day of the
+     * cutover, the aging report put all of them in "current", and ten years
+     * of revenue landed in one month. The date is admitted by the same rules
+     * as every other business date (see services/history.ts), and the
+     * posting below is dated by it.
+     */
+    const now = new Date();
+    const admitted = input.issuedOn
+      ? await admitDate(tx, ctx, input.issuedOn, "issuedOn")
+      : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
+    const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
 
     /**
      * Prices come from the price book VERSION, not from the request, whenever
@@ -220,7 +235,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
        */
       authorizationId: ceiling?.id ?? null,
       status: "open",
-      issuedOn: new Date().toISOString().slice(0, 10),
+      issuedOn,
       dueOn: input.dueOn ?? null,
       subtotal: m.toString(computed.totals.subtotal),
       discountTotal: m.toString(computed.totals.discountTotal),
@@ -293,9 +308,15 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       priceBookItemVersionId: r.versionId,
     })));
 
+    /**
+     * Dated by the issue date, and still an append: a back-dated posting is a
+     * new balanced pair on an earlier day, never an edit to anything already
+     * in the ledger. `writePosting` refuses it if that day is in a closed
+     * period.
+     */
     await writePosting(tx, ctx, ledger.postInvoice({
       invoiceId: invoice!.id,
-      occurredAt: new Date(),
+      occurredAt: history.postingInstant(issuedOn, admitted.timeZone, now),
       totals: computed.totals,
       customerId: input.customerId,
       jobId: input.jobId,
@@ -340,17 +361,26 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
      * that matches nothing because matching nothing is what a quiet week
      * looks like.
      */
-    await emit(tx, ctx, {
-      name: "invoice.issued", entityType: "invoice", entityId: invoice!.id,
-      payload: {
-        invoiceId: invoice!.id,
-        customerId: invoice!.customerId,
-        total: computed.totals.total ? m.toString(computed.totals.total) : "0",
-        ...(input.jobId ? { jobId: input.jobId } : {}),
-      },
-    });
+    /**
+     * NOT FOR HISTORY. An invoice from 2019 being recorded is not an invoice
+     * being issued, and a workflow that sends "your invoice is ready" on this
+     * event would send ten years of them on the day of a migration. The
+     * audit line below still records it, marked as history.
+     */
+    if (!admitted.historical) {
+      await emit(tx, ctx, {
+        name: "invoice.issued", entityType: "invoice", entityId: invoice!.id,
+        payload: {
+          invoiceId: invoice!.id,
+          customerId: invoice!.customerId,
+          total: computed.totals.total ? m.toString(computed.totals.total) : "0",
+          ...(input.jobId ? { jobId: input.jobId } : {}),
+        },
+      });
+    }
 
-    await audit(tx, ctx, "invoice.created", "invoice", invoice!.id, null, invoice!);
+    await audit(tx, ctx, "invoice.created", "invoice", invoice!.id, null,
+      admitted.historical ? { ...invoice!, historical: true } : invoice!);
     return loadInvoice(tx, ctx, invoice!.id);
   });
 }
@@ -475,6 +505,19 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       }
     }
 
+    /**
+     * WHEN THE MONEY ARRIVED, and the ledger now agrees. `receivedAt` has
+     * always been accepted and stored on the payment, and the posting
+     * ignored it and used the wall clock, so a cheque received in March and
+     * keyed in April was March on the payment and April in the books. Both
+     * now say March, and saying March needs the same authority as any other
+     * business date (see services/history.ts).
+     */
+    const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
+    const admitted = input.receivedAt
+      ? await admitInstant(tx, ctx, receivedAt, "receivedAt")
+      : { historical: false };
+
     const amount = usd(input.amount);
     const tip = usd(input.tipAmount);
     const fee = usd(input.feeAmount ?? "0");
@@ -530,7 +573,7 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       tipAmount: m.toString(tip),
       feeAmount: m.toString(fee),
       surchargeAmount: m.toString(surcharge),
-      receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
+      receivedAt,
       checkNumber: input.checkNumber ?? null,
       notes: input.notes ?? null,
       processorPaymentId: input.processorPaymentId ?? null,
@@ -578,7 +621,8 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
        */
       if (m.isZero(balance) || m.isNegative(balance)) {
         settled.push(allocation.invoiceId);
-        await emit(tx, ctx, {
+        // History is recorded, not announced. See `create` above.
+        if (!admitted.historical) await emit(tx, ctx, {
           name: "invoice.paid", entityType: "invoice", entityId: allocation.invoiceId,
           payload: {
             invoiceId: allocation.invoiceId,
@@ -603,7 +647,7 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
      */
     const transactionId = await writePosting(tx, ctx, ledger.postPayment({
       paymentId: payment!.id,
-      occurredAt: new Date(),
+      occurredAt: receivedAt,
       appliedAmount: allocatedTotal,
       tipAmount: tip,
       surchargeAmount: surcharge,
@@ -620,7 +664,11 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       });
     }
 
-    await emit(tx, ctx, {
+    /**
+     * Not for history either. "Thanks for your payment" for a cheque from
+     * 2021 is the text a migration must never send.
+     */
+    if (!admitted.historical) await emit(tx, ctx, {
       name: "payment.received", entityType: "payment", entityId: payment!.id,
       payload: {
         paymentId: payment!.id,
@@ -632,7 +680,8 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       },
     });
 
-    await audit(tx, ctx, "payment.recorded", "payment", payment!.id, null, payment!);
+    await audit(tx, ctx, "payment.recorded", "payment", payment!.id, null,
+      admitted.historical ? { ...payment!, historical: true } : payment!);
 
     return {
       id: payment!.id,

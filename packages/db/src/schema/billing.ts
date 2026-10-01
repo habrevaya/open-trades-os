@@ -35,6 +35,13 @@ export const estimate = pgTable("estimate", {
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
   status: estimateStatus("status").notNull().default("draft"),
   title: text("title"),
+  /**
+   * The day it was written, in the company's calendar. Separate from
+   * `created_at`, which is when this row was inserted: for an estimate
+   * migrated from another system those are years apart, and close rate by
+   * month is computed from this one.
+   */
+  issuedOn: date("issued_on"),
   expiresOn: date("expires_on"),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   viewedAt: timestamp("viewed_at", { withTimezone: true }),

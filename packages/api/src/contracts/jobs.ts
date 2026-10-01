@@ -215,6 +215,13 @@ export const updateJob = defineRoute({
   input: JobCreate.partial().omit({ visit: true, parties: true, coverage: true }).extend({
     id: Uuid,
     status: JobStatus.optional(),
+    /**
+     * When the work was finished, sent with `status: "completed"` and only
+     * then. Omit for now. A completion more than a week back is history and
+     * needs `data:import`, because "what was finished in March" is what
+     * commission and technician reports are built on.
+     */
+    completedAt: z.string().datetime().optional(),
   }),
   output: Job,
 });

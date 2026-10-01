@@ -3,8 +3,9 @@ import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
-  decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
+  decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
 } from "./context";
+import { admitInstant } from "./history";
 import { enforceWithin } from "./custom-fields";
 import { audit } from "./customers";
 import { releaseAllFor } from "./inventory";
@@ -336,6 +337,30 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }
 
     /**
+     * WHEN IT WAS FINISHED, on the move to finished and at no other time.
+     *
+     * Completing a job stamped now, so a job finished in 2022 and recorded
+     * during a migration was finished on the day of the cutover, and every
+     * report asking what was done in a month was wrong for every month
+     * before it. The time is taken only together with the move to
+     * `completed`: changing when an already finished job was finished is
+     * rewriting a fact other things (commission, the technician's numbers)
+     * were computed from, and is not an edit this route offers.
+     */
+    let completedAt: Date | null = null;
+    let historical = false;
+    if (input.completedAt !== undefined) {
+      if (input.status !== "completed" || before.status === "completed" || before.completedAt !== null) {
+        throw new UnprocessableError("completedAt goes with the move to completed", [{
+          path: "completedAt",
+          message: 'Send it with status "completed", on a job that is not already completed.',
+        }]);
+      }
+      completedAt = new Date(input.completedAt);
+      historical = (await admitInstant(tx, ctx, completedAt, "completedAt")).historical;
+    }
+
+    /**
      * Moving a job to a different customer or property is deliberately not
      * possible here. It sounds like an edit and it is a re-parenting: the
      * visits, the invoice, the equipment history and the portal links all
@@ -376,7 +401,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       // "completed" without one is invisible to every report that asks what
       // was finished this week.
       ...(input.status === "completed" && before.completedAt === null
-        ? { completedAt: new Date() }
+        ? { completedAt: completedAt ?? new Date() }
         : {}),
       ...(input.status === "cancelled" && before.cancelledAt === null
         ? { cancelledAt: new Date() }
@@ -396,11 +421,16 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
      * job is completed" is the thing every workflow author actually wants and
      * making them filter `job.updated` for it is a worse product.
      */
-    await emit(tx, ctx, {
+    /**
+     * A job finished in 2022 and recorded now is not news. "When a job is
+     * completed, ask for a review" would otherwise ask a thousand customers
+     * on the day of a migration about work they have forgotten.
+     */
+    if (!historical) await emit(tx, ctx, {
       name: "job.updated", entityType: "job", entityId: input.id,
       payload: { job: after! }, previous: { job: before },
     });
-    if (input.status !== undefined && input.status !== before.status) {
+    if (!historical && input.status !== undefined && input.status !== before.status) {
       await emit(tx, ctx, {
         /**
          * Built from the status enum, and the catalogue carries a line per

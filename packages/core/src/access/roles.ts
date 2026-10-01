@@ -92,7 +92,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
     permissions: ALL_PERMISSIONS.filter((p) => ![
       "payroll:read", "payroll:export", "payroll:configure",
       "ledger:post", "accounting:close",
-      "billing:manage", "data:export",
+      "billing:manage", "data:export", "data:import",
     ].includes(p)),
   },
 

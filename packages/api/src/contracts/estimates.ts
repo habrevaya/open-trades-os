@@ -55,6 +55,8 @@ export const Estimate = z.object({
   propertyId: Uuid,
   jobId: Uuid.nullable(),
   title: z.string().nullable(),
+  /** The day it was written, in the company's calendar. */
+  issuedOn: z.string().date().nullable(),
   expiresOn: z.string().date().nullable(),
   sentAt: z.string().datetime().nullable(),
   viewedAt: z.string().datetime().nullable(),
@@ -96,6 +98,11 @@ export const createEstimate = defineRoute({
     propertyId: Uuid,
     jobId: Uuid.optional(),
     title: z.string().max(200).optional(),
+    /**
+     * The day it was written. Omit for today. Earlier than a week back is
+     * history and needs `data:import`; never in the future.
+     */
+    issuedOn: z.string().date().optional(),
     expiresOn: z.string().date().optional(),
     taxRate: RateString.default("0"),
     options: z.array(z.object({

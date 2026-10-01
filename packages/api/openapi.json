@@ -22549,6 +22549,13 @@
               "null"
             ]
           },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
           "expiresOn": {
             "type": [
               "string",
@@ -22786,6 +22793,7 @@
           "propertyId",
           "jobId",
           "title",
+          "issuedOn",
           "expiresOn",
           "sentAt",
           "viewedAt",
@@ -22887,6 +22895,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "issuedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
               },
               "expiresOn": {
                 "type": [
@@ -23071,6 +23086,7 @@
               "propertyId",
               "jobId",
               "title",
+              "issuedOn",
               "expiresOn",
               "sentAt",
               "viewedAt",
@@ -24393,6 +24409,13 @@
                   "null"
                 ]
               },
+              "issuedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
               "expiresOn": {
                 "type": [
                   "string",
@@ -24630,6 +24653,7 @@
               "propertyId",
               "jobId",
               "title",
+              "issuedOn",
               "expiresOn",
               "sentAt",
               "viewedAt",
@@ -25646,6 +25670,10 @@
             "type": "string",
             "maxLength": 200
           },
+          "issuedOn": {
+            "type": "string",
+            "format": "date"
+          },
           "expiresOn": {
             "type": "string",
             "format": "date"
@@ -25791,6 +25819,13 @@
               "string",
               "null"
             ]
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
           },
           "expiresOn": {
             "type": [
@@ -26029,6 +26064,7 @@
           "propertyId",
           "jobId",
           "title",
+          "issuedOn",
           "expiresOn",
           "sentAt",
           "viewedAt",
@@ -26060,6 +26096,10 @@
           "purchaseOrderNumber": {
             "type": "string",
             "maxLength": 100
+          },
+          "issuedOn": {
+            "type": "string",
+            "format": "date"
           },
           "dueOn": {
             "type": "string",
@@ -28024,6 +28064,13 @@
               "null"
             ]
           },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
           "expiresOn": {
             "type": [
               "string",
@@ -28261,6 +28308,7 @@
           "propertyId",
           "jobId",
           "title",
+          "issuedOn",
           "expiresOn",
           "sentAt",
           "viewedAt",
@@ -29752,6 +29800,13 @@
               "null"
             ]
           },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
           "expiresOn": {
             "type": [
               "string",
@@ -29989,6 +30044,7 @@
           "propertyId",
           "jobId",
           "title",
+          "issuedOn",
           "expiresOn",
           "sentAt",
           "viewedAt",
@@ -33924,6 +33980,13 @@
                     "null"
                   ]
                 },
+                "issuedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
                 "expiresOn": {
                   "type": [
                     "string",
@@ -34003,6 +34066,7 @@
                 "propertyId",
                 "jobId",
                 "title",
+                "issuedOn",
                 "expiresOn",
                 "sentAt",
                 "viewedAt",
@@ -38994,6 +39058,13 @@
                   "null"
                 ]
               },
+              "issuedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
               "expiresOn": {
                 "type": [
                   "string",
@@ -39231,6 +39302,7 @@
               "propertyId",
               "jobId",
               "title",
+              "issuedOn",
               "expiresOn",
               "sentAt",
               "viewedAt",
@@ -40964,6 +41036,10 @@
               "paid",
               "cancelled"
             ]
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -41620,6 +41696,13 @@
               "null"
             ]
           },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
           "expiresOn": {
             "type": [
               "string",
@@ -41803,6 +41886,7 @@
           "propertyId",
           "jobId",
           "title",
+          "issuedOn",
           "expiresOn",
           "sentAt",
           "viewedAt",
