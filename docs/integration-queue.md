@@ -65,6 +65,8 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `google` | ai_model | Gemini, same seam. Key sent as a header, never in the URL. |
 | `ics_feed` | calendar | A technician's visits as a subscribable feed. No vendor at all. Address in, phone number deliberately out. |
 | `callrail` | telephony | Tracked calls into `call` and `marketing_touch`, signed webhook plus a backfill, because they do not resend. |
+| `twilio` | messaging | The first adapter the product ever had. In this table only now, because it was missing from the catalogue entirely until a second carrier was added beside it. |
+| `justcall` | messaging | The second carrier on the same seam. Their signature covers the URL, the type and a timestamp, and not the message, so the replay window is five minutes rather than a day. |
 
 ---
 
@@ -90,18 +92,14 @@ collection, personal access tokens for testing and application keys for the
 real thing, and no separate developer account needed. Photos attach to
 `stored_file` and `visit`, both of which exist.
 
-### 3. JustCall: phone and SMS
-REST plus webhooks for calls, SMS, contacts and numbers, authenticated with an
-API key and secret copied out of the account screen. Drops into the existing
-messaging provider seam beside Twilio, which is the test of whether that seam
-was drawn in the right place.
+### 3. ClearPathGPS: fleet tracking
+Open API on their Pro plan, real-time location and vehicle data. `M22` has
+shipped since this was written, so the asset register, the meter readings and
+the service plans this would feed all exist now: what is left is the `fleet`
+capability on the seam and an adapter that turns their position and odometer
+reports into `asset_reading` rows.
 
-### 4. ClearPathGPS: fleet tracking
-Open API on their Pro plan, real-time location and vehicle data. Needs the
-`fleet` capability, which does not exist yet, but `M22` has 1,442 lines of asset
-logic in core already waiting for a schema.
-
-### 5. Avalara AvaTax: sales tax
+### 4. Avalara AvaTax: sales tax
 The `tax` capability is in the enum with no provider. REST v2, a sandbox at
 `sandbox-rest.avatax.com`, a free trial obtainable through the
 `RequestFreeTrial` API with no prior approval, and an API playground that needs
@@ -267,7 +265,7 @@ full gate.
 | ICS calendar feed | calendar (new) | **90k**, BUILT | The reasoning behind the estimate was the part that was wrong: "no failure mode" is not true of a file format. There is no vendor and no auth, and the work is the framing. Folding at 75 octets, escaping, a stable UID and a DTSTAMP that does not move on every poll are each a way for the feed to look fine and be wrong, and breaking every one of them on purpose to confirm a named test goes red is a large share of the cost rather than a rounding error on it. |
 | CallRail | telephony + ads | **180k**, BUILT | Existing seams, one API key, documented webhooks, and one fact the plan had wrong: they DO sign, with HMAC-SHA1 over the raw body, and publish a worked example to test against. |
 | CompanyCam | storage | **200k** | Existing file model, bearer auth, OpenAPI spec published. |
-| JustCall | messaging | **160k** | The cheapest of the adapters, because it drops into the messaging seam beside Twilio. If it costs more than this the seam is in the wrong place, which is itself worth finding out. |
+| JustCall | messaging | **160k**, BUILT | The estimate held, and the thing it was really measuring came out the way it was meant to: the seam needed nothing. The adapter is one file and the only change outside it is one import line in the barrel, which is the result that makes the next carrier cheap too. What the estimate did not price was the finding: their webhook signature covers the secret, the URL, the event type and a timestamp, and not one byte of the message, so a valid signature does not prove the body. That is a paragraph in the adapter, a tighter replay window, a line in the catalogue and a line on the website, none of which was in the plan. |
 | Avalara AvaTax | tax (new) | **320k** | New seam. Tax is where a quiet wrong answer is most expensive, so the verification burden is high. |
 | ClearPathGPS | fleet (new) | **380k** | New seam, and the fleet schema does not exist: `core/assets` has 1,442 lines of tested decision logic with no storage under it. |
 | Xero | accounting | **200k** | Second adapter in a seam QuickBooks already paid for. |

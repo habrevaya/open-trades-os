@@ -133,6 +133,17 @@ export type ConnectorFlow =
    * invisible in the only place an owner looks.
    */
   | "messages_out"
+  /**
+   * Replies back in, which is a different flow and not the same connector
+   * capability read backwards.
+   *
+   * An adapter can send and not receive: an outbound-only gateway is a real
+   * product people buy. Folding the two into one flow would make a carrier
+   * that drops replies on the floor indistinguishable from one that threads
+   * them into the inbox, and the first of those is a customer saying STOP
+   * into a void.
+   */
+  | "messages_in"
   /** Money in: a card charged, and the processor's word that it cleared. */
   | "payments_in"
   /** Money back out: a refund issued from here rather than from their dashboard. */
@@ -352,6 +363,46 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
   },
 
   /* ----------------------------------------------------------- messages out */
+  /* ------------------------------------------------------------- messaging */
+  /**
+   * TWILIO WAS MISSING FROM THIS CATALOGUE UNTIL JUSTCALL WAS ADDED BESIDE IT.
+   *
+   * It is the first adapter this product ever had, it is named on the
+   * website, and the file above says this is the map of every outside system
+   * the product speaks to. An owner looking here for the thing their texts
+   * go through found nothing and could only conclude the product had never
+   * heard of it, which is the understating failure this catalogue is as
+   * exposed to as the overclaiming one.
+   */
+  {
+    key: "twilio",
+    label: "Twilio",
+    capability: "messaging",
+    auth: "api_key",
+    flows: ["messages_out", "messages_in"],
+    state: "built",
+    purpose:
+      "Texts out and replies back in, on your own Twilio account. Reminders, arrival notices and the shared inbox all run through it, and a reply threads onto the job it belongs to rather than onto a phone number.",
+    setup:
+      "An account SID and auth token from your own Twilio console, and a number or messaging service to send from. Put the auth token in your secret store: this product holds the name of it and never the value. In the United States, A2P 10DLC registration is between you and Twilio, and unregistered traffic is filtered rather than refused, so it fails by disappearing.",
+    limitation:
+      "Twilio's own opt out handling is a courtesy and not your compliance position: it knows nothing about a form somebody signed in 2024, which is why consent is decided here before a carrier is chosen at all. A delivery receipt says the handset acknowledged it, never that anybody read it.",
+  },
+  {
+    key: "justcall",
+    label: "JustCall",
+    capability: "messaging",
+    auth: "api_key",
+    flows: ["messages_out", "messages_in"],
+    state: "built",
+    purpose:
+      "The same seam with a JustCall account instead, for a company already running their phones through it. Nothing in the send path, the outbox or the consent rules knows which of the two is configured.",
+    setup:
+      "An API key and secret from the APIs and Webhooks screen of your own JustCall account, stored as one `key:secret` value in your secret store, because a credential split across two names is two things to rotate and one of them forgotten. Then a webhook in JustCall pointed at this product, subscribed to SMS received and SMS delivery status updated. API access starts at their Team plan.",
+    limitation:
+      "Their webhook signature does not cover the event data: it is computed over the secret, the configured URL, the event type and a timestamp, and none of the message. A valid signature proves somebody holding the secret sent an event of that type, not that this is the body they sent. The replay window is therefore five minutes rather than the day the call tracking adapter allows, and a resent body lands on the row their message id already wrote. Nothing of ours is carried through a send either, so a delivery receipt is matched on their id alone.",
+  },
+
   {
     key: "resend",
     label: "Resend",

@@ -10,6 +10,7 @@ import type {
   MessagingProvider, OutboundMessage, SendResult, WebhookRequest,
 } from "../src/comms/provider";
 import type { ServiceContext } from "../src/services/context";
+import * as leadIntake from "../src/services/lead-intake";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -423,5 +424,56 @@ run("routing a webhook to the right tenant", () => {
     expect(await resolveWebhook(db(), TOKEN, read)).toBeNull();
     await raw`update public.integration_connection set status = 'connected'
               where organization_id = ${ORG} and capability = 'messaging'`;
+  });
+});
+
+/* --------------------------------------------- turning a carrier on at all */
+
+run("choosing a carrier from the connector screen", () => {
+  /**
+   * TWILIO COULD NOT BE CONNECTED THROUGH THIS PRODUCT'S OWN API.
+   *
+   * `connect` refuses any provider the catalogue has not heard of, which is
+   * the right rule and is why the gap was invisible: the catalogue had no
+   * messaging entry at all, so the product's only carrier was reachable only
+   * by writing the `integration_connection` row by hand. Everything
+   * downstream worked, which is exactly why nobody noticed: the send path,
+   * the outbox and the inbox all read a row that a seeded fixture had put
+   * there, and no test had ever asked how an operator would put one there.
+   *
+   * Both carriers are asserted, and the third case is the one that keeps the
+   * first two honest: a provider with no adapter is still refused, so this
+   * is not a test that would pass by connecting anything at all.
+   */
+  const CONNECT_ORG = ORG;
+
+  beforeEach(async () => {
+    await raw`delete from public.integration_connection
+              where organization_id = ${CONNECT_ORG} and capability = 'messaging'`;
+  });
+
+  it("turns Twilio on", async () => {
+    const connected = await leadIntake.connect(owner(), {
+      provider: "twilio",
+      credentialRef: "TWILIO_AUTH_TOKEN",
+      settings: { accountSid: "AC123" },
+    });
+    expect(connected.status).toBe("connected");
+    expect(connected.provider).toBe("twilio");
+  });
+
+  it("turns JustCall on", async () => {
+    const connected = await leadIntake.connect(owner(), {
+      provider: "justcall",
+      credentialRef: "JUSTCALL_CREDENTIAL",
+      settings: { webhookUrl: "https://app.example.com/api/webhooks/justcall" },
+    });
+    expect(connected.status).toBe("connected");
+    expect(connected.provider).toBe("justcall");
+  });
+
+  it("still refuses a carrier with no adapter behind it", async () => {
+    await expect(leadIntake.connect(owner(), { provider: "vonage" }))
+      .rejects.toThrow();
   });
 });
