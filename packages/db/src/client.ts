@@ -11,7 +11,22 @@ export type Database = ReturnType<typeof createClient>;
  * a requirement, and nothing in this package depends on a Supabase-only API.
  */
 export function createClient(connectionString = process.env.DATABASE_URL!) {
-  const client = postgres(connectionString, { max: 10, prepare: false });
+  /**
+   * Ten by default, which is right for one long lived server. On a
+   * serverless host every function instance opens its own pool, and a burst
+   * of traffic is a burst of instances: fifty of them at ten each is five
+   * hundred connections to a database whose pooler allows a fraction of
+   * that. DATABASE_POOL_MAX lets such a deployment ask for two or three.
+   *
+   * `prepare: false` is what keeps this working behind a transaction pooler
+   * such as Supabase's Supavisor on port 6543, where consecutive statements
+   * may run on different server connections and a named prepared statement
+   * from one is not there on the next. It goes with the rule the service
+   * layer already follows: everything request scoped is `set local` or
+   * `set_config(..., true)`, never session state.
+   */
+  const max = Number(process.env.DATABASE_POOL_MAX) || 10;
+  const client = postgres(connectionString, { max, prepare: false });
   const db = drizzle(client, { schema });
   /**
    * The pool, reachable for the one caller that has to close it.
