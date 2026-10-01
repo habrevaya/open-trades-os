@@ -1290,7 +1290,19 @@ async function pushOutbound(
         idempotencyKey: key,
         customerExternalId,
         receivedOn: payment.receivedAt.toISOString().slice(0, 10),
-        amount: { amount: payment.amount, currency: payment.currency },
+        /**
+         * What the company kept. A refund made before this payment reached
+         * the books is netted out here, as its allocations are above, so
+         * the books are not handed a receipt larger than the money that
+         * stayed, with the difference sitting as a customer credit that was
+         * in fact paid back.
+         */
+        amount: {
+          amount: m.toString(m.subtract(
+            m.money(payment.amount, payment.currency), m.money(payment.refundedAmount, payment.currency),
+          )),
+          currency: payment.currency,
+        },
         depositAccountExternalId: cashAccount.externalId,
         allocations: allocations.map((a) => ({
           invoiceExternalId: a.invoiceExternalId!,
@@ -1496,6 +1508,7 @@ async function paymentsToPush(
     id: schema.payment.id,
     customerId: schema.payment.customerId,
     amount: schema.payment.amount,
+    refundedAmount: schema.payment.refundedAmount,
     currency: schema.payment.currency,
     receivedAt: schema.payment.receivedAt,
   })
@@ -1511,7 +1524,15 @@ async function paymentsToPush(
        * failed one never was; recording either as cash received overstates
        * the bank and then has to be reversed.
        */
-      eq(schema.payment.status, "succeeded"),
+      /**
+       * And `partially_refunded`, which is money that arrived and some of
+       * which went back. Leaving it out meant a payment refunded in part
+       * before its first sync never reached the books at all, and the
+       * per-invoice netting below, written for exactly that payment, could
+       * never run. A payment refunded in full is not sent: what came in went
+       * back out, and the books are left with nothing to record.
+       */
+      inArray(schema.payment.status, ["succeeded", "partially_refunded"]),
       offerable(link.id, link.state),
       closedOn ? sql`${schema.payment.receivedAt}::date > ${closedOn}` : undefined,
     ))

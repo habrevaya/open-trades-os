@@ -13,6 +13,7 @@ import {
 import {
   AmountNotRepresentableError, createQuickBooksProvider, toProviderAmount,
 } from "../src/accounting/quickbooks";
+import { createXeroProvider } from "../src/accounting/xero";
 import "../src/accounting";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
@@ -769,6 +770,99 @@ run("one sync pass", () => {
 });
 
 /* ------------------------------------------------- the idempotency rule */
+
+/* -------------------------------------- a refunded payment, into each book */
+
+/**
+ * A refund recorded against a payment reopens what it paid as a NEGATIVE
+ * allocation beside the original rather than an edit to it. The sync nets a
+ * payment's allocations per invoice before pushing, so neither book is ever
+ * sent a negative application or one for an invoice the payment no longer
+ * pays. That netting had no test of its own; these drive it through each
+ * real adapter and read the request that would have gone over the wire.
+ *
+ * Only `pushPayment` is the real adapter. Everything else is the fake books,
+ * so the customer and invoice links exist for the payment to point at.
+ */
+function throughReal(real: AccountingProvider): Fake {
+  const fake = fakeProvider();
+  return { ...fake, pushPayment: (payment) => real.pushPayment(payment) };
+}
+
+async function refundedPayment(): Promise<void> {
+  await mapEverything();
+  const first = await anInvoice("400.00");
+  const second = await anInvoice("100.00");
+  const payment = await billing.pay(owner(), {
+    customerId, method: "check", amount: "400.00", tipAmount: "0",
+    allocations: [{ invoiceId: first, amount: "400.00" }],
+  });
+  await billing.pay(owner(), {
+    customerId, method: "check", amount: "100.00", tipAmount: "0",
+    allocations: [{ invoiceId: second, amount: "100.00" }],
+  });
+  await billing.recordRefund(owner(), {
+    id: payment.id as string, amount: "150.00", method: "check", reason: "Part of the job undone",
+  });
+  const allocations = await raw<{ amount: string }[]>`
+    select a.amount::text from public.payment_allocation a where a.payment_id = ${payment.id}
+    order by a.amount`;
+  /** The history really does hold a negative row, or this test proves nothing. */
+  expect(allocations.map((a) => a.amount)).toEqual(["-150.0000", "400.0000"]);
+}
+
+run("a refunded payment, into each book", () => {
+  it("sends QuickBooks what the payment still pays, never a negative line", async () => {
+    await refundedPayment();
+    const calls: Call[] = [];
+    const real = createQuickBooksProvider(
+      { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+      transportFor([(call) => (call.url.startsWith("https://token.test")
+        ? tokenOk
+        : { status: 200, body: { Payment: { Id: `p-${calls.length}`, SyncToken: "0" } } })], calls),
+    );
+
+    await accounting.sync(owner(), { provider: throughReal(real) });
+
+    const bodies = calls.filter((c) => c.url.includes("/payment"))
+      .map((c) => JSON.parse(c.body!) as { TotalAmt: number; Line: { Amount: number }[] });
+    expect(bodies).toHaveLength(2);
+    /**
+     * What the company kept, on the receipt and on the line. A receipt of
+     * 400 with 250 applied would leave a 150 customer credit in QuickBooks
+     * that was in fact paid back.
+     */
+    const refunded = bodies.find((b) => b.TotalAmt === 250)!;
+    expect(refunded.Line.map((l) => l.Amount)).toEqual([250]);
+    expect(bodies.map((b) => b.TotalAmt).sort()).toEqual([100, 250]);
+    for (const body of bodies) {
+      expect(body.Line.every((l) => l.Amount > 0)).toBe(true);
+    }
+  });
+
+  it("sends Xero what the payment still pays, never a negative payment", async () => {
+    await refundedPayment();
+    const calls: Call[] = [];
+    const real = createXeroProvider(
+      { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+      transportFor([(call) => (call.url.startsWith("https://token.test")
+        ? tokenOk
+        : { status: 200, body: { BatchPayments: [{ BatchPaymentID: `bp-${calls.length}` }] } })], calls),
+    );
+
+    await accounting.sync(owner(), { provider: throughReal(real) });
+
+    const bodies = calls.filter((c) => c.url.includes("/BatchPayments"))
+      .map((c) => JSON.parse(c.body!) as {
+        BatchPayments: { Payments: { Amount: number }[] }[];
+      });
+    expect(bodies).toHaveLength(2);
+    const amounts = bodies.map((b) => b.BatchPayments[0]!.Payments.map((p) => p.Amount));
+    expect(amounts).toContainEqual([250]);
+    expect(amounts).toContainEqual([100]);
+    expect(amounts.flat().every((a) => a > 0)).toBe(true);
+  });
+});
 
 run("the same document, twice", () => {
   it("does not create a second invoice when the sync runs again", async () => {
