@@ -28,7 +28,7 @@ function portalPaths(): Record<string, string> {
 
 /**
  * Every link the API builds by hand rather than through `mintGrant`, read
- * off the source: `${PORTAL_BASE}/x/...` in any service. The deposit link
+ * off the source: `${portalBase()}/x/...` in any service. The deposit link
  * was one of these, `/pay/{deposit id}`, and the map above never saw it.
  */
 function handBuiltPaths(): string[] {
@@ -36,7 +36,7 @@ function handBuiltPaths(): string[] {
   const found = new Set<string>();
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
     const source = readFileSync(join(dir, file), "utf8");
-    for (const m of source.matchAll(/\$\{PORTAL_BASE\}\/([a-z]+)\//g)) found.add(`${file}: /${m[1]}/`);
+    for (const m of source.matchAll(/\$\{portalBase\(\)\}\/([a-z]+)\//g)) found.add(`${file}: /${m[1]}/`);
   }
   return [...found];
 }
