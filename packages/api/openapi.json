@@ -46756,6 +46756,10 @@
             "type": "object",
             "additionalProperties": {},
             "default": {}
+          },
+          "keepExisting": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -62142,6 +62146,18 @@
                     "string",
                     "null"
                   ]
+                },
+                "webhookPath": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "credentialRef": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -62156,7 +62172,9 @@
                 "limitation",
                 "connected",
                 "connectionStatus",
-                "lastError"
+                "lastError",
+                "webhookPath",
+                "credentialRef"
               ]
             }
           }

@@ -1,4 +1,5 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { connectors as cat } from "@opentradesos/core";
 import {
@@ -51,7 +52,33 @@ export interface ConnectorView {
   connected: boolean;
   connectionStatus: string | null;
   lastError: string | null;
+  /**
+   * Where the provider has to send its webhooks for this connection, after
+   * the deployment's own public address. Null when nothing is connected or
+   * the provider sends nothing back.
+   */
+  webhookPath: string | null;
+  /** The name of the secret holding the credential. Never the value. */
+  credentialRef: string | null;
 }
+
+/**
+ * Where a connection's webhooks arrive. Messaging and email route on a token
+ * in the path, because the token is a secret the provider must already hold
+ * and it sits inside the URL the signature covers; payments route on the
+ * connection id and verify with the signing secret.
+ */
+function webhookPathOf(row: typeof schema.integrationConnection.$inferSelect): string | null {
+  const token = (row.settings as Record<string, unknown> | null)?.["webhookToken"];
+  if (row.capability === "payments") return `/api/webhooks/payments/${row.id}`;
+  if (typeof token !== "string" || token === "") return null;
+  if (row.capability === "messaging") return `/api/webhooks/messaging/${token}`;
+  if (row.capability === "email") return `/api/webhooks/email/${token}`;
+  return null;
+}
+
+/** The capabilities whose inbound webhooks are routed by a token in the path. */
+const TOKEN_ROUTED = new Set(["messaging", "email"]);
 
 /**
  * Every connector the product knows, and whether this company has it on.
@@ -85,6 +112,8 @@ export async function catalogue(ctx: ServiceContext): Promise<ConnectorView[]> {
         connected: connection?.status === "connected",
         connectionStatus: connection?.status ?? null,
         lastError: connection?.lastError ?? null,
+        webhookPath: connection && connection.status === "connected" ? webhookPathOf(connection) : null,
+        credentialRef: connection?.credentialRef ?? null,
       };
     });
   });
@@ -101,7 +130,20 @@ export async function catalogue(ctx: ServiceContext): Promise<ConnectorView[]> {
  */
 export async function connect(
   ctx: ServiceContext,
-  input: { provider: string; accountLabel?: string; settings?: Record<string, unknown>; credentialRef?: string },
+  input: {
+    provider: string; accountLabel?: string; settings?: Record<string, unknown>; credentialRef?: string;
+    /**
+     * Keep what the connection already holds and change only what is sent.
+     *
+     * The API replaces, which is what a caller holding the whole settings
+     * object wants. A settings screen does not hold it: it never shows the
+     * values back (a webhook token is a credential), so replacing would make
+     * changing the label wipe the token Twilio is calling, and every webhook
+     * after that is refused. Merged with jsonb `||`, so a key sent replaces
+     * that key and nothing else.
+     */
+    keepExisting?: boolean;
+  },
 ) {
   return guardedWrite(ctx, "integration:write", async (tx) => {
     const spec = cat.connector(input.provider);
@@ -130,20 +172,46 @@ export async function connect(
         schema.integrationConnection.capability,
         schema.integrationConnection.provider,
       ],
-      set: {
-        status: "connected",
-        accountLabel: input.accountLabel ?? spec.label,
-        credentialRef: input.credentialRef ?? null,
-        settings: input.settings ?? {},
-        lastError: null,
-        updatedAt: new Date(),
-      },
+      set: input.keepExisting
+        ? {
+          status: "connected",
+          ...(input.accountLabel ? { accountLabel: input.accountLabel } : {}),
+          ...(input.credentialRef ? { credentialRef: input.credentialRef } : {}),
+          settings: sql`${schema.integrationConnection.settings} || ${JSON.stringify(input.settings ?? {})}::jsonb`,
+          lastError: null,
+          updatedAt: new Date(),
+        }
+        : {
+          status: "connected",
+          accountLabel: input.accountLabel ?? spec.label,
+          credentialRef: input.credentialRef ?? null,
+          settings: input.settings ?? {},
+          lastError: null,
+          updatedAt: new Date(),
+        },
     }).returning();
 
-    await audit(tx, ctx, "connector.connected", "integration_connection", row!.id, null, {
+    /**
+     * A messaging or email connection with no webhook token can send and
+     * never hear back: replies, delivery receipts and bounces all route on
+     * the token, and the docs used to ask the operator to invent one of at
+     * least 32 characters by hand. One is minted here when none is set, and
+     * an existing one is never replaced, because the provider is already
+     * calling it.
+     */
+    let connected = row!;
+    const held = (connected.settings ?? {}) as Record<string, unknown>;
+    if (TOKEN_ROUTED.has(spec.capability) && typeof held["webhookToken"] !== "string") {
+      [connected] = await tx.update(schema.integrationConnection).set({
+        settings: { ...held, webhookToken: randomBytes(32).toString("base64url") },
+        updatedAt: new Date(),
+      }).where(eq(schema.integrationConnection.id, connected.id)).returning() as [typeof connected];
+    }
+
+    await audit(tx, ctx, "connector.connected", "integration_connection", connected.id, null, {
       provider: spec.key,
     });
-    return { id: row!.id, provider: spec.key, status: row!.status };
+    return { id: connected.id, provider: spec.key, status: connected.status };
   });
 }
 
@@ -351,11 +419,13 @@ export const handlers = {
   connectConnector: (ctx: ServiceContext, input: {
     provider: string; accountLabel?: string | undefined;
     credentialRef?: string | undefined; settings: Record<string, unknown>;
+    keepExisting?: boolean | undefined;
   }) => connect(ctx, {
     provider: input.provider,
     ...(input.accountLabel ? { accountLabel: input.accountLabel } : {}),
     ...(input.credentialRef ? { credentialRef: input.credentialRef } : {}),
     settings: input.settings,
+    ...(input.keepExisting ? { keepExisting: true } : {}),
   }),
 
   disconnectConnector: (ctx: ServiceContext, input: { provider: string }) =>

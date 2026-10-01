@@ -472,6 +472,28 @@ run("choosing a carrier from the connector screen", () => {
     expect(connected.provider).toBe("justcall");
   });
 
+  it("mints the webhook token replies route on, once, and says where to point the carrier", async () => {
+    /**
+     * Replies and delivery receipts find the company by a token in the URL.
+     * A connection without one sent texts and never heard a reply, and the
+     * only instruction was to invent one by hand.
+     */
+    await leadIntake.connect(owner(), {
+      provider: "twilio", credentialRef: "TWILIO_AUTH_TOKEN", settings: { accountSid: "AC123" },
+    });
+    const first = (await leadIntake.catalogue(owner())).find((c) => c.key === "twilio")!;
+    expect(first.webhookPath).toMatch(/^\/api\/webhooks\/messaging\/[A-Za-z0-9_-]{40,}$/);
+    expect(first.credentialRef).toBe("TWILIO_AUTH_TOKEN");
+
+    /** Changing the label from the settings screen keeps the token Twilio is calling. */
+    await leadIntake.connect(owner(), {
+      provider: "twilio", accountLabel: "Main line", settings: {}, keepExisting: true,
+    });
+    const again = (await leadIntake.catalogue(owner())).find((c) => c.key === "twilio")!;
+    expect(again.webhookPath).toBe(first.webhookPath);
+    expect(again.credentialRef).toBe("TWILIO_AUTH_TOKEN");
+  });
+
   it("still refuses a carrier with no adapter behind it", async () => {
     await expect(leadIntake.connect(owner(), { provider: "vonage" }))
       .rejects.toThrow();

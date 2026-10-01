@@ -916,6 +916,30 @@ run("connecting it", () => {
     expect((row as { capability: string }).capability).toBe("payments");
   });
 
+  it("keeps what it holds when the settings screen changes one field", async () => {
+    /**
+     * The screen never shows a setting back, so it cannot send the whole
+     * object. Replacing would make changing the publishable key wipe the
+     * webhook secret's name, and every payment after that would go
+     * unrecorded while the card form kept working.
+     */
+    await leadIntake.connect(ctx(), {
+      provider: "stripe", credentialRef: KEY_REF,
+      settings: { publishableKey: "pk_old", webhookSecretRef: HOOK_REF },
+    });
+    await leadIntake.connect(ctx(), {
+      provider: "stripe", settings: { publishableKey: "pk_new" }, keepExisting: true,
+    });
+
+    const view = await payments.status(ctx());
+    expect(view.publishableKey).toBe("pk_new");
+    expect(view.webhookConfigured).toBe(true);
+    const [row] = await raw<{ credential_ref: string }[]>`
+      select credential_ref from public.integration_connection
+      where organization_id = ${ORG} and provider = 'stripe'`;
+    expect(row!.credential_ref).toBe(KEY_REF);
+  });
+
   it("can be turned off, and then nothing can be charged", async () => {
     await leadIntake.connect(ctx(), {
       provider: "stripe", credentialRef: KEY_REF,

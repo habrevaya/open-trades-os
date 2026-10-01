@@ -128,7 +128,13 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/automations", label: "Automations", permission: "workflow:read", icon: "automations" },
-      { href: "/settings", label: "Settings", permission: "settings:read", icon: "settings" },
+      {
+        href: "/settings", label: "Settings", permission: "settings:read", icon: "settings",
+        children: [
+          { href: "/settings", label: "Company" },
+          { href: "/settings/integrations", label: "Integrations" },
+        ],
+      },
     ],
   },
 ];

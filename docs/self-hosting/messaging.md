@@ -24,8 +24,8 @@ keyed on the customer's address.
 1. Add the number in the product, in E.164, and mark it registered once your
    A2P 10DLC campaign is approved. An unregistered send is not merely
    rejected: it counts against the sender.
-2. Create an `integration_connection` with capability `messaging`, provider
-   `twilio`, status `connected`, and `settings`:
+2. Connect Twilio on **Settings → Integrations** (or `POST /v1/connectors/twilio`
+   through the API) with the account SID and, optionally, a messaging service:
 
    ```json
    { "accountSid": "AC...", "messagingServiceSid": "MG..." }
@@ -33,11 +33,15 @@ keyed on the customer's address.
 
    `messagingServiceSid` is optional. Without it, sends go from the number on
    the message.
-3. Put the auth token where your deployment keeps secrets and set
-   `credentialRef` to its name. The token never goes in the database.
-4. Put a random token of at least 32 characters in `settings.webhookToken`.
-   Anything shorter is refused, so a weak one means no webhooks rather than an
-   open endpoint.
+3. Put the auth token where your deployment keeps secrets and give the
+   connection its name as the credential. The token never goes in the
+   database.
+4. A webhook token is minted for the connection the first time it is
+   connected, and the screen shows the webhook address it makes. It is never
+   replaced by an edit, because the carrier is already calling it. (A token
+   set by hand in `settings.webhookToken` must be at least 32 characters;
+   anything shorter is refused, so a weak one means no webhooks rather than an
+   open endpoint.)
 5. Set `PUBLIC_URL` to the address the carrier reaches you on. The signature is
    computed over it.
 6. Point Twilio's inbound and status callbacks at:
