@@ -6,6 +6,7 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
+import { assertPeriodOpen } from "./history";
 import {
   createPaymentProvider, PaymentProviderNotConfiguredError,
   type PaymentEvent, type PaymentProvider, type WebhookRequest,
@@ -456,7 +457,21 @@ export async function receive(
   }
 
   if (event.kind === "refunded" || event.kind === "disputed") {
-    const touched = await adjust(ctx, event);
+    let touched: string | null;
+    try {
+      touched = await adjust(ctx, connection.provider, event);
+    } catch (error) {
+      /**
+       * A refund against money that sat on an invoice since voided or
+       * written off cannot reopen it, by the same rule a recorded refund
+       * follows. That is a fact about this company's books that no retry
+       * changes, so it is recorded where an operator sees failed events,
+       * with the reason, rather than thrown back at Stripe to retry for days.
+       */
+      if (!(error instanceof ConflictError)) throw error;
+      await record("failed", null, error.message);
+      return { handled: false, kind: event.kind, eventId: event.eventId, note: error.message };
+    }
     await record(touched ? "succeeded" : "failed", touched, touched ? undefined
       : "No payment here matches that processor id.");
     return {
@@ -613,7 +628,9 @@ async function settle(
  * the Stripe dashboard that this software never recorded, and the honest
  * response is a logged event saying so.
  */
-async function adjust(ctx: ServiceContext, event: PaymentEvent): Promise<string | null> {
+async function adjust(
+  ctx: ServiceContext, provider: string, event: PaymentEvent,
+): Promise<string | null> {
   if (!event.intentId) return null;
 
   return guardedWrite(ctx, "payment:refund", async (tx) => {
@@ -627,8 +644,14 @@ async function adjust(ctx: ServiceContext, event: PaymentEvent): Promise<string 
      * a guard while its answer was decided before the query ran, which is the
      * exact defect `unwritten-columns.test.ts` counts, and it caught this one.
      */
+    /**
+     * Locked, because refund events for one payment arrive in bursts and
+     * each reads what the others have already booked. Without the lock two
+     * of them both find nothing recorded and both post.
+     */
     const [payment] = await tx.select().from(schema.payment)
-      .where(eq(schema.payment.processorPaymentId, event.intentId!)).limit(1);
+      .where(eq(schema.payment.processorPaymentId, event.intentId!)).limit(1)
+      .for("update");
 
     if (!payment) return null;
 
@@ -649,26 +672,143 @@ async function adjust(ctx: ServiceContext, event: PaymentEvent): Promise<string 
       return payment.id;
     }
 
+    return refundFromProcessor(tx, ctx, provider, payment, event);
+  });
+}
+
+/**
+ * A refund the processor reports, put on the books.
+ *
+ * THIS USED TO MOVE ONE COLUMN. The payment's refunded total and status
+ * changed and nothing else did: no posting, no invoice reopened. A card
+ * refund therefore left cash on the balance sheet that had gone back to the
+ * customer and an invoice marked paid that no longer was, and the ledger,
+ * which every financial report reads, disagreed with the bank from that day
+ * on. It now goes through `billing.reverseForRefund`, the same path a refund
+ * recorded by hand takes, so the two reopen the same invoices and post the
+ * same entries.
+ *
+ * IDEMPOTENT ON THE PROCESSOR'S REFUND ID, not on the event id. Stripe
+ * reports one refund as `refund.created`, `refund.updated` and
+ * `charge.refunded`: three event ids, one refund, and keying on the event
+ * would book it three times. Each refund id posted is recorded as an
+ * inbound integration event keyed on that id, and the payment row is locked
+ * first, so two of those events arriving together wait for each other
+ * rather than both finding nothing recorded.
+ *
+ * An event naming no refunds carries only the cumulative total refunded, so
+ * the difference between that and what is already booked is posted. That
+ * money has no refund id, and a later event that does name the refund finds
+ * it already counted: what the payment shows refunded beyond the refunds it
+ * can name is attributed to the refund before anything new is posted.
+ *
+ * Only a refund Stripe calls `succeeded` is booked. A pending one has moved
+ * no money and a failed one never will.
+ */
+async function refundFromProcessor(
+  tx: Database, ctx: ServiceContext, provider: string,
+  payment: typeof schema.payment.$inferSelect, event: PaymentEvent,
+): Promise<string> {
+  const before = payment;
+  let current = payment;
+  const posted: { refundId: string | null; amount: string; refundedAt: string }[] = [];
+
+  const book = async (amount: m.Money, at: Date | null | undefined, refundId: string | null) => {
+    const left = m.subtract(usd(current.amount), usd(current.refundedAmount));
+    const take = m.compare(amount, left) <= 0 ? amount : left;
+    if (!m.isPositive(take)) return;
+    const refundedAt = await openDateFor(tx, ctx.actor.organizationId, at ?? new Date());
+    const { after } = await billing.reverseForRefund(tx, ctx, current, take, refundedAt);
+    current = after;
+    posted.push({ refundId, amount: m.toString(take), refundedAt: refundedAt.toISOString() });
+  };
+
+  const named = (event.refunds ?? []).filter((r) => r.status === null || r.status === "succeeded");
+
+  if (named.length > 0) {
+    for (const refund of named) {
+      const seen = await tx.select({ id: schema.integrationEvent.id })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.provider, provider),
+          eq(schema.integrationEvent.idempotencyKey, refund.refundId),
+          eq(schema.integrationEvent.eventType, REFUND_POSTED),
+        )).limit(1);
+      if (seen.length > 0) continue;
+
+      const amount = usd(fromMinor(refund.amountMinor));
+      /**
+       * Money already refunded on this payment that no recorded refund id
+       * accounts for: a cumulative-only event got here first, or somebody
+       * recorded the same refund by hand. It covers this refund before
+       * anything new is posted, so the same dollars are never booked twice.
+       */
+      const attributed = await tx.select({ amount: sql<string>`(${schema.integrationEvent.requestPayload}->>'amount')` })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.provider, provider),
+          eq(schema.integrationEvent.eventType, REFUND_POSTED),
+          eq(schema.integrationEvent.entityId, current.id),
+        ));
+      const named_ = attributed.reduce((sum, row) => m.add(sum, usd(row.amount ?? "0")), usd("0"));
+      const unnamed = m.subtract(usd(current.refundedAmount), named_);
+      const covered = m.isPositive(unnamed)
+        ? (m.compare(unnamed, amount) >= 0 ? amount : unnamed)
+        : usd("0");
+
+      await book(m.subtract(amount, covered), refund.createdAt ?? event.occurredAt, refund.refundId);
+
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound",
+        provider,
+        eventType: REFUND_POSTED,
+        idempotencyKey: refund.refundId,
+        status: "succeeded",
+        entityType: "payment",
+        entityId: current.id,
+        requestPayload: { amount: m.toString(amount), eventId: event.eventId },
+        completedAt: new Date(),
+      });
+    }
+  } else if (event.refundedMinor !== null) {
     /**
      * The processor reports the CUMULATIVE amount refunded, not this
-     * refund's amount. Adding it to what we hold would double count the
-     * moment a second partial refund arrives.
+     * refund's amount. Booking it whole would double count the moment a
+     * second partial refund arrives, so only the increase is posted.
      */
-    const refunded = event.refundedMinor !== null
-      ? usd(fromMinor(event.refundedMinor))
-      : usd(payment.refundedAmount);
-    const paid = usd(payment.amount);
-    const fully = m.compare(refunded, paid) >= 0;
+    const delta = m.subtract(usd(fromMinor(event.refundedMinor)), usd(current.refundedAmount));
+    if (m.isPositive(delta)) await book(delta, event.occurredAt, null);
+  }
 
-    const [after] = await tx.update(schema.payment).set({
-      refundedAmount: m.toString(refunded),
-      status: fully ? "refunded" : "partially_refunded",
-      updatedAt: new Date(),
-    }).where(eq(schema.payment.id, payment.id)).returning();
+  if (posted.length > 0) {
+    await audit(tx, ctx, "payment.refunded", "payment", current.id, before, {
+      ...current, refunds: posted,
+    });
+  }
+  return current.id;
+}
 
-    await audit(tx, ctx, "payment.refunded", "payment", payment.id, payment, after!);
-    return payment.id;
-  });
+/** The inbound row that says a processor refund id has been booked. */
+const REFUND_POSTED = "payment.refund_posted";
+
+/**
+ * The date a processor refund is booked on.
+ *
+ * Its own date when that period is open. When the books are closed through
+ * it, today, which is what an accountant does with a correction to a filed
+ * period and what `assertPeriodOpen` says to do. Refusing instead would fail
+ * the webhook, Stripe would retry it for days, and the refund, which has
+ * already left the bank, would never be booked at all.
+ */
+async function openDateFor(tx: Database, organizationId: string, at: Date): Promise<Date> {
+  try {
+    await assertPeriodOpen(tx, organizationId, at);
+    return at;
+  } catch (error) {
+    if (error instanceof ConflictError) return new Date();
+    throw error;
+  }
 }
 
 /* ------------------------------------------------------- giving it back */

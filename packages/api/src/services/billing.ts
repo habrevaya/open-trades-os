@@ -895,60 +895,7 @@ export async function recordRefund(
       throw new ConflictError(`Only ${m.toString(left)} of that payment is left to refund.`);
     }
 
-    const allocations = await tx.select().from(schema.paymentAllocation)
-      .where(eq(schema.paymentAllocation.paymentId, payment.id))
-      .orderBy(desc(schema.paymentAllocation.createdAt));
-    const held = unappliedOf(payment, allocations);
-    const fromHeld = m.compare(amount, held) <= 0 ? amount : held;
-    let fromApplied = m.subtract(amount, fromHeld);
-
-    /** What is still applied to each invoice, newest first. */
-    const netByInvoice = new Map<string, m.Money>();
-    for (const a of [...allocations].reverse()) {
-      netByInvoice.set(a.invoiceId, m.add(netByInvoice.get(a.invoiceId) ?? usd("0"), usd(a.amount)));
-    }
-    const order = [...new Set(allocations.map((a) => a.invoiceId))];
-
-    for (const invoiceId of order) {
-      if (!m.isPositive(fromApplied)) break;
-      const applied = netByInvoice.get(invoiceId) ?? usd("0");
-      if (!m.isPositive(applied)) continue;
-      const take = m.compare(fromApplied, applied) <= 0 ? fromApplied : applied;
-
-      const [invoice] = await tx.select().from(schema.invoice)
-        .where(eq(schema.invoice.id, invoiceId)).limit(1);
-      if (!invoice) throw new NotFoundError("Invoice");
-      if (invoice.status === "void" || invoice.status === "written_off") {
-        throw new ConflictError(
-          `Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}, so the money this payment put on it cannot be reopened there.`,
-        );
-      }
-      await tx.insert(schema.paymentAllocation).values({
-        organizationId: ctx.actor.organizationId,
-        paymentId: payment.id, invoiceId, amount: m.toString(m.negate(take)),
-      });
-      const paid = m.subtract(usd(invoice.amountPaid), take);
-      const balance = m.add(usd(invoice.balance), take);
-      await tx.update(schema.invoice).set({
-        amountPaid: m.toString(paid),
-        balance: m.toString(balance),
-        status: m.isPositive(paid) ? "partially_paid" : "open",
-        updatedAt: new Date(),
-      }).where(eq(schema.invoice.id, invoiceId));
-      fromApplied = m.subtract(fromApplied, take);
-    }
-
-    await writePosting(tx, ctx, ledger.postRefund({
-      refundId: payment.id, occurredAt: refundedAt, amount, heldAmount: fromHeld,
-      customerId: payment.customerId,
-    }));
-
-    const refunded = m.add(usd(payment.refundedAmount), amount);
-    const [after] = await tx.update(schema.payment).set({
-      refundedAmount: m.toString(refunded),
-      status: m.compare(refunded, usd(payment.amount)) >= 0 ? "refunded" : "partially_refunded",
-      updatedAt: new Date(),
-    }).where(eq(schema.payment.id, payment.id)).returning();
+    const { fromHeld, after } = await reverseForRefund(tx, ctx, payment, amount, refundedAt);
 
     if (ctx.idempotencyKey) {
       await tx.insert(schema.integrationEvent).values({
@@ -966,6 +913,81 @@ export async function recordRefund(
     });
     return loadPayment(tx, ctx, payment.id);
   });
+}
+
+/**
+ * What a refund does to the books, whoever reports it.
+ *
+ * Shared by a refund recorded by hand (`recordRefund`) and one the card
+ * processor reports (`payments.receive`), so the two cannot disagree about
+ * which invoices reopen or what the posting says. Out of held money first,
+ * then newest allocation first as negative allocation rows; the invoices'
+ * paid amount and balance follow; one `refund` posting dated `refundedAt`;
+ * and the payment's refunded total and status move with it. A void or
+ * written off invoice is refused rather than reopened, because the money it
+ * received cannot go back onto a receivable that no longer exists.
+ *
+ * The caller has already checked `amount` against what is left to refund.
+ */
+export async function reverseForRefund(
+  tx: Database, ctx: ServiceContext, payment: typeof schema.payment.$inferSelect,
+  amount: m.Money, refundedAt: Date,
+): Promise<{ fromHeld: m.Money; after: typeof schema.payment.$inferSelect }> {
+  const allocations = await tx.select().from(schema.paymentAllocation)
+    .where(eq(schema.paymentAllocation.paymentId, payment.id))
+    .orderBy(desc(schema.paymentAllocation.createdAt));
+  const held = unappliedOf(payment, allocations);
+  const fromHeld = m.compare(amount, held) <= 0 ? amount : held;
+  let fromApplied = m.subtract(amount, fromHeld);
+
+  /** What is still applied to each invoice, newest first. */
+  const netByInvoice = new Map<string, m.Money>();
+  for (const a of [...allocations].reverse()) {
+    netByInvoice.set(a.invoiceId, m.add(netByInvoice.get(a.invoiceId) ?? usd("0"), usd(a.amount)));
+  }
+  const order = [...new Set(allocations.map((a) => a.invoiceId))];
+
+  for (const invoiceId of order) {
+    if (!m.isPositive(fromApplied)) break;
+    const applied = netByInvoice.get(invoiceId) ?? usd("0");
+    if (!m.isPositive(applied)) continue;
+    const take = m.compare(fromApplied, applied) <= 0 ? fromApplied : applied;
+
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(eq(schema.invoice.id, invoiceId)).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+    if (invoice.status === "void" || invoice.status === "written_off") {
+      throw new ConflictError(
+        `Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}, so the money this payment put on it cannot be reopened there.`,
+      );
+    }
+    await tx.insert(schema.paymentAllocation).values({
+      organizationId: ctx.actor.organizationId,
+      paymentId: payment.id, invoiceId, amount: m.toString(m.negate(take)),
+    });
+    const paid = m.subtract(usd(invoice.amountPaid), take);
+    const balance = m.add(usd(invoice.balance), take);
+    await tx.update(schema.invoice).set({
+      amountPaid: m.toString(paid),
+      balance: m.toString(balance),
+      status: m.isPositive(paid) ? "partially_paid" : "open",
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, invoiceId));
+    fromApplied = m.subtract(fromApplied, take);
+  }
+
+  await writePosting(tx, ctx, ledger.postRefund({
+    refundId: payment.id, occurredAt: refundedAt, amount, heldAmount: fromHeld,
+    customerId: payment.customerId,
+  }));
+
+  const refunded = m.add(usd(payment.refundedAmount), amount);
+  const [after] = await tx.update(schema.payment).set({
+    refundedAmount: m.toString(refunded),
+    status: m.compare(refunded, usd(payment.amount)) >= 0 ? "refunded" : "partially_refunded",
+    updatedAt: new Date(),
+  }).where(eq(schema.payment.id, payment.id)).returning();
+  return { fromHeld, after: after! };
 }
 
 /** A payment as the API returns it, inside a caller's transaction. */
