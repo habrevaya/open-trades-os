@@ -226,11 +226,13 @@ run("reading back what a migration needs to map and reconcile", () => {
     await seedOrg(raw, { organizationId: OTHER, userId: fixtureId("migration-api:other-user"), name: "Other", slug: "migration-other" });
 
     const people = await ok("listPeople", {});
-    const data = people.data as Array<{ email: string; technicianId: string | null; userId: string }>;
+    const data = people.people as Array<{ email: string; technicianId: string | null; userId: string; name: string | null }>;
     expect(data).toHaveLength(1);
     expect(data[0]).toMatchObject({ email: "migration-co@test.local", technicianId: tech!.id, userId: USER });
     const byEmail = await ok("listPeople", { email: "MIGRATION-CO@test.local" });
-    expect((byEmail.data as unknown[]).length).toBe(1);
+    expect((byEmail.people as unknown[]).length).toBe(1);
+    const nobody = await ok("listPeople", { email: "someone-else@test.local" });
+    expect(nobody.people).toEqual([]);
     expect((await call("listPeople", {}, { ctx: app(["job:read"]) })).status).toBe(403);
   });
 

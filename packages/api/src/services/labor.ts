@@ -2,10 +2,9 @@ import { and, eq, gte, lte, isNull, desc, asc, or, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { labor, money as m, time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError,
+  guardedRead, guardedWrite, audit, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * TIME, AND WHAT IT COST
@@ -299,15 +298,26 @@ export async function week(
          */
         const totalSeconds = priced.reduce((t, row) => t + (row.entry.minutes ?? 0) * 60, 0);
         if (totalSeconds > 0) {
+          /**
+           * Weighted by seconds, as ONE DIVISION AT THE END.
+           *
+           * This multiplied each rate by its share of the week rounded to six
+           * places and added them up, and the shares do not sum to one unless
+           * every one of them terminates. Eight shifts of eight hours and one
+           * of four give 0.999998, so the blended rate landed a hundredth of a
+           * cent under the rate everybody was actually paid, in the same
+           * direction on every week forever. Summing rate times seconds and
+           * dividing once is exact.
+           */
           let weighted = m.zero("USD");
           for (const row of priced) {
             const seconds = (row.entry.minutes ?? 0) * 60;
             weighted = m.add(weighted, m.multiply(
               m.money(row.entry.appliedLoadedRate ?? row.entry.appliedBaseRate ?? "0", "USD"),
-              (seconds / totalSeconds).toFixed(6),
+              String(seconds),
             ));
           }
-          const base = weighted;
+          const base = m.divide(weighted, String(totalSeconds));
           cost = m.toString(m.add(
             m.add(labor.payFor(base, regular), labor.payFor(labor.overtimeRate(base, policy.overtimeMultiplier), overtime)),
             labor.payFor(labor.overtimeRate(base, policy.doubleTimeMultiplier), doubleTime),
@@ -419,6 +429,137 @@ export async function entriesFor(
   });
 }
 
+/**
+ * A TECHNICIAN'S OWN TIME, WHICH IS THE ONE TIMESHEET SCREEN THEY CAN SEE.
+ *
+ * `timeclock:own` is in the catalogue, every field preset grants it, and
+ * nothing checked it: the field app punches under `field:sync`, and a
+ * technician who wanted to know whether they were still clocked in, or how
+ * many hours they had this week, had no way to ask. The permission read as a
+ * capability somebody had been given.
+ *
+ * SCOPED TO THE CALLER AND NOT PARAMETERISED. There is no technician id on
+ * this call, because an endpoint that takes one and checks `timeclock:own`
+ * would let any technician read any other technician's hours, and the hours
+ * carry the rate they were paid at. The person is resolved from the session's
+ * membership, which is the only identity this call trusts.
+ *
+ * THE RATE IS NOT RETURNED HERE. `payroll:read` governs what a shift was paid
+ * at, and this permission is not that one. What comes back is hours and
+ * whether a punch is open, which is what the question actually is.
+ */
+/**
+ * AN EXPLICIT RETURN TYPE, which is not style here but a build error.
+ *
+ * Without one, the inferred shape of `routes/index.ts`'s handler table reaches
+ * into `@opentradesos/core/src/labor` for a type it cannot name by a portable
+ * path, and `tsc` refuses the whole registry with TS2742. Writing the shape out
+ * also makes the thing this returns a decision rather than whatever the query
+ * happened to select, which is what the contract is promising a caller.
+ */
+export interface OwnWeek {
+  technicianId: string;
+  technicianName: string;
+  weekStart: string;
+  regularHours: string;
+  overtimeHours: string;
+  doubleTimeHours: string;
+  /** Null when they are not clocked in, which is what this screen is opened to find out. */
+  openSince: string | null;
+  entries: {
+    id: string;
+    kind: string;
+    jobId: string | null;
+    startedAt: string;
+    endedAt: string | null;
+    minutes: number | null;
+    approvedAt: string | null;
+  }[];
+}
+
+export async function myWeek(
+  ctx: ServiceContext, input: { weekOf?: string | undefined } = {},
+): Promise<OwnWeek> {
+  return guardedRead(ctx, "timeclock:own", async (tx) => {
+    const [me] = await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
+      .from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(and(
+        eq(schema.technician.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.userId, ctx.actor.userId),
+      )).limit(1);
+
+    if (!me) {
+      throw new ConflictError(
+        "This account is not a technician, so it has no timeclock of its own. "
+        + "The whole company's hours read under timesheet:read.",
+      );
+    }
+
+    const policy = await policyFor(tx, ctx.actor.organizationId);
+    const weekOf = input.weekOf ?? time.dateIn(new Date(), policy.timeZone);
+    const weekStart = labor.weekStartDate(weekOf, policy.weekStartsOn);
+    const { start } = time.dayBoundsIn(weekStart, policy.timeZone);
+    const { end } = time.dayBoundsIn(
+      new Date(Date.parse(`${weekStart}T00:00:00Z`) + 7 * 864e5).toISOString().slice(0, 10),
+      policy.timeZone,
+    );
+
+    const rows = await tx.select().from(schema.timeclockEntry)
+      .where(and(
+        eq(schema.timeclockEntry.organizationId, ctx.actor.organizationId),
+        eq(schema.timeclockEntry.technicianId, me.id),
+        gte(schema.timeclockEntry.startedAt, new Date(start.getTime() - 864e5)),
+        lte(schema.timeclockEntry.startedAt, new Date(end.getTime() + 864e5)),
+      ))
+      .orderBy(asc(schema.timeclockEntry.startedAt));
+
+    const entries: labor.TimeEntry[] = rows
+      .filter((row) => row.endedAt !== null)
+      .map((row) => ({
+        id: row.id,
+        personId: me.id,
+        kind: row.kind as labor.TimeEntryKind,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt,
+        ...(row.jobId ? { jobId: row.jobId } : {}),
+      }));
+
+    const thisWeek = labor.classifyWeeks(entries, policy).find((w) => w.weekStartDate === weekStart);
+    const open = rows.find((row) => row.endedAt === null) ?? null;
+
+    return {
+      technicianId: me.id,
+      technicianName: me.name,
+      weekStart,
+      regularHours: hours(thisWeek?.regularSeconds ?? 0),
+      overtimeHours: hours(thisWeek?.overtimeSeconds ?? 0),
+      doubleTimeHours: hours(thisWeek?.doubleTimeSeconds ?? 0),
+      /**
+       * ISO STRINGS, not Date objects, and the explicit return type is what
+       * caught it.
+       *
+       * The contract declares these as `z.string().datetime()`. Returning a
+       * Date happens to work over HTTP, because serialising the response turns
+       * it into the same string, and does not work anywhere else: an MCP tool
+       * call and any direct service call get an object where the published
+       * shape promised text. That is the kind of mismatch nobody finds until
+       * the second consumer exists.
+       */
+      openSince: open?.startedAt.toISOString() ?? null,
+      entries: rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        jobId: row.jobId,
+        startedAt: row.startedAt.toISOString(),
+        endedAt: row.endedAt?.toISOString() ?? null,
+        minutes: row.minutes,
+        approvedAt: row.approvedAt?.toISOString() ?? null,
+      })),
+    };
+  });
+}
+
 /* --------------------------------------------------------------- handlers */
 
 /**
@@ -463,4 +604,7 @@ export const handlers = {
 
   approveTimeEntries: (ctx: ServiceContext, input: { entryIds: readonly string[] }) =>
     approve(ctx, { entryIds: [...input.entryIds] }),
+
+  getMyTimeclock: (ctx: ServiceContext, input: { weekOf?: string | undefined }) =>
+    myWeek(ctx, input.weekOf ? { weekOf: input.weekOf } : {}),
 } as const;

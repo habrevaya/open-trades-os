@@ -299,22 +299,99 @@
     {
       "idx": 42,
       "version": "7",
-      "when": 1790858954414,
-      "tag": "0042_gigantic_crusher_hogan",
+      "when": 1790854413576,
+      "tag": "0042_demonic_angel",
       "breakpoints": true
     },
     {
       "idx": 43,
       "version": "7",
-      "when": 1790874523512,
-      "tag": "0043_yummy_king_cobra",
+      "when": 1790854477143,
+      "tag": "0043_conscious_brood",
       "breakpoints": true
     },
     {
       "idx": 44,
       "version": "7",
-      "when": 1790875464467,
-      "tag": "0044_many_guardian",
+      "when": 1790855456923,
+      "tag": "0044_stale_junta",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790856021846,
+      "tag": "0045_natural_psynapse",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790856128381,
+      "tag": "0046_loud_meggan",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790856795331,
+      "tag": "0047_illegal_white_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790858730764,
+      "tag": "0048_graceful_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790859454741,
+      "tag": "0049_clean_elektra",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790859484947,
+      "tag": "0050_loose_tombstone",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790859671760,
+      "tag": "0051_bored_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1790859798442,
+      "tag": "0052_harsh_nuke",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790877385457,
+      "tag": "0053_overjoyed_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790877393666,
+      "tag": "0054_spooky_johnny_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790877401260,
+      "tag": "0055_little_proemial_gods",
       "breakpoints": true
     }
   ]

@@ -15,7 +15,22 @@ import { createClient, type Database } from "@opentradesos/db";
  * So: scoped deletes, in foreign key order, in one place.
  */
 const ORDER = [
-  // Money first, since it references almost everything.
+  /**
+   * Payroll first. A commission event points at an invoice and a job, an entry
+   * points at the event and at a pay period, and an export points at a close.
+   * Deleting the children before the invoices below is what keeps a reset from
+   * tripping on a foreign key, and the whole block is here rather than beside
+   * the timeclock because it is the most child-like thing in the schema.
+   */
+  "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
+  "commission_event", "commission_plan", "pay_period",
+  /**
+   * A project's link to its work goes before the job, and the draws before
+   * the invoices they became. Nothing points at a project but these, so the
+   * project itself follows its own children.
+   */
+  "project_draw", "project_job", "project_phase", "project",
+  // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
@@ -63,10 +78,35 @@ const ORDER = [
   "portal_event", "portal_grant",
   "booking_request", "bookable_service", "arrival_window",
   "portal_block", "portal_layout", "service_report_template",
+  /**
+   * The compliance register, before the attachments and the obligations that
+   * point at it. Neither pointer is a foreign key: both are the entity_type
+   * and entity_id string pair, so nothing enforces this order and it is here
+   * for the reader. A renewal deadline outliving the document it is about is
+   * exactly the leftover this list exists to prevent.
+   */
+  "compliance_document",
   "retention_policy", "regulatory_submission",
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   "rental", "rentable_asset", "territory", "business_hours",
+  /**
+   * The company's own tools, children first. Every one of these cascades
+   * from `company_asset`, which cascades from the organization, but a scoped
+   * reset deletes rows rather than the tenant, so each needs naming.
+   *
+   * Not to be confused with `rentable_asset` above, which is a hire unit a
+   * customer pays for, or with `equipment`, which is the customer's own.
+   */
+  "asset_cost", "asset_compliance", "asset_maintenance_plan",
+  "asset_meter_reading", "asset_custody", "company_asset",
   "lead_offer", "lead_source_connector", "sync_run",
+  /**
+   * Calendar feeds, before the technician they point at and before the
+   * organization. A feed is a credential rather than a record of work, so it
+   * sits here with the other integration state rather than beside the
+   * visits it shows.
+   */
+  "calendar_feed",
   /**
    * The accounting bridge, before the connection every one of them
    * cascades from. A period close points at no connection at all, which
@@ -74,6 +114,13 @@ const ORDER = [
    * the company was using when it filed.
    */
   "accounting_entity_link", "account_mapping", "accounting_period",
+  /**
+   * Model spend, before the connection every row of it cascades from. The
+   * budget points at no connection at all, which is deliberate: a company's
+   * monthly ceiling outlives whichever vendor's key it was holding when the
+   * ceiling was set.
+   */
+  "ai_usage", "ai_budget",
   "integration_connection",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.
@@ -99,6 +146,12 @@ const ORDER = [
   "review_request", "review", "review_platform", "review_policy",
   "attachment", "stored_file",
   "audit_log", "integration_event", "webhook_endpoint",
+  /**
+   * A held certification points at a technician and at the type it is an
+   * instance of, so both go before the technician below and the type goes
+   * after the holdings of it.
+   */
+  "person_certification", "certification_type",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",
   /**

@@ -74,6 +74,17 @@ export const SCOPE_FILTERS: Record<string, (ctx: ServiceContext) => SQL | undefi
   )`,
   // Not scoped by work. Reads of the queue are gated on `task:read`.
   tasks: () => undefined,
+  /**
+   * A row per job, so it scopes exactly like the jobs dataset.
+   *
+   * Not optional, and not "the permission already covers it". A technician
+   * granted `job.cost:read` and `report.financial:read` on a custom role is a
+   * real configuration: a working owner gives themselves a technician record
+   * and keeps the money. Without this line that person reads the margin on
+   * every job in the company, and `scopeFilterFor` would be the only thing
+   * between them and it.
+   */
+  profitability: (ctx) => jobScopeFilter(scopeOf(ctx, "job"), ctx.actor),
 };
 
 export function scopeFilterFor(ctx: ServiceContext, dataset: reporting.Dataset): SQL | undefined {
@@ -135,7 +146,7 @@ export async function run(
      * records disagrees with every list screen in the product, and the person
      * reading it has no way to know which is right.
      */
-    if (["jobs", "invoices", "estimates", "visits"].includes(dataset.key)) {
+    if (["jobs", "invoices", "estimates", "visits", "profitability"].includes(dataset.key)) {
       /**
        * The table is its own alias, deliberately. The scope filters are
        * written against the drizzle schema and render as `"job"."column"`,

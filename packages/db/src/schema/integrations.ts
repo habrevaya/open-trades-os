@@ -1,7 +1,7 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
-import { organization, user } from "./tenancy";
+import { organization, user, technician } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
 
@@ -354,6 +354,21 @@ export const leadSourceConnector = pgTable("lead_source_connector", {
    * asked for one.
    */
   webhookToken: text("webhook_token"),
+  /**
+   * WHERE TO FIND EACH FIELD IN WHATEVER SHAPE THIS SENDER USES.
+   *
+   * Configuration rather than code, which `lead-webhook.ts` has argued since
+   * it was written: every sender calls the same five things something
+   * different, and a parser per sender is the same file eight times. What was
+   * missing was anywhere to put the mapping, so the adapter took a field map
+   * nothing ever supplied and fell back to its guesses on every lead.
+   *
+   * Keys are checked against the field list in `services/lead-connectors.ts`
+   * on write. A key nothing here can store is refused rather than saved and
+   * ignored, because saved and ignored is how an operator maps a phone number
+   * onto a name nobody reads and never finds out.
+   */
+  fieldMap: jsonb("field_map").$type<Record<string, string>>().notNull().default({}),
   /** What the source takes. Feeds true margin on marketplace work. */
   commissionRate: money("commission_rate"),
   leadFee: money("lead_fee"),
@@ -375,6 +390,19 @@ export const leadOffer = pgTable("lead_offer", {
 
   /** Raw offer as received, before we decide anything. */
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+  /**
+   * WHO TO RING, which lived only inside `payload` until now.
+   *
+   * Every other mapped field had a column and these three did not, so the one
+   * question an operator asks of an offer, who is this and how do I reach
+   * them, could only be answered by digging through raw jsonb that each
+   * sender shapes differently. The list of open offers returned rows with an
+   * address and no name on them.
+   */
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  notes: text("notes"),
   serviceRequested: text("service_requested"),
   addressLine1: text("address_line1"),
   city: text("city"),
@@ -495,4 +523,92 @@ export const appToken = pgTable("app_token", {
 }, (t) => ({
   hashIdx: uniqueIndex("app_token_hash_idx").on(t.tokenHash),
   appIdx: index("app_token_app_idx").on(t.appId),
+}));
+
+// ---------------------------------------------------------------------------
+// Calendar feeds
+// ---------------------------------------------------------------------------
+
+/**
+ * WHOSE DAY A FEED SHOWS.
+ *
+ * Two values and no third, because the third one people reach for, "this
+ * business unit" or "this crew", is a filter rather than a subject and it
+ * would make the question "what does this URL expose" one you have to read a
+ * jsonb column to answer. A feed either shows one technician's work or it
+ * shows the company's, and both of those are decidable from this column.
+ */
+export const calendarFeedScope = pgEnum("calendar_feed_scope", ["technician", "company"]);
+
+/**
+ * A SUBSCRIBABLE CALENDAR, AND THE SECRET THAT REACHES IT
+ *
+ * A row here is a long lived bearer credential. Anybody holding the URL gets
+ * the visits it covers, forever, with no second factor and no session: that
+ * is what makes a calendar feed work on a phone with no app installed, and
+ * it is also the entire risk, so the row is shaped around being able to
+ * answer "who has one, over what, and can I turn it off".
+ *
+ * ONLY THE HASH IS STORED, which is where this differs from
+ * `lead_source_connector.webhook_token` beside it, and the difference is
+ * deliberate rather than an inconsistency. That token is shown on the
+ * connector list screen because an operator has to be able to copy the URL
+ * into whoever is sending; it is a receiving endpoint that refuses anything
+ * unsigned, so possession of the URL alone buys an attacker nothing. This
+ * one is the opposite: possession IS the access, and the URL is pasted into
+ * a calendar client once and never needed again. So it is handed over at
+ * creation and at rotation, and no read path can recover it, for the same
+ * reason `app_token` works that way.
+ */
+export const calendarFeed = pgTable("calendar_feed", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  scope: calendarFeedScope("scope").notNull(),
+  /**
+   * Whose work. Null for a company feed, and required for a technician one,
+   * which the service enforces: a technician scoped feed with no technician
+   * would be a company feed wearing the narrower label.
+   *
+   * Cascades, because a feed for a technician who no longer exists shows an
+   * empty calendar forever and nobody goes looking for it.
+   */
+  technicianId: uuid("technician_id").references(() => technician.id, { onDelete: "cascade" }),
+  /** SHA-256 of the token in the URL. The token itself is never stored. */
+  tokenHash: text("token_hash").notNull(),
+  /**
+   * The last few characters of the token, so somebody holding two feeds can
+   * tell which is which before revoking one. Not enough of it to use.
+   */
+  hint: text("hint").notNull(),
+  /** What it is called in the technician's calendar app once subscribed. */
+  label: text("label").notNull(),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * When it stopped working, and who stopped it. A revoked feed is kept
+   * rather than deleted: "this URL used to reach our schedule and was turned
+   * off on the fourth" is the question somebody asks after a phone is lost,
+   * and a deleted row answers it with silence.
+   */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedByUserId: uuid("revoked_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  revokedReason: text("revoked_reason"),
+  /**
+   * When a client last collected it. The only evidence that a feed is in use
+   * at all, which is what makes "revoke the ones nobody fetches" a decision
+   * somebody can make rather than a guess.
+   */
+  lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
+  /**
+   * What fetched it, trimmed. A calendar feed URL that has leaked usually
+   * leaks into something that identifies itself: a second client appearing
+   * on a feed that should only ever be collected by one phone is the signal,
+   * and without this there is nothing to see it in.
+   */
+  lastFetchedBy: text("last_fetched_by"),
+  ...timestamps,
+}, (t) => ({
+  /** The lookup every fetch does, and it has to be unique across tenants. */
+  tokenIdx: uniqueIndex("calendar_feed_token_idx").on(t.tokenHash),
+  orgIdx: index("calendar_feed_org_idx").on(t.organizationId, t.scope),
+  technicianIdx: index("calendar_feed_technician_idx").on(t.technicianId),
 }));

@@ -28,10 +28,22 @@ export const ACCOUNTS = {
   DEFERRED_REVENUE: "2400",   // Unearned agreement revenue. A LIABILITY.
   TAX_PAYABLE: "2200",        // Sales tax collected, owed to a jurisdiction
   TIPS_PAYABLE: "2250",       // Tips collected, owed to a technician
+  COMMISSION_PAYABLE: "2260", // Commission earned and not yet paid. A LIABILITY.
   REVENUE: "4000",
   REVENUE_AGREEMENT: "4100",
   DISCOUNTS: "4900",          // Contra revenue
   COGS: "5000",
+  /**
+   * Commission, kept OUT of cost of goods sold on purpose.
+   *
+   * It is a real cost of the sale and a reasonable chart could put it in COGS.
+   * This one does not, because a margin based commission plan is computed from
+   * gross margin: put the commission inside COGS and the margin a commission is
+   * worked out from is reduced by the commission itself, so the number depends
+   * on the order the two are computed in, and a second commission on the same
+   * job would be smaller than the first for no reason anybody could explain.
+   */
+  COMMISSION_EXPENSE: "5100",
   PROCESSING_FEES: "6100",
   WRITE_OFF: "6900",
 } as const;
@@ -671,6 +683,120 @@ export function postDeferredRelease(input: {
       input.toRevenue
         ? cr(ACCOUNTS.REVENUE_AGREEMENT, input.amount, "Recognised on cancellation", tag)
         : cr(ACCOUNTS.AR, input.amount, "Credited back to the customer", tag),
+    ]),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Commission
+// ---------------------------------------------------------------------------
+
+/**
+ * EARNING A COMMISSION.
+ *
+ * An expense is incurred and a LIABILITY goes up. No cash moves, because none
+ * has: the technician has not been paid, and will not be until the payroll run
+ * clears this liability with `postCommissionPayment` below.
+ *
+ * This is the same error as booking a deposit as revenue, with the sign the
+ * other way round, and it is made just as often. A product that records
+ * commission as a column on a job and nothing else has a company whose own
+ * accounts never show what it owes its technicians. The month a large install
+ * lands reads as far more profitable than it was, because the expense that
+ * install created has not been recognised anywhere, and it will land in
+ * whichever month somebody happens to run payroll.
+ *
+ * Recognised when EARNED rather than when paid, for the reason every accrual
+ * exists: the expense belongs to the period that caused it. Deferring it to
+ * the payout makes a month's margin depend on which side of a fortnight
+ * boundary the payroll calendar happens to fall.
+ */
+export function postCommissionEarned(input: {
+  commissionEventId: string;
+  occurredAt: Date;
+  amount: Money;
+  jobId?: string | undefined;
+  customerId?: string | undefined;
+}): Posting {
+  const tag = { jobId: input.jobId, customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "commission",
+    sourceId: input.commissionEventId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.COMMISSION_EXPENSE, input.amount, "Commission earned", tag),
+      cr(ACCOUNTS.COMMISSION_PAYABLE, input.amount, "Commission owed to a technician", tag),
+    ]),
+  });
+}
+
+/**
+ * THE COMMISSION COMING BACK OFF.
+ *
+ * The invoice was refunded, credited or written off, so the company was never
+ * paid for the work and the commission on it was never really earned. The
+ * liability goes down and the expense comes back off.
+ *
+ * `amount` is a MAGNITUDE, not the negative figure the clawback carries.
+ * Passing the negative would produce a posting with two negative legs that
+ * balances perfectly and reads, on a trial balance, as a second commission
+ * being earned. The caller takes the absolute value and the parameter is named
+ * so that it is obvious which one is wanted.
+ *
+ * This is a separate posting rather than a smaller original, for the reason
+ * `postRefund` is not a negative payment: both appear in the register, and a
+ * reversal somebody can see is a reversal somebody can audit.
+ */
+export function postCommissionReversal(input: {
+  commissionReversalId: string;
+  occurredAt: Date;
+  /** Positive. What comes back. */
+  amount: Money;
+  jobId?: string | undefined;
+  customerId?: string | undefined;
+}): Posting {
+  if (isNegative(input.amount)) {
+    throw new RangeError(
+      `postCommissionReversal takes the magnitude coming back, and was given ${toString(input.amount)}. `
+      + "A negative here posts two negative legs, balances, and reads on a trial balance as a second commission being earned.",
+    );
+  }
+  const tag = { jobId: input.jobId, customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "commission_reversal",
+    sourceId: input.commissionReversalId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.COMMISSION_PAYABLE, input.amount, "Commission reversed", tag),
+      cr(ACCOUNTS.COMMISSION_EXPENSE, input.amount, "Commission expense reversed", tag),
+    ]),
+  });
+}
+
+/**
+ * PAYING IT, which is a different event from earning it.
+ *
+ * The liability is discharged and cash leaves. Nothing is expensed here: the
+ * expense was recognised when the commission was earned, and recognising it
+ * again at payout would double the cost of every sale.
+ *
+ * Skipping this posting and simply marking the commission paid leaves the
+ * liability on the balance sheet forever as money the company still owes its
+ * technicians, which is how a growing company ends up with a commission
+ * payable balance that only ever climbs.
+ */
+export function postCommissionPayment(input: {
+  payrollRunId: string;
+  occurredAt: Date;
+  amount: Money;
+}): Posting {
+  return assertBalanced({
+    sourceType: "commission_payment",
+    sourceId: input.payrollRunId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.COMMISSION_PAYABLE, input.amount, "Commission paid"),
+      cr(ACCOUNTS.CASH, input.amount, "Cash out"),
     ]),
   });
 }

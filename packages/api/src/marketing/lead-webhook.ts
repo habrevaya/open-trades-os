@@ -57,7 +57,8 @@ export interface LeadFieldMap {
  * website form whose fields are already called the obvious thing, and making
  * that case require a mapping is making the easy case hard.
  */
-const FALLBACKS: Record<keyof LeadFieldMap, string[]> = {
+/** Exported so a settings screen can show what it will try when nothing is mapped. */
+export const FALLBACKS: Record<keyof LeadFieldMap, string[]> = {
   externalId: ["id", "lead_id", "leadId", "external_id", "request_id"],
   contactName: ["name", "full_name", "fullName", "contact_name", "customer_name", "contact.name"],
   contactEmail: ["email", "email_address", "contact_email", "contact.email"],
@@ -232,4 +233,7 @@ export function signLeadWebhook(input: {
   };
 }
 
-registerLeadSource("lead_webhook", () => webhookLeadSource());
+registerLeadSource("lead_webhook", (options) => webhookLeadSource({
+  ...(options.fieldMap ? { fieldMap: options.fieldMap as LeadFieldMap } : {}),
+  ...(options.source ? { source: options.source } : {}),
+}));

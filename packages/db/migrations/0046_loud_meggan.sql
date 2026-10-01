@@ -1,0 +1,1 @@
+ALTER TABLE "lead_source_connector" ADD COLUMN "field_map" jsonb DEFAULT '{}'::jsonb NOT NULL;

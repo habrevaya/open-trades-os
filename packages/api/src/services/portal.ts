@@ -38,7 +38,7 @@ import type {
  * cannot reach across tenants even if it tries.
  */
 
-interface ResolvedGrant {
+export interface ResolvedGrant {
   grantId: string;
   organizationId: string;
   customerId: string | null;
@@ -141,14 +141,14 @@ function portalContext(db: Database, grant: ResolvedGrant): ServiceContext {
  * query. It returned another company's, which is exactly what the comment
  * said could not happen.
  */
-async function inGrant<T>(
+export async function inGrant<T>(
   db: Database, grant: ResolvedGrant, fn: (tx: Database, ctx: ServiceContext) => Promise<T>,
 ): Promise<T> {
   const ctx = portalContext(db, grant);
   return inTenant(ctx, (tx) => fn(tx, ctx));
 }
 
-function requireScope(grant: ResolvedGrant, scope: ResolvedGrant["scope"]): string {
+export function requireScope(grant: ResolvedGrant, scope: ResolvedGrant["scope"]): string {
   if (grant.scope !== scope) throw new InvalidGrantError();
   if (!grant.subjectId) throw new InvalidGrantError();
   return grant.subjectId;
@@ -505,30 +505,63 @@ export async function viewJob(
   });
 }
 
+/**
+ * Minting one grant, inside a transaction the caller already has.
+ *
+ * Split out of `issueGrant` so that a service which sends a customer a
+ * document can put the link in the same transaction as the record of having
+ * sent it. The alternative, calling `issueGrant` from inside another
+ * service's transaction, opens a SECOND transaction on a second connection:
+ * it commits on its own, so a send that rolls back still leaves a live link
+ * to the document behind it, and under load it deadlocks against the pool.
+ *
+ * The token is returned exactly once, here, and only its hash is stored. That
+ * is the whole mechanism, and it is why this is shared rather than copied: a
+ * second place generating tokens is a second place to get the entropy, the
+ * hash or the expiry wrong, and the one that is wrong is the one nobody
+ * reads.
+ */
+export async function mintGrant(tx: Database, input: {
+  organizationId: string;
+  customerId: string;
+  scope: ResolvedGrant["scope"];
+  subjectId?: string | null | undefined;
+  expiresInDays: number;
+  maxUses?: number | null | undefined;
+}): Promise<{ row: typeof schema.portalGrant.$inferSelect; token: string; url: string }> {
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + input.expiresInDays * 864e5);
+
+  const [row] = await tx.insert(schema.portalGrant).values({
+    organizationId: input.organizationId,
+    customerId: input.customerId,
+    scope: input.scope,
+    subjectId: input.subjectId ?? null,
+    tokenHash: hash(token),
+    expiresAt,
+    maxUses: input.maxUses ?? null,
+  }).returning();
+
+  return { row: row!, token, url: `${PORTAL_BASE}/${pathFor(input.scope)}/${token}` };
+}
+
 /** Issuing a link, from the office or a technician's phone. */
 export async function issueGrant(ctx: ServiceContext, input: z.infer<typeof issuePortalGrant.input>) {
   return guardedWrite(ctx, "portal:grant", async (tx) => {
-    const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + input.expiresInDays * 864e5);
-
-    const [row] = await tx.insert(schema.portalGrant).values({
+    const { row, url } = await mintGrant(tx, {
       organizationId: ctx.actor.organizationId,
       customerId: input.customerId,
       scope: input.scope,
       subjectId: input.subjectId ?? null,
-      tokenHash: hash(token),
-      expiresAt,
+      expiresInDays: input.expiresInDays,
       maxUses: input.maxUses ?? null,
-    }).returning();
+    });
 
-    await audit(tx, ctx, "portal.grant.issued", "portal_grant", row!.id, null, {
+    await audit(tx, ctx, "portal.grant.issued", "portal_grant", row.id, null, {
       scope: input.scope, subjectId: input.subjectId ?? null,
     });
 
-    return {
-      grant: shapeGrant(row!),
-      url: `${PORTAL_BASE}/${pathFor(input.scope)}/${token}`,
-    };
+    return { grant: shapeGrant(row), url };
   });
 }
 

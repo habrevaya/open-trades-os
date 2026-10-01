@@ -67,7 +67,19 @@ export type ConnectorCapability =
    */
   | "payments"
   /** The books of record, which this product posts to and never owns. */
-  | "accounting";
+  | "accounting"
+  /**
+   * The technician's own calendar, which is the one piece of this product
+   * most of its users already have open on their phone all day.
+   *
+   * In the database's capability enum since the first migration with nothing
+   * behind it, which is the state this catalogue exists to make visible: a
+   * seam named in the schema and implemented by nobody reads, to anybody
+   * looking at the schema, as a feature.
+   */
+  | "calendar"
+  /** A language model, running on the company's own key and the company's own bill. */
+  | "ai_model";
 
 /**
  * How the operator proves who they are.
@@ -83,6 +95,17 @@ export type ConnectorAuth =
   | "api_key"
   | "webhook_secret"
   | "file_upload"
+  /**
+   * A secret THIS product mints and hands over, rather than one the operator
+   * fetches from a vendor.
+   *
+   * A subscribable calendar URL is the case: there is nobody to get a
+   * credential from, the token in the path is the whole of the
+   * authentication, and whoever holds the URL has the access until it is
+   * revoked. Calling that `none` would be false, and calling it `api_key`
+   * would send an operator looking for a vendor screen that does not exist.
+   */
+  | "feed_token"
   | "none";
 
 /** What actually moves, and which way. */
@@ -110,6 +133,17 @@ export type ConnectorFlow =
    * invisible in the only place an owner looks.
    */
   | "messages_out"
+  /**
+   * Replies back in, which is a different flow and not the same connector
+   * capability read backwards.
+   *
+   * An adapter can send and not receive: an outbound-only gateway is a real
+   * product people buy. Folding the two into one flow would make a carrier
+   * that drops replies on the floor indistinguishable from one that threads
+   * them into the inbox, and the first of those is a customer saying STOP
+   * into a void.
+   */
+  | "messages_in"
   /** Money in: a card charged, and the processor's word that it cleared. */
   | "payments_in"
   /** Money back out: a refund issued from here rather than from their dashboard. */
@@ -117,7 +151,20 @@ export type ConnectorFlow =
   /** Invoices, payments and credits pushed into the books of record. */
   | "books_out"
   /** What changed over there read back, so the two do not silently diverge. */
-  | "books_in";
+  | "books_in"
+  /** Questions out and answers back, priced per token against the operator's own account. */
+  | "model_calls"
+  /**
+   * The schedule out: visits leaving this product for a calendar somebody
+   * has already got open.
+   *
+   * None of the flows above fits and the nearest, `messages_out`, would be a
+   * claim that something is being sent to a customer. This is a read a
+   * client comes and collects, and the direction matters because it is the
+   * first thing in this catalogue that puts customer addresses somewhere
+   * this company does not control.
+   */
+  | "calendar_out";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -316,6 +363,46 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
   },
 
   /* ----------------------------------------------------------- messages out */
+  /* ------------------------------------------------------------- messaging */
+  /**
+   * TWILIO WAS MISSING FROM THIS CATALOGUE UNTIL JUSTCALL WAS ADDED BESIDE IT.
+   *
+   * It is the first adapter this product ever had, it is named on the
+   * website, and the file above says this is the map of every outside system
+   * the product speaks to. An owner looking here for the thing their texts
+   * go through found nothing and could only conclude the product had never
+   * heard of it, which is the understating failure this catalogue is as
+   * exposed to as the overclaiming one.
+   */
+  {
+    key: "twilio",
+    label: "Twilio",
+    capability: "messaging",
+    auth: "api_key",
+    flows: ["messages_out", "messages_in"],
+    state: "built",
+    purpose:
+      "Texts out and replies back in, on your own Twilio account. Reminders, arrival notices and the shared inbox all run through it, and a reply threads onto the job it belongs to rather than onto a phone number.",
+    setup:
+      "An account SID and auth token from your own Twilio console, and a number or messaging service to send from. Put the auth token in your secret store: this product holds the name of it and never the value. In the United States, A2P 10DLC registration is between you and Twilio, and unregistered traffic is filtered rather than refused, so it fails by disappearing.",
+    limitation:
+      "Twilio's own opt out handling is a courtesy and not your compliance position: it knows nothing about a form somebody signed in 2024, which is why consent is decided here before a carrier is chosen at all. A delivery receipt says the handset acknowledged it, never that anybody read it.",
+  },
+  {
+    key: "justcall",
+    label: "JustCall",
+    capability: "messaging",
+    auth: "api_key",
+    flows: ["messages_out", "messages_in"],
+    state: "built",
+    purpose:
+      "The same seam with a JustCall account instead, for a company already running their phones through it. Nothing in the send path, the outbox or the consent rules knows which of the two is configured.",
+    setup:
+      "An API key and secret from the APIs and Webhooks screen of your own JustCall account, stored as one `key:secret` value in your secret store, because a credential split across two names is two things to rotate and one of them forgotten. Then a webhook in JustCall pointed at this product, subscribed to SMS received and SMS delivery status updated. API access starts at their Team plan.",
+    limitation:
+      "Their webhook signature does not cover the event data: it is computed over the secret, the configured URL, the event type and a timestamp, and none of the message. A valid signature proves somebody holding the secret sent an event of that type, not that this is the body they sent. The replay window is therefore five minutes rather than the day the call tracking adapter allows, and a resent body lands on the row their message id already wrote. Nothing of ours is carried through a send either, so a delivery receipt is matched on their id alone.",
+  },
+
   {
     key: "resend",
     label: "Resend",
@@ -359,6 +446,96 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "Connect the QuickBooks company you already use, then map your account codes to your own chart of accounts on the screen that follows. Nothing is mapped for you: a posting whose code has no mapping stops and names the code, because a default that quietly picks a plausible income account is a year of misfiled revenue found by an accountant in March.",
     limitation:
       "Intuit meters READS and refuses the overage with a 429 rather than billing it, so a pass that runs out of read budget stops reading, says so on the run, and keeps pushing: the invoices still land, the change feed waits for the next window. Connecting it does not import history either; it starts from the day you connect, because their change feed will not answer for anything older than thirty days.",
+  },
+
+  /* -------------------------------------------------------------- models */
+  {
+    key: "xero",
+    label: "Xero",
+    capability: "accounting",
+    auth: "oauth",
+    flows: ["books_out", "books_in"],
+    state: "built",
+    purpose:
+      "The same accounting bridge against Xero instead of QuickBooks. Invoices, payments, credit notes and the customers behind them go into the books your accountant already works in, and what changes over there comes back.",
+    setup:
+      "A free Xero developer account and an app you register yourself, which is a form rather than an approval queue, then the usual consent screen against the organisation you want connected. The client id, client secret and refresh token go into your secret store as one value, because Xero rotates the refresh token on every single exchange and all three have to be replaced together.",
+    limitation:
+      "Xero has no change feed. It has a modified-since window, so inbound is a timestamp boundary rather than a cursor, and a few records either side of it are read twice on purpose because the alternative is losing one written mid-request. Their refresh token has no grace period at all: the moment one is exchanged the previous one is dead, so a deployment that loses the rotated value needs a human back at the consent screen. Payments arrive as batch payments, including a payment against a single invoice, so they appear as one line on the bank reconciliation and the deposit account has to be a bank account with payments enabled. Sixty calls a minute and five thousand a day per organisation, shared between reading and writing.",
+  },
+  {
+    key: "anthropic",
+    label: "Claude",
+    capability: "ai_model",
+    auth: "api_key",
+    flows: ["model_calls"],
+    state: "built",
+    purpose:
+      "Point Claude at your own data with your own key, and give it the same tools a person with your permissions would have. Nothing it can reach is anything you could not do by hand.",
+    setup:
+      "An API key from your own Anthropic account, put in your secret store. This product holds the name of it and never the value. Set a monthly ceiling at the same time: the key is yours and so is the bill.",
+    limitation:
+      "The ceiling is checked before each call against the worst case cost of that call, so a month can overrun by at most one call's input, which nothing can know in advance. No word of any prompt or answer is stored here, which also means there is no transcript to go back to.",
+  },
+  {
+    key: "openai",
+    label: "ChatGPT",
+    capability: "ai_model",
+    auth: "api_key",
+    flows: ["model_calls"],
+    state: "built",
+    purpose:
+      "The same seam with an OpenAI key instead, for a company that already pays for one.",
+    setup:
+      "An API key from your own OpenAI account. Prices and the default model are not held for this vendor, so set them in the connection settings if you want a spend ceiling, because a ceiling built on an unknown price is a setting that does nothing.",
+    limitation:
+      "A call this product cannot price is refused while a ceiling is set, rather than running and recording nothing, and runs recording a null cost when no ceiling is set. Never a zero: zero is a claim the call was free.",
+  },
+  {
+    key: "google",
+    label: "Gemini",
+    capability: "ai_model",
+    auth: "api_key",
+    flows: ["model_calls"],
+    state: "built",
+    purpose:
+      "The same seam with a Google key. The adapter sends it as a header rather than in the URL, because a URL is logged by every proxy between your box and the vendor.",
+    setup:
+      "An API key from your own Google AI account, plus prices and a default model in the connection settings if you want a ceiling, for the same reason as OpenAI.",
+    limitation:
+      "Gemini issues no id for a tool call, so when a model asks for the same tool twice in one turn the two are told apart by order rather than by identity. Everything else lines up with the other two.",
+  },
+
+  /* ------------------------------------------------------------- calendar */
+  {
+    key: "ics_feed",
+    label: "Calendar feed",
+    capability: "calendar",
+    auth: "feed_token",
+    flows: ["calendar_out"],
+    state: "built",
+    purpose:
+      "Put a technician's visits in the calendar they already have. A URL they subscribe to once in Google Calendar, Apple Calendar, Outlook or the phone's own app, and their day is there with the address ready to navigate to.",
+    setup:
+      "Mint a feed on the calendar settings screen and copy the URL it shows you once. Paste it into the calendar app as a subscription, not an import: an import is a one-off copy that never changes again. There is no account to open and nothing to approve, because there is no vendor involved at all.",
+    limitation:
+      "The URL is the whole credential: anybody who gets it sees those visits until it is revoked, so it is handed over once and cannot be read back, and rotating is one call. It is also read only in both directions. Nothing a technician changes in their own calendar comes back here, and how often a client collects it is the client's decision rather than ours: Google in particular can take hours to notice a change, so a visit moved this morning is not a reliable way to tell somebody. The customer's phone number is deliberately not in it, because a calendar syncs to accounts and devices this company does not control.",
+  },
+
+  /* -------------------------------------------------------- call tracking */
+  {
+    key: "callrail",
+    label: "CallRail",
+    capability: "telephony",
+    auth: "api_key",
+    flows: ["leads_in", "analytics_in"],
+    state: "built",
+    purpose:
+      "Attribute phone calls to what paid for them. For most trades companies this is the only measurement their marketing ever gets: a yard sign, a van, a mailer and a radio spot carry no query string, so the number on them is the tag, and a tracked call becomes a call record and a marketing touch here.",
+    setup:
+      "An API key from the integrations screen of your own CallRail account, which is self-serve on any paid plan. Then a Webhooks integration in CallRail pointed at the URL on this screen, and the signing key from that same page. Both values go in your secret store; this product holds the names of them and never the values. Record each tracking number here with the source it stands for, because that declaration is what turns a call into a channel rather than into an unrecognised number on the worklist.",
+    limitation:
+      "One long-lived API key, with no OAuth and no refresh token, so nothing expires and nothing will ever prompt a rotation: changing the key is somebody deciding to, minting a new one and replacing it in the secret store by hand. CallRail does not resend a webhook that failed either, so an outage is calls that never arrive on their own and the backfill is the only way to get them back. The webhook signature is HMAC-SHA1 rather than SHA-256, which is what they offer. The recording and the transcript CallRail sends are deliberately not stored: a recording needs a permission decision under your own declared policy and a webhook carries no evidence of one, and a transcript would land unredacted, card numbers and all.",
   },
 
   /* ------------------------------------------------------------ payments in */

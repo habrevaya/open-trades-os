@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as dispatchSvc from "../src/services/dispatch";
+import * as templates from "../src/services/message-templates";
 import { recordDelivery } from "../src/services/comms-outbox";
 import type { ServiceContext } from "../src/services/context";
 import { seedOrg, fixtureId, testDb } from "./helpers";
@@ -37,6 +38,10 @@ let raw: postgres.Sql;
 const db = () => testDb(url!);
 const tech = (): ServiceContext => ({
   actor: { userId: USER, organizationId: ORG, roles: ["technician"] as Actor["roles"] }, db: db(),
+});
+/** Writing a template is a settings change, which a technician cannot make. */
+const owner = (): ServiceContext => ({
+  actor: { userId: USER, organizationId: ORG, roles: ["owner"] as Actor["roles"] }, db: db(),
 });
 
 let customerId = "";
@@ -100,6 +105,7 @@ beforeEach(async () => {
   await raw`delete from public.communication_consent where organization_id = ${ORG}`;
   await raw`delete from public.contact where organization_id = ${ORG}`;
   await raw`delete from public.portal_grant where organization_id = ${ORG}`;
+  await raw`delete from public.message_template where organization_id = ${ORG}`;
   await allowTexting(CUSTOMER_PHONE);
 });
 
@@ -130,6 +136,49 @@ run("a button that says it texts the customer", () => {
     const [notice] = await notices();
     expect(notice!.message_id).toBe(messages[0]!.id);
     expect(notice!.failed_reason).toBeNull();
+  });
+
+  it("uses the company's own wording when they have written one", async () => {
+    /**
+     * THE WORDING WAS A STRING LITERAL IN A SERVICE, and this is the one
+     * message a customer reads most often. A company that calls their people
+     * engineers rather than technicians, or whose notice runs a line too long
+     * for a lock screen, needed a pull request to change it.
+     *
+     * Asserted on `public.message`, not on the return value, for the same
+     * reason as the test above: the row the customer can actually receive is
+     * the only evidence that the wording reached anybody.
+     */
+    await templates.define(owner(), {
+      code: "arrival_notice",
+      name: "Our own words",
+      channel: "sms",
+      body: "{{ company }} here. Your engineer is {{ eta }}.",
+    });
+
+    const { visitId } = await makeVisit();
+    await dispatchSvc.onMyWay(tech(), {
+      id: visitId, channel: "sms", etaMinutes: 15, includeTracking: false,
+    });
+
+    const messages = await outbound();
+    expect(messages[0]!.body).toBe("Ridgeline Air here. Your engineer is about 15 minutes away.");
+  });
+
+  it("falls back to the built in wording when they have not", async () => {
+    /**
+     * The fallback is what makes the template safe to add rather than a
+     * migration every existing company has to perform. No template means the
+     * sentence they got yesterday, unchanged.
+     */
+    const { visitId } = await makeVisit();
+    await dispatchSvc.onMyWay(tech(), {
+      id: visitId, channel: "sms", etaMinutes: 15, includeTracking: false,
+    });
+
+    const messages = await outbound();
+    expect(messages[0]!.body).toContain("your technician is");
+    expect(messages[0]!.body).toContain("Ridgeline Air");
   });
 
   it("puts the tracking link in the text, not only in the response", async () => {

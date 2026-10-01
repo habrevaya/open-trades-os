@@ -75,6 +75,17 @@ export async function POST(
     source: schema.leadSourceConnector.source,
     connectionId: schema.leadSourceConnector.connectionId,
     active: schema.leadSourceConnector.active,
+    /**
+     * READ, AND ACTUALLY USED BELOW.
+     *
+     * The adapter has taken a field map since it was written and this route
+     * built it with no options at all, so every sender was parsed with the
+     * default guesses and a mapping an operator configured would have been
+     * ignored. Nothing failed: the leads arrived, with whichever fields
+     * happened to match the guesses, and the ones that did not came through
+     * empty.
+     */
+    fieldMap: schema.leadSourceConnector.fieldMap,
   }).from(schema.leadSourceConnector)
     .where(and(
       eq(schema.leadSourceConnector.webhookToken, token),
@@ -106,7 +117,15 @@ export async function POST(
     return new Response("Not configured", { status: 409 });
   }
 
-  const adapter = leadIntake.createLeadSource("lead_webhook");
+  /**
+   * Built with THIS connector's mapping and source, rather than as a generic
+   * one. The registry's factory takes both; passing neither is what made the
+   * mapping dead configuration.
+   */
+  const adapter = leadIntake.createLeadSource("lead_webhook", {
+    fieldMap: connector.fieldMap ?? {},
+    source: connector.source,
+  });
   const webhookRequest = {
     url: publicUrl(token),
     headers: Object.fromEntries(

@@ -21,10 +21,25 @@
  *     month is a wall it cannot pay through. Whether we have already pushed
  *     something is answered from `accounting_entity_link`, locally, for free.
  *
- *   - Inbound is `changes()` over a cursor, never a scan. A timestamp sweep
- *     re-reads everything modified since the window started; a change feed
- *     returns only what moved. Both QuickBooks and Xero expose one, which is
- *     why it is in the interface rather than in the adapter.
+ *   - Inbound is `changes()` over an opaque resume point, never a scan from
+ *     the beginning. QuickBooks has a real change feed at `/cdc`, which
+ *     returns only what moved since an instant and issues the next resume
+ *     point itself.
+ *
+ *     THIS COMMENT USED TO SAY "BOTH QUICKBOOKS AND XERO EXPOSE ONE" AND
+ *     XERO DOES NOT. It has `If-Modified-Since` and nothing else: a
+ *     timestamp window, no server-issued token, no change feed. The claim
+ *     was written before the Xero adapter existed and the adapter is what
+ *     disproved it; it is corrected here rather than left standing, because
+ *     a sentence in the file somebody reads to find out what is true is
+ *     exactly where a wrong one does damage.
+ *
+ *     The method survives unchanged, because what it actually requires is
+ *     weaker than what the old comment claimed: the resume point is an
+ *     OPAQUE STRING the service stores and hands back without reading. A
+ *     cursor satisfies that and so does a timestamp, and the adapter is
+ *     where the difference lives. What a timestamp costs is a boundary the
+ *     adapter has to get right, and `accounting/xero.ts` says how.
  *
  *   - Every read returns a RESULT, not a thrown error, and the result has a
  *     `budgetExhausted` arm. Running out of reads is an ordinary state of a
@@ -295,12 +310,14 @@ export interface AccountingProvider {
   /**
    * What changed over there since the cursor.
    *
-   * A cursor rather than a timestamp window because this is the metered half
-   * of the integration and the difference between the two is the difference
-   * between a sync that fits in the budget and one that does not. The cursor
-   * is opaque to us: QuickBooks wants an ISO instant on its `cdc` endpoint
-   * and another system may want a page token, and the service stores whatever
-   * string comes back on `sync_run.cursor` without reading it.
+   * An OPAQUE resume point rather than a caller-computed window, because
+   * this is the expensive half of the integration and only the adapter knows
+   * what its provider can resume from. QuickBooks wants an ISO instant on
+   * its `cdc` endpoint and issues the next one itself; Xero has no cursor at
+   * all and the adapter builds a timestamp boundary that cannot lose a
+   * record written mid-request. The service stores whatever string comes back
+   * on `sync_run.cursor` and never reads it, which is what makes both
+   * possible behind one method.
    *
    * `null` means "never synced". The adapter decides what that means, which
    * for QuickBooks is a bounded window rather than all of history, because
