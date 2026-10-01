@@ -6,9 +6,9 @@ import { test, expect, run, api } from "./fixtures";
  * "Create a customer, book a job, complete it, invoice it, take a payment, and
  * see the money in a report that agrees with the ledger to the cent."
  *
- * The customer and their address go through the screen. Booking the job,
- * completing the visit, raising the invoice and recording the payment have
- * no office screen yet, so those four go through the HTTP API as the same
+ * The customer, their address and booking the job go through the screens.
+ * Completing the visit, raising the invoice and recording the payment have
+ * no office screen yet, so those three go through the HTTP API as the same
  * signed in owner; every result is then read back off the screens a person
  * would check, which is where a wrong number would be seen.
  */
@@ -39,30 +39,30 @@ test("the owner books a job from a new customer through to paid, and the report 
   const address = owner.getByRole("link", { name: "88 Bluebonnet Ln, Austin" });
   await expect(address).toBeVisible();
   const propertyId = (await address.getAttribute("href"))!.split("/").pop()!;
+  expect(propertyId).toMatch(/^[0-9a-f-]{36}$/);
 
   // The property page opens for the address the form created.
   await address.click();
   await expect(owner).toHaveURL(new RegExp(`/properties/${propertyId}$`));
   await expect(owner.getByText("88 Bluebonnet Ln").first()).toBeVisible();
 
-  // Booked, with its first visit tomorrow morning.
-  const start = new Date(Date.now() + 24 * 3600_000);
-  start.setUTCHours(15, 0, 0, 0);
-  const job = await api<Job>(owner.request, "POST", "/v1/jobs", {
-    customerId, propertyId,
-    summary: `No cooling upstairs ${run}`,
-    customerComplaint: "Clicking, then it stopped blowing cold",
-    visit: {
-      windowStart: start.toISOString(),
-      windowEnd: new Date(start.getTime() + 2 * 3600_000).toISOString(),
-      estimatedDurationMinutes: 90,
-    },
-  });
-  expect(job.visits).toHaveLength(1);
+  // Booked, from the customer's address, with its first visit tomorrow morning.
+  await owner.getByRole("link", { name: "Book a job here" }).click();
+  await expect(owner).toHaveURL(/\/jobs\/new\?customer=/);
+  await owner.getByLabel("Summary").fill(`No cooling upstairs ${run}`);
+  await owner.getByLabel("Customer said").fill("Clicking, then it stopped blowing cold");
+  const tomorrow = new Date(Date.now() + 24 * 3600_000).toISOString().slice(0, 10);
+  await owner.getByLabel("Day", { exact: true }).fill(tomorrow);
+  await owner.getByLabel("Arrives from").fill("10:00");
+  await owner.getByLabel("Expected to take (minutes)").fill("90");
+  await owner.getByRole("button", { name: "Book job" }).click();
 
-  await owner.goto(`/jobs/${job.id}`);
+  await expect(owner).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+  const jobId = owner.url().split("/").pop()!;
   await expect(owner.getByRole("heading", { level: 1 })).toContainText(`No cooling upstairs ${run}`);
   await expect(owner.getByRole("table").last()).toContainText(/Unassigned|Scheduled/);
+  const job = await api<Job>(owner.request, "GET", `/v1/jobs/${jobId}`);
+  expect(job.visits).toHaveLength(1);
 
   // Completed.
   await api(owner.request, "POST", `/v1/visits/${job.visits[0]!.id}/complete`, {

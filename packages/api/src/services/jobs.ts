@@ -13,6 +13,7 @@ import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
+import { awayBetween } from "./time-off";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -232,6 +233,49 @@ async function assertCallbackParent(
   }
 }
 
+/**
+ * NOBODY IS BOOKED ONTO A DAY THEY HAVE OFF.
+ *
+ * The board has shown approved time off since it was built, so an empty
+ * column says why it is empty. Booking did not ask, so a job booked from a
+ * customer's page put a technician on the morning of their holiday and the
+ * first anybody knew was a customer waiting at home. Asked here, of the same
+ * approved time off the board reads, so the two cannot disagree.
+ *
+ * Only for work still to come. A visit whose window has already ended is a
+ * record of what happened, and history is not refused for being
+ * inconvenient: a migration loading last year's visits must not fail because
+ * somebody also took that week off.
+ */
+async function assertAvailable(
+  tx: Database, organizationId: string,
+  technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
+): Promise<void> {
+  if (technicianIds.length === 0 || windowEnd.getTime() < Date.now()) return;
+  const people = await tx.select({
+    id: schema.technician.id, displayName: schema.technician.displayName, active: schema.technician.active,
+  }).from(schema.technician)
+    .where(and(
+      eq(schema.technician.organizationId, organizationId),
+      inArray(schema.technician.id, [...technicianIds]),
+    ));
+  /**
+   * The same refusal dispatch gives for the same mistake. Booking an id that
+   * is not a technician here used to succeed and leave a visit assigned to
+   * nobody anybody could see.
+   */
+  if (people.length !== new Set(technicianIds).size || people.some((p) => !p.active)) {
+    throw new ConflictError("One of those technicians is not active in this company.");
+  }
+  const away = await awayBetween(tx, organizationId, windowStart, windowEnd, [...technicianIds]);
+  if (away.size === 0) return;
+  const names = people.filter((p) => away.has(p.id)).map((p) => p.displayName);
+  throw new ConflictError(
+    `${names.join(" and ")} ${names.length === 1 ? "is" : "are"} on approved time off then. `
+    + "Choose somebody else, or another time.",
+  );
+}
+
 export async function create(ctx: ServiceContext, input: CreateInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -256,6 +300,12 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
 
     await assertUnclaimed(tx, "job", input.externalRef);
     await assertUnclaimed(tx, "visit", input.visit?.externalRef);
+    if (input.visit) {
+      await assertAvailable(
+        tx, ctx.actor.organizationId, input.visit.technicianIds,
+        new Date(input.visit.windowStart), new Date(input.visit.windowEnd),
+      );
+    }
     const number = await claimNumber(tx, ctx, "job", input.number);
 
     await enforceWithin(
@@ -582,6 +632,15 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
 
     const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, input.id)).limit(1);
     if (!job) throw new NotFoundError("Job");
+    /**
+     * A cancelled job is finished with. Sending somebody to it is a visit
+     * the customer said no to, and the job's status would go on saying
+     * cancelled while a van drove there. A cancelled visit is still
+     * recorded, because that is history rather than work.
+     */
+    if (job.status === "cancelled" && input.status !== "cancelled") {
+      throw new ConflictError(`Job ${job.number} was cancelled. Book a new job rather than a visit on this one.`);
+    }
     await assertUnclaimed(tx, "visit", input.externalRef);
 
     /**
@@ -599,6 +658,13 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       throw new UnprocessableError("The window ends before it starts", [{
         path: "windowEnd", message: "windowEnd is before windowStart.",
       }]);
+    }
+
+    if (input.windowStart && input.windowEnd && input.status !== "cancelled") {
+      await assertAvailable(
+        tx, ctx.actor.organizationId, input.technicianIds,
+        new Date(input.windowStart), new Date(input.windowEnd),
+      );
     }
 
     const rows = await tx.execute<{ next: number }>(sql`
@@ -632,6 +698,20 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
           visitId: visit!.id, technicianId, isLead: i === 0,
         })),
       );
+    }
+
+    /**
+     * A LEAD WITH A VISIT ON THE BOARD IS BOOKED.
+     *
+     * A job created without a visit starts as a lead, and the first visit
+     * put on it later left it there, so the jobs list called booked work a
+     * lead and the pipeline counted it twice. Only from those two states and
+     * only for a visit with a time: a visit with no window is not booked
+     * yet, and a job further along keeps its own status.
+     */
+    if ((job.status === "lead" || job.status === "estimating") && input.windowStart && input.status !== "cancelled") {
+      await tx.update(schema.job).set({ status: "scheduled", updatedAt: new Date() })
+        .where(eq(schema.job.id, input.id));
     }
 
     if (ctx.idempotencyKey) {

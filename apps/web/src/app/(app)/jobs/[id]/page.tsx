@@ -15,6 +15,11 @@ import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, label, tone } from "@/lib/labels";
+import { ActionForm } from "@/components/ActionForm";
+import { VisitFields } from "@/components/VisitFields";
+import { technicianChoices } from "@/lib/technicians";
+import { todayIn } from "@/lib/dates";
+import { addVisit } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +79,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     { stored: 0, pending: 0, abandoned: 0 },
   );
   const writes = can(user.actor, "job:write");
+  const schedules = can(user.actor, "visit:write") && job.status !== "cancelled" && job.status !== "paid";
+  const technicians = await technicianChoices(ctx, user.organizationTimezone);
+  const nameOf = new Map(technicians.map((t) => [t.id, t.displayName]));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -234,7 +242,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           A job becomes work when it has a visit on the board.
         </Empty>
       ) : (
-        <Table head={<><Th className="w-16">#</Th><Th>Window</Th><Th>Status</Th></>}>
+        <Table head={<><Th className="w-16">#</Th><Th>Window</Th><Th>Who</Th><Th>Status</Th></>}>
           {job.visits.map((visit) => (
             <tr key={visit.id}>
               <Td className="font-mono tabular-nums text-ink-700">{visit.sequence}</Td>
@@ -249,6 +257,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   ? formatIn(visit.windowStart, user.organizationTimezone)
                   : "Unscheduled"}
               </Td>
+              <Td className="text-ink-700">
+                {visit.technicianIds.length === 0
+                  ? <span className="text-ink-500">Nobody yet</span>
+                  : visit.technicianIds.map((t) => nameOf.get(t) ?? "A technician").join(", ")}
+              </Td>
               <Td>
                 <Chip tone={tone(VISIT_TONE, visit.status)}>
                   {label(VISIT_STATUS, visit.status)}
@@ -257,6 +270,16 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             </tr>
           ))}
         </Table>
+      )}
+
+      {schedules && (
+        <details className="mt-4 rounded-md border border-steel-200 p-4">
+          <summary className="cursor-pointer text-sm font-medium">Add a visit</summary>
+          <ActionForm action={addVisit} submit="Add visit" hidden={{ jobId: id }} className="mt-3 space-y-4">
+            <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
+                         legend="Next visit" />
+          </ActionForm>
+        </details>
       )}
 
       {(photos.length > 0 || outstanding.pending > 0 || outstanding.abandoned > 0) && (

@@ -203,7 +203,15 @@ export default async function CustomerPage({
         </div>
       )}
 
-      <h2 className="mt-10 text-base font-semibold">Work</h2>
+      <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="text-base font-semibold">Work</h2>
+        {can(user.actor, "job:write") && addresses.length > 0 && (
+          <a href={`/jobs/new?customer=${id}`}
+             className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+            Book a job
+          </a>
+        )}
+      </div>
       {work.data.length === 0 ? (
         <Empty title="No jobs for this customer yet" />
       ) : (
