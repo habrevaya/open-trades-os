@@ -420,11 +420,26 @@ export const listPayments = defineRoute({
     receivedFrom: z.string().datetime().optional(),
     /** Received before this instant. */
     receivedTo: z.string().datetime().optional(),
+    status: z.string().max(40).optional(),
     /** Only payments still holding money for the customer. */
     unappliedOnly: z.boolean().default(false),
     ...ExternalLookup,
   }),
-  output: pageOf(Payment),
+  /**
+   * A page, and the totals for the whole window rather than for the page.
+   * Totals are per method because cash and cheque sit in a drawer until
+   * somebody banks them and card settles net of a fee two days later, and
+   * they cover one currency rather than adding several into a sum that is
+   * not money in any of them.
+   */
+  output: pageOf(Payment).extend({
+    totals: z.object({
+      gross: MoneyString, fees: MoneyString, refunded: MoneyString, net: MoneyString,
+    }),
+    byMethod: z.array(z.object({
+      method: z.string(), count: z.number(), gross: MoneyString, net: MoneyString,
+    })),
+  }),
 });
 
 export const billingRoutes = {

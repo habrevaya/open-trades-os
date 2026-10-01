@@ -1,9 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { estimate as est, ledger, money as m } from "@opentradesos/core";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedWrite, NotFoundError, ConflictError,
+  audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
 import { writePosting } from "./ledger";
 import type { requestDeposit, applyDeposit, refundDeposit } from "../contracts/estimates";
@@ -306,3 +306,123 @@ function shape(row: typeof schema.deposit.$inferSelect) {
     updatedAt: row.updatedAt.toISOString(),
   };
 }
+
+/* ------------------------------------------------- reading deposits back */
+
+/**
+ * `deposit:read` WAS GRANTED TO ROLES AND CHECKED BY NOTHING.
+ *
+ * This file requests a deposit, records one as received, applies it to an
+ * invoice and refunds it. Four writes, and no way to see what is
+ * outstanding. A deposit is money held against work not yet done, posted to
+ * CUSTOMER_DEPOSITS, which is a LIABILITY: a company that cannot list them
+ * cannot tell how much of the cash in its account it has already been paid
+ * for work it still owes.
+ *
+ * That is the number that bankrupts a contractor who reads their bank balance
+ * as profit, and it was unreachable.
+ */
+
+export interface DepositView {
+  id: string;
+  customerId: string;
+  estimateId: string | null;
+  jobId: string | null;
+  appliedInvoiceId: string | null;
+  status: string;
+  currency: string;
+  amountRequested: string;
+  amountReceived: string;
+  amountApplied: string;
+  amountRefunded: string;
+  /**
+   * Still held: received, less what has been applied to an invoice and less
+   * what has been refunded.
+   *
+   * COMPUTED RATHER THAN STORED, because a stored "outstanding" column is a
+   * fifth number that can disagree with the four it is derived from, and the
+   * one it would disagree with is the liability on the balance sheet.
+   */
+  outstanding: string;
+  requestedAt: string;
+  receivedAt: string | null;
+  appliedAt: string | null;
+}
+
+export interface DepositQuery {
+  customerId?: string | undefined;
+  jobId?: string | undefined;
+  estimateId?: string | undefined;
+  status?: string | undefined;
+  /** Only the ones still holding money, which is the question worth asking. */
+  outstandingOnly?: boolean | undefined;
+}
+
+export async function list(ctx: ServiceContext, input: DepositQuery): Promise<{
+  deposits: DepositView[];
+  /** Everything still held, which is what the liability account should equal. */
+  totalOutstanding: string;
+}> {
+  return guardedRead(ctx, "deposit:read", async (tx) => {
+    const rows = await tx.select().from(schema.deposit)
+      .where(and(
+        eq(schema.deposit.organizationId, ctx.actor.organizationId),
+        /**
+         * No `isNull(deletedAt)`, for the reason the payment list gives.
+         * Nothing soft deletes a deposit: it is refunded or forfeited, both
+         * of which are statuses, and a filter on a column nothing writes
+         * reads as protection that is not there.
+         */
+        input.customerId ? eq(schema.deposit.customerId, input.customerId) : undefined,
+        input.jobId ? eq(schema.deposit.jobId, input.jobId) : undefined,
+        input.estimateId ? eq(schema.deposit.estimateId, input.estimateId) : undefined,
+        input.status ? eq(schema.deposit.status, input.status as never) : undefined,
+      ))
+      .orderBy(desc(schema.deposit.createdAt));
+
+    const views: DepositView[] = [];
+    let total = m.money("0", "USD");
+
+    for (const row of rows) {
+      const outstanding = m.subtract(
+        m.money(row.amountReceived, row.currency),
+        m.add(m.money(row.amountApplied, row.currency), m.money(row.amountRefunded, row.currency)),
+      );
+      /**
+       * Filtered here rather than in SQL, because "still holding money" is
+       * the three-column subtraction above and expressing it as a WHERE would
+       * be a second copy of the rule in a different language. The set is one
+       * company's open deposits, which is a page of rows rather than a table
+       * scan.
+       */
+      if (input.outstandingOnly && m.toString(outstanding) === "0.0000") continue;
+
+      views.push({
+        id: row.id,
+        customerId: row.customerId,
+        estimateId: row.estimateId,
+        jobId: row.jobId,
+        appliedInvoiceId: row.appliedInvoiceId,
+        status: row.status,
+        currency: row.currency,
+        amountRequested: row.amountRequested,
+        amountReceived: row.amountReceived,
+        amountApplied: row.amountApplied,
+        amountRefunded: row.amountRefunded,
+        outstanding: m.toString(outstanding),
+        requestedAt: row.createdAt.toISOString(),
+        receivedAt: row.receivedAt?.toISOString() ?? null,
+        appliedAt: row.appliedAt?.toISOString() ?? null,
+      });
+      if (row.currency === total.currency) total = m.add(total, outstanding);
+    }
+
+    return { deposits: views, totalOutstanding: m.toString(total) };
+  });
+}
+
+export const handlers = {
+  listDeposits: (ctx: ServiceContext, input: DepositQuery): Promise<{
+    deposits: DepositView[]; totalOutstanding: string;
+  }> => list(ctx, input),
+} as const;

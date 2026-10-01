@@ -257,6 +257,9 @@ run("reading back what a migration needs to map and reconcile", () => {
     expect((all.data as Array<{ id: string }>).map((p) => p.id)).toEqual([held.id, applied.id]);
     const one = (all.data as Array<{ id: string }>).find((p) => p.id === applied.id);
     expect(one).toMatchObject({ allocations: [{ invoiceId: invoice.id, amount: "50.0000" }], unappliedAmount: "0.0000" });
+    /** The same request carries the window's totals, which a day's banking is checked against. */
+    expect(all.totals).toMatchObject({ gross: "80.0000" });
+    expect((all.byMethod as Array<{ method: string }>).map((m) => m.method).sort()).toEqual(["cash", "check"]);
 
     const byInvoice = await ok("listPayments", { invoiceId: invoice.id });
     expect((byInvoice.data as Array<{ id: string }>).map((p) => p.id)).toEqual([applied.id]);
