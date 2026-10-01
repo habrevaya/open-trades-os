@@ -76,6 +76,11 @@ export const NAV: NavGroup[] = [
        * would make it something somebody reads rather than works.
        */
       { href: "/inspections", label: "Inspections", permission: "compliance:read", icon: "inspections" },
+      /**
+       * Beside inspections, because both answer "may this work go ahead":
+       * one about the equipment, this one about the person sent to it.
+       */
+      { href: "/certifications", label: "Certifications", permission: "compliance:read", icon: "certifications" },
     ],
   },
   {
