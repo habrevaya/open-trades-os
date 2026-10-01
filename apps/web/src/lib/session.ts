@@ -35,9 +35,27 @@ export const hashToken = (token: string) => createHash("sha256").update(token).d
  */
 const SCRYPT = { N: 32768, r: 8, p: 1, keylen: 64 } as const;
 
+/**
+ * THE MEMORY CEILING THOSE PARAMETERS NEED, STATED.
+ *
+ * scrypt uses 128 * N * r bytes, which at the parameters above is exactly
+ * 32 MiB, and Node refuses any call over its default `maxmem` of 32 MiB with
+ * "memory limit exceeded". OpenSSL counts a little more than the block, so
+ * the OWASP parameters sat just over the line and every call failed: nobody
+ * could sign up, and nobody could sign in, because the login path hashes
+ * even for an unknown email. The render tests never hash a password and the
+ * HTTP smoke check never submits a form, so the first thing to notice was a
+ * browser pressing "Create company".
+ *
+ * Twice the requirement of the strongest parameters we issue, which leaves
+ * room to raise N once without revisiting this, and is applied to verifying
+ * too, since a stored hash carries its own N.
+ */
+export const SCRYPT_MAXMEM = 2 * 128 * SCRYPT.N * SCRYPT.r;
+
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
-  const key = await scrypt(password.normalize("NFKC"), salt, SCRYPT.keylen, SCRYPT);
+  const key = await scrypt(password.normalize("NFKC"), salt, SCRYPT.keylen, { ...SCRYPT, maxmem: SCRYPT_MAXMEM });
   return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString("base64")}$${key.toString("base64")}`;
 }
 
@@ -48,7 +66,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const salt = Buffer.from(saltB64!, "base64");
   const expected = Buffer.from(keyB64!, "base64");
   const actual = await scrypt(password.normalize("NFKC"), salt, expected.length, {
-    N: Number(n), r: Number(r), p: Number(p),
+    N: Number(n), r: Number(r), p: Number(p), maxmem: SCRYPT_MAXMEM,
   });
   // Constant time. A length mismatch is compared against itself first so the
   // comparison never throws and never short circuits on length.
