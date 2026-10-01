@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { files as f } from "@opentradesos/core";
+import { files as f, assertCan, isSystem, type Permission } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, NotFoundError, ConflictError,
   type ServiceContext,
@@ -497,7 +497,84 @@ export async function outstandingFor(
  * content type and lets a browser cache it, rather than being inlined into a
  * JSON body that no image tag can point at.
  */
+/**
+ * Attaching a file to a record, for any caller that may write documents.
+ *
+ * Reading the record is checked as well as writing documents. An app that
+ * may attach paperwork and may not see invoices must not learn which
+ * invoice ids exist by attaching to them, and the existence check below runs
+ * under row level security, so another company's record is simply not found.
+ */
+const READ_PERMISSION = {
+  customer: "customer:read", property: "property:read", job: "job:read",
+  visit: "visit:read", estimate: "estimate:read", invoice: "invoice:read",
+} as const satisfies Record<string, Permission>;
+
+export async function upload(
+  ctx: ServiceContext,
+  input: {
+    entityType: keyof typeof READ_PERMISSION; entityId: string; fileName: string;
+    contentType?: string | undefined; bytes: string;
+    kind?: string | undefined; phase?: string | undefined;
+  },
+) {
+  assertCan(ctx.actor, READ_PERMISSION[input.entityType]);
+  const bytes = decode(input.bytes);
+  return guardedWrite(ctx, "document:write", async (tx) => {
+    const exists = await tx.execute(sql`
+      select 1 from ${sql.raw(`public.${input.entityType}`)} where id = ${input.entityId} limit 1
+    `);
+    if (exists.length === 0) throw new NotFoundError(input.entityType[0]!.toUpperCase() + input.entityType.slice(1));
+
+    const uploader = isSystem(ctx.actor) ? null : ctx.actor.userId;
+    const { file, alreadyHeld } = await put(tx, ctx.actor.organizationId, {
+      bytes, claimedType: input.contentType, uploadedByUserId: uploader,
+    });
+
+    /**
+     * The same bytes on the same record are one attachment. A retry with a
+     * lost response, with or without an idempotency key, must not leave the
+     * photograph on the job twice.
+     */
+    const [already] = await tx.select().from(schema.attachment)
+      .where(and(
+        eq(schema.attachment.organizationId, ctx.actor.organizationId),
+        eq(schema.attachment.entityType, input.entityType),
+        eq(schema.attachment.entityId, input.entityId),
+        eq(schema.attachment.storageKey, file.storageKey),
+        isNull(schema.attachment.deletedAt),
+      )).limit(1);
+
+    const id = already?.id ?? (await attach(tx, ctx.actor.organizationId, {
+      entityType: input.entityType,
+      entityId: input.entityId,
+      storageKey: file.storageKey,
+      kind: input.kind ?? (file.contentType.startsWith("image/") ? "photo" : "document"),
+      fileName: input.fileName,
+      contentType: file.contentType,
+      sizeBytes: file.sizeBytes,
+      phase: input.phase ?? null,
+      uploadedByUserId: uploader,
+    })).id;
+
+    const [row] = await tx.select().from(schema.attachment).where(eq(schema.attachment.id, id)).limit(1);
+    if (!already) {
+      await audit(tx, ctx, "attachment.uploaded", "attachment", id, null, {
+        entityType: input.entityType, entityId: input.entityId, storageKey: file.storageKey,
+        fileName: input.fileName, contentType: file.contentType, sizeBytes: file.sizeBytes,
+      });
+    }
+    return {
+      id: row!.id, kind: row!.kind, storageKey: row!.storageKey, fileName: row!.fileName,
+      contentType: row!.contentType, sizeBytes: row!.sizeBytes, phase: row!.phase,
+      createdAt: row!.createdAt, entityType: input.entityType, entityId: input.entityId,
+      alreadyHeld: alreadyHeld || Boolean(already),
+    };
+  });
+}
+
 export const handlers = {
+  uploadAttachment: upload,
   listAttachments: async (ctx: ServiceContext, input: { entityType: string; entityId: string }) => ({
     attachments: await attachmentsFor(ctx, input),
   }),

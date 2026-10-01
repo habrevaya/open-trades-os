@@ -34,7 +34,7 @@ const IMPORTER = [
   "pricebook:read", "pricebook:write", "job:read", "job:write", "job:complete",
   "visit:read", "visit:write", "estimate:read", "estimate:write",
   "invoice:read", "invoice:write", "payment:read", "payment:collect", "payment:refund",
-  "user:read", "data:import",
+  "user:read", "document:read", "document:write", "data:import",
 ];
 
 const app = (grants: string[] = IMPORTER): ServiceContext => ({
@@ -359,5 +359,45 @@ run("a refund paid by hand", () => {
     const refused = await call("recordRefund", { ...body, refundedAt: "2023-01-05T15:00:00.000Z" },
       { ctx: app(IMPORTER.filter((p) => p !== "data:import")) });
     expect(refused.status).toBe(403);
+  });
+});
+
+run("attaching a file without being a phone", () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]).toString("base64");
+
+  it("stores the bytes once, attaches them, and lists them on the record", async () => {
+    const customer = await ok("createCustomer", { name: "Photos" });
+    const property = await ok("createProperty", { address, customerId: customer.id });
+    const job = await ok("createJob", { customerId: customer.id, propertyId: property.id, summary: "With photos" });
+
+    const first = await ok("uploadAttachment", {
+      entityType: "job", entityId: job.id, fileName: "before.png", contentType: "image/png", bytes: png, phase: "before",
+    });
+    expect(first).toMatchObject({ kind: "photo", contentType: "image/png", sizeBytes: 16, alreadyHeld: false });
+    const again = await ok("uploadAttachment", { entityType: "job", entityId: job.id, fileName: "before.png", bytes: png });
+    expect(again).toMatchObject({ id: first.id, alreadyHeld: true });
+    // The same bytes on another record are another attachment, and one stored file.
+    const onProperty = await ok("uploadAttachment", { entityType: "property", entityId: property.id, fileName: "house.png", bytes: png });
+    expect(onProperty.id).not.toBe(first.id);
+    expect(onProperty.storageKey).toBe(first.storageKey);
+
+    const listed = await ok("listAttachments", { entityType: "job", entityId: job.id });
+    expect((listed.attachments as Array<{ id: string }>).map((a) => a.id)).toEqual([first.id]);
+  });
+
+  it("refuses what it does not keep, a record that is not there, and a record the app cannot see", async () => {
+    const customer = await ok("createCustomer", { name: "Refusals" });
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>x</script></svg>').toString("base64");
+    const refused = await call("uploadAttachment", { entityType: "customer", entityId: customer.id, fileName: "x.svg", contentType: "image/svg+xml", bytes: svg });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toContain("SVG");
+
+    const missing = await call("uploadAttachment", { entityType: "invoice", entityId: fixtureId("no-such-invoice"), fileName: "a.png", bytes: png });
+    expect(missing.status).toBe(404);
+
+    const blind = await call("uploadAttachment",
+      { entityType: "customer", entityId: customer.id, fileName: "a.png", bytes: png },
+      { ctx: app(["document:write", "job:read"]) });
+    expect(blind.status).toBe(403);
   });
 });

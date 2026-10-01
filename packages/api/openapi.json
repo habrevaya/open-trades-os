@@ -4702,9 +4702,10 @@
       }
     },
     "/v1/attachments": {
-      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
       "get": {
         "operationId": "listAttachments",
@@ -4817,6 +4818,129 @@
         "x-authorization": "session",
         "x-permissions": [
           "document:read"
+        ]
+      },
+      "post": {
+        "operationId": "uploadAttachment",
+        "summary": "Attach a file to a customer, property, job, visit, estimate or invoice",
+        "description": "Bytes are base64, the type is sniffed from them and the claimed type is only used to make a refusal legible. Needs document:write and the read permission of the record it is attached to. The same file attached to the same record twice is one attachment.\n\nRequires a session holding: document:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadAttachmentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Attach a file to a customer, property, job, visit, estimate or invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadAttachmentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "document:write"
         ]
       }
     },
@@ -71763,6 +71887,137 @@
           "failureCount",
           "lastDeliveryAt",
           "createdAt"
+        ]
+      },
+      "UploadAttachmentInput": {
+        "type": "object",
+        "properties": {
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "property",
+              "job",
+              "visit",
+              "estimate",
+              "invoice"
+            ]
+          },
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "contentType": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "bytes": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 29360128
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "photo",
+              "document",
+              "signature",
+              "other"
+            ]
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "before",
+              "during",
+              "after"
+            ]
+          }
+        },
+        "required": [
+          "entityType",
+          "entityId",
+          "fileName",
+          "bytes"
+        ]
+      },
+      "UploadAttachmentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "phase": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "property",
+              "job",
+              "visit",
+              "estimate",
+              "invoice"
+            ]
+          },
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "alreadyHeld": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "storageKey",
+          "fileName",
+          "contentType",
+          "sizeBytes",
+          "phase",
+          "createdAt",
+          "entityType",
+          "entityId",
+          "alreadyHeld"
         ]
       },
       "ValidateCustomFieldsInput": {

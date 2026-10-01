@@ -207,6 +207,7 @@ export const handlers = {
   // Files. Content addressed, so a phone retrying over a metered connection
   // lands on the key it already occupies.
   listAttachments: files.handlers.listAttachments,
+  uploadAttachment: files.handlers.uploadAttachment,
   listPendingUploads: files.handlers.listPendingUploads,
   storeUpload: files.handlers.storeUpload,
   failUpload: files.handlers.failUpload,

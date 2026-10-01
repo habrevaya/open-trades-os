@@ -52,6 +52,51 @@ export const listAttachments = defineRoute({
   output: z.object({ attachments: z.array(Attachment) }),
 });
 
+/** The records a caller outside the field app may attach a file to. */
+export const AttachableEntity = z.enum(["customer", "property", "job", "visit", "estimate", "invoice"]);
+
+/**
+ * ATTACHING A FILE FROM OUTSIDE THE FIELD APP.
+ *
+ * The only way in for bytes was `POST /v1/field/uploads/{clientId}`, which
+ * accepts a file a registered phone has already queued an operation for. An
+ * integration, an agent or a migration carrying ten years of job photos had
+ * no way to attach one without pretending to be a phone.
+ *
+ * Same storage, same rules: the type is decided from the bytes and never
+ * from the claim, the allow list is core's (PNG, JPEG, GIF, WebP, ICO, HEIC,
+ * PDF, and deliberately no SVG), the limit is core's twenty megabytes, and
+ * the bytes are content addressed so the same photograph sent twice is kept
+ * once.
+ */
+export const uploadAttachment = defineRoute({
+  method: "post",
+  path: "/v1/attachments",
+  summary: "Attach a file to a customer, property, job, visit, estimate or invoice",
+  description:
+    "Bytes are base64, the type is sniffed from them and the claimed type is only used to make a refusal legible. Needs document:write and the read permission of the record it is attached to. The same file attached to the same record twice is one attachment.",
+  module: "M23",
+  permissions: ["document:write"],
+  idempotent: true,
+  input: z.object({
+    entityType: AttachableEntity,
+    entityId: Uuid,
+    fileName: z.string().min(1).max(255),
+    /** What the caller thinks it is. Not believed. */
+    contentType: z.string().max(100).optional(),
+    bytes: Base64Bytes,
+    /** What it is for. Defaults to photo for an image and document otherwise. */
+    kind: z.enum(["photo", "document", "signature", "other"]).optional(),
+    phase: z.enum(["before", "during", "after"]).optional(),
+  }),
+  output: Attachment.extend({
+    entityType: AttachableEntity,
+    entityId: Uuid,
+    /** These exact bytes were already stored, and nothing was written twice. */
+    alreadyHeld: z.boolean(),
+  }),
+});
+
 export const PendingUpload = z.object({
   id: Uuid,
   /** Generated on the device, so an operation could name the file before it existed. */
@@ -152,5 +197,5 @@ export const getUploadStatus = defineRoute({
 });
 
 export const fileRoutes = {
-  listAttachments, listPendingUploads, storeUpload, failUpload, getUploadStatus,
+  listAttachments, uploadAttachment, listPendingUploads, storeUpload, failUpload, getUploadStatus,
 } as const;
