@@ -287,3 +287,77 @@ run("adding a visit, retried", () => {
     expect(other.id).not.toBe(first.id);
   });
 });
+
+run("visits that were called off, or never given a time", () => {
+  it("records a cancelled visit without dispatching it or holding the job open", async () => {
+    const customer = await ok("createCustomer", { name: "Called off" });
+    const property = await ok("createProperty", { address, customerId: customer.id });
+    const job = await ok("createJob", { customerId: customer.id, propertyId: property.id, summary: "Cancelled once" });
+    const cancelled = await ok("scheduleVisit", {
+      id: job.id, windowStart: "2024-05-01T15:00:00.000Z", windowEnd: "2024-05-01T17:00:00.000Z", status: "cancelled",
+    });
+    expect(cancelled.status).toBe("cancelled");
+    const done = await ok("scheduleVisit", { id: job.id, windowStart: "2024-05-08T15:00:00.000Z", windowEnd: "2024-05-08T17:00:00.000Z" });
+    await ok("completeVisit", { id: done.id, completedOfflineAt: "2024-05-08T16:30:00.000Z" });
+    const read = await ok("getJob", { id: job.id });
+    // The cancelled visit did not keep the job from completing.
+    expect(read.status).toBe("completed");
+  });
+
+  it("records a visit with no time as unassigned, and refuses half a window", async () => {
+    const customer = await ok("createCustomer", { name: "No time" });
+    const property = await ok("createProperty", { address, customerId: customer.id });
+    const job = await ok("createJob", { customerId: customer.id, propertyId: property.id, summary: "Untimed" });
+    const untimed = await ok("scheduleVisit", { id: job.id });
+    expect(untimed).toMatchObject({ status: "unassigned", windowStart: null, windowEnd: null });
+    const half = await call("scheduleVisit", { id: job.id, windowStart: "2024-05-01T15:00:00.000Z" });
+    expect(half.status).toBe(422);
+  });
+});
+
+run("a refund paid by hand", () => {
+  const ledgerFor = (id: string) => raw<{ account_code: string; direction: string; amount: string; occurred_at: Date }[]>`
+    select account_code, direction, amount, occurred_at from public.ledger_entry
+    where organization_id = ${ORG} and source_id = ${id} and source_type = 'refund'`;
+
+  it("returns held credit first, then reopens what the payment paid, and says so in the ledger", async () => {
+    const customer = await ok("createCustomer", { name: "Refunded" });
+    const invoice = await ok("createInvoice", { customerId: customer.id, lines: [{ name: "Work", unitPrice: "60.00" }] });
+    const payment = await ok("recordPayment", {
+      customerId: customer.id, method: "check", amount: "100.00",
+      allocations: [{ invoiceId: invoice.id, amount: "60.00" }],
+    });
+    expect(payment.unappliedAmount).toBe("40.0000");
+
+    const after = await ok("recordRefund", {
+      id: payment.id, amount: "50.00", method: "check", checkNumber: "1043",
+      refundedAt: "2024-06-03T15:00:00.000Z", reason: "Overpaid, and part of the job was not done",
+    });
+    expect(after).toMatchObject({ refundedAmount: "50.0000", status: "partially_refunded", unappliedAmount: "0.0000" });
+
+    const reopened = await ok("getInvoice", { id: invoice.id });
+    expect(reopened).toMatchObject({ amountPaid: "50.0000", balance: "10.0000", status: "partially_paid" });
+
+    const entries = await ledgerFor(payment.id);
+    expect(entries.map((e) => [e.account_code, e.direction, e.amount]).sort()).toEqual([
+      ["1000", "credit", "50.0000"], ["1200", "debit", "10.0000"], ["2300", "debit", "40.0000"],
+    ]);
+    for (const e of entries) expect(e.occurred_at.toISOString()).toBe("2024-06-03T15:00:00.000Z");
+
+    const over = await call("recordRefund", { id: payment.id, amount: "60.00", method: "check", reason: "Too much" });
+    expect(over.status).toBe(409);
+  });
+
+  it("is retried safely, and a historical one needs data:import", async () => {
+    const customer = await ok("createCustomer", { name: "Refund retry" });
+    const payment = await ok("recordPayment", { customerId: customer.id, method: "cash", amount: "20.00", allocations: [] });
+    const body = { id: payment.id, amount: "5.00", method: "cash", reason: "Change owed" };
+    await ok("recordRefund", body, { key: "refund-retry-1" });
+    const again = await ok("recordRefund", body, { key: "refund-retry-1" });
+    expect(again.refundedAmount).toBe("5.0000");
+
+    const refused = await call("recordRefund", { ...body, refundedAt: "2023-01-05T15:00:00.000Z" },
+      { ctx: app(IMPORTER.filter((p) => p !== "data:import")) });
+    expect(refused.status).toBe(403);
+  });
+});

@@ -366,6 +366,39 @@ export const writeOffInvoice = defineRoute({
 });
 
 /**
+ * GIVING MONEY BACK THAT DID NOT GO THROUGH A PROCESSOR.
+ *
+ * `POST /v1/payments/{paymentId}/refund` refunds through the processor and
+ * rightly refuses a cheque: money that arrived as a cheque goes back as a
+ * cheque, written by a person. There was then no way to record that it had
+ * been, so a refund already made, today or in a migrated company's history,
+ * had nowhere to go and the books kept the money.
+ *
+ * This records it. It moves no money itself.
+ */
+export const recordRefund = defineRoute({
+  method: "post",
+  path: "/v1/payments/{id}/refunds",
+  summary: "Record a refund that was paid outside a processor",
+  description:
+    "Never more than is left of the payment. Comes out of money the payment still holds for the customer first, which returns a credit and reverses nothing; any more reopens the invoices it paid, newest allocation first, so the receivable comes back until the invoice is voided, written off or paid another way. A refund more than a week back needs data:import, and none may land in a closed period.",
+  module: "M13",
+  permissions: ["payment:refund"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    amount: MoneyString,
+    /** How the money went back. */
+    method: z.enum(["cash", "check", "ach", "credit", "other"]),
+    /** When it went back. Omit for now. */
+    refundedAt: z.string().datetime().optional(),
+    checkNumber: z.string().max(50).optional(),
+    reason: z.string().min(1).max(500),
+  }),
+  output: Payment,
+});
+
+/**
  * Reading payments back.
  *
  * Payments could be recorded and never listed: the invoice carried its own
@@ -396,5 +429,5 @@ export const listPayments = defineRoute({
 
 export const billingRoutes = {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging,
-  voidInvoice, writeOffInvoice, applyPayment, listPayments,
+  voidInvoice, writeOffInvoice, applyPayment, listPayments, recordRefund,
 } as const;

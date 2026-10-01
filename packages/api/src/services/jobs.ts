@@ -585,6 +585,23 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
     if (!job) throw new NotFoundError("Job");
     await assertUnclaimed(tx, "visit", input.externalRef);
 
+    /**
+     * Half a window is not a window. A start with no end invents the end,
+     * and an end with no start invents the start, and either puts a
+     * technician somewhere at a time nobody agreed.
+     */
+    if ((input.windowStart === undefined) !== (input.windowEnd === undefined)) {
+      throw new UnprocessableError("A window has both ends or neither", [{
+        path: input.windowStart === undefined ? "windowStart" : "windowEnd",
+        message: "Send windowStart and windowEnd together, or neither for a visit with no time yet.",
+      }]);
+    }
+    if (input.windowStart && input.windowEnd && Date.parse(input.windowEnd) < Date.parse(input.windowStart)) {
+      throw new UnprocessableError("The window ends before it starts", [{
+        path: "windowEnd", message: "windowEnd is before windowStart.",
+      }]);
+    }
+
     const rows = await tx.execute<{ next: number }>(sql`
       select coalesce(max(sequence), 0) + 1 as next from public.visit where job_id = ${input.id}
     `);
@@ -594,9 +611,16 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       organizationId: ctx.actor.organizationId,
       jobId: input.id,
       sequence: next,
-      status: input.technicianIds.length > 0 ? "scheduled" : "unassigned",
-      windowStart: new Date(input.windowStart),
-      windowEnd: new Date(input.windowEnd),
+      /**
+       * CANCELLED COULD NOT BE RECORDED, so a migration either dropped a
+       * cancelled visit from the job's history or loaded it as scheduled and
+       * sent somebody to a customer who had said no. A visit with no window
+       * cannot be dispatched, so it is unassigned whoever is named on it.
+       */
+      status: input.status === "cancelled" ? "cancelled"
+        : input.technicianIds.length > 0 && input.windowStart ? "scheduled" : "unassigned",
+      windowStart: input.windowStart ? new Date(input.windowStart) : null,
+      windowEnd: input.windowEnd ? new Date(input.windowEnd) : null,
       estimatedDurationMinutes: input.estimatedDurationMinutes,
       crewId: input.crewId ?? null,
       ...provenance(input.externalRef),

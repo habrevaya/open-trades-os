@@ -846,6 +846,129 @@ export async function applyPayment(
   });
 }
 
+/**
+ * Recording a refund paid by hand.
+ *
+ * Out of held money first, because returning a credit nobody used reverses
+ * nothing that was ever owed. Beyond that it reopens what the payment paid,
+ * newest allocation first, as NEGATIVE allocation rows rather than edits to
+ * the old ones: the allocations are the history of where this money went,
+ * and that history now says it came back. The invoice's paid amount and
+ * balance follow, so the cache agrees with the receivable the posting puts
+ * back.
+ *
+ * A job already marked paid stays paid. Its lifecycle does not go
+ * backwards, and the invoice is what now shows money owed.
+ */
+export async function recordRefund(
+  ctx: ServiceContext,
+  input: {
+    id: string; amount: string; method: string; reason: string;
+    refundedAt?: string | undefined; checkNumber?: string | undefined;
+  },
+) {
+  return guardedWrite(ctx, "payment:refund", async (tx) => {
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "payment_refund"),
+        )).limit(1);
+      if (seen?.entityId) return loadPayment(tx, ctx, seen.entityId);
+    }
+
+    const refundedAt = input.refundedAt ? new Date(input.refundedAt) : new Date();
+    if (input.refundedAt) await admitInstant(tx, ctx, refundedAt, "refundedAt");
+
+    const [payment] = await tx.select().from(schema.payment)
+      .where(eq(schema.payment.id, input.id)).limit(1);
+    if (!payment) throw new NotFoundError("Payment");
+
+    const amount = usd(input.amount);
+    if (!m.isPositive(amount)) {
+      throw new UnprocessableError("A refund is a positive amount", [{
+        path: "amount", message: "Send how much went back, as a positive amount.",
+      }]);
+    }
+    const left = m.subtract(usd(payment.amount), usd(payment.refundedAmount));
+    if (m.compare(amount, left) > 0) {
+      throw new ConflictError(`Only ${m.toString(left)} of that payment is left to refund.`);
+    }
+
+    const allocations = await tx.select().from(schema.paymentAllocation)
+      .where(eq(schema.paymentAllocation.paymentId, payment.id))
+      .orderBy(desc(schema.paymentAllocation.createdAt));
+    const held = unappliedOf(payment, allocations);
+    const fromHeld = m.compare(amount, held) <= 0 ? amount : held;
+    let fromApplied = m.subtract(amount, fromHeld);
+
+    /** What is still applied to each invoice, newest first. */
+    const netByInvoice = new Map<string, m.Money>();
+    for (const a of [...allocations].reverse()) {
+      netByInvoice.set(a.invoiceId, m.add(netByInvoice.get(a.invoiceId) ?? usd("0"), usd(a.amount)));
+    }
+    const order = [...new Set(allocations.map((a) => a.invoiceId))];
+
+    for (const invoiceId of order) {
+      if (!m.isPositive(fromApplied)) break;
+      const applied = netByInvoice.get(invoiceId) ?? usd("0");
+      if (!m.isPositive(applied)) continue;
+      const take = m.compare(fromApplied, applied) <= 0 ? fromApplied : applied;
+
+      const [invoice] = await tx.select().from(schema.invoice)
+        .where(eq(schema.invoice.id, invoiceId)).limit(1);
+      if (!invoice) throw new NotFoundError("Invoice");
+      if (invoice.status === "void" || invoice.status === "written_off") {
+        throw new ConflictError(
+          `Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}, so the money this payment put on it cannot be reopened there.`,
+        );
+      }
+      await tx.insert(schema.paymentAllocation).values({
+        organizationId: ctx.actor.organizationId,
+        paymentId: payment.id, invoiceId, amount: m.toString(m.negate(take)),
+      });
+      const paid = m.subtract(usd(invoice.amountPaid), take);
+      const balance = m.add(usd(invoice.balance), take);
+      await tx.update(schema.invoice).set({
+        amountPaid: m.toString(paid),
+        balance: m.toString(balance),
+        status: m.isPositive(paid) ? "partially_paid" : "open",
+        updatedAt: new Date(),
+      }).where(eq(schema.invoice.id, invoiceId));
+      fromApplied = m.subtract(fromApplied, take);
+    }
+
+    await writePosting(tx, ctx, ledger.postRefund({
+      refundId: payment.id, occurredAt: refundedAt, amount, heldAmount: fromHeld,
+      customerId: payment.customerId,
+    }));
+
+    const refunded = m.add(usd(payment.refundedAmount), amount);
+    const [after] = await tx.update(schema.payment).set({
+      refundedAmount: m.toString(refunded),
+      status: m.compare(refunded, usd(payment.amount)) >= 0 ? "refunded" : "partially_refunded",
+      updatedAt: new Date(),
+    }).where(eq(schema.payment.id, payment.id)).returning();
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "payment.refund_recorded",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "payment_refund", entityId: payment.id,
+      });
+    }
+    await audit(tx, ctx, "payment.refund_recorded", "payment", payment.id, payment, {
+      ...after!, refund: {
+        amount: m.toString(amount), fromHeld: m.toString(fromHeld), method: input.method,
+        refundedAt, checkNumber: input.checkNumber ?? null, reason: input.reason,
+      },
+    });
+    return loadPayment(tx, ctx, payment.id);
+  });
+}
+
 /** A payment as the API returns it, inside a caller's transaction. */
 export async function loadPayment(tx: Database, ctx: ServiceContext, id: string) {
   const [payment] = await tx.select().from(schema.payment).where(eq(schema.payment.id, id)).limit(1);

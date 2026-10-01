@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, ledger, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, ledger, money as m, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError,
   type ServiceContext,
@@ -1246,10 +1246,27 @@ async function pushOutbound(
     }
     const cashAccount = resolved.cash.value[ledger.ACCOUNTS.CASH]!;
 
-    const allocations = resolved.allocations.map((row) => ({
-      invoiceExternalId: row.externalId ?? invoiceRefs.get(row.invoiceId) ?? null,
-      amount: { amount: row.amount, currency: payment.currency },
-    }));
+    /**
+     * NETTED PER INVOICE. A refund recorded against a payment reopens what it
+     * paid by adding a NEGATIVE allocation rather than editing the old one,
+     * so the rows are a history and the books want the net: what this
+     * payment still pays on each invoice, and nothing for an invoice it no
+     * longer pays at all.
+     */
+    const net = new Map<string, { externalId: string | null; amount: m.Money }>();
+    for (const row of resolved.allocations) {
+      const prior = net.get(row.invoiceId);
+      net.set(row.invoiceId, {
+        externalId: prior?.externalId ?? row.externalId,
+        amount: m.add(prior?.amount ?? m.money("0", payment.currency), m.money(row.amount, payment.currency)),
+      });
+    }
+    const allocations = [...net.entries()]
+      .filter(([, v]) => m.isPositive(v.amount))
+      .map(([invoiceId, v]) => ({
+        invoiceExternalId: v.externalId ?? invoiceRefs.get(invoiceId) ?? null,
+        amount: { amount: m.toString(v.amount), currency: payment.currency },
+      }));
 
     /**
      * A PAYMENT WAITS FOR ITS INVOICES rather than going over unapplied.

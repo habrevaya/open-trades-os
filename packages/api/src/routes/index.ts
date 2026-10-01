@@ -100,6 +100,7 @@ export const handlers = {
   listInvoices: billing.list,
   recordPayment: billing.pay,
   applyPayment: billing.applyPayment,
+  recordRefund: billing.recordRefund,
   listPayments: billing.listPayments,
   voidInvoice: billing.voidInvoice,
   writeOffInvoice: billing.writeOff,

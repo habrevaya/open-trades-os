@@ -249,11 +249,23 @@ export const scheduleVisit = defineRoute({
   idempotent: true,
   input: z.object({
     id: Uuid,
-    windowStart: z.string().datetime(),
-    windowEnd: z.string().datetime(),
+    /**
+     * The window, both ends or neither. Neither is a visit nobody has put a
+     * time on yet: it waits off the board, unassigned, rather than at an
+     * invented hour.
+     */
+    windowStart: z.string().datetime().optional(),
+    windowEnd: z.string().datetime().optional(),
     estimatedDurationMinutes: z.number().int().min(5).max(1440).default(60),
     technicianIds: z.array(Uuid).default([]),
     crewId: Uuid.optional(),
+    /**
+     * Record the visit as already cancelled: a visit the customer called off,
+     * kept because it is part of the job's history. Nobody is dispatched to
+     * it and it does not hold the job open. The technicians named are the
+     * ones who were going to go.
+     */
+    status: z.literal("cancelled").optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
   }),
