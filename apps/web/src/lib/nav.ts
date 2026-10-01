@@ -99,6 +99,12 @@ export const NAV: NavGroup[] = [
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
       { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
       { href: "/timesheets", label: "Timesheets", permission: "timesheet:read", icon: "timesheets" },
+      /**
+       * Beside timesheets, because it is what the hours become: a closed
+       * period, a register somebody can check line by line, and the file the
+       * bureau takes.
+       */
+      { href: "/payroll", label: "Payroll", permission: "payroll:read", icon: "payroll" },
       { href: "/booking", label: "Online booking", permission: "booking:configure", icon: "booking" },
     ],
   },

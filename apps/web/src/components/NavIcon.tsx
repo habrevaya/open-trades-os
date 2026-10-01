@@ -21,9 +21,17 @@ export type IconName =
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts" | "inspections";
+  | "contracts" | "inspections" | "payroll";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Payroll: a pay slip, a sheet with a total line under the rows. */
+  payroll: (
+    <>
+      <path d="M6 3.5h12v17H6z" />
+      <path d="M9 8h6M9 11.5h6" />
+      <path d="M9 16h3M14 16h1" />
+    </>
+  ),
   /** Inspections: a clipboard with a tick, which is what the thing physically is. */
   inspections: (
     <>
