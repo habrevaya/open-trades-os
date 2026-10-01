@@ -78,6 +78,12 @@ const LineInput = z.object({
   unitCost: MoneyString.optional(),
   discountAmount: MoneyString.default("0"),
   taxable: z.boolean().default(true),
+  /**
+   * This line's own rate, where it differs from the estimate's `taxRate`: a
+   * part taxed and labour not, or an estimate recorded from a system that
+   * taxed per line. Omit to use the estimate's.
+   */
+  taxRate: RateString.optional(),
   isOptional: z.boolean().default(false),
   isSelected: z.boolean().default(false),
   costCode: z.string().max(50).optional(),

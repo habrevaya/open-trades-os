@@ -4,7 +4,7 @@ import {
   computeInvoice, postInvoice, postPayment, postRefund, postWriteOff,
   postAgreementBilling, postAgreementRecognition, postDeferredRelease,
   recognitionSchedule, imbalanceOf, assertBalanced, UnbalancedPostingError,
-  ACCOUNTS, type LedgerEntry,
+  ACCOUNTS, type LedgerEntry, TaxAsAppliedError, totalsMismatch, postCreditApplication,
 } from "../src/ledger/index.js";
 
 const usd = (v: string) => money(v, "USD");
@@ -246,5 +246,86 @@ describe("an invoice and its payment agree", () => {
 
     const arMovement = add(net(invoice.entries, ACCOUNTS.AR), net(payment.entries, ACCOUNTS.AR));
     expect(toString(arMovement)).toBe("0.0000");
+  });
+});
+
+describe("tax as another system charged it", () => {
+  /**
+   * Four lines at 8.25% on 10.05 are 0.829125 of tax apiece. Rounded once at
+   * the document that is 3.32. A source that truncated per line printed 0.82
+   * four times and charged 3.28, and that is what the customer was sent.
+   */
+  const line = (taxAmount?: string) => ({
+    quantity: "1", unitPrice: usd("10.05"), taxable: true, taxRate: "0.0825",
+    ...(taxAmount === undefined ? {} : { taxAmount: usd(taxAmount) }),
+  });
+
+  it("keeps a per-line rounding the source used, where round-once would differ", () => {
+    const recomputed = computeInvoice([line(), line(), line(), line()]);
+    expect(toString(recomputed.totals.taxTotal)).toBe("3.3200");
+
+    const asApplied = computeInvoice([line("0.83"), line("0.83"), line("0.83"), line("0.83")]);
+    expect(toString(asApplied.totals.taxTotal)).toBe("3.3200");
+    const truncated = computeInvoice([line("0.82"), line("0.82"), line("0.82"), line("0.82")]);
+    expect(toString(truncated.totals.taxTotal)).toBe("3.2800");
+    expect(toString(truncated.lines[0]!.taxAmount)).toBe("0.8200");
+  });
+
+  it("refuses a stated tax more than rounding away from its own rate", () => {
+    expect(() => computeInvoice([line("0.84")])).toThrow(TaxAsAppliedError);
+    expect(() => computeInvoice([line("0.81")])).toThrow(TaxAsAppliedError);
+    try {
+      computeInvoice([line(), line("5.00")]);
+      expect.unreachable();
+    } catch (e) {
+      expect((e as TaxAsAppliedError).line).toBe(1);
+    }
+  });
+
+  it("refuses tax on a line that is not taxable", () => {
+    expect(() => computeInvoice([{ ...line("0.83"), taxable: false }])).toThrow(TaxAsAppliedError);
+    expect(toString(computeInvoice([{ ...line("0"), taxable: false }]).totals.taxTotal)).toBe("0.0000");
+  });
+
+  it("names every total that disagrees, to the cent", () => {
+    const { totals } = computeInvoice([line(), line()]);
+    expect(totalsMismatch(totals, { total: usd("21.76") })).toEqual([]);
+    expect(totalsMismatch(totals, { total: usd("21.759") })).toEqual([]);
+    expect(totalsMismatch(totals, { taxTotal: usd("1.65"), total: usd("21.75") }))
+      .toEqual([
+        { field: "taxTotal", expected: "1.6500", computed: "1.6600" },
+        { field: "total", expected: "21.7500", computed: "21.7600" },
+      ]);
+  });
+});
+
+describe("money applied to nothing", () => {
+  it("puts the whole payment in the bank and holds the unapplied part as a liability", () => {
+    const posting = postPayment({
+      paymentId: "p", occurredAt: at,
+      appliedAmount: usd("60"), unappliedAmount: usd("40"),
+    });
+    expect(toString(net(posting.entries, ACCOUNTS.CASH))).toBe("100.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.AR))).toBe("-60.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("-40.0000");
+  });
+
+  it("holds a payment with nothing applied entirely", () => {
+    const posting = postPayment({ paymentId: "p", occurredAt: at, appliedAmount: usd("0"), unappliedAmount: usd("250") });
+    expect(posting.entries.map((e) => e.accountCode).sort()).toEqual([ACCOUNTS.CASH, ACCOUNTS.CUSTOMER_DEPOSITS].sort());
+  });
+
+  it("discharges the liability against a receivable when applied later, moving no cash", () => {
+    const posting = postCreditApplication({ paymentId: "p", occurredAt: at, amount: usd("40") });
+    expect(toString(net(posting.entries, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("40.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.AR))).toBe("-40.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.CASH))).toBe("0.0000");
+  });
+
+  it("returns held credit from the liability and applied money from the receivable", () => {
+    const posting = postRefund({ refundId: "r", occurredAt: at, amount: usd("50"), heldAmount: usd("40") });
+    expect(toString(net(posting.entries, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("40.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.AR))).toBe("10.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.CASH))).toBe("-50.0000");
   });
 });

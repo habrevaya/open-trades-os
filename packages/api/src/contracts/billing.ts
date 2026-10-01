@@ -57,7 +57,7 @@ export const createInvoice = defineRoute({
   path: "/v1/invoices",
   summary: "Create an invoice",
   description:
-    "From a job, or standalone. Totals are computed server side from the lines; a client supplied total is ignored.",
+    "From a job, or standalone. Totals are computed server side from the lines. A client's own totals are never used; sent as `expectedTotals` they are a cross check that refuses the invoice when they differ to the cent.",
   module: "M13",
   permissions: ["invoice:write"],
   idempotent: true,
@@ -84,9 +84,52 @@ export const createInvoice = defineRoute({
       unitPrice: MoneyString,
       discountAmount: MoneyString.default("0"),
       taxable: z.boolean().default(true),
+      /**
+       * The rate this line was taxed at by the system it came from, frozen on
+       * the line as applied. Recording history only: needs `data:import`.
+       * Today's tax is the server's to determine, never the caller's.
+       */
+      taxRate: RateString.optional(),
+      /**
+       * The tax that system charged on this line. Accepted only within
+       * rounding of `taxRate` on the line's net (less than a cent away), so a
+       * source that rounded per line keeps its cents and a made-up figure is
+       * a 422. Needs `data:import`.
+       */
+      taxAmount: MoneyString.optional(),
+      /**
+       * Link the price book item and keep this line's own name, price and
+       * taxability. Without it a linked line is re-priced from the item's
+       * CURRENT version, which is right for a new invoice and rewrites what a
+       * historical one charged. Needs `data:import`.
+       */
+      priceAsGiven: z.boolean().optional(),
       costCode: z.string().max(50).optional(),
       coverageSource: CoverageSource.optional(),
     })).min(1),
+    /**
+     * One invoice-level amount the lines do not account for: an
+     * invoice-wide discount (negative) or a charge (positive). Becomes a
+     * non-taxable `manual` line at the end, and a discount posts to contra
+     * revenue like every other discount.
+     */
+    adjustment: z.object({
+      name: z.string().min(1).max(200),
+      amount: MoneyString,
+    }).optional(),
+    /**
+     * What the caller expects the totals to be. A cross check, never an
+     * input: the totals are computed here from the lines, and any that
+     * differ from these to the cent refuse the invoice with a 422 naming
+     * each one, rather than storing a document that disagrees with the one
+     * the customer was sent.
+     */
+    expectedTotals: z.object({
+      subtotal: MoneyString.optional(),
+      discountTotal: MoneyString.optional(),
+      taxTotal: MoneyString.optional(),
+      total: MoneyString.optional(),
+    }).optional(),
   }),
   output: Invoice,
 });

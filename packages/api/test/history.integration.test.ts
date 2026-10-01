@@ -7,6 +7,7 @@ import * as billing from "../src/services/billing";
 import * as jobs from "../src/services/jobs";
 import * as estimates from "../src/services/estimates";
 import * as accounting from "../src/services/accounting";
+import * as priceBook from "../src/services/pricebook";
 import { ConflictError, UnprocessableError, type ServiceContext } from "../src/services/context";
 import { seedOrg, fixtureId, testDb } from "./helpers";
 
@@ -197,6 +198,103 @@ run("an estimate written on another day", () => {
     const fresh = await estimates.create(office(), { customerId, propertyId, taxRate: "0", options });
     expect(fresh.issuedOn).toBe(today());
     await expect(estimates.create(office(), { customerId, propertyId, issuedOn: "2021-06-01", taxRate: "0", options }))
+      .rejects.toThrow(PermissionError);
+  });
+});
+
+run("tax as another system charged it", () => {
+  const taxed = (taxAmount?: string) => ({
+    name: "Part", quantity: "1", unitPrice: "10.05", discountAmount: "0", taxable: true,
+    taxRate: "0.0825", ...(taxAmount ? { taxAmount } : {}),
+  });
+
+  it("keeps the source's per-line rounding and posts it as tax collected", async () => {
+    const invoice = await billing.create(owner(), {
+      customerId, issuedOn: "2023-05-01",
+      lines: [taxed("0.82"), taxed("0.82"), taxed("0.82"), taxed("0.82")],
+      expectedTotals: { subtotal: "40.20", taxTotal: "3.28", total: "43.48" },
+    });
+    expect(invoice.taxTotal).toBe("3.2800");
+    expect(invoice.total).toBe("43.4800");
+    expect(invoice.lines[0]!.taxRate).toBe("0.082500");
+    const tax = (await ledgerFor(invoice.id)).filter((e) => e.account_code === "2200");
+    expect(tax.map((e) => [e.direction, e.amount])).toEqual([["credit", "3.2800"]]);
+  });
+
+  it("computes from the rate when no amount is stated, rounding once", async () => {
+    const invoice = await billing.create(owner(), {
+      customerId, issuedOn: "2023-05-01", lines: [taxed(), taxed(), taxed(), taxed()],
+    });
+    expect(invoice.taxTotal).toBe("3.3200");
+  });
+
+  it("refuses a stated tax its rate cannot produce, naming the line", async () => {
+    await expect(billing.create(owner(), {
+      customerId, lines: [taxed(), taxed("1.50")],
+    })).rejects.toMatchObject({ issues: [{ path: "lines.1.taxAmount" }] });
+  });
+
+  it("refuses totals that differ to the cent, naming each one, and stores nothing", async () => {
+    const before = await raw`select count(*)::int as n from public.invoice where organization_id = ${ORG}`;
+    await expect(billing.create(owner(), {
+      customerId, lines: [taxed("0.83")],
+      expectedTotals: { taxTotal: "0.83", total: "10.87" },
+    })).rejects.toMatchObject({ issues: [{ path: "expectedTotals.total" }] });
+    const after = await raw`select count(*)::int as n from public.invoice where organization_id = ${ORG}`;
+    expect(after[0]!.n).toBe(before[0]!.n);
+  });
+
+  it("is history only: an office manager cannot state a tax rate", async () => {
+    await expect(billing.create(office(), { customerId, lines: [taxed()] })).rejects.toThrow(PermissionError);
+  });
+
+  it("carries an invoice-level discount as a discount, and a charge as a manual line", async () => {
+    const discounted = await billing.create(office(), {
+      customerId, lines: [line], adjustment: { name: "Loyalty discount", amount: "-15.00" },
+      expectedTotals: { subtotal: "100.00", discountTotal: "15.00", total: "85.00" },
+    });
+    expect(discounted.lines.at(-1)).toMatchObject({ origin: "manual", discountAmount: "15.0000", taxable: false });
+    const contra = (await ledgerFor(discounted.id)).filter((e) => e.account_code === "4900");
+    expect(contra.map((e) => [e.direction, e.amount])).toEqual([["debit", "15.0000"]]);
+
+    const charged = await billing.create(office(), {
+      customerId, lines: [line], adjustment: { name: "Not itemised", amount: "4.50" },
+    });
+    expect(charged.total).toBe("104.5000");
+  });
+});
+
+run("an estimate taxed per line", () => {
+  it("uses a line's own rate over the estimate's", async () => {
+    const estimate = await estimates.create(office(), {
+      customerId, propertyId, taxRate: "0.08",
+      options: [{
+        name: "Repair", isRecommended: false, lines: [
+          { ...line, taxable: true, isOptional: false, isSelected: false },
+          { ...line, taxable: true, taxRate: "0", isOptional: false, isSelected: false },
+        ],
+      }],
+    });
+    expect(estimate.options[0]!.taxTotal).toBe("8.0000");
+  });
+});
+
+run("a historical line linked to the price book", () => {
+  it("keeps the price it was sold at when asked, and is re-priced when not", async () => {
+    const item = await priceBook.create(owner(), {
+      kind: "service", code: "HIST-TUNE", name: "Tune up", price: "189.00", taxable: false,
+    });
+    const asSold = { priceBookItemId: item.id, name: "Tune up (2024)", quantity: "1", unitPrice: "129.00", discountAmount: "0", taxable: false };
+    const kept = await billing.create(owner(), {
+      customerId, issuedOn: "2024-04-01", lines: [{ ...asSold, priceAsGiven: true }],
+    });
+    expect(kept.lines[0]).toMatchObject({ unitPrice: "129.0000", name: "Tune up (2024)" });
+    expect(kept.lines[0]!.priceBookItemVersionId).not.toBeNull();
+
+    const repriced = await billing.create(owner(), { customerId, lines: [asSold] });
+    expect(repriced.lines[0]!.unitPrice).toBe("189.0000");
+
+    await expect(billing.create(office(), { customerId, lines: [{ ...asSold, priceAsGiven: true }] }))
       .rejects.toThrow(PermissionError);
   });
 });

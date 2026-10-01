@@ -9050,7 +9050,7 @@
       "post": {
         "operationId": "createInvoice",
         "summary": "Create an invoice",
-        "description": "From a job, or standalone. Totals are computed server side from the lines; a client supplied total is ignored.\n\nRequires a session holding: invoice:write.",
+        "description": "From a job, or standalone. Totals are computed server side from the lines. A client's own totals are never used; sent as `expectedTotals` they are a cross check that refuses the invoice when they differ to the cent.\n\nRequires a session holding: invoice:write.",
         "tags": [
           "M13"
         ],
@@ -25741,6 +25741,10 @@
                         "type": "boolean",
                         "default": true
                       },
+                      "taxRate": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
                       "isOptional": {
                         "type": "boolean",
                         "default": false
@@ -26145,6 +26149,17 @@
                   "type": "boolean",
                   "default": true
                 },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "priceAsGiven": {
+                  "type": "boolean"
+                },
                 "costCode": {
                   "type": "string",
                   "maxLength": 50
@@ -26171,6 +26186,45 @@
               ]
             },
             "minItems": 1
+          },
+          "adjustment": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "name",
+              "amount"
+            ]
+          },
+          "expectedTotals": {
+            "type": "object",
+            "properties": {
+              "subtotal": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "discountTotal": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "taxTotal": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            }
           }
         },
         "required": [

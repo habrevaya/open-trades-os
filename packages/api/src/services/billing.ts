@@ -5,9 +5,9 @@ import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
-  scopeOf, timezoneOf,
+  scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
-import { admitDate, admitInstant } from "./history";
+import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter } from "./scope";
 import { audit } from "./customers";
 import { writePosting } from "./ledger";
@@ -109,9 +109,28 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       }
     }
 
+    /**
+     * TAX AS CHARGED, AND PRICES AS CHARGED, ARE HISTORY ONLY.
+     *
+     * Deciding what something costs and what tax is owed on it today is this
+     * server's job, for the reason at the top of this function. Recording
+     * what another system charged in 2021 is a different act, and the power
+     * to state a tax or keep a price the price book disagrees with is the
+     * power to make an invoice say anything, so it needs `data:import`.
+     */
+    if (input.lines.some((l) => l.taxRate !== undefined || l.taxAmount !== undefined || l.priceAsGiven)) {
+      requireImport(ctx);
+    }
+
     const resolved = input.lines.map((line) => {
-      const version = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
-      const contract = line.priceBookItemId ? contracted.get(line.priceBookItemId) : undefined;
+      const linked = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
+      /**
+       * A line kept as given still links the item, so "which invoices sold
+       * this" has an answer, and takes nothing else from it: the name,
+       * price, cost and taxability are what the source charged.
+       */
+      const version = line.priceAsGiven ? undefined : linked;
+      const contract = line.priceBookItemId && !line.priceAsGiven ? contracted.get(line.priceBookItemId) : undefined;
       const contractPrice = contract?.covered ? contract.price : undefined;
       return {
         name: version?.name ?? line.name,
@@ -121,13 +140,53 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
         unitCost: version?.cost ? usd(version.cost) : null,
         discountAmount: usd(line.discountAmount),
         taxable: version?.taxable ?? line.taxable,
-        /** Resolved per jurisdiction in phase 5. Zero until then, honestly. */
-        taxRate: "0",
+        /**
+         * Resolved per jurisdiction in phase 5. Zero until then, honestly,
+         * unless the line is history and says what it was taxed at.
+         */
+        taxRate: line.taxRate ?? "0",
+        taxAmount: line.taxAmount === undefined ? undefined : usd(line.taxAmount),
         costCode: line.costCode ?? null,
-        versionId: version?.versionId ?? null,
+        versionId: linked?.versionId ?? null,
         coverageSource: line.coverageSource ?? null,
+        origin: "job" as "job" | "manual",
       };
     });
+
+    /**
+     * AN AMOUNT THE LINES DO NOT ACCOUNT FOR.
+     *
+     * An invoice-wide discount, or a manual adjustment, had nowhere to go:
+     * the total is computed from lines and there was no line for it. It
+     * becomes one, at the end and marked `manual`, never taxable. A negative
+     * amount is a DISCOUNT rather than a negative price, so it posts to
+     * contra revenue like every other discount instead of quietly netting
+     * revenue down.
+     */
+    if (input.adjustment) {
+      const amount = usd(input.adjustment.amount);
+      if (m.isZero(amount)) {
+        throw new UnprocessableError("An adjustment of nothing is not an adjustment", [{
+          path: "adjustment.amount", message: "Send a non-zero amount, or leave the adjustment off.",
+        }]);
+      }
+      const negative = m.isNegative(amount);
+      resolved.push({
+        name: input.adjustment.name,
+        description: null,
+        quantity: "1",
+        unitPrice: negative ? usd("0") : amount,
+        unitCost: null,
+        discountAmount: negative ? m.negate(amount) : usd("0"),
+        taxable: false,
+        taxRate: "0",
+        taxAmount: undefined,
+        costCode: null,
+        versionId: null,
+        coverageSource: null,
+        origin: "manual",
+      });
+    }
 
     /**
      * WORK THE CUSTOMER DOES NOT PAY FOR MUST NOT REACH THEM.
@@ -161,13 +220,41 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       if (refusal) throw new ConflictError(refusal);
     }
 
-    const computed = ledger.computeInvoice(resolved.map((r) => ({
-      quantity: r.quantity,
-      unitPrice: r.unitPrice,
-      discountAmount: r.discountAmount,
-      taxable: r.taxable,
-      taxRate: r.taxRate,
-    })));
+    let computed: ReturnType<typeof ledger.computeInvoice>;
+    try {
+      computed = ledger.computeInvoice(resolved.map((r) => ({
+        quantity: r.quantity,
+        unitPrice: r.unitPrice,
+        discountAmount: r.discountAmount,
+        taxable: r.taxable,
+        taxRate: r.taxRate,
+        ...(r.taxAmount ? { taxAmount: r.taxAmount } : {}),
+      })));
+    } catch (error) {
+      if (error instanceof ledger.TaxAsAppliedError) {
+        throw new UnprocessableError("A line's tax is not what its rate gives", [{
+          path: `lines.${error.line}.taxAmount`, message: error.message,
+        }]);
+      }
+      throw error;
+    }
+
+    /**
+     * The caller's totals, compared and never used. See the contract.
+     */
+    if (input.expectedTotals) {
+      const expected: Partial<Record<keyof ledger.InvoiceTotals, ReturnType<typeof usd>>> = {};
+      for (const [field, value] of Object.entries(input.expectedTotals)) {
+        if (value !== undefined) expected[field as keyof ledger.InvoiceTotals] = usd(value);
+      }
+      const wrong = ledger.totalsMismatch(computed.totals, expected);
+      if (wrong.length > 0) {
+        throw new UnprocessableError("The invoice does not add up to the totals expected", wrong.map((w) => ({
+          path: `expectedTotals.${w.field}`,
+          message: `Expected ${w.expected}; the lines give ${w.computed}.`,
+        })));
+      }
+    }
 
     /**
      * THE INVOICE GOES TO WHOEVER IS BEING BILLED, NOT TO WHOEVER IS ON SITE.
@@ -291,8 +378,8 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
        * the job's coverage, so the document does not later claim a
        * chargeable extra was covered by a warranty.
        */
-      entitlementId: r.coverageSource === "customer" ? null : entitlementId,
-      origin: "job" as const,
+      entitlementId: r.coverageSource === "customer" || r.origin === "manual" ? null : entitlementId,
+      origin: r.origin,
       sortOrder: i,
       name: r.name,
       description: r.description,

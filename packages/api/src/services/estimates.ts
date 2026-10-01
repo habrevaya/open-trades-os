@@ -108,7 +108,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
           unitCost: version?.cost ?? line.unitCost ?? null,
           discountAmount: line.discountAmount,
           taxable: version?.taxable ?? line.taxable,
-          taxRate: (version?.taxable ?? line.taxable) ? input.taxRate : "0",
+          taxRate: (version?.taxable ?? line.taxable) ? (line.taxRate ?? input.taxRate) : "0",
           isOptional: line.isOptional,
           isSelected: line.isSelected,
           costCode: line.costCode ?? null,
