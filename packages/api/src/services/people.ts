@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { time } from "@opentradesos/core";
 import {
@@ -864,6 +864,48 @@ export async function listPeople(
       displayName: row.displayName,
       technicianActive: row.technicianActive,
     })).filter((person) => wanted === undefined || person.email.toLowerCase() === wanted);
+  });
+}
+
+/**
+ * The people on the settings screen: each active membership with its name,
+ * address, the role deciding for it and any scope it is narrowed to.
+ *
+ * The settings screen used to build this by joining `membership` to
+ * `public."user"`, and that table's row level security returns a user's own
+ * row and nothing else, so the inner join dropped every colleague and an
+ * owner opening settings saw a company of one: themselves. Names come
+ * through `app.organization_people()` instead, the same path `listPeople`
+ * reads, and the policy on the user table stays as tight as it was.
+ */
+export async function members(ctx: ServiceContext) {
+  return guardedRead(ctx, "user:read", async (tx) => {
+    const directory = await tx.execute<{ membership_id: string; name: string | null; email: string }>(
+      sql`select membership_id, name, email from app.organization_people()`,
+    );
+    const byMembership = new Map(directory.map((d) => [d.membership_id, d]));
+
+    const rows = await tx.select({
+      membership: schema.membership,
+      roleName: schema.role.name,
+    })
+      .from(schema.membership)
+      .leftJoin(schema.role, and(
+        eq(schema.role.id, schema.membership.roleId),
+        isNull(schema.role.deletedAt),
+      ))
+      .where(and(
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.active, true),
+      ))
+      .orderBy(asc(schema.membership.createdAt));
+
+    return rows.map(({ membership, roleName }) => ({
+      membership,
+      roleName,
+      name: byMembership.get(membership.id)?.name ?? null,
+      email: byMembership.get(membership.id)?.email ?? "",
+    }));
   });
 }
 

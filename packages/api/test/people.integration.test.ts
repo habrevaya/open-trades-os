@@ -2,7 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
 import { PermissionError, time, type Actor } from "@opentradesos/core";
 import * as people from "../src/services/people";
-import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
+import { ConflictError, NotFoundError, inTenant, type ServiceContext } from "../src/services/context";
+import { schema } from "@opentradesos/db";
+import { eq } from "drizzle-orm";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -514,6 +516,41 @@ run("the roster", () => {
     expect(roster.filter((p) => p.technicianId !== null).map((p) => p.displayName).sort())
       .toEqual(["Dana Reyes", "Sam Okafor"]);
     expect(roster.find((p) => p.role === "owner")!.technicianId).toBeNull();
+  });
+});
+
+run("the people on the settings screen", () => {
+  it("shows an owner every colleague, not only themselves", async () => {
+    /**
+     * The screen joined `membership` to `public."user"`, whose policy
+     * returns only the caller's own row, so an owner saw a company of one.
+     * Shown here first, so this test says what it guards against.
+     */
+    const joined = await inTenant(owner(), (tx) => tx.select({ email: schema.user.email })
+      .from(schema.membership)
+      .innerJoin(schema.user, eq(schema.user.id, schema.membership.userId))
+      .where(eq(schema.membership.active, true)));
+    expect(joined).toHaveLength(1);
+
+    const people_ = await people.members(owner());
+    expect(people_.map((p) => p.email).sort()).toEqual(
+      expect.arrayContaining(["m24-dana@test.local", "m24-sam@test.local"]),
+    );
+    expect(people_).toHaveLength(3);
+    expect(people_.find((p) => p.email === "m24-dana@test.local")!.membership.role)
+      .toBe("technician");
+  });
+
+  it("leaves out a membership that has been switched off", async () => {
+    await raw`update public.membership set active = false
+              where user_id = ${fixtureId("m24:tech:sam")}`;
+    const people_ = await people.members(owner());
+    expect(people_.map((p) => p.email)).not.toContain("m24-sam@test.local");
+  });
+
+  it("is user:read, which a dispatcher does not hold", async () => {
+    await expect(people.members(dispatcher())).rejects.toThrow(PermissionError);
+    await expect(people.members(officeManager())).resolves.toHaveLength(3);
   });
 });
 

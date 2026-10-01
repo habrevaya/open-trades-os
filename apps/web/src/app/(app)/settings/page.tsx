@@ -3,10 +3,11 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService,
+  people as peopleService,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS, marketing as mk } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { Chip, Phone } from "@opentradesos/ui";
 import { PHONE_PURPOSE, label } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
@@ -50,23 +51,17 @@ export default async function SettingsPage() {
       .where(eq(schema.integrationConnection.capability, "messaging")),
     workflows: await tx.select().from(schema.workflow)
       .where(isNull(schema.workflow.deletedAt)),
-    members: await tx.select({
-      membership: schema.membership,
-      email: schema.user.email,
-      name: schema.user.name,
-      roleName: schema.role.name,
-    })
-      .from(schema.membership)
-      .innerJoin(schema.user, eq(schema.user.id, schema.membership.userId))
-      .leftJoin(schema.role, and(
-        eq(schema.role.id, schema.membership.roleId),
-        isNull(schema.role.deletedAt),
-      ))
-      .where(eq(schema.membership.active, true)),
     organization: (await tx.select({ timezone: schema.organization.timezone })
       .from(schema.organization)
       .where(eq(schema.organization.id, user.actor.organizationId)).limit(1))[0],
   }));
+
+  /**
+   * Through the people service, not a join to the user table. That table's
+   * row level security returns the caller's own row and nothing else, so the
+   * join this page used to make showed an owner a company of one.
+   */
+  const members = can(user.actor, "user:read") ? await peopleService.members(ctx) : null;
 
   const customRoles = can(user.actor, "role:write") ? await roleService.list(ctx) : [];
   const recordingPolicies = writes ? await telephonyService.listPolicies(ctx) : [];
@@ -180,8 +175,11 @@ export default async function SettingsPage() {
         title="People"
         description="A custom role replaces the preset rather than adding to it, so a membership shows whichever one is actually deciding."
       >
+        {members === null ? (
+          <Empty title="Not shown to your role">Seeing who works here needs the View users permission.</Empty>
+        ) : (
         <Table head={<><Th>Person</Th><Th>Role</Th><Th>Scope limits</Th></>}>
-          {data.members.map(({ membership, email, name, roleName }) => (
+          {members.map(({ membership, email, name, roleName }) => (
             <tr key={membership.id}>
               <Td>
                 <span className="font-medium">{name ?? email}</span>
@@ -209,6 +207,7 @@ export default async function SettingsPage() {
             </tr>
           ))}
         </Table>
+        )}
       </Section>
 
       {can(user.actor, "role:write") ? (
