@@ -10,7 +10,7 @@ import {
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
-  people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports,
+  people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
 } from "../services/index";
 
 /**
@@ -476,6 +476,14 @@ export const handlers = {
   listJournal: ledgerReports.handlers.listJournal,
   listPayments: billing.paymentReadHandlers.listPayments,
   listDeposits: deposits.handlers.listDeposits,
+  listServiceReportTemplates: serviceReports.handlers.listServiceReportTemplates,
+  defineServiceReportTemplate: serviceReports.handlers.defineServiceReportTemplate,
+  updateServiceReportTemplate: serviceReports.handlers.updateServiceReportTemplate,
+  listServiceReports: serviceReports.handlers.listServiceReports,
+  getServiceReport: serviceReports.handlers.getServiceReport,
+  annotateServiceReport: serviceReports.handlers.annotateServiceReport,
+  publishServiceReport: serviceReports.handlers.publishServiceReport,
+  unpublishServiceReport: serviceReports.handlers.unpublishServiceReport,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;
