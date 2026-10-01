@@ -109,6 +109,10 @@
       "description": "AI Agents"
     },
     {
+      "name": "M28",
+      "description": "Developer and Agent Platform"
+    },
+    {
       "name": "M29",
       "description": "Custom Fields, Objects and Workflow Builder"
     },
@@ -2304,6 +2308,102 @@
         "x-permissions": [
           "integration:read"
         ]
+      }
+    },
+    "/v1/apps/me": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getAppSelf",
+        "summary": "What this app token may do",
+        "description": "The app behind the bearer token, the permissions it was granted and the record scope it holds on each scoped resource. Needs no permission, because it answers only about the caller. A signed-in person calling it gets a 404: there is no app behind a session.\n\nRequires a session. No further permission is checked.",
+        "tags": [
+          "M28"
+        ],
+        "responses": {
+          "200": {
+            "description": "What this app token may do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAppSelfOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": []
       }
     },
     "/v1/asset-maintenance-plans/{planId}/serviced": {
@@ -53334,6 +53434,55 @@
         },
         "required": [
           "models"
+        ]
+      },
+      "GetAppSelfOutput": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "own",
+                "crew",
+                "business_unit",
+                "location",
+                "all"
+              ]
+            }
+          }
+        },
+        "required": [
+          "appId",
+          "name",
+          "publisher",
+          "organizationId",
+          "permissions",
+          "scopes"
         ]
       },
       "GetArAgingOutput": {

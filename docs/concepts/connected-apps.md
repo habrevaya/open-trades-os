@@ -152,3 +152,38 @@ number. Only the owner preset holds it, so only an owner can grant it, and the
 of a migration and remove it afterwards: an integration that can back-date
 cash is the one an auditor asks about first. See
 `docs/modules/m30-migration-data-portability.md`.
+
+## Asking what a token may do
+
+`GET /v1/apps/me`, with the app's bearer token, answers without needing any
+permission:
+
+```json
+{
+  "appId": "4f0c…",
+  "name": "Migrator",
+  "publisher": "Migrator Ltd",
+  "organizationId": "9a1e…",
+  "permissions": ["customer:read", "data:import", "job:read"],
+  "scopes": {
+    "job": "own", "visit": "own", "customer": "all", "estimate": "own",
+    "invoice": "own", "timesheet": "own", "servicereport": "own",
+    "conversation": "own"
+  }
+}
+```
+
+`permissions` is exactly what the install granted; an app inherits nothing
+from whoever installed it. `scopes` is the scope in force on every scoped
+resource, one of `own`, `crew`, `location`, `business_unit` or `all`,
+including the ones the install never named. An unnamed one is `own`, and for
+an app, which is not a person anything is assigned to, `own` matches nothing:
+a `customer:read` grant with `customer` at `own` lists no customers. Seeing
+that here is cheaper than wondering why a list came back empty.
+
+Check before writing. A loader that needs `data:import` reads this and stops
+with a clear message when it is missing, rather than probing with a write it
+expects to be refused: a probe that relies on validation order is one change
+in that order away from creating the record it meant not to. A signed-in
+person calling the route gets a 404, because there is no app behind a
+session, and a revoked token gets the same 401 as on every other route.

@@ -2,12 +2,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  canDefineRole, isScope, ALL_PERMISSIONS,
+  canDefineRole, isScope, ALL_PERMISSIONS, SCOPED_RESOURCES, effectiveScope, permissionsFor,
   type Actor, type Permission, type RoleDefinition, type Scope, type ScopedResource,
   SYSTEM_USER_ID,
 } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 
 /**
@@ -331,3 +331,53 @@ export async function touch(db: Database, tokenId: string): Promise<void> {
   await db.execute(sql`select app.touch_app_token(${tokenId}::uuid)`)
     .catch(() => undefined);
 }
+
+/* ------------------------------------------------------------ the app itself */
+
+/**
+ * What the calling app token may do, asked by the app.
+ *
+ * Guarded by nothing but being an app, because it answers only about the
+ * caller and everything in it is already in the caller's hands: an app
+ * learning its own grant from a read is strictly safer than learning it by
+ * trying a write and reading which error came back, which is what the
+ * migration loader had to do to find out whether it held `data:import`.
+ *
+ * The permissions are the actor's own resolved set rather than the stored
+ * row, so this says what the request it is part of was actually allowed,
+ * and the scopes are what `effectiveScope` resolves for every scoped
+ * resource, including the ones the install never named.
+ */
+export async function me(ctx: ServiceContext) {
+  const agent = ctx.actor.agentId ?? ctx.agentId ?? "";
+  if (!agent.startsWith("app:") || ctx.actor.roles.length > 0) {
+    throw new NotFoundError("App behind this credential");
+  }
+  const appId = agent.slice("app:".length);
+
+  const [app] = await inTenant(ctx, (tx) => tx.select({
+    id: schema.connectedApp.id,
+    name: schema.connectedApp.name,
+    publisher: schema.connectedApp.publisher,
+    organizationId: schema.connectedApp.organizationId,
+  }).from(schema.connectedApp)
+    .where(eq(schema.connectedApp.id, appId))
+    .limit(1));
+  if (!app) throw new NotFoundError("App behind this credential");
+
+  const scopes: Partial<Record<ScopedResource, Scope>> = {};
+  for (const resource of SCOPED_RESOURCES) scopes[resource] = effectiveScope(ctx.actor, resource);
+
+  return {
+    appId: app.id,
+    name: app.name,
+    publisher: app.publisher,
+    organizationId: app.organizationId,
+    permissions: [...permissionsFor(ctx.actor)].sort(),
+    scopes: scopes as Record<string, Scope>,
+  };
+}
+
+export const handlers = {
+  getAppSelf: (ctx: ServiceContext) => me(ctx),
+} as const;

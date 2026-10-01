@@ -11,6 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
+  apps,
 } from "../services/index";
 
 /**
@@ -484,6 +485,7 @@ export const handlers = {
   annotateServiceReport: serviceReports.handlers.annotateServiceReport,
   publishServiceReport: serviceReports.handlers.publishServiceReport,
   unpublishServiceReport: serviceReports.handlers.unpublishServiceReport,
+  getAppSelf: apps.handlers.getAppSelf,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

@@ -38,6 +38,17 @@ export type ScopedResource =
    */
   | "conversation";
 
+/**
+ * Every scoped resource, as a value. Written as a record so that adding a
+ * resource to the type above without adding it here is a build error rather
+ * than a resource some reader quietly never reports.
+ */
+const SCOPED: Record<ScopedResource, true> = {
+  job: true, visit: true, customer: true, estimate: true, invoice: true,
+  timesheet: true, servicereport: true, conversation: true,
+};
+export const SCOPED_RESOURCES = Object.keys(SCOPED) as readonly ScopedResource[];
+
 export const DEFAULT_SCOPES: Record<RoleId, Partial<Record<ScopedResource, Scope>>> = {
   owner: {},
   admin: {},
