@@ -18,7 +18,7 @@
 | Schema | 22 files. Residential through commercial, franchise, regulated inspection, commodity delivery, communications, marketing, reviews, inventory |
 | Domain logic | Access control, money, estimates, the ledger, the field operation model, recurrence, automation, inspection, labor, coverage, reporting |
 | API | Every declared route is served, over HTTP, at `/api/v1`. Booked-to-paid, the sell path, dispatch, field sync, properties, the price book, job editing, inventory, purchasing, time, reviews, forms, webhooks |
-| Web app | Dispatch board, a technician's day, the customer portal (proposal, tracking, booking), and office screens for customers, jobs, invoices, agreements, inventory, purchasing, timesheets, reports, dashboards, automations, reviews and the inbox |
+| Web app | Dispatch board, a technician's day, the customer portal (proposal, tracking, booking, invoice), and office screens for customers, jobs, invoices, agreements, inventory, purchasing, timesheets, reports, dashboards, automations, reviews and the inbox |
 | Mobile | The technician's day runs as a web page on the phone they already have. The Expo app is not built |
 | Worker | Built. `pnpm --filter @opentradesos/api worker` drains the event log, fires schedules, resumes waiting runs, sweeps for things that did not happen, and then sends the outbox, webhooks and accounting sync. On a host with no long running processes the same pass runs from `POST /api/internal/worker/tick`. `docs/self-hosting/worker.md` |
 | Trade packs | 8 shipped: HVAC, plumbing, electrical, lawn and landscape, pest control, cleaning, dumpster rental, trash bin cleaning |
@@ -26,7 +26,7 @@
 | Demo | `pnpm db:seed` builds a company with a day of work in it, and the product screenshots come from it |
 | Automation | Event, schedule and "did not happen" triggers, conditions, waits that survive a deploy, versioned workflows, and the publish authority check, all run by the worker |
 | Comms | SMS through Twilio, email through Resend or any SMTP server, inbound for both, per-purpose consent and suppression enforced on every send. `docs/self-hosting/messaging.md` |
-| Payments | Stripe, on the company's own account with a restricted key. A payment is recorded only from a verified webhook |
+| Payments | Stripe, on the company's own account with a restricted key. A payment is recorded only from a verified webhook. The emailed invoice link opens the invoice at `/i/{token}` and takes a card through Stripe's Payment Element when the company has connected Stripe with a publishable key; with no processor connected the page shows the balance and tells the customer to reply to arrange payment, because there is no other way to pay from it |
 | Accounting | QuickBooks Online, both directions, against Intuit's metered read budget. Xero is not built |
 | MCP | Every signed in, non internal route is offered as a tool, filtered by what the caller holds, at `/api/mcp` and over stdio. `docs/modules/m28-developer-agent-platform.md` |
 | Operator API | Create, read, meter, suspend and resume a company, for a deployment that runs several. Off unless `OPERATOR_TOKEN` is set. `docs/self-hosting/operator-api.md` |

@@ -1077,6 +1077,13 @@ export interface PortalInvoiceLine {
   lineTotal: string;
 }
 
+export interface PortalInvoicePayment {
+  receivedAt: string;
+  method: string;
+  /** What this payment still holds on this invoice, after any refund. */
+  amount: string;
+}
+
 export interface PortalInvoice {
   organizationName: string;
   number: number;
@@ -1092,6 +1099,11 @@ export interface PortalInvoice {
   balance: string;
   propertyAddress: string;
   lines: PortalInvoiceLine[];
+  /**
+   * The money already on this invoice, oldest first, netted per payment so a
+   * refunded payment shows what it still holds rather than two rows.
+   */
+  payments: PortalInvoicePayment[];
   /** Whether the pay button should appear at all. */
   payable: boolean;
   /** False when the company has connected no processor. Nothing to click. */
@@ -1165,7 +1177,46 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
         .filter(Boolean).join(", ");
     }
 
-    const payable = m.isPositive(m.money(invoice.balance, invoice.currency));
+    const applied = await tx.select({
+      paymentId: schema.paymentAllocation.paymentId,
+      amount: schema.paymentAllocation.amount,
+      receivedAt: schema.payment.receivedAt,
+      method: schema.payment.method,
+    })
+      .from(schema.paymentAllocation)
+      .innerJoin(schema.payment, eq(schema.payment.id, schema.paymentAllocation.paymentId))
+      .where(eq(schema.paymentAllocation.invoiceId, invoiceId))
+      .orderBy(asc(schema.payment.receivedAt), asc(schema.paymentAllocation.createdAt));
+
+    /**
+     * Netted per payment. A refund writes a NEGATIVE allocation beside the
+     * original rather than editing it, which is right for the books and
+     * wrong for a customer, who would otherwise see a payment of 300 and a
+     * payment of minus 300 and wonder which one they made.
+     */
+    const byPayment = new Map<string, PortalInvoicePayment & { net: m.Money }>();
+    for (const row of applied) {
+      const net = m.add(
+        byPayment.get(row.paymentId)?.net ?? m.money("0", invoice.currency),
+        m.money(row.amount, invoice.currency),
+      );
+      byPayment.set(row.paymentId, {
+        receivedAt: row.receivedAt.toISOString(),
+        method: row.method,
+        amount: m.toString(net),
+        net,
+      });
+    }
+    const payments = [...byPayment.values()]
+      .filter((p) => m.isPositive(p.net))
+      .map(({ net: _net, ...rest }) => rest);
+
+    /**
+     * A positive balance on a void or written off invoice is not money the
+     * customer owes, and a pay button there takes it anyway.
+     */
+    const payable = (invoice.status === "open" || invoice.status === "partially_paid")
+      && m.isPositive(m.money(invoice.balance, invoice.currency));
 
     return {
       organizationName: org?.name ?? "",
@@ -1182,6 +1233,7 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
       balance: invoice.balance,
       propertyAddress,
       lines,
+      payments,
       payable,
       onlinePaymentAvailable: payable && await processorConnected(tx),
     };

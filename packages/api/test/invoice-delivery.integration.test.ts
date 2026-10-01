@@ -474,6 +474,56 @@ run("the link a customer with no account can open", () => {
     expect(Object.keys(view.lines[0]!)).not.toContain("unitCost");
   });
 
+  it("lists what has been paid, netting a refund rather than showing it as a payment", async () => {
+    /**
+     * The page at /i/{token} shows the customer what they already paid. A
+     * recorded refund writes a negative allocation beside the original, and
+     * a customer shown both rows sees a payment they never made.
+     */
+    const { invoiceId, customerId } = await anInvoice({ total: "458.00" });
+    const first = await billing.pay(ctx(), {
+      customerId, method: "check", amount: "100.00", tipAmount: "0",
+      allocations: [{ invoiceId, amount: "100.00" }],
+    });
+    await billing.pay(ctx(), {
+      customerId, method: "cash", amount: "58.00", tipAmount: "0",
+      allocations: [{ invoiceId, amount: "58.00" }],
+    });
+    await billing.recordRefund(ctx(), {
+      id: first.id as string, amount: "40.00", method: "check", reason: "Overcharged",
+    });
+    const sent = await invoiceDelivery.send(ctx(), { invoiceId });
+
+    const view = await invoiceDelivery.viewInvoice(db(), { token: tokenOf(sent.portalUrl) });
+    expect(view.payments.map((p) => [p.method, Number(p.amount)])).toEqual([
+      ["check", 60], ["cash", 58],
+    ]);
+    expect(Number(view.balance)).toBe(340);
+  });
+
+  it("offers no payment on a void invoice, whatever its balance says", async () => {
+    const { invoiceId } = await anInvoice({ total: "458.00" });
+    const sent = await invoiceDelivery.send(ctx(), { invoiceId });
+    await raw`update public.invoice set status = 'void' where id = ${invoiceId}`;
+
+    const view = await invoiceDelivery.viewInvoice(db(), { token: tokenOf(sent.portalUrl) });
+    expect(view.status).toBe("void");
+    expect(view.payable).toBe(false);
+    expect(view.onlinePaymentAvailable).toBe(false);
+  });
+
+  it("opens nothing once the company is suspended", async () => {
+    const { invoiceId } = await anInvoice();
+    const sent = await invoiceDelivery.send(ctx(), { invoiceId });
+    await raw`update public.organization set suspended_at = now() where id = ${ORG}`;
+    try {
+      await expect(invoiceDelivery.viewInvoice(db(), { token: tokenOf(sent.portalUrl) }))
+        .rejects.toBeInstanceOf(InvalidGrantError);
+    } finally {
+      await raw`update public.organization set suspended_at = null where id = ${ORG}`;
+    }
+  });
+
   it("refuses a token for a different kind of record", async () => {
     /**
      * The subject comes from the grant. A customer grant pointed at nothing

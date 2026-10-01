@@ -578,8 +578,19 @@ export async function revokeGrant(ctx: ServiceContext, input: z.infer<typeof rev
 
 const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
 
-const pathFor = (scope: ResolvedGrant["scope"]) =>
-  ({ estimate: "e", job: "j", invoice: "i", customer: "c", booking: "b" })[scope];
+/**
+ * Where each kind of link lands, under the portal's base URL.
+ *
+ * Exported so the web app's tests can check that every path a link is
+ * minted for has a page behind it. The invoice path was minted into every
+ * emailed invoice for months with no page, and a customer asked to view and
+ * pay opened a 404.
+ */
+export const PORTAL_PATHS = {
+  estimate: "e", job: "j", invoice: "i", customer: "c", booking: "b",
+} as const satisfies Record<ResolvedGrant["scope"], string>;
+
+const pathFor = (scope: ResolvedGrant["scope"]) => PORTAL_PATHS[scope];
 
 function shapeGrant(row: typeof schema.portalGrant.$inferSelect) {
   return {
