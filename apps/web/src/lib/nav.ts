@@ -100,6 +100,7 @@ export const NAV: NavGroup[] = [
   {
     label: "Money",
     items: [
+      { href: "/estimates", label: "Estimates", permission: "estimate:read", icon: "estimates" },
       { href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices" },
       { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
       { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },

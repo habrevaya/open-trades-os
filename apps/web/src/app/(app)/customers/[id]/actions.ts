@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { comms, consent, contacts, customerLifecycle, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { comms, consent, contacts, customerLifecycle, portal, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { issuePortalGrant } from "@opentradesos/api/contracts";
+import { attempt, parsed, type FormState } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -178,4 +180,19 @@ export async function textCustomer(_previous: unknown, form: FormData) {
     throw error;
   }
   redirect(`/inbox/${conversationId}`);
+}
+
+/**
+ * THE CUSTOMER'S OWN LINK to their whole account: every invoice, estimate
+ * and visit, without a login. `POST /v1/portal/grants` with the customer
+ * scope, which was the only way to make one. The plaintext link exists once,
+ * in this answer, and is shown to be handed on.
+ */
+export async function accountLink(_previous: FormState, form: FormData): Promise<FormState> {
+  return attempt(async () => {
+    const issued = await portal.issueGrant(await ctx(), parsed(issuePortalGrant.input, {
+      customerId: String(form.get("customerId") ?? ""), scope: "customer",
+    }));
+    return { message: "Their account link. It opens everything they have with you, without a password.", link: issued.url };
+  });
 }

@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
+import { billing, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
-import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
+import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { Money } from "@opentradesos/ui";
@@ -15,6 +15,8 @@ import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { applyHeld, refund } from "../../payments/actions";
+import { accountLink } from "./actions";
+import { ActionForm } from "@/components/ActionForm";
 import { formatDay, todayIn } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
@@ -83,6 +85,9 @@ export default async function CustomerPage({
   const people = await contactService.list(ctx, { customerId: id });
   const invoices = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 50, customerId: id })).data
+    : null;
+  const quotes = can(user.actor, "estimate:read")
+    ? (await estimateService.list(ctx, { limit: 50, customerId: id })).data
     : null;
   const paid = can(user.actor, "payment:read")
     ? (await billing.pagePayments(ctx, { limit: 50, customerId: id, unappliedOnly: false })).data
@@ -243,6 +248,43 @@ export default async function CustomerPage({
             </tr>
           ))}
         </Table>
+      )}
+
+      {can(user.actor, "portal:grant") && (
+        <section aria-label="Their link" className="mt-10">
+          <h2 className="text-base font-semibold">Their link</h2>
+          <ActionForm action={accountLink} submit="Get their account link" tone="quiet"
+                      hidden={{ customerId: id }} className="mt-2 space-y-2" />
+        </section>
+      )}
+
+      {quotes && (
+        <section aria-label="Estimates">
+          <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Estimates</h2>
+            {can(user.actor, "estimate:write") && addresses.length > 0 && (
+              <a href={`/estimates/new?customer=${id}`}
+                 className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                New estimate
+              </a>
+            )}
+          </div>
+          {quotes.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">None yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm">
+              {quotes.map((q) => (
+                <li key={q.id as string} className="flex flex-wrap items-center gap-3">
+                  <a href={`/estimates/${q.id as string}`} className="hover:underline">
+                    <span className="font-mono tabular-nums">{q.number as number}</span> {(q.title as string | null) ?? "Estimate"}
+                  </a>
+                  <Money value={q.total as string} />
+                  <Chip tone={tone(ESTIMATE_TONE, q.status as string)}>{label(ESTIMATE_STATUS, q.status as string)}</Chip>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
 
       {paid && (

@@ -18,7 +18,7 @@
 export type IconName =
   | "day" | "today" | "schedule" | "jobs" | "tasks"
   | "customers" | "inbox"
-  | "invoices" | "agreements" | "pricebook"
+  | "invoices" | "estimates" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
   | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance";
@@ -153,6 +153,17 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   // A bill: a document, torn off at the bottom.
+  /**
+   * Estimates: two cards side by side, one raised, for options the customer
+   * chooses between. Not a document, which is the invoice's shape.
+   */
+  estimates: (
+    <>
+      <rect x="3.5" y="7" width="7.5" height="12.5" rx="1.4" />
+      <rect x="13" y="4.5" width="7.5" height="12.5" rx="1.4" />
+      <path d="M6 11.5h2.5M15.5 9h2.5" />
+    </>
+  ),
   invoices: (
     <>
       <path d="M5.5 3.8h13v16.9l-2.6-1.7-2.6 1.7-2.6-1.7-2.6 1.7-2.6-1.7V3.8Z" />

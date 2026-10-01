@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { schema } from "@opentradesos/db";
 import {
-  JOB_STATUS, VISIT_STATUS, INVOICE_STATUS, PRICE_BOOK_KIND, PHONE_PURPOSE,
+  JOB_STATUS, VISIT_STATUS, INVOICE_STATUS, PRICE_BOOK_KIND, PHONE_PURPOSE, ESTIMATE_STATUS,
   TASK_PRIORITY, TASK_STATUS,
   JOB_TONE, VISIT_TONE, INVOICE_TONE, label, tone, type Tone,
 } from "../src/lib/labels";
@@ -21,6 +21,7 @@ const CASES: [string, Record<string, string>, readonly string[]][] = [
   ["job status", JOB_STATUS, schema.jobStatus.enumValues],
   ["visit status", VISIT_STATUS, schema.visitStatus.enumValues],
   ["invoice status", INVOICE_STATUS, schema.invoiceStatus.enumValues],
+  ["estimate status", ESTIMATE_STATUS, schema.estimateStatus.enumValues],
   ["price book kind", PRICE_BOOK_KIND, schema.itemKind.enumValues],
   ["phone number purpose", PHONE_PURPOSE, schema.phoneNumberPurpose.enumValues],
   ["task priority", TASK_PRIORITY, schema.taskPriority.enumValues],
