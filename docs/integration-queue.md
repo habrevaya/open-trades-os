@@ -67,6 +67,7 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `callrail` | telephony | Tracked calls into `call` and `marketing_touch`, signed webhook plus a backfill, because they do not resend. |
 | `twilio` | messaging | The first adapter the product ever had. In this table only now, because it was missing from the catalogue entirely until a second carrier was added beside it. |
 | `justcall` | messaging | The second carrier on the same seam. Their signature covers the URL, the type and a timestamp, and not the message, so the replay window is five minutes rather than a day. |
+| `xero` | accounting | The second adapter on the accounting seam. No change feed on their side, so inbound is a modified-since boundary; refresh tokens rotate with no grace period at all. |
 
 ---
 
@@ -86,20 +87,14 @@ offline and a dispatch board that has moved on.
 UID per visit, and the decision about what a feed may show of a customer's
 address and phone number, all of which CalDAV inherits.*
 
-### 2. CompanyCam: job photos
-Bearer-token REST, a public developer portal with an OpenAPI spec and a Postman
-collection, personal access tokens for testing and application keys for the
-real thing, and no separate developer account needed. Photos attach to
-`stored_file` and `visit`, both of which exist.
-
-### 3. ClearPathGPS: fleet tracking
+### 2. ClearPathGPS: fleet tracking
 Open API on their Pro plan, real-time location and vehicle data. `M22` has
 shipped since this was written, so the asset register, the meter readings and
 the service plans this would feed all exist now: what is left is the `fleet`
 capability on the seam and an adapter that turns their position and odometer
 reports into `asset_reading` rows.
 
-### 4. Avalara AvaTax: sales tax
+### 3. Avalara AvaTax: sales tax
 The `tax` capability is in the enum with no provider. REST v2, a sandbox at
 `sandbox-rest.avatax.com`, a free trial obtainable through the
 `RequestFreeTrial` API with no prior approval, and an API playground that needs
@@ -122,6 +117,7 @@ Real APIs, and something stands between a user and their credentials.
 | US Fleet Tracking, Vestige | Fleet | Needs the `fleet` seam first |
 | Reserve with Google (booking) | Booking from search | Google Maps Booking partner onboarding, which is a programme rather than a form |
 | Contractor Commerce, Dispatch | E-commerce storefront | Partner agreement |
+| **CompanyCam** | Job photos | **Their own deprecation date.** It was tier 1 item 2 on the strength of a public developer portal with an OpenAPI spec, and that portal now opens with "These docs are for the legacy API that will be depreciating early 2027. We will not be adding new functionality and will provide very limited support." The replacement at `developers.companycam.com` is behind a sign-in, so its shape cannot be read, let alone verified. Building against the legacy API means shipping an adapter with a published death date inside its own first year; building against the new one means inventing endpoints from memory. Neither is acceptable here, so it waits until the new reference is public. |
 
 ---
 
@@ -152,16 +148,24 @@ rather than a release. One piece of work serves all sixteen.
 
 | Integration | The gate |
 |---|---|
+| ~~Xero~~ | **BUILT.** See tier 0. |
 | **Sage Intacct** | A Web Services developer licence from **$2,500 per year** with no support included, or partner membership at $2,500 plus $0.015 per API call. For an AGPL project with no revenue this is the decisive fact, not the API's difficulty. |
 | **Oracle NetSuite** | SuiteTalk, gated behind a partner relationship and an account that costs more than most of our users' whole stack. |
 | Viewpoint Spectrum / Vista | Reached through MindCloud, a middleware vendor, rather than directly. |
 | Stuut, The Graphite Lab | AR and bookkeeping services layered on an accounting system rather than one. |
 
-**Xero is the one to build and it is not on this list**, because Xero does not
-pay ServiceTitan for placement. It has a free developer account, self-serve
-OAuth 2.0 app registration and public docs, which makes it strictly easier than
-every row in this table and comparable to QuickBooks. It belongs in tier 1 on
-merit and is here only so the reasoning is visible.
+**Xero was the one to build and it is now built.** It was never on the
+ServiceTitan marketplace, because Xero does not pay ServiceTitan for
+placement, and this paragraph existed to say that the absence was about
+placement rather than difficulty: free developer account, self-serve OAuth 2.0
+app registration, public docs and a published OpenAPI spec.
+
+That held. The estimate was 220k and the surprise was not the API, it was a
+claim in our own code: `accounting/provider.ts` said "Both QuickBooks and Xero
+expose [a change feed], which is why it is in the interface", and Xero does
+not. It has `If-Modified-Since` and nothing else. The seam survived, because
+what `changes()` actually needs is an opaque resume point rather than a
+cursor, but the stated reason was false and the adapter is what found it.
 
 ---
 
@@ -264,11 +268,11 @@ full gate.
 |---|---|---|---|
 | ICS calendar feed | calendar (new) | **90k**, BUILT | The reasoning behind the estimate was the part that was wrong: "no failure mode" is not true of a file format. There is no vendor and no auth, and the work is the framing. Folding at 75 octets, escaping, a stable UID and a DTSTAMP that does not move on every poll are each a way for the feed to look fine and be wrong, and breaking every one of them on purpose to confirm a named test goes red is a large share of the cost rather than a rounding error on it. |
 | CallRail | telephony + ads | **180k**, BUILT | Existing seams, one API key, documented webhooks, and one fact the plan had wrong: they DO sign, with HMAC-SHA1 over the raw body, and publish a worked example to test against. |
-| CompanyCam | storage | **200k** | Existing file model, bearer auth, OpenAPI spec published. |
+| CompanyCam | storage | **200k**, BLOCKED | The estimate is probably right and cannot be spent yet: their public API is the legacy one and deprecates early 2027, and the replacement is behind a sign-in. See tier 2. A second, separate decision is waiting behind it: `stored_file.bytes` is `not null`, so this product holds the files it knows about, and a photo connector either copies thousands of JPEGs a year into Postgres or invents an external-reference column that `attachment.storage_key` has no way to resolve. That is a schema decision, not an adapter. |
 | JustCall | messaging | **160k**, BUILT | The estimate held, and the thing it was really measuring came out the way it was meant to: the seam needed nothing. The adapter is one file and the only change outside it is one import line in the barrel, which is the result that makes the next carrier cheap too. What the estimate did not price was the finding: their webhook signature covers the secret, the URL, the event type and a timestamp, and not one byte of the message, so a valid signature does not prove the body. That is a paragraph in the adapter, a tighter replay window, a line in the catalogue and a line on the website, none of which was in the plan. |
 | Avalara AvaTax | tax (new) | **320k** | New seam. Tax is where a quiet wrong answer is most expensive, so the verification burden is high. |
 | ClearPathGPS | fleet (new) | **380k** | New seam, and the fleet schema does not exist: `core/assets` has 1,442 lines of tested decision logic with no storage under it. |
-| Xero | accounting | **200k** | Second adapter in a seam QuickBooks already paid for. |
+| Xero | accounting | **200k**, BUILT | Second adapter in a seam QuickBooks already paid for. The estimate held. What it did not price: finding that this codebase's own seam comment about Xero's change feed was wrong, and that a Xero payment references exactly one invoice while ours carries allocations across several, which is why every payment becomes a batch payment. |
 | Lead marketplace field mapping | lead_source | **120k** | Not an adapter. The setup screen and mapping validator, which serves all sixteen senders at once. |
 | Vendor price file importer | pricebook | **260k** | Not an adapter either. One importer serving twenty-eight suppliers, with price book versioning as the hard part. |
 | Birdeye | reviews | **190k** | Existing seam; the gate is commercial, not technical. |

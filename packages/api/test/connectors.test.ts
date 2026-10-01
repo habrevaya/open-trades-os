@@ -125,6 +125,13 @@ describe("the connector catalogue", () => {
        */
       "twilio", "justcall",
       /**
+       * The second accounting adapter. The queue's own tier 4 says Xero
+       * "belongs in tier 1 on merit and is here only so the reasoning is
+       * visible", which was true: a free developer account, self-serve app
+       * registration and public docs.
+       */
+      "xero",
+      /**
        * Call tracking, which for a trades company is not a nice-to-have: it
        * is the only thing that measures the half of the budget that goes on
        * signs, vans and mailers. An owner looking for it and not finding it

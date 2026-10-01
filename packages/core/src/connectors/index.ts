@@ -450,6 +450,20 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
 
   /* -------------------------------------------------------------- models */
   {
+    key: "xero",
+    label: "Xero",
+    capability: "accounting",
+    auth: "oauth",
+    flows: ["books_out", "books_in"],
+    state: "built",
+    purpose:
+      "The same accounting bridge against Xero instead of QuickBooks. Invoices, payments, credit notes and the customers behind them go into the books your accountant already works in, and what changes over there comes back.",
+    setup:
+      "A free Xero developer account and an app you register yourself, which is a form rather than an approval queue, then the usual consent screen against the organisation you want connected. The client id, client secret and refresh token go into your secret store as one value, because Xero rotates the refresh token on every single exchange and all three have to be replaced together.",
+    limitation:
+      "Xero has no change feed. It has a modified-since window, so inbound is a timestamp boundary rather than a cursor, and a few records either side of it are read twice on purpose because the alternative is losing one written mid-request. Their refresh token has no grace period at all: the moment one is exchanged the previous one is dead, so a deployment that loses the rotated value needs a human back at the consent screen. Payments arrive as batch payments, including a payment against a single invoice, so they appear as one line on the bank reconciliation and the deposit account has to be a bank account with payments enabled. Sixty calls a minute and five thousand a day per organisation, shared between reading and writing.",
+  },
+  {
     key: "anthropic",
     label: "Claude",
     capability: "ai_model",
