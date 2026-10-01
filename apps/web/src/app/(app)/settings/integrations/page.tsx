@@ -169,7 +169,19 @@ export default async function IntegrationsPage() {
           <Link href="/marketing/connectors" className="underline underline-offset-4">
             Marketing → Connectors
           </Link>
-          , and lead webhooks are set up there too.
+          .
+        </p>
+        {/*
+          Lead webhooks, said as what they are today. This used to say they
+          were set up on the connectors page too, which has no form for them:
+          an owner followed the sentence to a list with nothing to press.
+          Creating one returns a signing secret exactly once and needs a field
+          mapping, and until there is a screen for that it is an API call.
+        */}
+        <p className="mt-2 max-w-2xl text-sm text-ink-700">
+          A lead webhook, for a form or lead service that posts to a URL, has no screen yet. It is
+          set up through the API at <code className="text-xs">POST /v1/lead-connectors</code>, which
+          returns the URL and its signing secret once.
         </p>
       </section>
     </div>
