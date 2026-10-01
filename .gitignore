@@ -19,3 +19,7 @@ apps/*/coverage/
 .DS_Store
 .pnpm-store/
 pnpm-lock.yaml.bak
+# The browser suite's scratch: what the seed printed, traces and the report.
+apps/web/e2e/.state/
+apps/web/test-results/
+apps/web/playwright-report/

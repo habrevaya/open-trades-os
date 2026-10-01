@@ -27,6 +27,40 @@ pnpm db:migrate && pnpm db:seed
 pnpm dev
 ```
 
+### The browser suite
+
+`pnpm e2e` drives a real browser through the product against a production
+build: signing up through the wizard, a job from booked to paid with the
+report checked against the invoice to the cent, an estimate approved through
+the customer's link, the customer portal pages, one real form submit on each
+back office screen, and a technician's day on a phone sized screen.
+
+```bash
+pnpm build
+pnpm e2e
+```
+
+- It **migrates and reseeds the database in `DATABASE_URL`** before it runs,
+  so point it at a database you do not mind being reset (a second database on
+  the same server is enough: `createdb opentradesos_e2e`).
+- It starts `next start` on port 3100 itself, with `PUBLIC_URL` set to that
+  address, and reuses a server already listening there. `E2E_PORT` moves it.
+- It needs a chromium. CI installs the exact build Playwright pins with
+  `pnpm exec playwright install --with-deps chromium` (run in `apps/web`). On
+  your own machine, do that once, or let it find one you already have under
+  `PLAYWRIGHT_BROWSERS_PATH`, or point `CHROMIUM_PATH` at any chromium binary.
+- No retries. A test that passes on its second go is a bug report.
+- Where a step has no screen yet (booking a job, raising an invoice, taking a
+  payment), the spec calls the HTTP API as the same signed in person and then
+  checks the screens. Texts are handed to a fake carrier through the outbox's
+  own seam, so nothing reaches a network.
+- A failing run leaves a trace per test in `apps/web/test-results`; open one
+  with `pnpm --filter @opentradesos/web exec playwright show-trace <file>`.
+  CI uploads them as the `e2e-report` artifact.
+
+When a spec fails, fix the product rather than loosening the spec. Every bug
+it has found so far was one a person would have hit on their first day.
+
 ## Rules that are not style preferences
 
 1. **Every tenant-scoped table carries `organization_id` and is covered by RLS.**

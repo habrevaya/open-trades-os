@@ -69,6 +69,65 @@ jobs:
       - name: Service layer tests
         run: pnpm --filter @opentradesos/api test
 
+  # A browser, pressing the buttons.
+  #
+  # Render tests prove a screen draws and the selfhost job proves the server
+  # boots. Neither ever submitted a form, and the first browser that did found
+  # that nobody could sign up or sign in at all: hashing the password asked
+  # scrypt for more memory than Node allows, on a path no other test runs.
+  # This drives the seeded company through signup, booked to paid, the
+  # customer's links, every back office screen and a technician's phone,
+  # against a production build and a real Postgres.
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: opentradesos
+          POSTGRES_PASSWORD: opentradesos
+          POSTGRES_DB: opentradesos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://opentradesos:opentradesos@localhost:5432/opentradesos
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      # The same role the database job creates, for the same reason.
+      - name: Create the application role
+        run: psql "$DATABASE_URL" -c "create role authenticated;"
+
+      - name: Build
+        run: pnpm --filter @opentradesos/web build
+
+      # The browser build this version of Playwright expects, and the system
+      # libraries it needs. Here and nowhere else: a contributor's machine
+      # uses whatever chromium it already has (see playwright.config.ts).
+      - name: Install chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Migrates and seeds, then starts the production server itself.
+      - name: Browser suite
+        run: pnpm e2e
+
+      - name: Keep the traces of a failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 14
+
   unit:
     runs-on: ubuntu-latest
     steps:

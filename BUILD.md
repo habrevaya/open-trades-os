@@ -72,6 +72,7 @@ once each.
 | Money: exact decimals, allocation that reconciles | Done |
 | Docker Compose: Postgres, Redis, MinIO | Done |
 | CI: lint, typecheck, test, RLS suite | Done |
+| CI: a browser driving real form submits against a production build | Done |
 | Generated migrations from the schema | Done |
 | Seed data and a first trade pack | Done |
 | `packages/api`: contracts, OpenAPI, service layer | Done |

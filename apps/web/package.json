@@ -8,24 +8,26 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint src",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e",
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@opentradesos/api": "workspace:*",
     "@opentradesos/core": "workspace:*",
     "@opentradesos/db": "workspace:*",
+    "@opentradesos/field-client": "workspace:*",
+    "@opentradesos/trade-packs": "workspace:*",
     "@opentradesos/ui": "workspace:*",
+    "drizzle-orm": "^0.36.4",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zod": "^3.24.1",
-    "drizzle-orm": "^0.36.4",
     "server-only": "^0.0.1",
-    "@opentradesos/trade-packs": "workspace:*",
-    "@opentradesos/field-client": "workspace:*"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/node": "^22.10.1",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
