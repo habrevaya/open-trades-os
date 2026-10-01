@@ -71,7 +71,20 @@ export function Documents({ rows, controls }: { rows: DocumentRow[]; controls?: 
   );
 }
 
-export function Filings({ rows, controls }: { rows: SubmissionRow[]; controls?: (row: SubmissionRow) => ReactNode }) {
+/**
+ * A filing by what it is called, not by its catalogue key.
+ *
+ * The form that opens one offers "Refrigerant addition and recovery record",
+ * and the row it produced read "epa.608.refrigerant_record": somebody who had
+ * just picked the name could not find it in the list. `labels` is the same
+ * catalogue the form reads; a kind it does not name keeps its key, which is
+ * still better than nothing.
+ */
+export function Filings({ rows, controls, labels = {} }: {
+  rows: SubmissionRow[];
+  controls?: (row: SubmissionRow) => ReactNode;
+  labels?: Record<string, string>;
+}) {
   if (rows.length === 0) return <p className="mt-2 text-sm text-ink-500">Nothing owed.</p>;
   return (
     <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
@@ -79,7 +92,7 @@ export function Filings({ rows, controls }: { rows: SubmissionRow[]; controls?: 
         <li key={s.id} className="bg-canvas p-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex-1">
-              <span className="font-medium">{s.kind}</span>
+              <span className="font-medium">{labels[s.kind] ?? s.kind}</span>
               <span className="text-ink-500"> · {s.authorityName}{s.periodStart ? ` · ${s.periodStart} to ${s.periodEnd ?? "?"}` : ""}</span>
             </span>
             {s.dueOn && <span className={s.overdue ? "text-red-600" : "text-ink-700"}>Due {s.dueOn}</span>}

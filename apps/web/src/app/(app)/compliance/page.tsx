@@ -103,6 +103,7 @@ export default async function CompliancePage() {
           <h2 className="mt-8 text-base font-semibold">Filings</h2>
           <Filings
             rows={submissions.submissions}
+            labels={Object.fromEntries((declared?.submissions ?? []).map((d) => [d.kind, d.label]))}
             controls={writesFilings ? (s) => (
               <div className="flex flex-wrap gap-2">
                 {(NEXT[s.state] ?? []).map((n) => (

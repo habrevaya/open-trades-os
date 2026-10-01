@@ -42,6 +42,19 @@ describe("compliance", () => {
     expect(html).toContain("Reference CONF-123");
   });
 
+  it("names a filing the way the form that opened it did, not by its catalogue key", () => {
+    const html = renderToStaticMarkup(<Filings
+      labels={{ "epa.608.refrigerant_record": "Refrigerant addition and recovery record" }}
+      rows={[
+        { id: "s1", kind: "epa.608.refrigerant_record", authorityName: "EPA, kept on site", periodStart: null, periodEnd: null,
+          state: "due", dueOn: "2026-10-15", overdue: false, acknowledgementReference: null, rejectionReason: null,
+          statement: "Due in 14 days." },
+      ]}
+    />);
+    expect(html).toContain("Refrigerant addition and recovery record");
+    expect(html).not.toContain("epa.608.refrigerant_record");
+  });
+
   it("is in the navigation", () => {
     expect(NAV.flatMap((g) => g.items).find((i) => i.href === "/compliance")?.permission).toBe("document:read");
   });
