@@ -2,13 +2,14 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  jobs, customers, commercial, entitlements, files, NotFoundError,
+  jobs, customers, commercial, entitlements, files, profitability, NotFoundError,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Authorize, Coverage } from "./Commercial";
 import { Priority } from "./Priority";
 import { Parties } from "./Parties";
+import { Costing } from "./Costing";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
@@ -30,6 +31,15 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       if (error instanceof NotFoundError) notFound();
       throw error;
     });
+
+  /**
+   * Cost against revenue, for whoever may read both. The statement asks for
+   * the financial reports permission and job costing together; checking
+   * them here keeps the section absent rather than present and refusing.
+   */
+  const costing = can(user.actor, "report.financial:read") && can(user.actor, "job.cost:read")
+    ? await profitability.statement(ctx, { jobId: id })
+    : null;
 
   const [parties, authorization, entitlement, customer] = await Promise.all([
     commercial.parties(ctx, { jobId: id }),
@@ -215,6 +225,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             externalReference: authorization.externalReference,
           }
         : null} /> : null}
+
+      {costing && <Costing data={costing} />}
 
       <h2 className="mt-10 text-base font-semibold">Visits</h2>
       {job.visits.length === 0 ? (
