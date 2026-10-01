@@ -4,12 +4,11 @@ import { money as m, time, marketing, SYSTEM_USER_ID } from "@opentradesos/core"
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
-  type RequestMeta,
+  audit, type RequestMeta,
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, OrganizationSuspendedError,
 } from "./context";
 import { emit } from "./events";
-import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 import * as marketingService from "./marketing";
 import type {

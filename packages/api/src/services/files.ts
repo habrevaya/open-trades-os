@@ -3,10 +3,8 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { files as f, assertCan, isSystem, type Permission } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * FILES, AND THE QUEUE NOBODY DRAINED

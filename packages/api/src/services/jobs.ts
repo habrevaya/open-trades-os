@@ -2,14 +2,13 @@ import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, clean,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
   withProvenance,
 } from "./context";
 import { admitInstant, requireImport } from "./history";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { enforceWithin } from "./custom-fields";
-import { audit } from "./customers";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter } from "./scope";

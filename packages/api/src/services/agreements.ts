@@ -2,9 +2,8 @@ import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { ledger, money as m, time, recurrence } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 import { writePosting } from "./ledger";
 import { emit } from "./events";

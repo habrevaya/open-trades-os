@@ -1,10 +1,8 @@
 import { and, asc, eq, inArray, isNull, lte, notInArray, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * DEADLINES, AND THE ONE THAT NOBODY COULD SEE

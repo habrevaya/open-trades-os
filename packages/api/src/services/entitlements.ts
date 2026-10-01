@@ -2,9 +2,8 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { coverage, money as m } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * WHO IS PAYING FOR THIS, AND WHY

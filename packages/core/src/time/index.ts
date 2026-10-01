@@ -21,6 +21,37 @@
  */
 
 /**
+ * Whether this runtime's own zone database knows this name.
+ *
+ * ONE RULE IN ONE PLACE, which it was not. `services/branding.ts` had this
+ * check written out inline to validate the company's zone, and the next
+ * caller that needed it, the per-branch zone on `location.timezone`, was
+ * about to write a second copy. Two rules about which zones exist can
+ * disagree, and the one that matters is whichever the reader happens to go
+ * through.
+ *
+ * Checked against `Intl` rather than against a regex or a list, because the
+ * set of valid zones is a property of the runtime and it changes: zones are
+ * added and renamed by political decision, and a hard-coded list is wrong
+ * the first time that happens. Every reader in this product calls `Intl`
+ * with the stored name, so the only question worth asking is whether `Intl`
+ * will accept it.
+ *
+ * The empty string needs no special case: the constructor rejects it, and an
+ * explicit clause for it would be a guard that could never be the thing that
+ * decided, which `services/branding.ts` documents having removed for exactly
+ * that reason.
+ */
+export function isZone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * How far ahead of UTC a zone is at a given instant, in milliseconds.
  *
  * Read back out of `Intl` rather than from a table, so it is correct across

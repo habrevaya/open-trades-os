@@ -2,13 +2,12 @@ import { and, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { permissionsFor, dashboard, type reporting } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { CATALOGUE } from "./report-catalogue";
 import { BUILT_IN } from "./report-built-in";
 import { BUILT_IN_DASHBOARDS, type BuiltInDashboard } from "./dashboard-built-in";
 import { run, type ReportResult } from "./reports";
-import { audit } from "./customers";
 
 export { BUILT_IN_DASHBOARDS };
 

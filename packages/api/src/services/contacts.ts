@@ -1,9 +1,8 @@
 import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * THE PEOPLE AT A PROPERTY, WHICH NOTHING COULD CREATE

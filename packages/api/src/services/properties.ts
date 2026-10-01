@@ -2,12 +2,10 @@ import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm"
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
-  decodeCursor, paginate, NotFoundError,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean, cleanAll, decodeCursor, paginate, NotFoundError,
 } from "./context";
 import { enforceWithin } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
-import { audit } from "./customers";
 import type {
   listProperties, getProperty, createProperty, linkCustomerToProperty,
 } from "../contracts/properties";

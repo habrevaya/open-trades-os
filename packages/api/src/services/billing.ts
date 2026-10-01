@@ -3,13 +3,12 @@ import { schema, type Database } from "@opentradesos/db";
 import { authorization as authz, coverage, history, ledger, money as m, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, clean,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter } from "./scope";
-import { audit } from "./customers";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
 import * as contracts from "./contracts";

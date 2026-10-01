@@ -2,10 +2,9 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { marketing as mk } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError, OrganizationSuspendedError,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, OrganizationSuspendedError,
   type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 import * as marketingService from "./marketing";
 
 /**

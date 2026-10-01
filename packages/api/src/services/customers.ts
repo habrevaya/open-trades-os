@@ -314,4 +314,19 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
 }
 
 /** Defined in `context.ts`, beside the guard every caller of it is already inside. */
-export { audit };
+/**
+ * `audit` IS NO LONGER RE-EXPORTED FROM HERE.
+ *
+ * It lives in `./context` and always has. This file re-exported it, and
+ * thirty six services imported it from here rather than from where it is
+ * defined, which meant every one of them pulled the whole customer service
+ * and everything it imports into its own module graph to get one function.
+ *
+ * That is not only waste. It is the import cycle this codebase has tripped
+ * over before: a service that `customers.ts` itself needs, importing
+ * `audit` from `customers.ts`, is a cycle whose symptom is an undefined
+ * function at module-evaluation time rather than a compile error.
+ *
+ * Nothing imports it from here now. The line is a comment rather than a
+ * deletion so the next person who looks for it is told where it went.
+ */

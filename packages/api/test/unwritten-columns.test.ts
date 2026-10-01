@@ -70,7 +70,34 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
  * which of these get a delete is product work; letting the number drift
  * without anybody noticing is not.
  */
-const SOFT_DELETE_NOT_OFFERED = 24;
+/**
+ * THE TABLES THAT FILTER `deleted_at` AND HAVE NO WRITER FOR IT.
+ *
+ * A LIST RATHER THAN A COUNT, and the reason is a defect this guard nearly
+ * let through. It was `= 24`, and a change that gave `reorder_policy` its
+ * first soft-delete writer (-1) while adding a decorative `deleted_at`
+ * filter to `territory` (+1) left the number at 24 and the suite green. One
+ * table was fixed, another acquired the exact fault this test exists to
+ * count, and the total said nothing had happened.
+ *
+ * A count can only see the size of a set. What this test is actually about is
+ * WHICH tables are in that state, so that is what it asserts. The failure
+ * message then names the table rather than a pair of integers, which is the
+ * difference between a fix and an afternoon.
+ *
+ * Every name here is a query whose `deleted_at` clause can never be the thing
+ * that decided: nothing writes the column, so the filter reads as protection
+ * that is not there. The list is meant to shrink, by writing the column where
+ * soft delete is genuinely offered or by dropping the clause where it is not,
+ * and a test below fails in both directions.
+ */
+const SOFT_DELETE_NOT_OFFERED = [
+  "adSpend", "attachment", "bookableService", "conversation", "customerProperty",
+  "integrationConnection", "invoice", "job", "overtimePolicy", "priceBookItem",
+  "property", "purchaseOrder", "rateCard", "recurringSchedule", "review",
+  "reviewPlatform", "reviewPolicy", "reviewRequest", "serviceContract",
+  "storedFile", "vendor", "wageScale", "webForm",
+];
 
 
 /**
@@ -381,12 +408,18 @@ describe("columns a query depends on", () => {
     expect(report).toEqual([]);
   });
 
-  it("counts the tables with a delete filter and no delete", () => {
+  it("names the tables with a delete filter and no delete", () => {
     const tables = new Set(
       depended.filter((d) => d.column === "deletedAt" && !written.has(`${d.table}.deletedAt`))
         .map((d) => d.table),
     );
-    expect([...tables].sort().length).toBe(SOFT_DELETE_NOT_OFFERED);
+    /**
+     * Both directions in one assertion, which is what naming them buys. A
+     * table that appears is a new decorative filter; a table that disappears
+     * is one somebody fixed and did not remove from the list, and leaving it
+     * there would let the next decorative filter hide inside the slack.
+     */
+    expect([...tables].sort()).toEqual([...SOFT_DELETE_NOT_OFFERED].sort());
   });
 
   it("does not let a known gap quietly heal or spread", () => {

@@ -76,3 +76,5 @@ export * as people from "./people";
 export * as projects from "./projects";
 export * as calendar from "./calendar";
 export * as callTracking from "./call-tracking";
+export * as company from "./company";
+export * as timeOff from "./time-off";

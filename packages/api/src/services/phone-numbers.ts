@@ -2,9 +2,8 @@ import { and, asc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { marketing as mk } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * THE NUMBERS A COMPANY CONTROLS

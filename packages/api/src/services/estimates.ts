@@ -4,13 +4,12 @@ import { estimate as est, money as m, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, clean,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf,
 } from "./context";
 import { admitDate } from "./history";
 import { estimateScopeFilter } from "./scope";
-import { audit } from "./customers";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import type {

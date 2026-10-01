@@ -10,7 +10,7 @@ import {
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
-  people, projects, calendar, callTracking,
+  people, projects, calendar, callTracking, company, timeOff,
 } from "../services/index";
 
 /**
@@ -453,6 +453,24 @@ export const handlers = {
   getCallTrackingConnection: callTracking.handlers.getCallTrackingConnection,
   checkCallTracking: callTracking.handlers.checkCallTracking,
   backfillCallTracking: callTracking.handlers.backfillCallTracking,
+  listBusinessUnits: company.handlers.listBusinessUnits,
+  createBusinessUnit: company.handlers.createBusinessUnit,
+  updateBusinessUnit: company.handlers.updateBusinessUnit,
+  listLocations: company.handlers.listLocations,
+  createLocation: company.handlers.createLocation,
+  updateLocation: company.handlers.updateLocation,
+  listTerritories: company.handlers.listTerritories,
+  createTerritory: company.handlers.createTerritory,
+  updateTerritory: company.handlers.updateTerritory,
+  requestTimeOff: timeOff.handlers.requestTimeOff,
+  listTimeOff: timeOff.handlers.listTimeOff,
+  pendingTimeOff: timeOff.handlers.pendingTimeOff,
+  approveTimeOff: timeOff.handlers.approveTimeOff,
+  declineTimeOff: timeOff.handlers.declineTimeOff,
+  withdrawTimeOff: timeOff.handlers.withdrawTimeOff,
+  listReorderPolicies: inventory.handlers.listReorderPolicies,
+  setReorderPolicy: inventory.handlers.setReorderPolicy,
+  clearReorderPolicy: inventory.handlers.clearReorderPolicy,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

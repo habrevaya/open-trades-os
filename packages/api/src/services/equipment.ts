@@ -2,9 +2,8 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * THE EQUIPMENT AT AN ADDRESS

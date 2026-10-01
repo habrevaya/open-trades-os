@@ -1,10 +1,8 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  guardedRead, guardedWrite, decodeCursor, paginate,
-  NotFoundError, ConflictError, type ServiceContext,
+  audit, guardedRead, guardedWrite, decodeCursor, paginate, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * TASKS
