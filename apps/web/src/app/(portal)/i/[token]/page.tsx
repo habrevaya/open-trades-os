@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { invoiceDelivery } from "@opentradesos/api/services";
 import { PortalBrand } from "../../PortalBrand";
-import { PayNow } from "./PayNow";
+import { PayNow } from "../../PayNow";
+import { startPayment } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,7 @@ export default async function InvoicePage({
       {invoice.payable && returned !== "succeeded" && returned !== "processing" && (
         invoice.onlinePaymentAvailable ? (
           <PayNow
-            token={token}
+            start={startPayment.bind(null, token)}
             balance={money(invoice.balance, invoice.currency)}
           />
         ) : (

@@ -59616,7 +59616,8 @@
               "job",
               "invoice",
               "customer",
-              "booking"
+              "booking",
+              "deposit"
             ]
           },
           "subjectId": {
@@ -59657,7 +59658,8 @@
                   "job",
                   "invoice",
                   "customer",
-                  "booking"
+                  "booking",
+                  "deposit"
                 ]
               },
               "subjectId": {
@@ -68375,7 +68377,8 @@
               "job",
               "invoice",
               "customer",
-              "booking"
+              "booking",
+              "deposit"
             ]
           },
           "expiresAt": {

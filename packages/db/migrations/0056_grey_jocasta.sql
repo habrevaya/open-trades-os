@@ -1,0 +1,1 @@
+ALTER TYPE "public"."portal_grant_scope" ADD VALUE 'deposit';

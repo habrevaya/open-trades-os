@@ -75,7 +75,10 @@ export function ApproveForm({ token, estimate }: { token: string; estimate: Esti
     if (!result.ok) {
       setError(result.message);
       setBusy(false);
+      return;
     }
+    // A deposit is due: take the customer straight to the page that takes it.
+    if (result.paymentUrl) window.location.assign(result.paymentUrl);
   }
 
   return (

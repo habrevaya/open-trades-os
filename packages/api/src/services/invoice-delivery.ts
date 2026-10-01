@@ -1241,7 +1241,7 @@ export async function viewInvoice(db: Database, input: { token: string }): Promi
 }
 
 /** Whether a pay button would lead anywhere. One indexed read. */
-async function processorConnected(tx: Database): Promise<boolean> {
+export async function processorConnected(tx: Database): Promise<boolean> {
   const [row] = await tx.select({ id: schema.integrationConnection.id })
     .from(schema.integrationConnection)
     .where(and(
@@ -1278,7 +1278,7 @@ async function processorConnected(tx: Database): Promise<boolean> {
  * `portalGrantId` is set, so the audit line names the grant rather than
  * attributing a payment attempt to a user who was asleep.
  */
-function payerContext(db: Database, grant: ResolvedGrant): ServiceContext {
+export function payerContext(db: Database, grant: ResolvedGrant): ServiceContext {
   const actor = {
     userId: `portal:${grant.grantId}`,
     organizationId: grant.organizationId,

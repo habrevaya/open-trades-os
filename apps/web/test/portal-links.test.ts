@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -27,23 +27,39 @@ function portalPaths(): Record<string, string> {
 }
 
 /**
- * Scopes that can be minted but are not sent to anybody by the product.
- * A customer-wide grant exists in the API for integrators building their
- * own portal; nothing in this product emails one. Listed by name so adding
- * a scope here is a decision somebody wrote down.
+ * Every link the API builds by hand rather than through `mintGrant`, read
+ * off the source: `${PORTAL_BASE}/x/...` in any service. The deposit link
+ * was one of these, `/pay/{deposit id}`, and the map above never saw it.
  */
-const NO_PAGE_YET = new Set(["customer"]);
+function handBuiltPaths(): string[] {
+  const dir = join(import.meta.dirname, "../../../packages/api/src/services");
+  const found = new Set<string>();
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+    const source = readFileSync(join(dir, file), "utf8");
+    for (const m of source.matchAll(/\$\{PORTAL_BASE\}\/([a-z]+)\//g)) found.add(`${file}: /${m[1]}/`);
+  }
+  return [...found];
+}
 
 describe("portal links", () => {
   it("finds the map at all", () => {
     expect(portalPaths()).toMatchObject({ estimate: "e", invoice: "i" });
   });
 
-  it("have a page for every scope the product sends", () => {
+  it("have a page for every scope, with no exceptions", () => {
     const missing = Object.entries(portalPaths())
-      .filter(([scope]) => !NO_PAGE_YET.has(scope))
       .filter(([, path]) => !existsSync(join(PORTAL_APP, path, "[token]", "page.tsx")))
       .map(([scope, path]) => `${scope} -> /${path}/{token}`);
+    expect(missing).toEqual([]);
+  });
+
+  it("have a page for every link a service builds by hand, too", () => {
+    const paths = handBuiltPaths();
+    expect(paths.length).toBeGreaterThan(0);
+    const missing = paths.filter((entry) => {
+      const segment = entry.split("/")[1]!;
+      return !existsSync(join(PORTAL_APP, segment, "[token]", "page.tsx"));
+    });
     expect(missing).toEqual([]);
   });
 });

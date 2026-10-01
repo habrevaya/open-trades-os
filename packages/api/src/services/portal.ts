@@ -40,7 +40,7 @@ export interface ResolvedGrant {
   grantId: string;
   organizationId: string;
   customerId: string | null;
-  scope: "estimate" | "job" | "invoice" | "customer" | "booking";
+  scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit";
   subjectId: string | null;
   usesRemaining: number | null;
 }
@@ -587,7 +587,7 @@ const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
  * pay opened a 404.
  */
 export const PORTAL_PATHS = {
-  estimate: "e", job: "j", invoice: "i", customer: "c", booking: "b",
+  estimate: "e", job: "j", invoice: "i", customer: "c", booking: "b", deposit: "pay",
 } as const satisfies Record<ResolvedGrant["scope"], string>;
 
 const pathFor = (scope: ResolvedGrant["scope"]) => PORTAL_PATHS[scope];
@@ -687,6 +687,7 @@ async function depositFor(
 ): Promise<{ due: string | null; url: string | null }> {
   const [existing] = await tx.select({
     id: schema.deposit.id,
+    customerId: schema.deposit.customerId,
     amountRequested: schema.deposit.amountRequested,
     amountReceived: schema.deposit.amountReceived,
   }).from(schema.deposit)
@@ -703,7 +704,23 @@ async function depositFor(
   );
   if (!m.isPositive(outstanding)) return { due: null, url: null };
 
-  return { due: m.toString(outstanding), url: `${PORTAL_BASE}/pay/${existing.id}` };
+  /**
+   * A link of its own, minted like every other one: a 256 bit token whose
+   * hash is all that is stored, scoped to this deposit and nothing else.
+   *
+   * It used to be `/pay/{deposit id}`, which had no page behind it and would
+   * have been the wrong shape if it had: an id is not a capability, it turns
+   * up in exports and logs, and the approval link that produced it is single
+   * use and already spent by the time the customer wants to pay.
+   */
+  const { url } = await mintGrant(tx, {
+    organizationId: grant.organizationId,
+    customerId: existing.customerId,
+    scope: "deposit",
+    subjectId: existing.id,
+    expiresInDays: 30,
+  });
+  return { due: m.toString(outstanding), url };
 }
 
 

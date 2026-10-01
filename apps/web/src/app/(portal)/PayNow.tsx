@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { startPayment } from "./actions";
+import type { StartPayment } from "./start-payment";
 
 /**
  * The slice of Stripe.js this page uses. Typed here rather than pulled in as
@@ -46,7 +46,13 @@ function loadStripe(): Promise<NonNullable<Window["Stripe"]>> {
  * this page, and the balance changes when the processor's signed webhook
  * says the money moved.
  */
-export function PayNow({ token, balance }: { token: string; balance: string }) {
+export function PayNow({ start, balance, label }: {
+  /** A server action bound to the link's token, and to the invoice when the link reaches several. */
+  start: () => Promise<StartPayment>;
+  balance: string;
+  /** What is being paid, when the page lists more than one thing. */
+  label?: string;
+}) {
   const [state, setState] = useState<"idle" | "loading" | "ready" | "paying">("idle");
   const [error, setError] = useState<string | null>(null);
   const mountRef = useRef<HTMLDivElement>(null);
@@ -58,7 +64,7 @@ export function PayNow({ token, balance }: { token: string; balance: string }) {
   async function open() {
     setState("loading");
     setError(null);
-    const started = await startPayment(token);
+    const started = await start();
     if (!started.ok) {
       setError(started.message);
       setState("idle");
@@ -111,7 +117,7 @@ export function PayNow({ token, balance }: { token: string; balance: string }) {
           style={button}
           className="h-12 w-full rounded text-base font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
         >
-          {state === "loading" ? "Opening…" : `Pay ${balance} now`}
+          {state === "loading" ? "Opening…" : `Pay ${balance}${label ? ` for ${label}` : ""} now`}
         </button>
       ) : (
         <>

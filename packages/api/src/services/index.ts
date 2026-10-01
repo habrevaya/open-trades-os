@@ -6,6 +6,7 @@ export * as billing from "./billing";
 export * as branding from "./branding";
 export * as estimates from "./estimates";
 export * as portal from "./portal";
+export * as portalAccount from "./portal-account";
 export * as deposits from "./deposits";
 export * as fieldOps from "./field";
 export * as dispatch from "./dispatch";

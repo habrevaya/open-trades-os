@@ -329,7 +329,7 @@ export async function createRequest(
            */
           trackingUrl: await issueTrackingUrl(tx, org.id, prior.id),
           depositDue: priorDeposit,
-          paymentUrl: priorDeposit ? `${PORTAL_BASE}/pay/booking/${prior.id}` : null,
+          paymentUrl: null,
         };
       }
     }
@@ -461,7 +461,16 @@ export async function createRequest(
       // when a customer most wants to see that something happened.
       trackingUrl: await issueTrackingUrl(tx, org.id, row!.id),
       depositDue: deposit,
-      paymentUrl: deposit ? `${PORTAL_BASE}/pay/booking/${row!.id}` : null,
+      /**
+       * No link, rather than a link to nothing. This used to be
+       * `/pay/booking/{request id}`, which had no page behind it and was an
+       * id rather than a capability. A booking request has no customer yet,
+       * so there is nobody for a deposit to be held for: the deposit is
+       * requested once the office confirms the booking into a customer, and
+       * a `deposit` link issued for it (`POST /v1/portal/grants`) opens
+       * `/pay/{token}`.
+       */
+      paymentUrl: null,
     };
   });
 }

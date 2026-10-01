@@ -6,6 +6,7 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
+import * as deposits from "./deposits";
 import { assertPeriodOpen } from "./history";
 import {
   createPaymentProvider, PaymentProviderNotConfiguredError,
@@ -203,6 +204,13 @@ export interface IntentInput {
   invoiceIds?: string[] | undefined;
   description?: string | undefined;
   receiptEmail?: string | undefined;
+  /**
+   * A deposit this pays, instead of invoices. The amount is what the deposit
+   * still has outstanding, read here like an invoice balance, and the money
+   * lands on the deposit through `deposits.record` when the processor's
+   * webhook says it arrived: a liability, not a sale.
+   */
+  depositId?: string | undefined;
 }
 
 /**
@@ -237,7 +245,25 @@ export async function intent(
     let amount: string;
     const allocations: { invoiceId: string; amount: string }[] = [];
 
-    if (input.invoiceIds && input.invoiceIds.length > 0) {
+    if (input.depositId) {
+      if (input.invoiceIds && input.invoiceIds.length > 0) {
+        throw new ConflictError("A payment is for a deposit or for invoices, not both.");
+      }
+      const [deposit] = await tx.select().from(schema.deposit)
+        .where(and(
+          eq(schema.deposit.id, input.depositId),
+          eq(schema.deposit.customerId, input.customerId),
+        )).limit(1);
+      if (!deposit) throw new NotFoundError("Deposit");
+      if (deposit.status !== "requested" && deposit.status !== "held") {
+        throw new ConflictError(`This deposit is ${deposit.status} and cannot take a payment.`);
+      }
+      const outstanding = m.subtract(usd(deposit.amountRequested), usd(deposit.amountReceived));
+      if (!m.isPositive(outstanding)) {
+        throw new ConflictError("This deposit has been paid. There is nothing outstanding on it.");
+      }
+      amount = m.toString(outstanding);
+    } else if (input.invoiceIds && input.invoiceIds.length > 0) {
       const invoices = await tx.select({
         id: schema.invoice.id, balance: schema.invoice.balance, status: schema.invoice.status,
       }).from(schema.invoice)
@@ -293,7 +319,10 @@ export async function intent(
       status: "pending",
       entityType: "customer",
       entityId: input.customerId,
-      requestPayload: { amount, allocations, connectionId: connection.id },
+      requestPayload: {
+        amount, allocations, connectionId: connection.id,
+        ...(input.depositId ? { depositId: input.depositId } : {}),
+      },
     }).returning();
 
     const provider = await providerFrom(connection, deps);
@@ -362,7 +391,7 @@ function webhookActor(organizationId: string): Actor {
     userId: SYSTEM_USER_ID,
     organizationId,
     roles: [],
-    grants: ["payment:collect", "payment:refund"],
+    grants: ["payment:collect", "payment:refund", "deposit:collect"],
     agentId: "payments",
   };
 }
@@ -450,9 +479,11 @@ export async function receive(
 
   if (event.kind === "succeeded") {
     const settled = await settle(ctx, connection, event);
-    await record("succeeded", settled.paymentId);
+    await record("succeeded", settled.paymentId ?? null);
     return {
-      handled: true, kind: event.kind, eventId: event.eventId, paymentId: settled.paymentId,
+      handled: true, kind: event.kind, eventId: event.eventId,
+      ...(settled.paymentId ? { paymentId: settled.paymentId } : {}),
+      ...(settled.depositId ? { note: `deposit ${settled.depositId}` } : {}),
     };
   }
 
@@ -522,9 +553,48 @@ export async function receive(
  * here would be a second settlement path that drifts from the first, and the
  * first is the one with the tests.
  */
+/**
+ * Money for a deposit, through the path a deposit taken by hand uses.
+ *
+ * `deposits.record` posts cash against the deposit liability and nothing to
+ * revenue, which is the whole difference between a deposit and a payment.
+ *
+ * The attempt is claimed first with a conditional update, because unlike
+ * `billing.pay` the deposit path has no idempotency key of its own: two
+ * deliveries of one event racing past the duplicate check above would
+ * otherwise record the deposit twice. If recording fails the claim is
+ * released, so the processor's retry can try again.
+ */
+async function settleDeposit(
+  ctx: ServiceContext, attemptId: string, depositId: string, amount: string, event: PaymentEvent,
+): Promise<string> {
+  const claimed = await inTenant(ctx, async (tx) => tx.update(schema.integrationEvent).set({
+    status: "succeeded", entityType: "deposit", entityId: depositId,
+    completedAt: new Date(), updatedAt: new Date(),
+  }).where(and(
+    eq(schema.integrationEvent.id, attemptId),
+    sql`${schema.integrationEvent.status} <> 'succeeded'`,
+  )).returning({ id: schema.integrationEvent.id }));
+  if (claimed.length === 0) return depositId;
+
+  try {
+    await deposits.record(ctx, {
+      depositId,
+      amount,
+      ...(event.feeMinor !== null ? { processingFee: fromMinor(event.feeMinor) } : {}),
+    });
+  } catch (error) {
+    await inTenant(ctx, async (tx) => tx.update(schema.integrationEvent)
+      .set({ status: "pending", completedAt: null, updatedAt: new Date() })
+      .where(eq(schema.integrationEvent.id, attemptId)));
+    throw error;
+  }
+  return depositId;
+}
+
 async function settle(
   ctx: ServiceContext, connection: Connection, event: PaymentEvent,
-): Promise<{ paymentId: string }> {
+): Promise<{ paymentId?: string; depositId?: string }> {
   const attempt = await inTenant(ctx, async (tx) => {
     const byMetadata = event.metadata[METADATA_ATTEMPT];
     if (byMetadata) {
@@ -548,7 +618,7 @@ async function settle(
   });
 
   const request = (attempt?.requestPayload ?? {}) as {
-    amount?: string; allocations?: { invoiceId: string; amount: string }[];
+    amount?: string; allocations?: { invoiceId: string; amount: string }[]; depositId?: string;
   };
 
   /**
@@ -581,6 +651,10 @@ async function settle(
       `Nothing here started the payment ${event.intentId ?? "(no intent)"}, so there is `
       + "no customer to credit it to. It has been logged rather than guessed at.",
     );
+  }
+
+  if (request.depositId && attempt) {
+    return { depositId: await settleDeposit(ctx, attempt.id, request.depositId, amount, event) };
   }
 
   /**
