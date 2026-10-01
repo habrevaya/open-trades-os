@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps,
+  apps, comms, consent,
 } from "../services/index";
 
 /**
@@ -311,6 +311,14 @@ export const handlers = {
   closeAccountingPeriod: accounting.handlers.closeAccountingPeriod,
   reopenAccountingPeriod: accounting.handlers.reopenAccountingPeriod,
 
+  listConversations: comms.handlers.listConversations,
+  getConversation: comms.handlers.getConversation,
+  markConversationRead: comms.handlers.markConversationRead,
+  replyToConversation: comms.handlers.replyToConversation,
+  startConversation: comms.handlers.startConversation,
+  getConsent: consent.handlers.getConsent,
+  grantConsent: consent.handlers.grantConsent,
+  revokeConsent: consent.handlers.revokeConsent,
   defineMessageTemplate: messageTemplates.handlers.defineMessageTemplate,
   listMessageTemplates: messageTemplates.handlers.listMessageTemplates,
   updateMessageTemplate: messageTemplates.handlers.updateMessageTemplate,

@@ -24,6 +24,7 @@ import { paymentRoutes } from "./payments";
 import { emailRoutes } from "./email";
 import { accountingRoutes } from "./accounting";
 import { messagingRoutes } from "./messaging";
+import { conversationRoutes } from "./conversations";
 import { leadConnectorRoutes } from "./lead-connectors";
 import { invoiceDeliveryRoutes } from "./invoice-delivery";
 import { profitabilityRoutes } from "./profitability";
@@ -67,6 +68,7 @@ export * from "./payments";
 export * from "./email";
 export * from "./accounting";
 export * from "./messaging";
+export * from "./conversations";
 export * from "./lead-connectors";
 export * from "./invoice-delivery";
 export * from "./profitability";
@@ -128,6 +130,7 @@ export const routes = {
   ...emailRoutes,
   ...accountingRoutes,
   ...messagingRoutes,
+  ...conversationRoutes,
   ...leadConnectorRoutes,
   ...invoiceDeliveryRoutes,
   ...profitabilityRoutes,

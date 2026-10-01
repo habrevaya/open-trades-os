@@ -286,3 +286,64 @@ run("replying by hand", () => {
       .rejects.toThrow(/message:send/);
   });
 });
+
+run("starting a conversation, and the inbox over the API", () => {
+  /**
+   * The inbox could answer a customer and never start with one, and none of
+   * it was in the API, so an integration or an agent could not read a reply
+   * at all. Both now go through the same consent decision as every send.
+   */
+  const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+    const { dispatch } = await import("../src/http/dispatch");
+    const response = await dispatch(new Request(`http://localhost${path}`, {
+      method,
+      headers: { "content-type": "application/json", ...headers },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }), { db: db(), resolveSession: async () => owner() });
+    return { status: response.status, body: await response.json() as Record<string, unknown> };
+  };
+
+  it("texts a customer first, threads it under them, and sends a retry once", async () => {
+    const first = await call("POST", "/v1/conversations",
+      { customerId, body: "Your part came in. Thursday?" }, { "idempotency-key": "start-1" });
+    expect(first.status).toBeLessThan(300);
+    const again = await call("POST", "/v1/conversations",
+      { customerId, body: "Your part came in. Thursday?" }, { "idempotency-key": "start-1" });
+    expect(again.body["messageId"]).toBe(first.body["messageId"]);
+
+    const [n] = await raw<{ n: number }[]>`
+      select count(*)::int as n from public.message where organization_id = ${ORG} and direction = 'outbound'`;
+    expect(n!.n).toBe(1);
+
+    const listed = await call("GET", `/v1/conversations?customerId=${customerId}`);
+    const data = listed.body["data"] as { id: string; customerName: string }[];
+    expect(data.map((t) => t.id)).toEqual([first.body["conversationId"]]);
+    expect(data[0]!.customerName).toBe("Ida Inbox");
+  });
+
+  it("says in words why a reply would be refused", async () => {
+    await store(db(), ORG, inbound("STOP"));
+    const [thread] = (await inbox.threads(owner(), { customerId })).data;
+    const got = await call("GET", `/v1/conversations/${thread!.id}`);
+    expect(got.body["canReply"]).toBe(false);
+    expect(got.body["blockedReason"]).toBe("suppressed");
+    expect(got.body["blockedExplanation"]).toMatch(/replied STOP/);
+
+    const refused = await call("POST", "/v1/conversations", { customerId, body: "Hello?" },
+      { "idempotency-key": "start-2" });
+    expect(refused.status).toBe(409);
+  });
+
+  it("records and reads consent over the API", async () => {
+    const granted = await call("POST", "/v1/consent", {
+      address: THEIRS, channel: "sms", purpose: "marketing", method: "verbal",
+      proofText: "Yes, text me about tune-up offers",
+    }, { "idempotency-key": "consent-1" });
+    expect(granted.status).toBeLessThan(300);
+    const read = await call("GET", `/v1/consent?address=${encodeURIComponent(THEIRS)}`);
+    const history = read.body["history"] as { purpose: string; state: string; current: boolean }[];
+    expect(history.filter((h) => h.current)).toEqual([
+      expect.objectContaining({ purpose: "marketing", state: "granted" }),
+    ]);
+  });
+});

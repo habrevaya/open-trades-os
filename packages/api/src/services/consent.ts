@@ -225,3 +225,32 @@ export async function marketable(ctx: ServiceContext, input: { address: string }
     });
   });
 }
+
+/* --------------------------------------------------------------- handlers */
+
+const shapeRow = (row: typeof schema.communicationConsent.$inferSelect) => ({
+  id: row.id,
+  channel: row.channel,
+  purpose: row.purpose,
+  state: row.state,
+  method: row.method,
+  proofText: row.proofText,
+  proofReference: row.proofReference,
+  capturedAt: row.capturedAt.toISOString(),
+  supersededAt: row.supersededAt?.toISOString() ?? null,
+  current: row.supersededAt === null,
+});
+
+export const handlers = {
+  getConsent: async (ctx: ServiceContext, input: { address: string }) => {
+    const decision = await marketable(ctx, input);
+    return {
+      history: await history(ctx, input),
+      marketing: decision.allowed
+        ? { allowed: true as const, reason: null }
+        : { allowed: false as const, reason: decision.reason },
+    };
+  },
+  grantConsent: async (ctx: ServiceContext, input: ConsentInput) => shapeRow(await grant(ctx, input)),
+  revokeConsent: async (ctx: ServiceContext, input: ConsentInput) => shapeRow(await revoke(ctx, input)),
+} as const;

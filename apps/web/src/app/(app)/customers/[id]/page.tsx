@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, NotFoundError } from "@opentradesos/api/services";
+import { customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, label } from "@/lib/labels";
@@ -11,6 +11,8 @@ import { Money } from "@opentradesos/ui";
 import { Consent } from "./Consent";
 import { Contacts } from "./Contacts";
 import { Lifecycle } from "./Lifecycle";
+import { TextCustomer } from "./Messages";
+import { ThreadList } from "../../inbox/ThreadList";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +68,14 @@ export default async function CustomerPage({
   const mergeable = can(user.actor, "customer:merge")
     ? (await customers.list(ctx, { limit: 50, includeInactive: false })).data.filter((row) => row.id !== id)
     : [];
+
+  /**
+   * Everything said to and from them, here rather than only in the inbox,
+   * which is the first place somebody looks when the customer rings.
+   */
+  const conversations = can(user.actor, "message:read")
+    ? (await comms.threads(ctx, { limit: 5, customerId: id })).data
+    : null;
 
   const people = await contactService.list(ctx, { customerId: id });
   const addresses = can(user.actor, "property:read")
@@ -171,6 +181,27 @@ export default async function CustomerPage({
           hasRecord={consentRows.some((row) => row.current && row.purpose === "marketing")}
         />
       ) : null}
+
+      {conversations && (
+        <div className="mt-10">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Messages</h2>
+            {conversations.length > 0 && (
+              <a href={`/inbox?customer=${id}`} className="text-sm text-ink-700 underline underline-offset-4">All of them</a>
+            )}
+          </div>
+          {conversations.length > 0 ? (
+            <div className="mt-3"><ThreadList threads={conversations} timezone={user.organizationTimezone} /></div>
+          ) : (
+            <p className="mt-2 text-sm text-ink-500">No texts with them yet.</p>
+          )}
+          {can(user.actor, "message:send") && (
+            customer.phone
+              ? <TextCustomer customerId={id} />
+              : <p className="mt-2 text-sm text-ink-500">Add a phone number to text them.</p>
+          )}
+        </div>
+      )}
 
       <h2 className="mt-10 text-base font-semibold">Work</h2>
       {work.data.length === 0 ? (

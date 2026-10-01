@@ -1,5 +1,5 @@
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
-import { schema } from "@opentradesos/db";
+import { schema, type Database } from "@opentradesos/db";
 /**
  * Never used by name. `thread` returns a type from core's comms module, and
  * without an import of it here the compiler cannot write that type down
@@ -11,8 +11,8 @@ import {
   guardedRead, guardedWrite, clean, decodeCursor, paginate, scopeOf,
   NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
-import { conversationScopeFilter } from "./scope";
-import { sendability, refusal } from "./comms-send";
+import { conversationScopeFilter, customerScopeFilter } from "./scope";
+import { sendability, sendTransactional, refusal } from "./comms-send";
 
 /**
  * THE INBOX
@@ -45,7 +45,11 @@ export interface ThreadSummary {
 
 export async function threads(
   ctx: ServiceContext,
-  input: { limit?: number; cursor?: string; status?: "open" | "closed" } = {},
+  input: {
+    limit?: number; cursor?: string; status?: "open" | "closed";
+    /** One customer's threads, for their page and for "everything we have said to them". */
+    customerId?: string;
+  } = {},
 ) {
   const limit = input.limit ?? 50;
   return guardedRead(ctx, "message:read", async (tx) => {
@@ -66,6 +70,7 @@ export async function threads(
          */
         conversationScopeFilter(scopeOf(ctx, "conversation"), ctx.actor),
         input.status ? eq(schema.conversation.status, input.status) : undefined,
+        input.customerId ? eq(schema.conversation.customerId, input.customerId) : undefined,
         cursor ? lt(schema.conversation.lastMessageAt, new Date(cursor)) : undefined,
       ))
       /**
@@ -169,7 +174,13 @@ export async function thread(ctx: ServiceContext, input: { id: string }) {
       customer: customer ? clean(ctx, "customer", customer) : null,
       messages: messages.map((m) => clean(ctx, "message", m)),
       canReply: decision.allowed,
-      ...(decision.allowed ? {} : { blockedReason: decision.reason }),
+      /**
+       * The reason in words, from the one function that has a sentence for
+       * every refusal. The screen used to keep its own map, keyed on two
+       * names `canSend` has never returned, so a customer who withdrew
+       * consent showed the generic line.
+       */
+      ...(decision.allowed ? {} : { blockedReason: decision.reason, blockedExplanation: refusal(decision.reason) }),
     };
   });
 }
@@ -226,6 +237,9 @@ export async function reply(ctx: ServiceContext, input: { id: string; body: stri
       .limit(1);
     if (!conversation) throw new NotFoundError("Conversation");
 
+    const repeat = await sentBefore(tx, ctx);
+    if (repeat) return clean(ctx, "message", repeat);
+
     const decision = await sendability(tx, conversation.organizationId, conversation.externalAddress);
     if (!decision.allowed) throw new ConflictError(refusal(decision.reason));
 
@@ -251,6 +265,148 @@ export async function reply(ctx: ServiceContext, input: { id: string; body: stri
       updatedAt: new Date(),
     }).where(eq(schema.conversation.id, conversation.id));
 
+    await rememberSend(tx, ctx, message!.id);
     return clean(ctx, "message", message!);
   });
 }
+
+/**
+ * Text a customer who has not texted first.
+ *
+ * Every conversation used to begin with the customer: the inbox could reply
+ * and nothing could start one, so the office texting a customer about a
+ * part that came in meant a personal phone. This goes through the same send
+ * a reply and an on-my-way notice do, so consent, STOP and quiet hours are
+ * decided by the same function, and it threads onto any conversation the
+ * number already has.
+ *
+ * The customer is read inside the caller's scope first. A technician who
+ * cannot see a customer cannot text them by guessing an id.
+ */
+export async function start(ctx: ServiceContext, input: { customerId: string; body: string }) {
+  if (input.body.trim() === "") throw new ConflictError("An empty message is not a message");
+
+  return guardedWrite(ctx, "message:send", async (tx) => {
+    const [customer] = await tx.select({ id: schema.customer.id, phone: schema.customer.phone })
+      .from(schema.customer)
+      .where(and(
+        eq(schema.customer.id, input.customerId),
+        isNull(schema.customer.deletedAt),
+        customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor),
+      ))
+      .limit(1);
+    if (!customer) throw new NotFoundError("Customer");
+    const repeat = await sentBefore(tx, ctx);
+    if (repeat) return { conversationId: repeat.conversationId!, messageId: repeat.id };
+    if (!customer.phone) {
+      throw new ConflictError("This customer has no phone number to text. Add one to their record first.");
+    }
+
+    const outcome = await sendTransactional(tx, {
+      organizationId: ctx.actor.organizationId,
+      address: customer.phone,
+      body: input.body,
+      customerId: customer.id,
+      sentByUserId: ctx.actor.userId,
+    });
+    if (!outcome.sent) throw new ConflictError(outcome.explanation);
+    await rememberSend(tx, ctx, outcome.messageId);
+    return { conversationId: outcome.conversationId, messageId: outcome.messageId };
+  });
+}
+
+/**
+ * A retried send is the same send.
+ *
+ * A text cannot be unsent, and a client on a truck with one bar retries.
+ * With an idempotency key the first send is recorded against it and a retry
+ * answers with that message rather than queueing a second one.
+ */
+async function sentBefore(tx: Database, ctx: ServiceContext) {
+  if (!ctx.idempotencyKey) return null;
+  const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+    .from(schema.integrationEvent)
+    .where(and(
+      eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+      eq(schema.integrationEvent.entityType, "message"),
+    )).limit(1);
+  if (!seen?.entityId) return null;
+  const [message] = await tx.select().from(schema.message)
+    .where(eq(schema.message.id, seen.entityId)).limit(1);
+  return message ?? null;
+}
+
+async function rememberSend(tx: Database, ctx: ServiceContext, messageId: string) {
+  if (!ctx.idempotencyKey) return;
+  await tx.insert(schema.integrationEvent).values({
+    organizationId: ctx.actor.organizationId,
+    direction: "inbound", provider: "api", eventType: "message.sent_by_hand",
+    idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+    entityType: "message", entityId: messageId,
+  });
+}
+
+/* --------------------------------------------------------------- handlers */
+
+const iso = (value: Date | string | null | undefined): string | null =>
+  value instanceof Date ? value.toISOString() : typeof value === "string" ? value : null;
+
+export const handlers = {
+  listConversations: async (ctx: ServiceContext, input: {
+    limit?: number | undefined; cursor?: string | undefined;
+    status?: "open" | "closed" | undefined; customerId?: string | undefined;
+  }) => {
+    const page = await threads(ctx, {
+      ...(input.limit ? { limit: input.limit } : {}),
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.customerId ? { customerId: input.customerId } : {}),
+    });
+    return {
+      ...page,
+      data: page.data.map((t) => ({ ...t, lastMessageAt: iso(t.lastMessageAt) })),
+    };
+  },
+
+  getConversation: async (ctx: ServiceContext, input: { id: string }) => {
+    const found = await thread(ctx, input);
+    const c = found.conversation;
+    return {
+      conversation: {
+        id: c.id, externalAddress: c.externalAddress, customerId: c.customerId,
+        status: c.status, channel: c.channel, lastMessageAt: iso(c.lastMessageAt),
+      },
+      customer: found.customer
+        ? { id: String(found.customer["id"]), name: String(found.customer["name"]) }
+        : null,
+      messages: found.messages.map((raw) => {
+        const m = raw as Record<string, unknown>;
+        return {
+          id: String(m["id"]),
+          direction: String(m["direction"]),
+          channel: String(m["channel"]),
+          status: String(m["status"]),
+          body: (m["body"] ?? null) as string | null,
+          createdAt: iso(m["createdAt"] as Date)!,
+          readAt: iso(m["readAt"] as Date | null),
+        };
+      }),
+      canReply: found.canReply,
+      blockedReason: found.blockedReason ?? null,
+      blockedExplanation: found.blockedExplanation ?? null,
+    };
+  },
+
+  markConversationRead: async (ctx: ServiceContext, input: { id: string }) => {
+    await markRead(ctx, input);
+    return { ok: true as const };
+  },
+
+  replyToConversation: async (ctx: ServiceContext, input: { id: string; body: string }) => {
+    const message = await reply(ctx, input) as Record<string, unknown>;
+    return { messageId: String(message["id"]), status: String(message["status"]) };
+  },
+
+  startConversation: (ctx: ServiceContext, input: { customerId: string; body: string }) =>
+    start(ctx, input),
+} as const;

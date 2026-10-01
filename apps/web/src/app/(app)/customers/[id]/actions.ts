@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { consent, contacts, customerLifecycle, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { comms, consent, contacts, customerLifecycle, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -157,4 +157,25 @@ export async function mergeCustomer(_previous: unknown, form: FormData) {
     moved: result.moved.map((m) => `${m.n} ${m.label}`),
     filled: result.filled,
   };
+}
+
+/**
+ * Text this customer, through the same send a reply uses.
+ *
+ * The customer id comes from the page and the service reads the customer
+ * inside the caller's scope, so it cannot reach a customer they may not see.
+ * A refusal (they replied STOP, no number to send from) comes back in words.
+ */
+export async function textCustomer(_previous: unknown, form: FormData) {
+  const customerId = String(form.get("customerId") ?? "");
+  let conversationId: string;
+  try {
+    ({ conversationId } = await comms.start(await ctx(), {
+      customerId, body: String(form.get("body") ?? ""),
+    }));
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) return { error: error.message };
+    throw error;
+  }
+  redirect(`/inbox/${conversationId}`);
 }
