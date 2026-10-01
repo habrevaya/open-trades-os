@@ -95,6 +95,7 @@ export const handlers = {
   getInvoice: billing.get,
   listInvoices: billing.list,
   recordPayment: billing.pay,
+  applyPayment: billing.applyPayment,
   voidInvoice: billing.voidInvoice,
   writeOffInvoice: billing.writeOff,
   getArAging: billing.arAging,

@@ -207,9 +207,13 @@ export const recordPayment = defineRoute({
     notes: z.string().max(1000).optional(),
     /**
      * Which invoices this pays, and how much of each. Omit and the server
-     * applies oldest balance first. A payment can span invoices and an invoice
-     * can take many payments; getting this join right is what makes a
-     * migration reconcile.
+     * applies oldest balance first. Send an EMPTY list to apply it to
+     * nothing: a deposit, or a customer paying ahead. Whatever is not
+     * applied is held for the customer as a liability, returned as
+     * `unappliedAmount`, and applied later through
+     * `POST /v1/payments/{id}/apply`. A payment can span invoices and an
+     * invoice can take many payments; getting this join right is what makes
+     * a migration reconcile.
      */
     allocations: z.array(z.object({
       invoiceId: Uuid,
@@ -222,9 +226,57 @@ export const recordPayment = defineRoute({
     id: Uuid,
     amount: MoneyString,
     allocations: z.array(z.object({ invoiceId: Uuid, amount: MoneyString })),
+    /** Received and applied to nothing, held for the customer. */
+    unappliedAmount: MoneyString,
     /** The balanced pair written to the ledger, so a caller can verify. */
     ledgerTransactionId: Uuid,
   }),
+});
+
+export const PaymentStatus = z.enum(["pending", "succeeded", "failed", "refunded", "partially_refunded", "disputed"]);
+
+export const Payment = z.object({
+  id: Uuid,
+  customerId: Uuid,
+  method: PaymentMethod,
+  status: PaymentStatus,
+  currency: z.string().length(3),
+  amount: MoneyString,
+  feeAmount: MoneyString,
+  tipAmount: MoneyString,
+  surchargeAmount: MoneyString,
+  refundedAmount: MoneyString,
+  processor: z.string(),
+  processorPaymentId: z.string().nullable(),
+  receivedAt: z.string().datetime(),
+  checkNumber: z.string().nullable(),
+  notes: z.string().nullable(),
+  allocations: z.array(z.object({ invoiceId: Uuid, amount: MoneyString })),
+  /** What arrived, less what is applied, less what was given back. */
+  unappliedAmount: MoneyString,
+}).merge(Timestamps);
+
+/**
+ * Applying money held for a customer to their invoices.
+ *
+ * The other half of recording a payment with `allocations: []`. Without it a
+ * deposit or a credit, once recorded, could never reach the invoice it was
+ * for.
+ */
+export const applyPayment = defineRoute({
+  method: "post",
+  path: "/v1/payments/{id}/apply",
+  summary: "Apply a customer's unapplied money to their invoices",
+  description:
+    "Never more than the payment still holds and never more than an invoice owes, and only to that customer's open invoices. Posted today: the liability it was held in is discharged against the receivable, and no cash moves.",
+  module: "M13",
+  permissions: ["payment:collect"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    allocations: z.array(z.object({ invoiceId: Uuid, amount: MoneyString })).min(1),
+  }),
+  output: Payment,
 });
 
 export const getArAging = defineRoute({
@@ -301,5 +353,5 @@ export const writeOffInvoice = defineRoute({
 
 export const billingRoutes = {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging,
-  voidInvoice, writeOffInvoice,
+  voidInvoice, writeOffInvoice, applyPayment,
 } as const;

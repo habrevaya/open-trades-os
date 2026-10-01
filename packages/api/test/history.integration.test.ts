@@ -298,3 +298,60 @@ run("a historical line linked to the price book", () => {
       .rejects.toThrow(PermissionError);
   });
 });
+
+run("money applied to nothing", () => {
+  it("holds a payment sent with no allocations, and leaves every invoice alone", async () => {
+    const open = await billing.create(owner(), { customerId, lines: [line] });
+    const deposit = await billing.pay(office(), {
+      customerId, method: "check", amount: "250.00", tipAmount: "0", allocations: [],
+    });
+    expect(deposit.allocations).toEqual([]);
+    expect(deposit.unappliedAmount).toBe("250.0000");
+    expect((await billing.get(owner(), { id: open.id })).balance).toBe("100.0000");
+
+    const entries = await ledgerFor(deposit.id);
+    const by = (code: string) => entries.filter((e) => e.account_code === code).map((e) => [e.direction, e.amount]);
+    expect(by("1000")).toEqual([["debit", "250.0000"]]);
+    expect(by("2300")).toEqual([["credit", "250.0000"]]);
+    expect(by("1200")).toEqual([]);
+  });
+
+  it("holds the part of a payment its allocations do not cover, instead of losing it", async () => {
+    const invoice = await billing.create(owner(), { customerId, lines: [line] });
+    const payment = await billing.pay(office(), {
+      customerId, method: "cash", amount: "160.00", tipAmount: "0",
+      allocations: [{ invoiceId: invoice.id, amount: "100.00" }],
+    });
+    expect(payment.unappliedAmount).toBe("60.0000");
+    const cash = (await ledgerFor(payment.id)).filter((e) => e.account_code === "1000");
+    expect(cash.map((e) => e.amount)).toEqual(["160.0000"]);
+  });
+
+  it("applies held money later, no more than it holds and no more than is owed", async () => {
+    const held = await billing.pay(office(), {
+      customerId, method: "check", amount: "80.00", tipAmount: "0", allocations: [],
+    });
+    const invoice = await billing.create(owner(), { customerId, lines: [line] });
+
+    await expect(billing.applyPayment(office(), { id: held.id, allocations: [{ invoiceId: invoice.id, amount: "90.00" }] }))
+      .rejects.toThrow(ConflictError);
+
+    const applied = await billing.applyPayment(office(), {
+      id: held.id, allocations: [{ invoiceId: invoice.id, amount: "80.00" }],
+    });
+    expect(applied.unappliedAmount).toBe("0.0000");
+    expect(applied.allocations).toEqual([{ invoiceId: invoice.id, amount: "80.0000" }]);
+    const after = await billing.get(owner(), { id: invoice.id });
+    expect(after).toMatchObject({ balance: "20.0000", status: "partially_paid" });
+
+    const moves = (await ledgerFor(held.id)).filter((e) => e.account_code !== "1000");
+    // Held when it arrived, discharged against the receivable when applied.
+    expect(moves.map((e) => [e.account_code, e.direction, e.amount]).sort()).toEqual([
+      ["1200", "credit", "80.0000"], ["2300", "credit", "80.0000"], ["2300", "debit", "80.0000"],
+    ]);
+
+    const other = await billing.create(owner(), { customerId, lines: [line] });
+    await expect(billing.applyPayment(office(), { id: held.id, allocations: [{ invoiceId: other.id, amount: "1.00" }] }))
+      .rejects.toThrow(/holds 0/);
+  });
+});

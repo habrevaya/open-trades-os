@@ -586,6 +586,7 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
             id: existing.id,
             amount: existing.amount,
             allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
+            unappliedAmount: m.toString(unappliedOf(existing, allocations)),
             ledgerTransactionId: "",
           };
         }
@@ -612,7 +613,18 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
 
     const allocations = input.allocations?.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) })) ?? [];
 
-    if (allocations.length === 0) {
+    /**
+     * OMITTED AND EMPTY ARE DIFFERENT REQUESTS.
+     *
+     * Omitted means "apply it the way a bookkeeper would", oldest balance
+     * first. An empty list means "apply it to nothing": a deposit on work not
+     * started, or a customer paying ahead. Both used to mean oldest first, so
+     * a deposit taken last week for next month's job silently paid an
+     * invoice from 2021, and there was no way to record money held for a
+     * customer at all. Whatever is not applied is held as a liability (see
+     * `postPayment`) until it is applied or given back.
+     */
+    if (input.allocations === undefined) {
       /**
        * Oldest balance first, as a TOTAL order: most overdue, then oldest
        * issued, then by invoice number. The number is the last tie break
@@ -668,59 +680,9 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
     }).returning();
 
     /** Invoices this payment took to zero, carried on the payment event. */
-    const settled: string[] = [];
-
-    for (const allocation of allocations) {
-      await tx.insert(schema.paymentAllocation).values({
-        organizationId: ctx.actor.organizationId,
-        paymentId: payment!.id,
-        invoiceId: allocation.invoiceId,
-        amount: m.toString(allocation.amount),
-      });
-
-      const [invoice] = await tx.select().from(schema.invoice)
-        .where(eq(schema.invoice.id, allocation.invoiceId)).limit(1);
-      if (!invoice) throw new NotFoundError("Invoice");
-
-      const paid = m.add(usd(invoice.amountPaid), allocation.amount);
-      const balance = m.subtract(usd(invoice.total), paid);
-
-      await tx.update(schema.invoice).set({
-        amountPaid: m.toString(paid),
-        balance: m.toString(balance),
-        status: m.isZero(balance) || m.isNegative(balance) ? "paid" : "partially_paid",
-        updatedAt: new Date(),
-      }).where(eq(schema.invoice.id, allocation.invoiceId));
-
-      if (invoice.jobId && (m.isZero(balance) || m.isNegative(balance))) {
-        await tx.update(schema.job).set({ status: "paid", updatedAt: new Date() })
-          .where(eq(schema.job.id, invoice.jobId));
-      }
-
-      /**
-       * PAID IN FULL IS THE EVENT, not "a payment touched this invoice".
-       *
-       * A part payment on a thousand dollar invoice is not the moment to
-       * send a thank you, and a workflow author writing "when an invoice is
-       * paid" means the balance reached zero. `payment.received` below is
-       * the other event, for the automations that do care about every
-       * payment.
-       */
-      if (m.isZero(balance) || m.isNegative(balance)) {
-        settled.push(allocation.invoiceId);
-        // History is recorded, not announced. See `create` above.
-        if (!admitted.historical) await emit(tx, ctx, {
-          name: "invoice.paid", entityType: "invoice", entityId: allocation.invoiceId,
-          payload: {
-            invoiceId: allocation.invoiceId,
-            customerId: input.customerId,
-            total: m.toString(usd(invoice.total)),
-            ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
-          },
-          previous: { balance: invoice.balance, status: invoice.status },
-        });
-      }
-    }
+    const settled = await allocate(tx, ctx, {
+      paymentId: payment!.id, customerId: input.customerId, allocations, announce: !admitted.historical,
+    });
 
     /**
      * THE FEE IS A LEDGER LEG, not a note on the payment row.
@@ -736,6 +698,7 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       paymentId: payment!.id,
       occurredAt: receivedAt,
       appliedAmount: allocatedTotal,
+      unappliedAmount: m.subtract(amount, allocatedTotal),
       tipAmount: tip,
       surchargeAmount: surcharge,
       processingFee: fee,
@@ -774,9 +737,193 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       id: payment!.id,
       amount: m.toString(amount),
       allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, amount: m.toString(a.amount) })),
+      unappliedAmount: m.toString(m.subtract(amount, allocatedTotal)),
       ledgerTransactionId: transactionId,
     };
   });
+}
+
+/**
+ * What of a payment is still held for the customer: what arrived, less what
+ * was applied, less what was given back. Never below zero, because a
+ * processor refund of applied money moves the receivable rather than the
+ * credit.
+ */
+export function unappliedOf(
+  payment: { amount: string; refundedAmount: string },
+  allocations: Array<{ amount: string }>,
+): m.Money {
+  const left = m.subtract(
+    m.subtract(usd(payment.amount), m.sum(allocations.map((a) => usd(a.amount)), "USD")),
+    usd(payment.refundedAmount),
+  );
+  return m.isNegative(left) ? usd("0") : left;
+}
+
+/**
+ * Applying money a customer paid earlier to invoices now.
+ *
+ * Never more than the payment still holds, never more than an invoice owes,
+ * and only to that customer's open invoices: an unapplied credit applied to
+ * somebody else's invoice is a transfer between customers, which is a
+ * different conversation. Posted today, because the application happens
+ * today; the cash arrived when the payment did.
+ */
+export async function applyPayment(
+  ctx: ServiceContext,
+  input: { id: string; allocations: Array<{ invoiceId: string; amount: string }> },
+) {
+  return guardedWrite(ctx, "payment:collect", async (tx) => {
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "payment_application"),
+        )).limit(1);
+      if (seen?.entityId) return loadPayment(tx, ctx, input.id);
+    }
+
+    const [payment] = await tx.select().from(schema.payment)
+      .where(eq(schema.payment.id, input.id)).limit(1);
+    if (!payment) throw new NotFoundError("Payment");
+    const existing = await tx.select({ amount: schema.paymentAllocation.amount })
+      .from(schema.paymentAllocation).where(eq(schema.paymentAllocation.paymentId, payment.id));
+
+    const held = unappliedOf(payment, existing);
+    const allocations = input.allocations.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) }));
+    const total = m.sum(allocations.map((a) => a.amount), "USD");
+    if (!m.isPositive(total) || allocations.some((a) => !m.isPositive(a.amount))) {
+      throw new UnprocessableError("Each allocation must be a positive amount", [{
+        path: "allocations", message: "Apply a positive amount to each invoice.",
+      }]);
+    }
+    if (m.compare(total, held) > 0) {
+      throw new ConflictError(`This payment holds ${m.toString(held)} unapplied, and ${m.toString(total)} was asked for.`);
+    }
+
+    for (const allocation of allocations) {
+      const [invoice] = await tx.select().from(schema.invoice)
+        .where(eq(schema.invoice.id, allocation.invoiceId)).limit(1);
+      if (!invoice) throw new NotFoundError("Invoice");
+      if ((invoice.payerCustomerId ?? invoice.customerId) !== payment.customerId
+        && invoice.customerId !== payment.customerId) {
+        throw new ConflictError(`Invoice ${invoice.number} is not this customer's.`);
+      }
+      if (invoice.status !== "open" && invoice.status !== "partially_paid") {
+        throw new ConflictError(`Invoice ${invoice.number} is ${invoice.status.replace("_", " ")} and takes no payment.`);
+      }
+      if (m.compare(allocation.amount, usd(invoice.balance)) > 0) {
+        throw new ConflictError(`Invoice ${invoice.number} owes ${invoice.balance}, less than ${m.toString(allocation.amount)}.`);
+      }
+    }
+
+    await allocate(tx, ctx, {
+      paymentId: payment.id, customerId: payment.customerId, allocations, announce: true,
+    });
+    await writePosting(tx, ctx, ledger.postCreditApplication({
+      paymentId: payment.id, occurredAt: new Date(), amount: total, customerId: payment.customerId,
+    }));
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "payment.apply",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "payment_application", entityId: payment.id,
+      });
+    }
+    await audit(tx, ctx, "payment.applied", "payment", payment.id,
+      { unapplied: m.toString(held) },
+      { allocations: input.allocations, unapplied: m.toString(m.subtract(held, total)) });
+    return loadPayment(tx, ctx, payment.id);
+  });
+}
+
+/** A payment as the API returns it, inside a caller's transaction. */
+export async function loadPayment(tx: Database, ctx: ServiceContext, id: string) {
+  const [payment] = await tx.select().from(schema.payment).where(eq(schema.payment.id, id)).limit(1);
+  if (!payment) throw new NotFoundError("Payment");
+  const allocations = await tx.select({
+    invoiceId: schema.paymentAllocation.invoiceId,
+    amount: schema.paymentAllocation.amount,
+  }).from(schema.paymentAllocation)
+    .where(eq(schema.paymentAllocation.paymentId, id))
+    .orderBy(asc(schema.paymentAllocation.createdAt));
+  const { idempotencyKey: _key, ...rest } = payment;
+  return {
+    ...clean(ctx, "payment", rest),
+    allocations,
+    unappliedAmount: m.toString(unappliedOf(payment, allocations)),
+  };
+}
+
+/**
+ * Applying money to invoices, for a payment as it arrives and for one applied
+ * later. One loop, so the two cannot disagree about what "paid" means.
+ *
+ * Returns the invoices taken to zero.
+ */
+async function allocate(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    paymentId: string; customerId: string;
+    allocations: Array<{ invoiceId: string; amount: m.Money }>;
+    /** False for history, which is recorded and not announced. */
+    announce: boolean;
+  },
+): Promise<string[]> {
+  const settled: string[] = [];
+  for (const allocation of input.allocations) {
+    await tx.insert(schema.paymentAllocation).values({
+      organizationId: ctx.actor.organizationId,
+      paymentId: input.paymentId,
+      invoiceId: allocation.invoiceId,
+      amount: m.toString(allocation.amount),
+    });
+
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(eq(schema.invoice.id, allocation.invoiceId)).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+
+    const paid = m.add(usd(invoice.amountPaid), allocation.amount);
+    const balance = m.subtract(usd(invoice.total), paid);
+
+    await tx.update(schema.invoice).set({
+      amountPaid: m.toString(paid),
+      balance: m.toString(balance),
+      status: m.isZero(balance) || m.isNegative(balance) ? "paid" : "partially_paid",
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, allocation.invoiceId));
+
+    if (invoice.jobId && (m.isZero(balance) || m.isNegative(balance))) {
+      await tx.update(schema.job).set({ status: "paid", updatedAt: new Date() })
+        .where(eq(schema.job.id, invoice.jobId));
+    }
+
+    /**
+     * PAID IN FULL IS THE EVENT, not "a payment touched this invoice".
+     *
+     * A part payment on a thousand dollar invoice is not the moment to
+     * send a thank you, and a workflow author writing "when an invoice is
+     * paid" means the balance reached zero. `payment.received` is the other
+     * event, for the automations that do care about every payment.
+     */
+    if (m.isZero(balance) || m.isNegative(balance)) {
+      settled.push(allocation.invoiceId);
+      if (input.announce) await emit(tx, ctx, {
+        name: "invoice.paid", entityType: "invoice", entityId: allocation.invoiceId,
+        payload: {
+          invoiceId: allocation.invoiceId,
+          customerId: input.customerId,
+          total: m.toString(usd(invoice.total)),
+          ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+        },
+        previous: { balance: invoice.balance, status: invoice.status },
+      });
+    }
+  }
+  return settled;
 }
 
 /**
