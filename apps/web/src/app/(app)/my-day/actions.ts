@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { fieldOps, dispatch } from "@opentradesos/api/services";
 import type { syncOperations } from "@opentradesos/api/contracts";
 import type { z } from "zod";
+import { refusalOf } from "@/lib/actions";
 
 type Operations = z.infer<typeof syncOperations.input>["operations"];
 
@@ -40,9 +41,18 @@ export async function sync(input: {
      * and an exception here would be indistinguishable from the network being
      * down, which is the one case it must NOT treat as fatal.
      */
+    /*
+      A refusal is the service's own sentence (a revoked device, an account
+      that is no longer a technician), and the phone shows it beside the
+      button that was pressed. Anything else is a fault, logged here and
+      described to the technician without a stack of database words.
+    */
+    const refusal = refusalOf(error);
+    if (refusal === null) console.error("field sync failed", error);
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Sync failed",
+      message: refusal
+        ?? "The office's system could not record this. It is kept on your phone and will be sent again.",
     };
   }
 }

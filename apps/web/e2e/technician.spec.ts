@@ -1,4 +1,5 @@
 import { test, expect, run, newCustomer } from "./fixtures";
+import { setBrowserDeviceRevoked } from "./devices";
 
 /**
  * A TECHNICIAN'S DAY, ON A PHONE
@@ -80,4 +81,27 @@ test("a technician runs a visit from a phone, and the office sees it finished", 
 
   await owner.goto(jobUrl);
   await expect(owner.getByRole("table").last()).toContainText("Completed");
+});
+
+test("a punch the server refuses says why beside the clock, straight away, instead of looking as if it worked", async ({ tech }) => {
+  await tech.goto("/my-day");
+  const clock = tech.getByRole("button", { name: /^Clock (in|out)$/ });
+  await expect(clock).toBeVisible();
+  const pressed = (await clock.textContent())!.trim();
+
+  // The office revokes this phone while it is open in the technician's hand.
+  await setBrowserDeviceRevoked("Ray Ortiz", true);
+  try {
+    await clock.click();
+    const said = pressed === "Clock in" ? "Not clocked in yet" : "Not clocked out yet";
+    await expect(tech.getByRole("alert").filter({ hasText: said })).toContainText("This device has been revoked.");
+  } finally {
+    await setBrowserDeviceRevoked("Ray Ortiz", false);
+  }
+
+  // Allowed again, the punch kept on the phone goes through and the notice clears.
+  await tech.reload();
+  await expect(tech.getByText(/All sent/)).toBeVisible();
+  await expect(tech.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await expect(tech.getByRole("button", { name: pressed === "Clock in" ? "Clock out" : "Clock in" })).toBeVisible();
 });
