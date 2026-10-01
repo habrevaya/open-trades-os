@@ -141,3 +141,14 @@ whatever you like to it.
 
 None of it is scheduled yet. The licensing decision gates step four and only
 step four, so the first three can proceed while that is being settled.
+
+## An app that loads history
+
+A migration is an app like any other, with one permission no other app needs:
+`data:import`, which lets it say something happened on a day more than a week
+ago, state the tax another system charged, and keep a source document's
+number. Only the owner preset holds it, so only an owner can grant it, and the
+`canDefineRole` check above is what stops anybody else. Give it for the length
+of a migration and remove it afterwards: an integration that can back-date
+cash is the one an auditor asks about first. See
+`docs/modules/m30-migration-data-portability.md`.
