@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { estimate as est, money as m, time } from "@opentradesos/core";
+import { permissionsFor, estimate as est, money as m, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -12,6 +12,7 @@ import { admitDate } from "./history";
 import { estimateScopeFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
+import { inForceAt } from "./pricebook";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
@@ -66,7 +67,13 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
         .from(schema.priceBookItemVersion)
         .where(and(
           inArray(schema.priceBookItemVersion.itemId, itemIds),
-          isNull(schema.priceBookItemVersion.effectiveTo),
+          /**
+           * The version IN FORCE, not the open ended one. `isNull(effectiveTo)`
+           * picks a revision dated ahead, so a price increase scheduled for
+           * next month applied today and the price actually in force became
+           * invisible. The reasoning is on `inForceAt`.
+           */
+          inForceAt(),
         ))
       : [];
     const byItem = new Map(versions.map((v) => [v.itemId, v]));
@@ -127,6 +134,29 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
         isSelected: l.isSelected,
         unitCost: l.unitCost === null ? undefined : usd(l.unitCost),
       })));
+
+      /**
+       * THE DISCOUNT AUTHORITY, CHECKED ONCE PER OPTION AND NOT PER LINE.
+       *
+       * Per option because that is the unit a customer chooses and the unit
+       * a company means when it says ten per cent.
+       *
+       * The two readings agree on a proportional discount, so this is not
+       * about closing a loophole: ten per cent off every line is ten per cent
+       * off the option either way. Where they differ is a CONCENTRATED
+       * discount, and the option is the right answer there. One line thrown
+       * in inside a big scope is a hundred per cent of that line and nine per
+       * cent of what the customer is buying, which is a normal thing to do
+       * and which a per line cap would refuse.
+       *
+       * `estimate:write` is the permission on this whole call and it stays:
+       * writing an estimate is not the same decision as giving money away,
+       * and a technician who may quote must be able to quote.
+       */
+      await assertDiscountAllowed(tx, ctx, {
+        discount: computed.totals.discountTotal,
+        subtotal: computed.totals.subtotal,
+      });
 
       const [optionRow] = await tx.insert(schema.estimateOption).values({
         organizationId: ctx.actor.organizationId,
@@ -780,3 +810,182 @@ async function recordIdempotency(tx: Database, ctx: ServiceContext, entityType: 
     eventType: `${entityType}.created`,
   });
 }
+
+/* ------------------------------------------------- who may give money away */
+
+/**
+ * `estimate:discount` AND `estimate.discount.unlimited` WERE GRANTED TO ROLES
+ * AND CHECKED BY NOTHING.
+ *
+ * `estimate_line.discount_amount` has existed since the first migration and
+ * anybody holding `estimate:write` could set it to anything: a technician
+ * standing in a kitchen could take a forty thousand dollar re-pipe to zero,
+ * and the two permissions a company thought gated that were a restriction the
+ * owner believed they had applied.
+ *
+ * The decision itself is `estimate.checkDiscount` in core, for the reason the
+ * overtime policy gives: a rule about money with several edges, written
+ * inside a database transaction, is a rule nobody can test without one. What
+ * is here is the asking.
+ */
+
+export interface DiscountPolicyView {
+  maxPercent: string;
+  maxAmount: string | null;
+  note: string | null;
+}
+
+export async function discountPolicy(ctx: ServiceContext): Promise<DiscountPolicyView | null> {
+  return guardedRead(ctx, "estimate:read", async (tx) =>
+    policyWithin(tx, ctx.actor.organizationId));
+}
+
+async function policyWithin(
+  tx: Database, organizationId: string,
+): Promise<DiscountPolicyView | null> {
+  const [row] = await tx.select().from(schema.discountPolicy)
+    .where(and(
+      eq(schema.discountPolicy.organizationId, organizationId),
+      isNull(schema.discountPolicy.deletedAt),
+    ));
+  if (!row) return null;
+  return { maxPercent: row.maxPercent, maxAmount: row.maxAmount, note: row.note };
+}
+
+/**
+ * Declare the limit.
+ *
+ * ON THE PERMISSION. `settings:write`, not `estimate:discount`. Holding the
+ * authority to apply a discount is not the authority to decide how large a
+ * discount anybody may apply, and letting the two be one permission means
+ * every person who can discount can raise their own ceiling, which is the
+ * same as having no ceiling.
+ */
+export async function setDiscountPolicy(
+  ctx: ServiceContext,
+  input: { maxPercent: string; maxAmount?: string | null | undefined; note?: string | null | undefined },
+): Promise<DiscountPolicyView> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const percent = Number(input.maxPercent);
+    if (!Number.isFinite(percent) || percent < 0) {
+      throw new ConflictError("A discount limit cannot be negative.");
+    }
+    /**
+     * A FRACTION, NOT A PERCENTAGE POINT COUNT, and refused above one.
+     *
+     * The column is `numeric(9,6)` and every rate in this product is a
+     * fraction: 0.1 is ten per cent. Somebody typing 10 means ten per cent
+     * and would be authorising a thousand, which is a discount ten times the
+     * price of the work. Refused rather than divided by a hundred on their
+     * behalf, because guessing which of the two they meant is how a limit
+     * ends up a hundred times too small instead.
+     */
+    if (percent > 1) {
+      throw new ConflictError(
+        `A discount limit is a fraction rather than a percentage: 0.1 is ten per cent. `
+        + `${input.maxPercent} would authorise a discount ${input.maxPercent} times the price `
+        + "of the work.",
+      );
+    }
+    if (input.maxAmount !== undefined && input.maxAmount !== null) {
+      const amount = Number(input.maxAmount);
+      if (!Number.isFinite(amount) || amount < 0) {
+        throw new ConflictError("A discount ceiling cannot be negative.");
+      }
+    }
+
+    const before = await policyWithin(tx, ctx.actor.organizationId);
+
+    const [row] = await tx.insert(schema.discountPolicy).values({
+      organizationId: ctx.actor.organizationId,
+      maxPercent: input.maxPercent,
+      maxAmount: input.maxAmount ?? null,
+      note: input.note?.trim() || null,
+    })
+      /**
+       * One per company. `targetWhere` is required because the index is
+       * partial on `deleted_at is null`, and Postgres refuses to match an ON
+       * CONFLICT specification to a partial index without the predicate: it
+       * fails at runtime rather than at compile time.
+       */
+      .onConflictDoUpdate({
+        target: [schema.discountPolicy.organizationId],
+        targetWhere: isNull(schema.discountPolicy.deletedAt),
+        set: {
+          maxPercent: input.maxPercent,
+          maxAmount: input.maxAmount ?? null,
+          note: input.note?.trim() || null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    await audit(tx, ctx, "discount_policy.set", "discount_policy", row!.id, before, row!);
+    return { maxPercent: row!.maxPercent, maxAmount: row!.maxAmount, note: row!.note };
+  });
+}
+
+/**
+ * Refuse a discount this caller may not apply.
+ *
+ * Reads the two permissions off the actor rather than through a second
+ * `guarded` call, because this runs inside a transaction that has already
+ * been authorised for `estimate:write`, and a nested guard would open its own
+ * connection and could not see the estimate being written.
+ */
+async function assertDiscountAllowed(
+  tx: Database, ctx: ServiceContext,
+  input: { discount: m.Money; subtotal: m.Money },
+): Promise<void> {
+  const held = permissionsFor(ctx.actor);
+  const policy = await policyWithin(tx, ctx.actor.organizationId);
+
+  const verdict = est.checkDiscount({
+    discount: input.discount,
+    subtotal: input.subtotal,
+    mayDiscount: held.has("estimate:discount"),
+    uncapped: held.has("estimate.discount.unlimited" as never),
+    policy: policy === null
+      ? null
+      : {
+        maxPercent: policy.maxPercent,
+        ...(policy.maxAmount === null ? {} : { maxAmount: usd(policy.maxAmount) }),
+      },
+  });
+
+  if (!verdict.allowed) throw new ConflictError(est.discountRefusal(verdict));
+}
+
+/**
+ * Take the limit away again, which puts the company back to nobody being
+ * authorised to discount.
+ *
+ * Soft deleted rather than removed, and that is what makes the partial unique
+ * index on `deleted_at is null` load bearing rather than decorative: the
+ * previous limit stays readable as the record of what was authorised when an
+ * old estimate was written, and the index still allows exactly one live row.
+ */
+export async function clearDiscountPolicy(ctx: ServiceContext): Promise<{ cleared: boolean }> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const [row] = await tx.update(schema.discountPolicy)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(schema.discountPolicy.organizationId, ctx.actor.organizationId),
+        isNull(schema.discountPolicy.deletedAt),
+      )).returning();
+    if (!row) throw new NotFoundError("Discount policy");
+
+    await audit(tx, ctx, "discount_policy.cleared", "discount_policy", row.id, row, null);
+    return { cleared: true };
+  });
+}
+
+export const discountHandlers = {
+  getDiscountPolicy: async (ctx: ServiceContext): Promise<{ policy: DiscountPolicyView | null }> =>
+    ({ policy: await discountPolicy(ctx) }),
+  setDiscountPolicy: (ctx: ServiceContext, input: {
+    maxPercent: string; maxAmount?: string | null | undefined; note?: string | null | undefined;
+  }): Promise<DiscountPolicyView> => setDiscountPolicy(ctx, input),
+  clearDiscountPolicy: (ctx: ServiceContext): Promise<{ cleared: boolean }> =>
+    clearDiscountPolicy(ctx),
+} as const;

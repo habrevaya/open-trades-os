@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, currency, rate } from "./_shared";
 import { organization, businessUnit } from "./tenancy";
@@ -90,6 +91,68 @@ export const estimateOption = pgTable("estimate_option", {
  * an invoice is then a copy, not a translation, and the frozen price book
  * version and applied tax rate survive the conversion unchanged.
  */
+/**
+ * WHO MAY DISCOUNT, AND BY HOW MUCH.
+ *
+ * `estimate_line.discount_amount` has existed since the first migration and
+ * anybody holding `estimate:write` could set it to anything. The permission
+ * catalogue declares `estimate:discount` and `estimate.discount.unlimited`,
+ * both of which were granted to roles and checked by nothing, so the two
+ * authorities a company actually wants were a restriction the owner believed
+ * they had applied.
+ *
+ * ONE ROW PER COMPANY, like `review_policy` and `overtime_policy` next door.
+ * A per-role cap would be the obvious design and it is the wrong one: roles
+ * are editable, a company invents its own, and the question "what is the most
+ * anybody can take off without a manager" has one answer per company rather
+ * than one per role. Somebody who should not be capped holds
+ * `estimate.discount.unlimited` instead, which is what that permission is
+ * for and why it is spelled with a dot rather than a colon: it is a
+ * modifier on an authority, not an authority of its own.
+ *
+ * NO ROW MEANS NO DISCOUNTING AT ALL BEYOND ZERO. That is deliberate and it
+ * is the opposite of the usual default. A company that has not said what its
+ * limit is has not authorised anybody to give money away, and the refusal
+ * names the screen that fixes it. The alternative, treating silence as
+ * unlimited, means every company that never opened the settings page has a
+ * technician who can discount a job to nothing.
+ */
+export const discountPolicy = pgTable("discount_policy", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  /**
+   * The most a holder of `estimate:discount` may take off one option, as a
+   * fraction of its subtotal before tax.
+   *
+   * A PERCENTAGE RATHER THAN AN AMOUNT, because a cap in dollars is either
+   * meaningless on a forty thousand dollar re-pipe or absurd on a service
+   * call, and a company that sells both would have to pick which of the two
+   * it wanted the limit to work for.
+   */
+  maxPercent: rate("max_percent").notNull(),
+  /**
+   * An absolute ceiling as well, when a company wants one.
+   *
+   * Both apply and the LOWER wins, which is the only composition that is not
+   * surprising: "up to ten per cent, and never more than two thousand" is a
+   * sentence an owner says out loud, and the other reading, whichever is
+   * larger, would make the second half authorise more than the first.
+   */
+  maxAmount: money("max_amount"),
+  /** Why these numbers. Read by whoever approves a discount at the edge of it. */
+  note: text("note"),
+  ...timestamps,
+}, (t) => ({
+  /**
+   * One per company, enforced rather than assumed. Two policies means the cap
+   * that applies depends on which row the query returned first, so the same
+   * discount is refused and allowed on alternate afternoons.
+   */
+  orgIdx: uniqueIndex("discount_policy_org_idx").on(t.organizationId)
+    .where(sql`${t.deletedAt} is null`),
+}));
+
 export const estimateLine = pgTable("estimate_line", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),

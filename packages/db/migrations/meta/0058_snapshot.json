@@ -1,6 +1,6 @@
 {
-  "id": "f34cc208-5444-4bb4-9736-b7edb1a23a08",
-  "prevId": "2e9b9991-84ff-41c2-8436-45acbde7f9e5",
+  "id": "e1caadba-4dab-4a35-93ad-b2177f749922",
+  "prevId": "530b41dd-95d7-4640-9204-e09fd88e110b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -221,6 +221,12 @@
         },
         "pushed_at": {
           "name": "pushed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refunds_netted_at": {
+          "name": "refunds_netted_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -8485,23 +8491,8 @@
         }
       },
       "indexes": {
-        "customer_org_idx": {
-          "name": "customer_org_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "customer_source_idx": {
-          "name": "customer_source_idx",
+        "customer_source_ref_idx": {
+          "name": "customer_source_ref_idx",
           "columns": [
             {
               "expression": "organization_id",
@@ -8517,6 +8508,22 @@
             },
             {
               "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "customer_org_idx": {
+          "name": "customer_org_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -11451,6 +11458,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "issued_on": {
+          "name": "issued_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
         "expires_on": {
           "name": "expires_on",
           "type": "date",
@@ -11546,6 +11559,34 @@
         }
       },
       "indexes": {
+        "estimate_source_ref_idx": {
+          "name": "estimate_source_ref_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "estimate_number_idx": {
           "name": "estimate_number_idx",
           "columns": [
@@ -14173,6 +14214,34 @@
         }
       },
       "indexes": {
+        "invoice_source_ref_idx": {
+          "name": "invoice_source_ref_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "invoice_number_idx": {
           "name": "invoice_number_idx",
           "columns": [
@@ -15005,6 +15074,34 @@
         }
       },
       "indexes": {
+        "job_source_ref_idx": {
+          "name": "job_source_ref_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "job_org_status_idx": {
           "name": "job_org_status_idx",
           "columns": [
@@ -19333,6 +19430,34 @@
         }
       },
       "indexes": {
+        "payment_source_ref_idx": {
+          "name": "payment_source_ref_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "payment_org_idx": {
           "name": "payment_org_idx",
           "columns": [
@@ -21016,6 +21141,34 @@
         }
       },
       "indexes": {
+        "price_book_item_source_ref_idx": {
+          "name": "price_book_item_source_ref_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "price_book_item_code_idx": {
           "name": "price_book_item_code_idx",
           "columns": [
@@ -22202,6 +22355,34 @@
         }
       },
       "indexes": {
+        "property_source_ref_idx": {
+          "name": "property_source_ref_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "property_org_idx": {
           "name": "property_org_idx",
           "columns": [
@@ -29177,6 +29358,34 @@
         }
       },
       "indexes": {
+        "visit_source_ref_idx": {
+          "name": "visit_source_ref_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "source_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "visit_job_idx": {
           "name": "visit_job_idx",
           "columns": [
@@ -31355,7 +31564,8 @@
         "job",
         "invoice",
         "customer",
-        "booking"
+        "booking",
+        "deposit"
       ]
     },
     "public.operation_status": {
@@ -31476,7 +31686,8 @@
         "customer",
         "invoice",
         "payment",
-        "credit_memo"
+        "credit_memo",
+        "refund"
       ]
     },
     "public.accounting_link_state": {
