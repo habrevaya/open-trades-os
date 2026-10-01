@@ -105,6 +105,8 @@ export const NAV: NavGroup[] = [
       { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
       { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
+      /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
+      { href: "/fleet", label: "Fleet", permission: "asset:read", icon: "fleet" },
       { href: "/timesheets", label: "Timesheets", permission: "timesheet:read", icon: "timesheets" },
       /**
        * Beside timesheets, because it is what the hours become: a closed

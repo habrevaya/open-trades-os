@@ -21,9 +21,17 @@ export type IconName =
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts" | "inspections" | "payroll" | "projects" | "certifications";
+  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Fleet: a van from the side, which is the asset everybody means first. */
+  fleet: (
+    <>
+      <path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" />
+      <circle cx="7" cy="17.5" r="1.6" />
+      <circle cx="17" cy="17.5" r="1.6" />
+    </>
+  ),
   /** Certifications: a card with a seal, which is what a licence is. */
   certifications: (
     <>
