@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { marketing as mk, money as m } from "@opentradesos/core";
 import {

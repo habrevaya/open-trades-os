@@ -1,12 +1,18 @@
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
-import { comms } from "@opentradesos/core";
+/**
+ * Never used by name. `thread` returns a type from core's comms module, and
+ * without an import of it here the compiler cannot write that type down
+ * (TS2742) and refuses the file. The underscore is what tells lint that
+ * nothing reads it.
+ */
+import type { comms as _commsTypes } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, clean, decodeCursor, paginate, scopeOf,
   NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
 import { conversationScopeFilter } from "./scope";
-import { sendability, refusal, threadFor } from "./comms-send";
+import { sendability, refusal } from "./comms-send";
 
 /**
  * THE INBOX

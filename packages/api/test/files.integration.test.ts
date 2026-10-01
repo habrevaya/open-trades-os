@@ -36,7 +36,6 @@ const USER = fixtureId("files:user");
 let raw: postgres.Sql;
 let deviceId = "";
 let visitId = "";
-let jobId = "";
 
 const db = () => testDb(url!);
 const owner = (): ServiceContext => ({
@@ -87,7 +86,6 @@ beforeAll(async () => {
   const job = await jobs.create(owner(), {
     customerId: customer.id, propertyId: property.id, summary: "Photo job", tags: [], customFields: {},
   });
-  jobId = job.id;
   const visit = await jobs.addVisit(owner(), {
     id: job.id,
     windowStart: new Date(Date.now() + 86_400_000).toISOString(),

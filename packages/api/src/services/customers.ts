@@ -1,5 +1,5 @@
 import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm";
-import { schema, type Database } from "@opentradesos/db";
+import { schema } from "@opentradesos/db";
 import { assertCan } from "@opentradesos/core";
 import type { z } from "zod";
 import {

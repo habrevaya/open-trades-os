@@ -4,7 +4,7 @@ import { PermissionError, type Actor } from "@opentradesos/core";
 import * as inspections from "../src/services/inspections";
 import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
-import { ConflictError, type ServiceContext } from "../src/services/context";
+import { type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**

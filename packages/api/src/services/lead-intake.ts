@@ -2,7 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { connectors as cat } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError, inTenant,
+  guardedRead, guardedWrite, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
 import { audit } from "./customers";

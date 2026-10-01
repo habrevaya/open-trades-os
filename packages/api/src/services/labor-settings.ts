@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, isNull, isNotNull } from "drizzle-orm";
-import { schema, type Database } from "@opentradesos/db";
+import { schema } from "@opentradesos/db";
 import { labor, money as m } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,

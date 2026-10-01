@@ -2,7 +2,7 @@ import { and, eq, gte, lte, isNull, desc, asc, or, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { labor, money as m, time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf,
+  guardedRead, guardedWrite, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
 import { audit } from "./customers";
