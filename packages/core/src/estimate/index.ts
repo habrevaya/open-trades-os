@@ -223,3 +223,160 @@ export function applicableDeposit(input: {
   if (compare(remaining, zero(remaining.currency)) <= 0) return zero(remaining.currency);
   return compare(remaining, input.invoiceBalance) <= 0 ? remaining : input.invoiceBalance;
 }
+
+/* ------------------------------------------------- who may give money away */
+
+/**
+ * WHAT A DISCOUNT POLICY SAYS, AND WHO MAY EXCEED IT.
+ *
+ * `estimate_line.discount_amount` has existed since the first migration and
+ * anybody holding `estimate:write` could set it to anything. The catalogue
+ * declares `estimate:discount` and `estimate.discount.unlimited`, both
+ * granted to roles and checked by nothing, so the two authorities a company
+ * actually wants were a restriction the owner believed they had applied.
+ *
+ * THE DECISION IS IN CORE AND NOT IN THE SERVICE for the reason the overtime
+ * policy gives: it is a rule about money with several edges, and a rule like
+ * that written inside a database transaction is a rule nobody can test
+ * without one. The service decides WHETHER to ask; this decides the answer.
+ */
+
+export interface DiscountPolicy {
+  /** The most a holder of `estimate:discount` may take off, as a fraction. */
+  maxPercent: string;
+  /** An absolute ceiling as well, when the company set one. */
+  maxAmount?: Money | undefined;
+}
+
+export interface DiscountRequest {
+  /** The total discount across the option, as one figure. */
+  discount: Money;
+  /** The option's subtotal before any discount and before tax. */
+  subtotal: Money;
+  /** Does the caller hold `estimate:discount` at all. */
+  mayDiscount: boolean;
+  /** Does the caller hold `estimate.discount.unlimited`. */
+  uncapped: boolean;
+  /** The company's policy, or null when it has not set one. */
+  policy: DiscountPolicy | null;
+}
+
+export type DiscountVerdict =
+  | { allowed: true }
+  | {
+    allowed: false;
+    /**
+     * Which rule refused, as a code rather than a sentence, so a caller can
+     * decide what to do about it. `over_cap` is the one worth routing to a
+     * manager; the others are not.
+     */
+    reason: "no_authority" | "no_policy" | "over_cap" | "negative" | "exceeds_subtotal";
+    /** The most this caller could have taken off. Null when none at all. */
+    ceiling: Money | null;
+  };
+
+/**
+ * May this discount be applied.
+ *
+ * THE ORDER OF THESE CHECKS IS LOAD BEARING, because the first one that
+ * matches is the sentence somebody reads:
+ *
+ *   A zero discount is always allowed, before anything else. A line with no
+ *   discount is an ordinary line, and requiring the permission to write one
+ *   would mean a technician who may quote cannot quote at all.
+ *
+ *   A NEGATIVE discount is refused next, before any authority question.
+ *   Nothing in the permission model makes a negative discount sensible: it is
+ *   a surcharge wearing a discount's name, it would pass a cap check by being
+ *   comfortably under it, and the total it produces is higher than the price
+ *   the customer was shown.
+ *
+ *   A discount larger than the subtotal is refused before the cap, because it
+ *   is not a question of authority either. An option that costs less than
+ *   nothing is not a steep discount, it is a company paying somebody to take
+ *   the work, and no permission should authorise it by accident.
+ *
+ *   Then authority, then the policy's existence, then the cap.
+ */
+export function checkDiscount(request: DiscountRequest): DiscountVerdict {
+  const zeroOf = zero(request.discount.currency);
+
+  if (compare(request.discount, zeroOf) === 0) return { allowed: true };
+
+  if (compare(request.discount, zeroOf) < 0) {
+    return { allowed: false, reason: "negative", ceiling: null };
+  }
+
+  if (compare(request.discount, request.subtotal) > 0) {
+    return { allowed: false, reason: "exceeds_subtotal", ceiling: request.subtotal };
+  }
+
+  if (!request.mayDiscount && !request.uncapped) {
+    return { allowed: false, reason: "no_authority", ceiling: zeroOf };
+  }
+
+  /**
+   * Uncapped skips the policy entirely, INCLUDING its absence.
+   *
+   * Somebody holding `estimate.discount.unlimited` in a company that has
+   * never opened the settings screen is still allowed, because the
+   * permission's whole meaning is "not subject to the limit" and a limit that
+   * does not exist is the easiest kind not to be subject to.
+   */
+  if (request.uncapped) return { allowed: true };
+
+  if (!request.policy) {
+    return { allowed: false, reason: "no_policy", ceiling: zeroOf };
+  }
+
+  /**
+   * BOTH CEILINGS APPLY AND THE LOWER WINS.
+   *
+   * "Up to ten per cent, and never more than two thousand" is a sentence an
+   * owner says out loud. The other reading, whichever is larger, would make
+   * the second half authorise more than the first, which is the opposite of
+   * what somebody writing a second limit intends.
+   */
+  const fromPercent = round(multiply(request.subtotal, request.policy.maxPercent), 2);
+  const ceiling = request.policy.maxAmount
+    && compare(request.policy.maxAmount, fromPercent) < 0
+    ? request.policy.maxAmount
+    : fromPercent;
+
+  if (compare(request.discount, ceiling) > 0) {
+    return { allowed: false, reason: "over_cap", ceiling };
+  }
+  return { allowed: true };
+}
+
+/**
+ * The sentence for a refusal.
+ *
+ * Here rather than in the service so the wording is the same whichever
+ * surface asked, and exhaustive over the union so a new reason cannot be
+ * added without one.
+ */
+export function discountRefusal(verdict: Extract<DiscountVerdict, { allowed: false }>): string {
+  switch (verdict.reason) {
+    case "negative":
+      return "A discount cannot be negative. That is a surcharge, and it would pass every "
+        + "cap by being under it while charging the customer more than the price they saw.";
+    case "exceeds_subtotal":
+      return "That discount is larger than the option itself, which would price the work "
+        + "below nothing.";
+    case "no_authority":
+      return "You do not have permission to discount an estimate. Somebody who does can "
+        + "apply it.";
+    case "no_policy":
+      return "This company has not set a discount limit, so nobody is authorised to apply "
+        + "one yet. Set the limit on the estimate settings screen.";
+    case "over_cap":
+      return `That is more than the limit for this company${
+        verdict.ceiling ? `, which is ${toString(verdict.ceiling)} on this option` : ""
+      }. Somebody with unlimited discount authority can apply it.`;
+    default: {
+      const unwritten: never = verdict.reason;
+      return `That discount cannot be applied: ${String(unwritten)}`;
+    }
+  }
+}

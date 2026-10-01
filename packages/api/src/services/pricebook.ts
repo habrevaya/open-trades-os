@@ -1,4 +1,4 @@
-import { and, eq, desc, lt, or, ilike, isNull } from "drizzle-orm";
+import { and, eq, desc, gt, inArray, lt, lte, or, ilike, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
@@ -27,7 +27,55 @@ import type {
 type ListInput = z.infer<typeof listPriceBook.input>;
 
 /** The current version of an item is the one with no end date. */
-const CURRENT = isNull(schema.priceBookItemVersion.effectiveTo);
+/**
+ * THE VERSION IN FORCE AT AN INSTANT, AND WHY THIS IS NOT `effective_to IS NULL`.
+ *
+ * It was. Four services asked "which price applies" as
+ * `isNull(effectiveTo)`, and that is the open ended row rather than the
+ * current one. The difference only shows when a revision is dated ahead,
+ * which `revise` has always accepted:
+ *
+ *   `revise` closes the current version AT the new one's `effective_from`
+ *   and opens the new one there. Dated next month, the old row gets
+ *   `effective_to = next month` and the new row gets `effective_to = null`.
+ *
+ *   So `isNull(effectiveTo)` picks the FUTURE row. A price increase
+ *   scheduled for next month applied today, and the price that was actually
+ *   in force became invisible, in the price book list, in the estimate
+ *   builder, in invoicing and on the technician's tablet.
+ *
+ * Nothing caught it because no test ever passed a future date, and the
+ * parameter sits on the published contract. A company using it to prepare a
+ * quarterly change would have quoted next quarter's prices from the day they
+ * entered them.
+ *
+ * ONE PREDICATE, EXPORTED, used by every reader. Four copies of "which price
+ * applies" is four chances to get this wrong again, and they had already
+ * taken all four.
+ *
+ * The boundary is `from <= at` and `to > at`, which is half open and has to
+ * be: `revise` sets the old row's `to` to exactly the new row's `from`, so a
+ * closed upper bound would make both match at that instant and the answer
+ * would depend on row order.
+ */
+export function inForceAt(at: Date = new Date()) {
+  return and(
+    lte(schema.priceBookItemVersion.effectiveFrom, at),
+    or(
+      isNull(schema.priceBookItemVersion.effectiveTo),
+      gt(schema.priceBookItemVersion.effectiveTo, at),
+    ),
+  );
+}
+
+/**
+ * NOT a module level constant any more.
+ *
+ * `inForceAt()` defaults to the moment it is CALLED, and a constant would
+ * freeze that at the moment the module was imported. In a worker that stays
+ * up for a week, every price read would be answered as of last Monday, and a
+ * scheduled revision would never arrive. Each query asks for itself.
+ */
 
 /**
  * Margin is derived rather than stored, because a stored one goes stale the
@@ -104,7 +152,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
 
     const where = and(
       isNull(schema.priceBookItem.deletedAt),
-      CURRENT,
+      inForceAt(),
       // Inactive items are hidden by default. A discontinued part still has to
       // exist, because invoices reference it, and it must not be offered to
       // somebody building a quote today.
@@ -130,7 +178,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       .from(schema.priceBookItem)
       .innerJoin(schema.priceBookItemVersion, and(
         eq(schema.priceBookItemVersion.itemId, schema.priceBookItem.id),
-        CURRENT,
+        inForceAt(),
       ))
       .where(where)
       .orderBy(desc(schema.priceBookItem.createdAt))
@@ -287,7 +335,7 @@ async function load(tx: Database, itemId: string): Promise<ItemRow | undefined> 
     .from(schema.priceBookItem)
     .innerJoin(schema.priceBookItemVersion, and(
       eq(schema.priceBookItemVersion.itemId, schema.priceBookItem.id),
-      CURRENT,
+      inForceAt(),
     ))
     .where(and(
       eq(schema.priceBookItem.id, itemId),
@@ -298,7 +346,7 @@ async function load(tx: Database, itemId: string): Promise<ItemRow | undefined> 
 }
 
 /** Exported for the tests that check version windows never gap or overlap. */
-export const currentVersionFilter = CURRENT;
+export const currentVersionFilter = inForceAt;
 
 /**
  * RETIRE AN ITEM, OR BRING IT BACK.
@@ -350,3 +398,241 @@ export async function setActive(
     return { id: row!.id, code: row!.code, active: row!.active };
   });
 }
+
+/* ------------------------------------------------- revisions dated ahead */
+
+/**
+ * `pricebook:publish` WAS GRANTED TO ROLES AND CHECKED BY NOTHING, and the
+ * excuse on the owed list said "M06 has no draft state to publish from".
+ *
+ * It had one and could not see it. `revise` has always accepted an
+ * `effectiveFrom`, and a date in the future produces exactly a staged
+ * revision: a version that is not in force yet, sitting behind one that is.
+ * What was missing was any way to see them, bring one forward, or call one
+ * off, and a bug that made the whole idea unusable, which `inForceAt`
+ * documents.
+ *
+ * THE AUTHORITY SPLIT THIS CREATES, which is the one a company wants:
+ * `pricebook:write` drafts next quarter's prices, and `pricebook:publish`
+ * decides what the price is TODAY. Both operations below change what is in
+ * force now, which is why both take the second permission: bringing a
+ * revision forward raises the price early, and calling one off cancels a
+ * change somebody may already have quoted against.
+ */
+
+export interface ScheduledRevision {
+  versionId: string;
+  itemId: string;
+  code: string;
+  name: string;
+  version: number;
+  /** What it will become. */
+  price: string;
+  /** What it is until then, from the version currently in force. */
+  currentPrice: string | null;
+  effectiveFrom: string;
+}
+
+/**
+ * What is coming, soonest first.
+ *
+ * `pricebook:read`, because knowing a price change is scheduled is part of
+ * reading the price book: a technician quoting work for next month needs to
+ * know, and withholding it behind the publish permission would mean the
+ * people most affected are the ones who cannot see it.
+ */
+export async function scheduledRevisions(
+  ctx: ServiceContext, now: Date = new Date(),
+): Promise<ScheduledRevision[]> {
+  return guardedRead(ctx, "pricebook:read", async (tx) => {
+    const rows = await tx.select({
+      version: schema.priceBookItemVersion,
+      code: schema.priceBookItem.code,
+    })
+      .from(schema.priceBookItemVersion)
+      .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
+      .where(and(
+        eq(schema.priceBookItemVersion.organizationId, ctx.actor.organizationId),
+        gt(schema.priceBookItemVersion.effectiveFrom, now),
+        isNull(schema.priceBookItemVersion.deletedAt),
+      ))
+      .orderBy(schema.priceBookItemVersion.effectiveFrom);
+
+    if (rows.length === 0) return [];
+
+    /**
+     * The price in force today, beside the one that is coming, because a
+     * scheduled revision on its own does not answer the question anybody
+     * opens this screen for: by how much is it going up.
+     */
+    const live = await tx.select({
+      itemId: schema.priceBookItemVersion.itemId,
+      price: schema.priceBookItemVersion.price,
+    }).from(schema.priceBookItemVersion)
+      .where(and(
+        eq(schema.priceBookItemVersion.organizationId, ctx.actor.organizationId),
+        inArray(schema.priceBookItemVersion.itemId, rows.map((r) => r.version.itemId)),
+        inForceAt(now),
+      ));
+    const priceNow = new Map(live.map((l) => [l.itemId, l.price]));
+
+    return rows.map(({ version, code }) => ({
+      versionId: version.id,
+      itemId: version.itemId,
+      code,
+      name: version.name,
+      version: version.version,
+      price: version.price,
+      currentPrice: priceNow.get(version.itemId) ?? null,
+      effectiveFrom: version.effectiveFrom.toISOString(),
+    }));
+  });
+}
+
+/**
+ * Bring a scheduled revision forward to now.
+ *
+ * Two writes that have to agree: the predecessor closes at this instant and
+ * the revision opens at it. Doing one without the other is the gap or the
+ * overlap `revise` is careful about, and here it would be worse, because the
+ * rows already exist and the window being moved is in the middle of a chain.
+ */
+export async function publishRevision(
+  ctx: ServiceContext, input: { versionId: string }, now: Date = new Date(),
+): Promise<{ versionId: string; effectiveFrom: string }> {
+  return guardedWrite(ctx, "pricebook:publish", async (tx) => {
+    const [version] = await tx.select().from(schema.priceBookItemVersion)
+      .where(and(
+        eq(schema.priceBookItemVersion.organizationId, ctx.actor.organizationId),
+        eq(schema.priceBookItemVersion.id, input.versionId),
+      ));
+    if (!version) throw new NotFoundError("Price book version");
+
+    if (version.effectiveFrom <= now) {
+      throw new ConflictError(
+        "That revision is already in force. There is nothing to publish.",
+      );
+    }
+
+    /**
+     * The predecessor is the row whose window ENDS where this one starts,
+     * which is how `revise` left the chain. Found that way rather than by
+     * version number, because a second scheduled revision on the same item
+     * would make "the previous version number" the wrong row.
+     */
+    const [previous] = await tx.select().from(schema.priceBookItemVersion)
+      .where(and(
+        eq(schema.priceBookItemVersion.organizationId, ctx.actor.organizationId),
+        eq(schema.priceBookItemVersion.itemId, version.itemId),
+        eq(schema.priceBookItemVersion.effectiveTo, version.effectiveFrom),
+      ));
+
+    if (previous) {
+      await tx.update(schema.priceBookItemVersion)
+        .set({ effectiveTo: now, updatedAt: new Date() })
+        .where(eq(schema.priceBookItemVersion.id, previous.id));
+    }
+
+    await tx.update(schema.priceBookItemVersion)
+      .set({ effectiveFrom: now, updatedAt: new Date() })
+      .where(eq(schema.priceBookItemVersion.id, version.id));
+
+    await audit(
+      tx, ctx, "pricebook.revision_published", "price_book_item", version.itemId,
+      { effectiveFrom: version.effectiveFrom.toISOString() },
+      { effectiveFrom: now.toISOString(), price: version.price },
+    );
+
+    return { versionId: version.id, effectiveFrom: now.toISOString() };
+  });
+}
+
+/**
+ * Call a scheduled revision off, and reopen the version it was going to
+ * replace.
+ *
+ * SOFT DELETED AND NOT REMOVED, because an estimate written this week may
+ * already have been priced against it by somebody reading the schedule, and
+ * "what was the plan before it was cancelled" is a question that gets asked.
+ *
+ * REOPENING THE PREDECESSOR IS THE HALF THAT MATTERS. Without it the old
+ * version stays closed at a date in the future and, once that date passes,
+ * the item has no version in force at all: `inForceAt` matches nothing, the
+ * item vanishes from the price book, and an estimate referencing it finds no
+ * price. That is the gap the whole versioning model exists to prevent, and
+ * cancelling a revision is the one operation that can open one.
+ */
+export async function discardRevision(
+  ctx: ServiceContext, input: { versionId: string }, now: Date = new Date(),
+): Promise<{ versionId: string; discarded: boolean }> {
+  return guardedWrite(ctx, "pricebook:publish", async (tx) => {
+    const [version] = await tx.select().from(schema.priceBookItemVersion)
+      .where(and(
+        eq(schema.priceBookItemVersion.organizationId, ctx.actor.organizationId),
+        eq(schema.priceBookItemVersion.id, input.versionId),
+        isNull(schema.priceBookItemVersion.deletedAt),
+      ));
+    if (!version) throw new NotFoundError("Price book version");
+
+    if (version.effectiveFrom <= now) {
+      throw new ConflictError(
+        "That revision is already in force, so it cannot be called off. Revise the item "
+        + "again to change the price back: a price that was live is part of what somebody "
+        + "was quoted.",
+      );
+    }
+
+    const [previous] = await tx.select().from(schema.priceBookItemVersion)
+      .where(and(
+        eq(schema.priceBookItemVersion.organizationId, ctx.actor.organizationId),
+        eq(schema.priceBookItemVersion.itemId, version.itemId),
+        eq(schema.priceBookItemVersion.effectiveTo, version.effectiveFrom),
+      ));
+
+    if (!previous) {
+      /**
+       * Refused rather than carried out. A scheduled revision with no
+       * predecessor is the item's FIRST version, dated ahead, and discarding
+       * it leaves an item with no price at any instant. That is a different
+       * operation: retire the item.
+       */
+      throw new ConflictError(
+        "That is the only version this item has, so calling it off would leave the item "
+        + "with no price at all. Retire the item instead.",
+      );
+    }
+
+    await tx.update(schema.priceBookItemVersion)
+      /**
+       * Open ended again, which is what it was before the revision closed it.
+       * Not "whatever it was", because a scheduled revision is always the end
+       * of the chain: `revise` appends, so the row it closed had no successor
+       * and therefore no `effective_to` of its own.
+       */
+      .set({ effectiveTo: null, updatedAt: new Date() })
+      .where(eq(schema.priceBookItemVersion.id, previous.id));
+
+    await tx.update(schema.priceBookItemVersion)
+      .set({ deletedAt: now, updatedAt: new Date() })
+      .where(eq(schema.priceBookItemVersion.id, version.id));
+
+    await audit(
+      tx, ctx, "pricebook.revision_discarded", "price_book_item", version.itemId,
+      { versionId: version.id, price: version.price },
+      null,
+    );
+
+    return { versionId: version.id, discarded: true };
+  });
+}
+
+export const revisionHandlers = {
+  listScheduledRevisions: async (ctx: ServiceContext): Promise<{ revisions: ScheduledRevision[] }> =>
+    ({ revisions: await scheduledRevisions(ctx) }),
+  publishRevision: (ctx: ServiceContext, input: { versionId: string }): Promise<{
+    versionId: string; effectiveFrom: string;
+  }> => publishRevision(ctx, input),
+  discardRevision: (ctx: ServiceContext, input: { versionId: string }): Promise<{
+    versionId: string; discarded: boolean;
+  }> => discardRevision(ctx, input),
+} as const;

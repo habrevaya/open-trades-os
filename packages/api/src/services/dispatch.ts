@@ -5,6 +5,7 @@ import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit
 } from "./context";
+import { inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
 import { time } from "@opentradesos/core";
 import { sendTransactional } from "./comms-send";
@@ -565,7 +566,13 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
       .where(and(
         eq(schema.priceBookItemVersion.organizationId, ctx.actor.organizationId),
-        isNull(schema.priceBookItemVersion.effectiveTo),
+        /**
+           * The version IN FORCE, not the open ended one. `isNull(effectiveTo)`
+           * picks a revision dated ahead, so a price increase scheduled for
+           * next month applied today and the price actually in force became
+           * invisible. The reasoning is on `inForceAt`.
+           */
+          inForceAt(),
       ))
       .limit(2000);
 

@@ -70,11 +70,8 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
   ["billing:manage", "The company's own subscription to this product. Not a module here."],
   ["apikey:write", "M26 issues app tokens through connected apps, not bare API keys."],
   ["data:export", "M30. Export exists per report; a whole-tenant export does not."],
-  ["pricebook:publish", "M06 has no draft state to publish from."],
-  ["estimate:discount", "M07 applies discounts as line amounts, with no separate authority."],
   ["job:delete", "M10 cancels rather than deletes, deliberately."],
   ["ledger:post", "M14. Postings are a consequence of a guarded business action, never a bare entry. A manual journal has no surface."],
-  ["estimate.discount.unlimited", "M07 has no discount cap, so there is nothing to exceed."],
 ]);
 
 function sources(dir: string): string[] {

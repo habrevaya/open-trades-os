@@ -480,6 +480,12 @@ export const handlers = {
   annotateServiceReport: serviceReports.handlers.annotateServiceReport,
   publishServiceReport: serviceReports.handlers.publishServiceReport,
   unpublishServiceReport: serviceReports.handlers.unpublishServiceReport,
+  listScheduledRevisions: priceBook.revisionHandlers.listScheduledRevisions,
+  publishRevision: priceBook.revisionHandlers.publishRevision,
+  discardRevision: priceBook.revisionHandlers.discardRevision,
+  getDiscountPolicy: estimates.discountHandlers.getDiscountPolicy,
+  setDiscountPolicy: estimates.discountHandlers.setDiscountPolicy,
+  clearDiscountPolicy: estimates.discountHandlers.clearDiscountPolicy,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

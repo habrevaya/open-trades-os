@@ -6,6 +6,7 @@ import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
 } from "./context";
 import { invoiceScopeFilter } from "./scope";
+import { inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
 import * as contracts from "./contracts";
@@ -56,7 +57,13 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
         .from(schema.priceBookItemVersion)
         .where(and(
           inArray(schema.priceBookItemVersion.itemId, itemIds),
-          isNull(schema.priceBookItemVersion.effectiveTo),
+          /**
+           * The version IN FORCE, not the open ended one. `isNull(effectiveTo)`
+           * picks a revision dated ahead, so a price increase scheduled for
+           * next month applied today and the price actually in force became
+           * invisible. The reasoning is on `inForceAt`.
+           */
+          inForceAt(),
         ))
       : [];
     const byItem = new Map(versions.map((v) => [v.itemId, v]));

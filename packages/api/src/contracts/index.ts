@@ -38,6 +38,7 @@ import { callTrackingRoutes } from "./call-tracking";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
+import { pricingAuthorityRoutes } from "./pricing-authority";
 
 export * from "./common";
 export * from "./customers";
@@ -80,6 +81,7 @@ export * from "./call-tracking";
 export * from "./company";
 export * from "./readbacks";
 export * from "./service-reports";
+export * from "./pricing-authority";
 
 /**
  * Every route in the product, and the only description of them.
@@ -140,6 +142,7 @@ export const routes = {
   ...companyRoutes,
   ...readbackRoutes,
   ...serviceReportRoutes,
+  ...pricingAuthorityRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;
