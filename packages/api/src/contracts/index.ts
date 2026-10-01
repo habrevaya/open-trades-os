@@ -37,6 +37,7 @@ import { calendarRoutes } from "./calendar";
 import { callTrackingRoutes } from "./call-tracking";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
+import { serviceReportRoutes } from "./service-reports";
 
 export * from "./common";
 export * from "./customers";
@@ -78,6 +79,7 @@ export * from "./calendar";
 export * from "./call-tracking";
 export * from "./company";
 export * from "./readbacks";
+export * from "./service-reports";
 
 /**
  * Every route in the product, and the only description of them.
@@ -137,6 +139,7 @@ export const routes = {
   ...callTrackingRoutes,
   ...companyRoutes,
   ...readbackRoutes,
+  ...serviceReportRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

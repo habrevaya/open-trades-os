@@ -65,9 +65,6 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
    * the books say anything with no document behind it. The permission exists
    * for the day a manual journal is genuinely needed.
    */
-  ["servicereport:read", "M11 reports exist as templates and fields; the report itself has no service."],
-  ["servicereport:write", "M11."],
-  ["servicereport:publish", "M11."],
   ["campaign:read", "M19 measures; it does not yet send a campaign."],
   ["campaign:write", "M19."],
   ["billing:manage", "The company's own subscription to this product. Not a module here."],

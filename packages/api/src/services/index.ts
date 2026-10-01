@@ -77,3 +77,4 @@ export * as company from "./company";
 export * as timeOff from "./time-off";
 export * as auditLog from "./audit";
 export * as ledgerReports from "./ledger";
+export * as serviceReports from "./service-reports";
