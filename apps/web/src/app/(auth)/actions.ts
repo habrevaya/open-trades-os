@@ -19,8 +19,12 @@ import { hashPassword, verifyPassword, issueToken, SESSION_COOKIE, SESSION_TTL_D
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 import { getDb } from "@/lib/db";
+import { keptValues } from "@/lib/kept-values";
 
-export type ActionState = { error?: string; fields?: Record<string, string> };
+/** What the sign up form keeps when it is refused. Never the password. */
+const SIGNUP_KEPT = ["name", "companyName", "email"] as const;
+
+export type ActionState = { error?: string; fields?: Record<string, string>; values?: Record<string, string> };
 
 const SignUp = z.object({
   name: z.string().min(1, "Tell us your name").max(120),
@@ -47,7 +51,7 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
       const key = issue.path[0];
       if (typeof key === "string" && !fields[key]) fields[key] = issue.message;
     }
-    return { fields };
+    return { fields, values: keptValues(formData, SIGNUP_KEPT) };
   }
   const { name, email, password, companyName, timezone } = parsed.data;
   const db = getDb();
@@ -55,7 +59,10 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
   const existing = await db.select({ id: schema.user.id }).from(schema.user)
     .where(eq(schema.user.email, email.toLowerCase())).limit(1);
   if (existing.length > 0) {
-    return { fields: { email: "An account with that email already exists" } };
+    return {
+      fields: { email: "An account with that email already exists" },
+      values: keptValues(formData, SIGNUP_KEPT),
+    };
   }
 
   const passwordHash = await hashPassword(password);
@@ -103,7 +110,7 @@ const SignIn = z.object({
 
 export async function signIn(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = SignIn.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: "Enter your email and password" };
+  if (!parsed.success) return { error: "Enter your email and password", values: keptValues(formData, ["email"]) };
 
   const { email, password } = parsed.data;
   const db = getDb();
@@ -149,7 +156,7 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
     await db.execute(
       sql`select app.record_failed_login(${email}, ${MAX_ATTEMPTS}, ${LOCK_MINUTES})`,
     );
-    return { error: "That email and password do not match" };
+    return { error: "That email and password do not match", values: { email } };
   }
 
   /**
@@ -163,7 +170,7 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
    * person who needs to know.
    */
   if (row.lockedUntil && row.lockedUntil > new Date()) {
-    return { error: "This account is temporarily locked. Try again shortly." };
+    return { error: "This account is temporarily locked. Try again shortly.", values: { email } };
   }
 
   // Correct password, not locked. A person who mistyped twice and then got it

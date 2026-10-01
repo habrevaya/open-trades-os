@@ -13,7 +13,8 @@ export default function LoginPage() {
 
       <form action={action} className="mt-7 flex flex-col gap-5">
         <Field label="Work email" htmlFor="email" required>
-          <Input id="email" name="email" type="email" autoComplete="email" required autoFocus />
+          <Input id="email" name="email" type="email" autoComplete="email" required autoFocus
+                 defaultValue={state.values?.email} />
         </Field>
 
         <Field label="Password" htmlFor="password" required>
