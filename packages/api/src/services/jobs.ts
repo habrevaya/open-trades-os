@@ -14,7 +14,8 @@ import * as obligations from "./obligations";
 import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
 import { awayBetween } from "./time-off";
-import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes } from "../contracts/jobs";
+import { inForceAt } from "./pricebook";
+import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
 
@@ -456,6 +457,13 @@ const REACHABLE: Record<string, readonly string[]> = {
   cancelled: ["cancelled"],
 };
 
+/**
+ * The states a job's last visit finishes it from: work not yet finished.
+ * Not `canTransition(status, "completed")`, which also allows invoiced back
+ * to completed for a voided invoice, a move a visit must never make.
+ */
+const FINISHED_BY_LAST_VISIT = ["lead", "estimating", "scheduled", "in_progress", "on_hold"] as const;
+
 export function canTransition(from: string, to: string): boolean {
   return (REACHABLE[from] ?? []).includes(to);
 }
@@ -784,20 +792,119 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
       });
     }
 
+    /**
+     * WHAT WAS USED, ON THE JOB.
+     *
+     * `partsUsed` has been in the contract since it was written and nothing
+     * read it, so the capacitor the office recorded while completing a visit
+     * went nowhere: not onto the job's cost, and not onto the invoice raised
+     * from the job afterwards. Each one is a job line priced from the price
+     * book version in force today, frozen by its version id the same way an
+     * invoice line is, and left unbilled until an invoice takes it.
+     */
+    if (input.partsUsed?.length) {
+      const itemIds = [...new Set(input.partsUsed.map((p) => p.priceBookItemId))];
+      const versions = await tx.select({
+        itemId: schema.priceBookItemVersion.itemId,
+        versionId: schema.priceBookItemVersion.id,
+        name: schema.priceBookItemVersion.name,
+        description: schema.priceBookItemVersion.description,
+        price: schema.priceBookItemVersion.price,
+        cost: schema.priceBookItemVersion.cost,
+        taxable: schema.priceBookItemVersion.taxable,
+        kind: schema.priceBookItem.kind,
+      }).from(schema.priceBookItemVersion)
+        .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
+        .where(and(inArray(schema.priceBookItemVersion.itemId, itemIds), inForceAt()));
+      const byItem = new Map(versions.map((v) => [v.itemId, v]));
+      const missing = itemIds.filter((id) => !byItem.has(id));
+      if (missing.length > 0) throw new NotFoundError("Price book item");
+
+      const [assignee] = await assignedTo(tx, input.id);
+      await tx.insert(schema.jobLine).values(input.partsUsed.map((part) => {
+        const v = byItem.get(part.priceBookItemId)!;
+        return {
+          organizationId: ctx.actor.organizationId,
+          jobId: visit.jobId,
+          visitId: input.id,
+          kind: v.kind === "labor" ? "labor" as const : v.kind === "equipment" ? "equipment" as const : "part" as const,
+          source: "office" as const,
+          priceBookItemVersionId: v.versionId,
+          name: v.name,
+          description: v.description ?? null,
+          quantity: part.quantity,
+          unitPrice: v.price,
+          unitCost: v.cost ?? null,
+          taxable: v.taxable,
+          technicianId: assignee ?? null,
+          occurredAt: completedAt,
+        };
+      }));
+    }
+
     const remaining = await tx.select({ id: schema.visit.id }).from(schema.visit)
       .where(and(
         eq(schema.visit.jobId, visit.jobId),
         inArray(schema.visit.status, ["unassigned", "scheduled", "dispatched", "en_route", "working"]),
       ));
 
-    if (remaining.length === 0) {
-      await tx.update(schema.job)
+    /**
+     * The last visit done finishes the job, but only along the job's own
+     * lifecycle. This wrote "completed" whatever the job said, so a late
+     * visit finished on a job already invoiced walked it back from invoiced
+     * to completed, with its invoice and ledger postings still standing, and
+     * the job came off every "awaiting payment" list. And it emitted
+     * nothing, so "when a job is completed" never fired for work finished
+     * this way, only for a status typed in by hand.
+     */
+    const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, visit.jobId)).limit(1);
+    if (remaining.length === 0 && job && (FINISHED_BY_LAST_VISIT as readonly string[]).includes(job.status)) {
+      const [finished] = await tx.update(schema.job)
         .set({ status: "completed", completedAt, updatedAt: new Date() })
-        .where(eq(schema.job.id, visit.jobId));
+        .where(eq(schema.job.id, visit.jobId))
+        .returning();
+      await emit(tx, ctx, {
+        name: "job.completed", entityType: "job", entityId: visit.jobId,
+        payload: { job: finished! }, previous: { job },
+      });
     }
+
+    /** The same event a technician's phone raises for the same act. */
+    await emit(tx, ctx, {
+      name: "visit.completed", entityType: "visit", entityId: input.id,
+      payload: { visitId: input.id, completedAt: completedAt.toISOString() },
+    });
 
     await audit(tx, ctx, "visit.completed", "visit", input.id, visit, updated!);
     return { ...withProvenance(updated!), technicianIds: await assignedTo(tx, input.id), raisedDispatchException: wasCancelled };
+  });
+}
+
+/**
+ * What was used on a job, oldest first. Cost is redacted by the same rule
+ * as everywhere else it appears, at this boundary.
+ */
+export async function lines(ctx: ServiceContext, input: z.infer<typeof listJobLines.input>) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
+    if (!job) throw new NotFoundError("Job");
+    const rows = await tx.select().from(schema.jobLine)
+      .where(eq(schema.jobLine.jobId, input.id))
+      .orderBy(schema.jobLine.occurredAt, schema.jobLine.createdAt);
+    return {
+      data: rows.map((row) => {
+        const shown = clean(ctx, "jobLine", row);
+        return {
+          id: row.id, jobId: row.jobId, visitId: row.visitId, kind: row.kind, source: row.source,
+          priceBookItemVersionId: row.priceBookItemVersionId, name: row.name, description: row.description,
+          quantity: row.quantity, unitPrice: row.unitPrice,
+          ...("unitCost" in shown ? { unitCost: row.unitCost } : {}),
+          taxable: row.taxable, invoiceLineId: row.invoiceLineId, nonBillableReason: row.nonBillableReason,
+          occurredAt: row.occurredAt.toISOString(),
+        };
+      }),
+    };
   });
 }
 

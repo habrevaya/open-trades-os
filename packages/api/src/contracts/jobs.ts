@@ -329,6 +329,48 @@ export const listJobTypes = defineRoute({
   }),
 });
 
+/**
+ * WHAT WAS USED ON A JOB.
+ *
+ * Job lines have been written since the field app first recorded a part,
+ * and nothing could read them back except a margin report, so the office
+ * raising an invoice had to ask the technician what they had used. Listed
+ * with whether each one is billed yet, because "what is still to invoice on
+ * this job" is the question the invoice is answering.
+ */
+export const JobLine = z.object({
+  id: Uuid,
+  jobId: Uuid,
+  visitId: Uuid.nullable(),
+  kind: z.string(),
+  source: z.string(),
+  priceBookItemVersionId: Uuid.nullable(),
+  name: z.string(),
+  description: z.string().nullable(),
+  quantity: MoneyString,
+  unitPrice: MoneyString,
+  /** Redacted unless the caller holds job.cost:read. */
+  unitCost: MoneyString.nullable().optional(),
+  taxable: z.boolean(),
+  /** Null until an invoice line bills it. */
+  invoiceLineId: Uuid.nullable(),
+  /** Set when it is deliberately not billed: warranty, goodwill, rework. */
+  nonBillableReason: z.string().nullable(),
+  occurredAt: z.string().datetime(),
+});
+
+export const listJobLines = defineRoute({
+  method: "get",
+  path: "/v1/jobs/{id}/lines",
+  summary: "List what was used on a job",
+  description:
+    "Parts, labour and anything else recorded against the job, from the field or the office, oldest first, each with the invoice line that billed it or null when nothing has yet.",
+  module: "M10",
+  permissions: ["job:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({ data: z.array(JobLine) }),
+});
+
 export const jobRoutes = {
-  listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit, listJobTypes,
+  listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines,
 } as const;

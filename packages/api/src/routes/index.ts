@@ -93,6 +93,7 @@ export const handlers = {
   updateJob: jobs.update,
   scheduleVisit: jobs.addVisit,
   completeVisit: jobs.complete,
+  listJobLines: jobs.lines,
   listJobTypes: jobs.listTypes,
 
   // Money

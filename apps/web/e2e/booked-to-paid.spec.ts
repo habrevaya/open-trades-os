@@ -6,9 +6,9 @@ import { test, expect, run, api } from "./fixtures";
  * "Create a customer, book a job, complete it, invoice it, take a payment, and
  * see the money in a report that agrees with the ledger to the cent."
  *
- * The customer, their address and booking the job go through the screens.
- * Completing the visit, raising the invoice and recording the payment have
- * no office screen yet, so those three go through the HTTP API as the same
+ * The customer, their address, booking the job and completing its visit go
+ * through the screens. Raising the invoice and recording the payment have
+ * no office screen yet, so those two go through the HTTP API as the same
  * signed in owner; every result is then read back off the screens a person
  * would check, which is where a wrong number would be seen.
  */
@@ -64,12 +64,13 @@ test("the owner books a job from a new customer through to paid, and the report 
   const job = await api<Job>(owner.request, "GET", `/v1/jobs/${jobId}`);
   expect(job.visits).toHaveLength(1);
 
-  // Completed.
-  await api(owner.request, "POST", `/v1/visits/${job.visits[0]!.id}/complete`, {
-    technicianNotes: "Dual run capacitor failed. Replaced, verified cooling.",
-  });
-  await owner.reload();
-  await expect(owner.getByText("Completed").first()).toBeVisible();
+  // Completed, from the office, with what was done.
+  await owner.getByText("Complete visit 1").first().click();
+  await owner.getByLabel("What was done on visit 1").fill("Dual run capacitor failed. Replaced, verified cooling.");
+  await owner.getByRole("button", { name: "Complete visit 1" }).click();
+  await expect(owner.getByRole("heading", { level: 1 }).locator("..").getByText("Completed")).toBeVisible();
+  await expect(owner.getByText("Dual run capacitor failed.")).toBeVisible();
+  await expect(owner.getByRole("button", { name: "Reopen job" })).toBeVisible();
 
   // Invoiced: one line at an odd price, so a rounding slip shows.
   const invoice = await api<Invoice>(owner.request, "POST", "/v1/invoices", {

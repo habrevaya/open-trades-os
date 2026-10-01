@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  jobs, customers, commercial, entitlements, files, profitability, NotFoundError,
+  jobs, customers, commercial, entitlements, files, profitability, priceBook, NotFoundError,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -20,6 +20,8 @@ import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { addVisit } from "../actions";
+import { completeVisitFromOffice, setJobStatus } from "./actions";
+import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +84,14 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const schedules = can(user.actor, "visit:write") && job.status !== "cancelled" && job.status !== "paid";
   const technicians = await technicianChoices(ctx, user.organizationTimezone);
   const nameOf = new Map(technicians.map((t) => [t.id, t.displayName]));
+  const completes = can(user.actor, "job:complete");
+  const openVisits = job.visits.filter((v) => (OPEN_VISIT as readonly string[]).includes(v.status));
+  const used = (await jobs.lines(ctx, { id })).data;
+  const items = completes && openVisits.length > 0 && can(user.actor, "pricebook:read")
+    ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
+      .map((item) => ({ id: item.id, name: item.name, price: item.price }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -256,6 +266,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                 {visit.windowStart
                   ? formatIn(visit.windowStart, user.organizationTimezone)
                   : "Unscheduled"}
+                {visit.technicianNotes ? (
+                  <p className="mt-1 whitespace-pre-line text-xs text-ink-500">{visit.technicianNotes}</p>
+                ) : null}
               </Td>
               <Td className="text-ink-700">
                 {visit.technicianIds.length === 0
@@ -272,6 +285,13 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         </Table>
       )}
 
+      {completes && openVisits.map((visit) => (
+        <CompleteVisit key={visit.id} action={completeVisitFromOffice} jobId={id}
+                       visit={{ id: visit.id, sequence: visit.sequence }} items={items} />
+      ))}
+
+      {writes && <JobLifecycle action={setJobStatus} jobId={id} status={job.status} openVisits={openVisits.length} />}
+
       {schedules && (
         <details className="mt-4 rounded-md border border-steel-200 p-4">
           <summary className="cursor-pointer text-sm font-medium">Add a visit</summary>
@@ -281,6 +301,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           </ActionForm>
         </details>
       )}
+
+      <UsedOnJob lines={used} />
 
       {(photos.length > 0 || outstanding.pending > 0 || outstanding.abandoned > 0) && (
         <>

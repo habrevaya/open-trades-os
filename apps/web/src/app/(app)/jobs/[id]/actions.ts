@@ -6,6 +6,9 @@ import { getDb } from "@/lib/db";
 import { commercial, entitlements, jobs, ConflictError } from "@opentradesos/api/services";
 import type { coverage } from "@opentradesos/core";
 import { partiesFromForm } from "@/lib/job-parties";
+import { completeVisit } from "@opentradesos/api/contracts";
+import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { PART_ROWS } from "./parts";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -100,4 +103,50 @@ export async function setJobParties(_previous: unknown, form: FormData) {
   }
   revalidatePath(`/jobs/${jobId}`);
   return { done: true };
+}
+
+/**
+ * FINISHING THE WORK, FROM THE OFFICE.
+ *
+ * Completing a visit was a technician's phone or `POST /v1/visits/{id}/complete`,
+ * so a company whose technicians do not carry the app, or a visit the office
+ * hears about by phone, could not be finished at all. The same service call
+ * the API makes: the notes, what was used (as job lines, priced from the
+ * price book), and the job finished when its last visit is.
+ */
+export async function completeVisitFromOffice(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const partsUsed: { priceBookItemId: string; quantity: string }[] = [];
+  for (let i = 0; i < PART_ROWS; i += 1) {
+    const item = field(form, `partItem${i}`);
+    if (!item) continue;
+    partsUsed.push({ priceBookItemId: item, quantity: field(form, `partQuantity${i}`) ?? "1" });
+  }
+  const result = await attempt(async () => {
+    const input = parsed(completeVisit.input, {
+      id: field(form, "visitId"),
+      technicianNotes: field(form, "technicianNotes"),
+      ...(partsUsed.length > 0 ? { partsUsed } : {}),
+    });
+    await jobs.complete(await ctx(), input);
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}
+
+/**
+ * Moving the job itself along its lifecycle: finishing a job that has no
+ * visit left open, and reopening a finished one when the customer calls
+ * back. Which moves are allowed is the service's rule (`canTransition`),
+ * not this form's: a paid job does not reopen, and the refusal says so.
+ */
+export async function setJobStatus(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const status = field(form, "status");
+  if (status !== "completed" && status !== "in_progress") return { error: "Nothing to do." };
+  const result = await attempt(async () => {
+    await jobs.update(await ctx(), { id: jobId, status });
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
 }
