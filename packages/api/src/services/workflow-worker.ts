@@ -102,6 +102,7 @@ export async function drainOrganization(
   db: Database,
   organizationId: string,
   limit = BATCH,
+  shouldStop?: () => boolean,
 ): Promise<DrainResult> {
   const ctx: ServiceContext = { actor: workerActor(organizationId), db };
 
@@ -117,7 +118,14 @@ export async function drainOrganization(
   const runs: RunSummary[] = [];
   let reached = 0;
 
+  let handled = 0;
   for (const event of events) {
+    /**
+     * Out of time, between events. The cursor below only moves to the last
+     * event actually handled, so the rest are still unread for the next pass.
+     */
+    if (shouldStop?.()) break;
+    handled += 1;
     /**
      * A workflow that throws must not stop the log.
      *
@@ -139,7 +147,7 @@ export async function drainOrganization(
 
   if (reached > 0) await advanceCursor(ctx, organizationId, reached);
 
-  return { organizationId, events: events.length, runs, cursor: reached };
+  return { organizationId, events: handled, runs, cursor: reached };
 }
 
 /**
@@ -153,6 +161,7 @@ export async function drainOrganization(
 export async function drainAll(db: Database, options: {
   organizations?: number;
   perOrganization?: number;
+  shouldStop?: () => boolean;
 } = {}): Promise<DrainResult[]> {
   const rows = await db.execute<{ organization_id: string }>(
     sql`select organization_id from app.pending_event_organizations(
@@ -161,28 +170,20 @@ export async function drainAll(db: Database, options: {
 
   const results: DrainResult[] = [];
   for (const row of rows) {
-    results.push(await drainOrganization(db, row.organization_id, options.perOrganization ?? BATCH));
+    if (options.shouldStop?.()) break;
+    results.push(await drainOrganization(
+      db, row.organization_id, options.perOrganization ?? BATCH, options.shouldStop,
+    ));
   }
   return results;
 }
 
-/**
- * Run until stopped.
- *
- * A poll rather than a listen, because LISTEN/NOTIFY does not survive a
- * connection drop and a missed notification is a text that never gets sent.
- * Polling a cursor recovers on its own: the worst case of a restart is one
- * interval of latency.
- */
-export async function runWorker(options: {
+export interface PassOptions {
   db: Database;
-  intervalMs?: number;
-  signal?: AbortSignal;
-  onPass?: (results: DrainResult[]) => void;
   /**
-   * Whether this worker also drives the clock.
+   * Whether this pass also drives the clock.
    *
-   * On by default, and the same loop rather than a second process, because a
+   * On by default, and the same pass rather than a second process, because a
    * scheduled workflow is a workflow: it queues messages into the same outbox
    * and writes into the same event log. A deployment that wants the clock
    * somewhere else turns it off here.
@@ -195,45 +196,95 @@ export async function runWorker(options: {
    * message and stops, and something else hands it to a carrier. Passed in
    * rather than imported so a deployment with no messaging provider runs the
    * same worker with nothing to configure, and so the worker does not depend
-   * on a carrier adapter to start.
+   * on a carrier adapter to start. `backgroundHooks` in worker-hooks.ts is
+   * the one both the process and the tick pass.
    */
   afterDrain?: (organizationId: string) => Promise<void>;
+  /**
+   * Asked between items (between events, schedules, parked runs and
+   * organizations) and never in the middle of one. When it answers true the
+   * pass stops where it is, and everything it did not reach is still due for
+   * the next one: the cursor moves only past events that were handled, and
+   * a schedule or a parked run keeps its due time until it is claimed.
+   *
+   * It is how the loop below stops on SIGTERM without abandoning a run with a
+   * row saying it is still running, and how the tick stops inside a hosting
+   * platform's time limit.
+   */
+  shouldStop?: () => boolean;
+}
+
+/**
+ * ONE PASS: the clock, then the log, then whatever the drain left to send.
+ *
+ * The long running process and the serverless tick both call this and nothing
+ * else, so the two cannot disagree about what a pass is. They differ only in
+ * what surrounds it: the process goes round forever with a sleep when there
+ * was nothing to do, the tick goes round until its time budget is spent.
+ */
+export async function runPass(options: PassOptions): Promise<DrainResult[]> {
+  const stop = options.shouldStop;
+
+  /**
+   * The clock first, so anything it fires is in the log before this pass
+   * reads it and goes out on the same pass rather than the next.
+   */
+  if (options.schedules !== false) {
+    try {
+      await tick(options.db, stop ? { shouldStop: stop } : {});
+      // And the runs that are partway through one, waiting on a clock.
+      await resumeDue(options.db, stop ? { shouldStop: stop } : {});
+      // And the records that have been sitting there too long.
+      await sweep(options.db, stop ? { shouldStop: stop } : {});
+    } catch (error) {
+      // Logged and retried on the next pass. A worker that exits here stops
+      // every automation in the product.
+      console.error("[worker] schedules:", (error as Error).message);
+    }
+  }
+
+  const results = await drainAll(options.db, stop ? { shouldStop: stop } : {});
+
+  /**
+   * NOT cut short by `shouldStop`. The drain for these organizations has
+   * already happened, and this hook only runs for organizations that had
+   * events, so skipping it would leave a text a workflow just queued sitting
+   * in the outbox until that company happens to produce another event, which
+   * on a quiet afternoon is hours. The budget is set with room for it.
+   */
+  for (const result of results) {
+    if (result.events === 0) continue;
+    try {
+      await options.afterDrain?.(result.organizationId);
+    } catch (error) {
+      // One organization's carrier being down must not stop the loop for
+      // everybody else. The messages stay queued and go on the next pass.
+      console.error(`[worker] outbox ${result.organizationId}:`, (error as Error).message);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Run until stopped.
+ *
+ * A poll rather than a listen, because LISTEN/NOTIFY does not survive a
+ * connection drop and a missed notification is a text that never gets sent.
+ * Polling a cursor recovers on its own: the worst case of a restart is one
+ * interval of latency.
+ */
+export async function runWorker(options: Omit<PassOptions, "shouldStop"> & {
+  intervalMs?: number;
+  signal?: AbortSignal;
+  onPass?: (results: DrainResult[]) => void;
 }): Promise<void> {
   const interval = options.intervalMs ?? 5_000;
+  const { intervalMs: _i, signal, onPass: _o, ...pass } = options;
 
-  while (!options.signal?.aborted) {
+  while (!signal?.aborted) {
     try {
-      /**
-       * The clock first, so anything it fires is in the log before this
-       * pass reads it and goes out on the same pass rather than the next.
-       */
-      if (options.schedules !== false) {
-        try {
-          await tick(options.db);
-          // And the runs that are partway through one, waiting on a clock.
-          await resumeDue(options.db);
-          // And the records that have been sitting there too long.
-          await sweep(options.db);
-        } catch (error) {
-          // Same reasoning as the drain below: logged and retried. A worker
-          // that exits here stops every automation in the product.
-          console.error("[worker] schedules:", (error as Error).message);
-        }
-      }
-
-      const results = await drainAll(options.db);
-
-      for (const result of results) {
-        if (result.events === 0) continue;
-        try {
-          await options.afterDrain?.(result.organizationId);
-        } catch (error) {
-          // One organization's carrier being down must not stop the loop for
-          // everybody else. The messages stay queued and go on the next pass.
-          console.error(`[worker] outbox ${result.organizationId}:`, (error as Error).message);
-        }
-      }
-
+      const results = await runPass({ ...pass, shouldStop: () => signal?.aborted ?? false });
       options.onPass?.(results);
       /**
        * A pass that did work goes straight round again. A backlog should
@@ -248,10 +299,65 @@ export async function runWorker(options: {
 
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, interval);
-      options.signal?.addEventListener("abort", () => {
+      signal?.addEventListener("abort", () => {
         clearTimeout(timer);
         resolve();
       }, { once: true });
     });
   }
+}
+
+export interface TickSummary {
+  passes: number;
+  events: number;
+  organizations: number;
+  /** True when the budget ran out with work possibly still due. */
+  stoppedForBudget: boolean;
+  durationMs: number;
+}
+
+/**
+ * A BOUNDED RUN, for a host with no long running processes.
+ *
+ * Netlify, and serverless hosting generally, can call a URL on a schedule and
+ * cannot keep a loop alive. This is the loop's body with a deadline instead
+ * of a signal: passes, back to back while the last one found events, until
+ * there is nothing to do or the budget is spent. The budget is checked
+ * between events, so the time limit it protects against is the platform's
+ * and not a half handled event.
+ *
+ * Several of these overlapping, or one overlapping a worker process, is safe
+ * for the same reasons two workers are: see "Running more than one" in
+ * docs/self-hosting/worker.md.
+ */
+export async function runBounded(options: Omit<PassOptions, "shouldStop"> & {
+  budgetMs: number;
+  now?: () => number;
+}): Promise<TickSummary> {
+  const now = options.now ?? Date.now;
+  const started = now();
+  const deadline = started + options.budgetMs;
+  const shouldStop = () => now() >= deadline;
+  const { budgetMs: _b, now: _n, ...pass } = options;
+
+  const organizations = new Set<string>();
+  let passes = 0;
+  let events = 0;
+
+  for (;;) {
+    const results = await runPass({ ...pass, shouldStop });
+    passes += 1;
+    const handled = results.reduce((n, r) => n + r.events, 0);
+    events += handled;
+    for (const r of results) if (r.events > 0) organizations.add(r.organizationId);
+    if (handled === 0 || shouldStop()) break;
+  }
+
+  return {
+    passes,
+    events,
+    organizations: organizations.size,
+    stoppedForBudget: shouldStop(),
+    durationMs: now() - started,
+  };
 }

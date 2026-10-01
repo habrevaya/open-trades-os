@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { Database } from "@opentradesos/db";
 import { dispatch, type DispatchDeps } from "../src/http/dispatch";
 import { configuredToken, presentsToken, MIN_TOKEN_LENGTH } from "../src/http/bearer";
+import { handleWorkerTick } from "../src/http/worker-tick";
 
 /**
  * WHO MAY REACH THE OPERATOR API
@@ -110,5 +111,25 @@ describe("the operator token", () => {
     expect(presentsToken(req("Bearer a"), TOKEN)).toBe(false);
     expect(presentsToken(req(`Basic ${TOKEN}`), TOKEN)).toBe(false);
     expect(presentsToken(new Request("https://x.test"), TOKEN)).toBe(false);
+  });
+});
+
+describe("the worker tick is off unless a long enough token is set", () => {
+  const tick = (token: string | null, headers: Record<string, string> = {}, method = "POST") =>
+    handleWorkerTick(new Request("https://ots.example.test/api/internal/worker/tick", { method, headers }),
+      { db: untouchable, token });
+
+  it("answers 404 with no token, whatever is presented", async () => {
+    expect((await tick(null, { authorization: `Bearer ${TOKEN}` })).status).toBe(404);
+  });
+
+  it("answers 401 to a missing or wrong token, and to the operator's", async () => {
+    expect((await tick(TOKEN)).status).toBe(401);
+    expect((await tick(TOKEN, { authorization: `Bearer ${TOKEN}x` })).status).toBe(401);
+    expect((await tick(TOKEN, { cookie: `ots_session=${TOKEN}` })).status).toBe(401);
+  });
+
+  it("takes POST only, once authenticated", async () => {
+    expect((await tick(TOKEN, { authorization: `Bearer ${TOKEN}` }, "GET")).status).toBe(405);
   });
 });
