@@ -1,4 +1,4 @@
-import { test as base, expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 import { readSeed, type Seed } from "./seed";
 
 /**
@@ -80,25 +80,24 @@ export { expect };
 export const run = Date.now().toString(36);
 
 /**
- * The HTTP API, as the signed in person.
- *
- * Used only where the product has no screen for the step yet (booking a job,
- * raising an invoice, recording a payment). The request carries the same
- * session cookie as the page, so it is the same person with the same
- * permissions doing it, and the screens are then checked for the result.
+ * A customer, through the New customer form, as the office adds one while
+ * the phone is ringing. Answers the id off the page it lands on.
  */
-export async function api<T = Record<string, unknown>>(
-  request: APIRequestContext,
-  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const response = await request.fetch(`/api${path}`, {
-    method,
-    headers: { "content-type": "application/json", "idempotency-key": `e2e-${run}-${Math.random()}` },
-    ...(body === undefined ? {} : { data: body }),
-  });
-  const text = await response.text();
-  if (!response.ok()) throw new Error(`${method} ${path} answered ${response.status()}: ${text}`);
-  return (text ? JSON.parse(text) : {}) as T;
+export async function newCustomer(owner: Page, customer: {
+  name: string; phone?: string; email?: string;
+  address?: { street: string; city: string; state: string; zip: string };
+}): Promise<string> {
+  await owner.goto("/customers/new");
+  await owner.getByLabel("Name").fill(customer.name);
+  if (customer.phone) await owner.getByLabel("Phone").fill(customer.phone);
+  if (customer.email) await owner.getByLabel("Email").fill(customer.email);
+  if (customer.address) {
+    await owner.getByLabel("Street").fill(customer.address.street);
+    await owner.getByLabel("City").fill(customer.address.city);
+    await owner.getByLabel("State").fill(customer.address.state);
+    await owner.getByLabel("ZIP").fill(customer.address.zip);
+  }
+  await owner.getByRole("button", { name: "Save customer" }).click();
+  await expect(owner.getByRole("heading", { level: 1, name: customer.name })).toBeVisible();
+  return owner.url().split("/").pop()!;
 }

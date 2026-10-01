@@ -1,40 +1,49 @@
-import { test, expect, run, api } from "./fixtures";
+import { test, expect, run, newCustomer } from "./fixtures";
 
 /**
  * A TECHNICIAN'S DAY, ON A PHONE
  *
- * The office books a visit starting now and puts Ray on it. Ray, on a
- * phone sized screen, clocks in, tells the customer he is on the way, starts,
- * writes down what he found and finishes. The office then sees it done.
+ * The office takes the call on its screens: the customer and their address,
+ * and a job booked for now with Ray ticked to go. Ray, on a phone sized
+ * screen, clocks in, tells the customer he is on the way, starts, writes down
+ * what he found and finishes. The office then sees it done.
  *
  * Every tap goes through the same offline queue and sync the native app
  * will, so this is the path that has to survive a basement.
  */
+
+/** Today and the current minute on the company's wall clock, as the booking form takes them. */
+function companyNow(timeZone: string): { date: string; time: string } {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return { date: `${parts["year"]}-${parts["month"]}-${parts["day"]}`, time: `${parts["hour"]}:${parts["minute"]}` };
+}
+
 test("a technician runs a visit from a phone, and the office sees it finished", async ({ owner, tech }) => {
   const customer = `Marguerite Oyelaran ${run}`;
-  const created = await api<{ id: string }>(owner.request, "POST", "/v1/customers", {
-    type: "residential", name: customer, phone: "(512) 555-0149",
-    property: { address: { line1: "604 Elm Ridge Rd", city: "Austin", state: "TX", postalCode: "78727", country: "US" } },
+  await newCustomer(owner, {
+    name: customer, phone: "(512) 555-0149",
+    address: { street: "604 Elm Ridge Rd", city: "Austin", state: "TX", zip: "78727" },
   });
-  const { data: [property] } = await api<{ data: { id: string }[] }>(owner.request, "GET", `/v1/properties?customerId=${created.id}`);
-  const { people } = await api<{ people: { name: string | null; displayName: string | null; technicianId: string | null }[] }>(
-    owner.request, "GET", "/v1/people");
-  const ray = people.find((p) => (p.displayName ?? p.name) === "Ray Ortiz" && p.technicianId)!;
 
-  const now = Date.now();
-  const job = await api<{ id: string; visits: { id: string }[] }>(owner.request, "POST", "/v1/jobs", {
-    customerId: created.id, propertyId: property!.id,
-    summary: `Furnace short cycling ${run}`,
-    customerComplaint: "Turns on and off every couple of minutes",
-    visit: {
-      // Starting now rather than a little earlier, so the visit is on today's
-      // page in any timezone, at any hour, including a few minutes after midnight.
-      windowStart: new Date(now + 60_000).toISOString(),
-      windowEnd: new Date(now + 121 * 60_000).toISOString(),
-      estimatedDurationMinutes: 60,
-      technicianIds: [ray.technicianId],
-    },
-  });
+  /*
+    Booked for this minute on the seeded company's clock (America/Chicago),
+    so the visit is on today's page whatever the zone of the machine running
+    this, at any hour, including a few minutes after midnight.
+  */
+  await owner.getByRole("link", { name: "604 Elm Ridge Rd, Austin" }).click();
+  await owner.getByRole("link", { name: "Book a job here" }).click();
+  await owner.getByLabel("Summary").fill(`Furnace short cycling ${run}`);
+  await owner.getByLabel("Customer said").fill("Turns on and off every couple of minutes");
+  const now = companyNow("America/Chicago");
+  await owner.getByLabel("Day", { exact: true }).fill(now.date);
+  await owner.getByLabel("Arrives from").fill(now.time);
+  await owner.getByLabel("Ray Ortiz").check();
+  await owner.getByRole("button", { name: "Book job" }).click();
+  await expect(owner).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+  const jobUrl = owner.url();
+  await expect(owner.getByRole("table").last()).toContainText("Ray Ortiz");
 
   await tech.goto("/my-day");
   await expect(tech.getByRole("heading", { level: 1 })).toBeVisible();
@@ -69,6 +78,6 @@ test("a technician runs a visit from a phone, and the office sees it finished", 
   await tech.reload();
   await expect(tech.getByRole("article").filter({ hasText: customer })).toContainText(/completed/i);
 
-  await owner.goto(`/jobs/${job.id}`);
+  await owner.goto(jobUrl);
   await expect(owner.getByRole("table").last()).toContainText("Completed");
 });

@@ -1,6 +1,7 @@
 import { defineConfig, devices, chromium } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
 
 /**
  * THE BROWSER SUITE
@@ -89,9 +90,12 @@ export default defineConfig({
      * Configured the way .env.example says to, and no further. The links a
      * customer is sent are built from PUBLIC_URL, and setting anything more
      * here than a deployment would is how a suite passes against a setup
-     * nobody runs.
+     * nobody runs. The two Stripe variables are the ones .env.example names,
+     * holding values that are not keys: the suite points the company's
+     * Stripe connection at a local fake and signs its own webhook with the
+     * second (e2e/stripe.ts).
      */
-    env: { PUBLIC_URL: BASE },
+    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },

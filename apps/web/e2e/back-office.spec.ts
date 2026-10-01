@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { test, expect, run, api } from "./fixtures";
+import { test, expect, run, newCustomer } from "./fixtures";
 import { fakeCarrier, flushOutbox } from "./outbox";
 
 /**
@@ -16,9 +16,7 @@ const iso = (date: Date) => date.toISOString().slice(0, 10);
 const inDays = (days: number) => iso(new Date(Date.now() + days * 864e5));
 
 test("Messages: the office texts a customer, the thread shows it queued, and the outbox hands it to the carrier", async ({ owner }) => {
-  const customer = await api<{ id: string }>(owner.request, "POST", "/v1/customers", {
-    type: "residential", name: `Priya Raman ${run}`, phone: "512-555-0161",
-  });
+  const customer = { id: await newCustomer(owner, { name: `Priya Raman ${run}`, phone: "512-555-0161" }) };
 
   await owner.goto(`/customers/${customer.id}`);
   const body = `Your part came in, we can fit you in Thursday. ${run}`;
@@ -96,10 +94,9 @@ test("Payroll: a period is added, closed, and exported as the CSV the bureau imp
 
 test("Projects: a project is started for a customer, given a phase and a draw", async ({ owner }) => {
   const name = `Kitchen remodel ${run}`;
-  const customer = await api<{ id: string }>(owner.request, "POST", "/v1/customers", {
-    type: "residential", name: `Hannah Okoro ${run}`,
-    property: { address: { line1: "31 Live Oak Dr", city: "Austin", state: "TX", postalCode: "78745", country: "US" } },
-  });
+  const customer = { id: await newCustomer(owner, {
+    name: `Hannah Okoro ${run}`, address: { street: "31 Live Oak Dr", city: "Austin", state: "TX", zip: "78745" },
+  }) };
 
   await owner.goto("/projects");
   await owner.getByRole("link", { name: "Start a project" }).click();

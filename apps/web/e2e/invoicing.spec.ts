@@ -1,16 +1,15 @@
-import { test, expect, run, api } from "./fixtures";
+import { test, expect, run, newCustomer } from "./fixtures";
 
 /**
  * AN INVOICE'S LIFE IN THE OFFICE
  *
  * Written as a draft, edited, issued, and voided when it turns out it
  * should never have been raised: each through the invoice screens, with the
- * numbers read back off them.
+ * numbers read back off them. Nothing here calls the HTTP API.
  */
+
 test("an invoice is saved as a draft, edited, issued and voided from the invoice screens", async ({ owner }) => {
-  const customer = await api<{ id: string }>(owner.request, "POST", "/v1/customers", {
-    type: "residential", name: `Oona Verhoeven ${run}`, email: `oona+${run}@example.test`,
-  });
+  const customer = { id: await newCustomer(owner, { name: `Oona Verhoeven ${run}`, email: `oona+${run}@example.test` }) };
 
   await owner.goto(`/customers/${customer.id}`);
   await owner.getByRole("link", { name: "New invoice" }).click();
@@ -44,9 +43,7 @@ test("an invoice is saved as a draft, edited, issued and voided from the invoice
 });
 
 test("money that arrives before the invoice is held, applied to it later, and the rest given back", async ({ owner }) => {
-  const customer = await api<{ id: string }>(owner.request, "POST", "/v1/customers", {
-    type: "residential", name: `Priya Ramanathan ${run}`,
-  });
+  const customer = { id: await newCustomer(owner, { name: `Priya Ramanathan ${run}` }) };
 
   // A deposit by bank transfer, with nothing owed yet: all of it held.
   await owner.goto(`/customers/${customer.id}`);
@@ -59,11 +56,16 @@ test("money that arrives before the invoice is held, applied to it later, and th
   await expect(payments.getByRole("row").filter({ hasText: "Bank transfer" })).toContainText("$500.00");
 
   // The work is invoiced, and the held money applied to it.
-  const invoice = await api<{ id: string; number: number }>(owner.request, "POST", "/v1/invoices", {
-    customerId: customer.id,
-    lines: [{ name: "Water heater flush", quantity: "1", unitPrice: "320.00", discountAmount: "0", taxable: false }],
-  });
-  await owner.reload();
+  await owner.getByRole("link", { name: "New invoice" }).click();
+  await owner.getByLabel("Line 1 description").fill("Water heater flush");
+  await owner.getByLabel("Line 1 unit price").fill("320.00");
+  await owner.getByRole("button", { name: "Create invoice" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  const invoice = {
+    id: owner.url().split("/").pop()!,
+    number: (await owner.getByRole("heading", { level: 1 }).textContent())!.replace(/\D/g, ""),
+  };
+  await owner.goto(`/customers/${customer.id}`);
   await payments.getByText(/^Apply \$500\.00 held/).click();
   await payments.getByLabel(`Apply held money to invoice ${invoice.number}`).fill("320.00");
   await payments.getByRole("button", { name: "Apply held money" }).click();
