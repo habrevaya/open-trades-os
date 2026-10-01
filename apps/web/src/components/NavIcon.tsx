@@ -21,9 +21,16 @@ export type IconName =
   | "invoices" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet";
+  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Compliance: a shield, for what keeps the company allowed to work. */
+  compliance: (
+    <>
+      <path d="M12 3.5 5 6v5.5c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9V6z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
   /** Fleet: a van from the side, which is the asset everybody means first. */
   fleet: (
     <>

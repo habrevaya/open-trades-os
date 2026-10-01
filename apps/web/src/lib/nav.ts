@@ -135,6 +135,8 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/reviews", label: "Reviews", permission: "review:respond", icon: "reviews" },
+      /** The company's own licences, insurance and filings. Business, because it is about the company rather than a job. */
+      { href: "/compliance", label: "Compliance", permission: "document:read", icon: "compliance" },
       {
         href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
         children: [
