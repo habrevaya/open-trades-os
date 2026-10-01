@@ -21,7 +21,7 @@ export default function globalSetup(): void {
     execFileSync("pnpm", args, { cwd: root, env: process.env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 
   run(["--filter", "@opentradesos/db", "migrate"]);
-  const output = run(["--filter", "@opentradesos/db", "seed"]);
+  const output = run(["--filter", "@opentradesos/api", "seed"]);
 
   const seed = parseSeed(output);
   const dir = join(__dirname, ".state");

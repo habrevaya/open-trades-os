@@ -60,6 +60,10 @@ test("Job costing: the report's date range submits and keeps its rows", async ({
   await expect(owner).toHaveURL(/from=.*to=/);
   await expect(owner.getByRole("columnheader", { name: "Revenue" })).toBeVisible();
   await expect(owner.locator("main table tbody tr").first()).toBeVisible();
+
+  // The seeded jobs carry the revenue their invoices posted, not $0.00.
+  await expect(owner.getByRole("row").filter({ hasText: "Semiannual maintenance, two systems" })).toContainText("$344.24");
+  await expect(owner.getByRole("row").filter({ hasText: "Suite 400 tenant complaint" })).toContainText("$2,480.50");
 });
 
 test("Payroll: a period is added, closed, and exported as the CSV the bureau imports", async ({ owner }) => {

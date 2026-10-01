@@ -88,7 +88,7 @@ for (const packId of wanted) {
    */
   const output = execFileSync(
     "pnpm",
-    ["-s", "--filter", "@opentradesos/db", "seed", "--pack", packId],
+    ["-s", "--filter", "@opentradesos/api", "seed", "--pack", packId],
     { encoding: "utf8", env: { ...process.env, TZ: "America/Chicago" } },
   );
   const token = output.match(/ots_session=([^;]+);/)?.[1];

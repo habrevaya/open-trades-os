@@ -99,7 +99,6 @@ describe("lead sources", () => {
     const roots = [
       join(__dirname, "../src"),
       join(__dirname, "../../../apps/web/src"),
-      join(__dirname, "../../db/src/seed"),
     ];
     const found: { file: string; value: string }[] = [];
 
