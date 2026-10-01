@@ -13,6 +13,9 @@ import { Contacts } from "./Contacts";
 import { Lifecycle } from "./Lifecycle";
 import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
+import { Payments } from "./Payments";
+import { applyHeld, refund } from "../../payments/actions";
+import { formatDay, todayIn } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +84,15 @@ export default async function CustomerPage({
   const invoices = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 50, customerId: id })).data
     : null;
+  const paid = can(user.actor, "payment:read")
+    ? (await billing.pagePayments(ctx, { limit: 50, customerId: id, unappliedOnly: false })).data
+    : null;
+  const numberOf = new Map((invoices ?? []).map((inv) => [inv.id, inv.number]));
+  const owing = (invoices ?? [])
+    .filter((inv) => inv.status === "open" || inv.status === "partially_paid")
+    .map((inv) => ({ id: inv.id, number: inv.number, balance: inv.balance ?? "0" }));
+  const dayOf = (at: string | Date) =>
+    formatDay(todayIn(user.organizationTimezone, new Date(at)), user.organizationTimezone);
   const addresses = can(user.actor, "property:read")
     ? (await propertyService.list(ctx, { limit: 50, customerId: id })).data
     : [];
@@ -231,6 +243,23 @@ export default async function CustomerPage({
             </tr>
           ))}
         </Table>
+      )}
+
+      {paid && (
+        <Payments
+          customerId={id}
+          payments={paid.map((p) => ({
+            id: p.id, method: p.method, amount: p.amount ?? "0", refundedAmount: p.refundedAmount ?? "0",
+            unappliedAmount: p.unappliedAmount, receivedOn: dayOf(p.receivedAt),
+            checkNumber: p.checkNumber ?? null, processorPaymentId: p.processorPaymentId ?? null,
+            allocations: p.allocations.map((a) => ({ invoiceNumber: numberOf.get(a.invoiceId) ?? null, amount: a.amount })),
+          }))}
+          open={owing}
+          apply={applyHeld}
+          refund={refund}
+          canCollect={can(user.actor, "payment:collect")}
+          canRefund={can(user.actor, "payment:refund")}
+        />
       )}
 
       {invoices && (

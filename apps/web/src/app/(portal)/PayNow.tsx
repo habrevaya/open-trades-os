@@ -46,12 +46,14 @@ function loadStripe(): Promise<NonNullable<Window["Stripe"]>> {
  * this page, and the balance changes when the processor's signed webhook
  * says the money moved.
  */
-export function PayNow({ start, balance, label }: {
+export function PayNow({ start, balance, label, cta }: {
   /** A server action bound to the link's token, and to the invoice when the link reaches several. */
   start: () => Promise<StartPayment>;
   balance: string;
   /** What is being paid, when the page lists more than one thing. */
   label?: string;
+  /** The opening button's words, when it is not the customer pressing it. */
+  cta?: string;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "ready" | "paying">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +119,7 @@ export function PayNow({ start, balance, label }: {
           style={button}
           className="h-12 w-full rounded text-base font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
         >
-          {state === "loading" ? "Opening…" : `Pay ${balance}${label ? ` for ${label}` : ""} now`}
+          {state === "loading" ? "Opening…" : cta ?? `Pay ${balance}${label ? ` for ${label}` : ""} now`}
         </button>
       ) : (
         <>

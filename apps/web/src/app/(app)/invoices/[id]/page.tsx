@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, customers, invoiceDelivery, jobs, NotFoundError } from "@opentradesos/api/services";
+import { billing, customers, invoiceDelivery, jobs, payments, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -10,6 +10,8 @@ import { INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
 import { formatDay, formatIn } from "@/lib/dates";
 import { InvoiceActions } from "./Panels";
 import { actOnInvoice } from "../actions";
+import { startCardPayment } from "../../payments/actions";
+import { PayNow } from "../../../(portal)/PayNow";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,16 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     invoiceDelivery.history(ctx, { invoiceId: id }).then((r) => r.deliveries),
   ]);
   const tz = user.organizationTimezone;
+  const owed = (invoice.status === "open" || invoice.status === "partially_paid") && Number(invoice.balance ?? "0") > 0;
+  const collects = owed && can(user.actor, "payment:collect");
+  /**
+   * A card only when a processor is connected to take it. Whoever may not
+   * read the integration settings is offered the button anyway, and the
+   * service says plainly if there is nothing to take the card with.
+   */
+  const cards = collects && (can(user.actor, "integration:read")
+    ? (await payments.status(ctx)).connected
+    : true);
   const zero = (v: string) => Number(v) === 0;
 
   return (
@@ -94,6 +106,29 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <dt className="text-ink-500">Tax</dt><dd className="text-right"><Money value={invoice.taxTotal} /></dd>
         <dt className="font-medium">Total</dt><dd className="text-right font-medium"><Money value={invoice.total} /></dd>
       </dl>
+
+      {collects && (
+        <section aria-label="Take payment" className="mt-8 rounded-md border border-steel-200 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Take payment</h2>
+            <a href={`/payments/new?customer=${invoice.customerId}&invoice=${id}&back=/invoices/${id}`}
+               className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+              Record a payment
+            </a>
+          </div>
+          <p className="mt-1 text-sm text-ink-700">Cash, a cheque or a bank transfer, recorded against this invoice.</p>
+          {cards && (
+            <div className="mt-4 max-w-md">
+              <p className="mb-2 text-sm text-ink-700">
+                Or take a card now. It shows as paid when the processor confirms the money moved.
+              </p>
+              <PayNow start={startCardPayment.bind(null, invoice.customerId, id)}
+                      balance={`$${Number(invoice.balance ?? "0").toFixed(2)}`} label={`invoice ${invoice.number}`}
+                      cta={`Take card payment of $${Number(invoice.balance ?? "0").toFixed(2)}`} />
+            </div>
+          )}
+        </section>
+      )}
 
       <InvoiceActions
         action={actOnInvoice}

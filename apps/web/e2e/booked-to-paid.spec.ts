@@ -6,11 +6,12 @@ import { test, expect, run, api } from "./fixtures";
  * "Create a customer, book a job, complete it, invoice it, take a payment, and
  * see the money in a report that agrees with the ledger to the cent."
  *
- * The customer, their address, booking the job, completing its visit and
- * raising and sending the invoice go through the screens. Recording the
- * payment has no office screen yet, so that goes through the HTTP API as the same
- * signed in owner; every result is then read back off the screens a person
- * would check, which is where a wrong number would be seen.
+ * Every step goes through the screens a person would use: the customer and
+ * their address, booking the job, completing its visit, raising the invoice
+ * and handing over its link, and recording the cheque. The HTTP API is only
+ * read, as the same signed in owner, to learn the ids the screens created;
+ * every result is read back off the screens a person would check, which is
+ * where a wrong number would be seen.
  */
 
 type Job = { id: string; number: number; status: string; visits: { id: string; status: string }[] };
@@ -113,14 +114,17 @@ test("the owner books a job from a new customer through to paid, and the report 
   await owner.goto(`/customers/${customerId}`);
   await expect(balanceOf(owner)).toHaveText(money(invoice.total));
 
-  // Paid in full, by cheque.
-  await api(owner.request, "POST", "/v1/payments", {
-    customerId, method: "check", amount: "259.11", checkNumber: "1044",
-    allocations: [{ invoiceId: invoice.id, amount: "259.11" }],
-  });
-
+  // Paid in full, by cheque, recorded against the invoice.
   await owner.goto(`/invoices/${invoice.id}`);
-  await expect(owner.getByText("Paid").first()).toBeVisible();
+  await owner.getByRole("link", { name: "Record a payment" }).click();
+  await owner.getByLabel("How it was paid").selectOption("check");
+  await expect(owner.getByLabel("Amount received")).toHaveValue("259.11");
+  await expect(owner.getByLabel(`Apply to invoice ${invoice.number}`)).toHaveValue("259.11");
+  await owner.getByLabel("Cheque number").fill("1044");
+  await owner.getByRole("button", { name: "Record payment" }).click();
+  await expect(owner).toHaveURL(new RegExp(`/invoices/${invoice.id}$`));
+
+  await expect(owner.getByRole("heading", { level: 1 }).locator("..").getByText("Paid")).toBeVisible();
   await expect(factOf(owner, "Balance")).toHaveText("$0.00");
 
   await owner.goto(`/customers/${customerId}`);

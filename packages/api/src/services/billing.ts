@@ -929,6 +929,8 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       }
     }
 
+    if (input.allocations !== undefined) await assertAllocatable(tx, input.customerId, allocations);
+
     const allocatedTotal = m.sum(allocations.map((a) => a.amount), "USD");
     if (m.compare(allocatedTotal, amount) > 0) {
       throw new ConflictError(
@@ -1019,6 +1021,46 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
 }
 
 /**
+ * WHERE MONEY MAY BE APPLIED, asked the same way whoever is applying it.
+ *
+ * Applying held money later checked all of this, and recording a payment
+ * with its allocations named checked none of it: a payment could be put
+ * on another customer's invoice, on a void or a draft one (which `allocate`
+ * then marked paid), or for more than the invoice owed, leaving a negative
+ * balance the AR report counted as money the company owed back. Now both
+ * ask here: this customer's (or the invoice's payer's), open, a positive
+ * amount, never more than the balance, counting every line for the same
+ * invoice together.
+ */
+async function assertAllocatable(
+  tx: Database, customerId: string,
+  allocations: Array<{ invoiceId: string; amount: m.Money }>,
+): Promise<void> {
+  if (allocations.some((a) => !m.isPositive(a.amount))) {
+    throw new UnprocessableError("Each allocation must be a positive amount", [{
+      path: "allocations", message: "Apply a positive amount to each invoice.",
+    }]);
+  }
+  const byInvoice = new Map<string, m.Money>();
+  for (const a of allocations) byInvoice.set(a.invoiceId, m.add(byInvoice.get(a.invoiceId) ?? usd("0"), a.amount));
+  for (const [invoiceId, amount] of byInvoice) {
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(and(eq(schema.invoice.id, invoiceId), isNull(schema.invoice.deletedAt))).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+    if ((invoice.payerCustomerId ?? invoice.customerId) !== customerId
+      && invoice.customerId !== customerId) {
+      throw new ConflictError(`Invoice ${invoice.number} is not this customer's.`);
+    }
+    if (invoice.status !== "open" && invoice.status !== "partially_paid") {
+      throw new ConflictError(`Invoice ${invoice.number} is ${invoice.status.replace("_", " ")} and takes no payment.`);
+    }
+    if (m.compare(amount, usd(invoice.balance)) > 0) {
+      throw new ConflictError(`Invoice ${invoice.number} owes ${m.toString(usd(invoice.balance))}, less than ${m.toString(amount)}.`);
+    }
+  }
+}
+
+/**
  * What of a payment is still held for the customer: what arrived, less what
  * was applied, less what was given back. Never below zero, because a
  * processor refund of applied money moves the receivable rather than the
@@ -1077,21 +1119,7 @@ export async function applyPayment(
       throw new ConflictError(`This payment holds ${m.toString(held)} unapplied, and ${m.toString(total)} was asked for.`);
     }
 
-    for (const allocation of allocations) {
-      const [invoice] = await tx.select().from(schema.invoice)
-        .where(eq(schema.invoice.id, allocation.invoiceId)).limit(1);
-      if (!invoice) throw new NotFoundError("Invoice");
-      if ((invoice.payerCustomerId ?? invoice.customerId) !== payment.customerId
-        && invoice.customerId !== payment.customerId) {
-        throw new ConflictError(`Invoice ${invoice.number} is not this customer's.`);
-      }
-      if (invoice.status !== "open" && invoice.status !== "partially_paid") {
-        throw new ConflictError(`Invoice ${invoice.number} is ${invoice.status.replace("_", " ")} and takes no payment.`);
-      }
-      if (m.compare(allocation.amount, usd(invoice.balance)) > 0) {
-        throw new ConflictError(`Invoice ${invoice.number} owes ${invoice.balance}, less than ${m.toString(allocation.amount)}.`);
-      }
-    }
+    await assertAllocatable(tx, payment.customerId, allocations);
 
     await allocate(tx, ctx, {
       paymentId: payment.id, customerId: payment.customerId, allocations, announce: true,
