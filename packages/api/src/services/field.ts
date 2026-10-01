@@ -482,9 +482,11 @@ async function effect(
     }
 
     case "timeclock.punch_in": {
+      const technicianId = await punchingTechnician(tx, op);
+      if (!technicianId) return NOBODY_TO_PUNCH;
       await tx.insert(schema.timeclockEntry).values({
         organizationId: org,
-        technicianId: op.payload["technicianId"] as string,
+        technicianId,
         /**
          * `on_site` rather than `job`, which is what the enum used to say.
          * A punch with no kind is somebody at a property working, which is
@@ -509,7 +511,8 @@ async function effect(
     }
 
     case "timeclock.punch_out": {
-      const technicianId = op.payload["technicianId"] as string;
+      const technicianId = await punchingTechnician(tx, op);
+      if (!technicianId) return NOBODY_TO_PUNCH;
       const [open] = await tx.select().from(schema.timeclockEntry)
         .where(and(
           eq(schema.timeclockEntry.organizationId, org),
@@ -877,6 +880,32 @@ async function lastEditFor(
 }
 
 /** The technician a device belongs to, for attributing what came off it. */
+/**
+ * WHOSE TIME A PUNCH IS
+ *
+ * The phone's, which is to say the technician the device was registered to.
+ * This used to be read from the operation's payload and nowhere else, and the
+ * technician's own screen sends no payload with a punch, because the phone
+ * already knows whose it is. So clocking in from "My day" wrote a null
+ * technician, the database refused it, the sync threw, and the punch sat on
+ * the phone as "waiting to send" for ever while the screen said "Not clocked
+ * in". Nobody could clock in from the product.
+ *
+ * The device wins over the payload: a punch is evidence of hours somebody is
+ * paid for, and a phone must not be able to put them on another person's
+ * timesheet by naming them. The payload is honoured only from a device
+ * registered to nobody, which is an office tablet clocking a crew in.
+ */
+async function punchingTechnician(tx: Database, op: field.FieldOperation): Promise<string | null> {
+  const own = await technicianForDevice(tx, op.deviceId);
+  if (own) return own;
+  const named = op.payload["technicianId"];
+  return typeof named === "string" && named !== "" ? named : null;
+}
+
+const NOBODY_TO_PUNCH =
+  "This device is not registered to a technician, so there is nobody to clock in or out.";
+
 async function technicianForDevice(tx: Database, deviceId: string): Promise<string | null> {
   const [row] = await tx.select({ technicianId: schema.device.technicianId })
     .from(schema.device).where(eq(schema.device.id, deviceId)).limit(1);
