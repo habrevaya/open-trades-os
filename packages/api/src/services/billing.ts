@@ -866,3 +866,212 @@ async function loadForClosing(
   }
   return invoice;
 }
+
+/* ------------------------------------------------- reading payments back */
+
+/**
+ * `payment:read` WAS GRANTED TO ROLES AND CHECKED BY NOTHING.
+ *
+ * This file takes payments, allocates them oldest balance first, and posts
+ * every one to the ledger. An invoice carries the payments against itself, so
+ * "has this bill been paid" was answerable. "What came in this week" was not.
+ *
+ * That is the question a company asks every single morning, and the one
+ * reconciling a bank deposit against the day's takings asks it per method:
+ * cash and cheque sit in a drawer until somebody banks them, card settles
+ * net of a fee two days later. Without this they went to the processor's own
+ * dashboard, which does not know about the cheques.
+ */
+
+export interface PaymentView {
+  id: string;
+  customerId: string;
+  method: string;
+  status: string;
+  currency: string;
+  amount: string;
+  /** What the processor kept. Zero for cash; never null, because null is unknown. */
+  feeAmount: string;
+  tipAmount: string;
+  surchargeAmount: string;
+  refundedAmount: string;
+  /** Amount less what has gone back. What the company actually kept. */
+  net: string;
+  processor: string;
+  processorPaymentId: string | null;
+  checkNumber: string | null;
+  receivedAt: string;
+  /** Which invoices it paid and how much of each. */
+  allocations: { invoiceId: string; invoiceNumber: number | null; amount: string }[];
+}
+
+export interface PaymentQuery {
+  customerId?: string | undefined;
+  invoiceId?: string | undefined;
+  method?: string | undefined;
+  status?: string | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+  limit?: number | undefined;
+}
+
+export async function listPayments(ctx: ServiceContext, input: PaymentQuery): Promise<{
+  payments: PaymentView[];
+  /** Totals for the window, which is what a day's banking is checked against. */
+  totals: { gross: string; fees: string; refunded: string; net: string };
+  /** Per method, because cash, cheque and card are banked differently. */
+  byMethod: { method: string; count: number; gross: string; net: string }[];
+}> {
+  return guardedRead(ctx, "payment:read", async (tx) => {
+    const limit = Math.min(Math.max(input.limit ?? 100, 1), 500);
+
+    /**
+     * Filtering by invoice goes through the allocation table, because "what
+     * paid this invoice" is a question about the relationship. A payment
+     * split across three invoices is one payment, and matching it on a
+     * column of the payment row would be impossible.
+     */
+    let onlyThese: string[] | null = null;
+    if (input.invoiceId) {
+      const links = await tx.select({ paymentId: schema.paymentAllocation.paymentId })
+        .from(schema.paymentAllocation)
+        .where(and(
+          eq(schema.paymentAllocation.organizationId, ctx.actor.organizationId),
+          eq(schema.paymentAllocation.invoiceId, input.invoiceId),
+        ));
+      onlyThese = [...new Set(links.map((l) => l.paymentId))];
+      if (onlyThese.length === 0) {
+        return {
+          payments: [],
+          totals: { gross: "0.0000", fees: "0.0000", refunded: "0.0000", net: "0.0000" },
+          byMethod: [],
+        };
+      }
+    }
+
+    const rows = await tx.select().from(schema.payment)
+      .where(and(
+        eq(schema.payment.organizationId, ctx.actor.organizationId),
+        /**
+         * NO `isNull(deletedAt)` HERE, and a guard test is why.
+         *
+         * The first version filtered it, and nothing in this product soft
+         * deletes a payment. It cannot: money that arrived is corrected by a
+         * refund, which is a second recorded fact, never by making the first
+         * one disappear. So the clause could never be the thing that decided,
+         * which makes it a filter reading as protection that is not there.
+         */
+        onlyThese ? inArray(schema.payment.id, onlyThese) : undefined,
+        input.customerId ? eq(schema.payment.customerId, input.customerId) : undefined,
+        input.method ? eq(schema.payment.method, input.method as never) : undefined,
+        input.status ? eq(schema.payment.status, input.status as never) : undefined,
+        input.from ? sql`${schema.payment.receivedAt} >= ${new Date(input.from)}` : undefined,
+        input.to ? sql`${schema.payment.receivedAt} <= ${new Date(input.to)}` : undefined,
+      ))
+      .orderBy(desc(schema.payment.receivedAt))
+      .limit(limit);
+
+    if (rows.length === 0) {
+      return {
+        payments: [],
+        totals: { gross: "0.0000", fees: "0.0000", refunded: "0.0000", net: "0.0000" },
+        byMethod: [],
+      };
+    }
+
+    const allocations = await tx.select({
+      paymentId: schema.paymentAllocation.paymentId,
+      invoiceId: schema.paymentAllocation.invoiceId,
+      amount: schema.paymentAllocation.amount,
+      invoiceNumber: schema.invoice.number,
+    }).from(schema.paymentAllocation)
+      .leftJoin(schema.invoice, eq(schema.invoice.id, schema.paymentAllocation.invoiceId))
+      .where(and(
+        eq(schema.paymentAllocation.organizationId, ctx.actor.organizationId),
+        inArray(schema.paymentAllocation.paymentId, rows.map((r) => r.id)),
+      ));
+
+    const byPayment = new Map<string, PaymentView["allocations"]>();
+    for (const link of allocations) {
+      const bucket = byPayment.get(link.paymentId) ?? [];
+      bucket.push({
+        invoiceId: link.invoiceId,
+        invoiceNumber: link.invoiceNumber,
+        amount: link.amount,
+      });
+      byPayment.set(link.paymentId, bucket);
+    }
+
+    let gross = m.money("0", "USD");
+    let fees = m.money("0", "USD");
+    let refunded = m.money("0", "USD");
+    const methods = new Map<string, { count: number; gross: m.Money; net: m.Money }>();
+    const payments: PaymentView[] = [];
+
+    for (const row of rows) {
+      const amount = m.money(row.amount, row.currency);
+      const back = m.money(row.refundedAmount, row.currency);
+      const net = m.subtract(amount, back);
+
+      payments.push({
+        id: row.id,
+        customerId: row.customerId,
+        method: row.method,
+        status: row.status,
+        currency: row.currency,
+        amount: row.amount,
+        feeAmount: row.feeAmount,
+        tipAmount: row.tipAmount,
+        surchargeAmount: row.surchargeAmount,
+        refundedAmount: row.refundedAmount,
+        net: m.toString(net),
+        processor: row.processor,
+        processorPaymentId: row.processorPaymentId,
+        checkNumber: row.checkNumber,
+        receivedAt: row.receivedAt.toISOString(),
+        allocations: byPayment.get(row.id) ?? [],
+      });
+
+      /**
+       * Totals in one currency only, and the rest left out of them rather
+       * than added in. Summing across currencies produces a number that is
+       * not money in any of them, and a company reconciling a day's banking
+       * would check it against a bank line and never find the difference.
+       */
+      if (row.currency !== gross.currency) continue;
+      gross = m.add(gross, amount);
+      fees = m.add(fees, m.money(row.feeAmount, row.currency));
+      refunded = m.add(refunded, back);
+
+      const current = methods.get(row.method)
+        ?? { count: 0, gross: m.money("0", row.currency), net: m.money("0", row.currency) };
+      methods.set(row.method, {
+        count: current.count + 1,
+        gross: m.add(current.gross, amount),
+        net: m.add(current.net, net),
+      });
+    }
+
+    return {
+      payments,
+      totals: {
+        gross: m.toString(gross),
+        fees: m.toString(fees),
+        refunded: m.toString(refunded),
+        net: m.toString(m.subtract(gross, refunded)),
+      },
+      byMethod: [...methods]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([method, totals]) => ({
+          method,
+          count: totals.count,
+          gross: m.toString(totals.gross),
+          net: m.toString(totals.net),
+        })),
+    };
+  });
+}
+
+export const paymentReadHandlers = {
+  listPayments: (ctx: ServiceContext, input: PaymentQuery) => listPayments(ctx, input),
+} as const;

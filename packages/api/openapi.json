@@ -4820,6 +4820,308 @@
         ]
       }
     },
+    "/v1/audit": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "readAuditLog",
+        "summary": "Who did what to what",
+        "description": "Keyset paged on time rather than offset, because this is the one table that grows while somebody reads it and an offset cursor shows rows twice while missing others. There is no delete and no edit: an audit log that can be corrected is not one.\n\nRequires a session holding: audit:read.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "actorUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Who did what to what",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadAuditLogOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "audit:read"
+        ]
+      }
+    },
+    "/v1/audit/history": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getRecordHistory",
+        "summary": "One record's whole history, oldest first",
+        "description": "Forwards, because the order is the point: 'what happened to this invoice' is read forwards, and a caller who has to remember to flip the sort will describe a history backwards to a customer.\n\nRequires a session holding: audit:read.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One record's whole history, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRecordHistoryOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "audit:read"
+        ]
+      }
+    },
     "/v1/booking/arrival-windows": {
       "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -14480,10 +14782,149 @@
       }
     },
     "/v1/deposits": {
-      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
+        "GET",
         "POST"
       ],
+      "get": {
+        "operationId": "listDeposits",
+        "summary": "Money held against work not yet done",
+        "description": "Outstanding is computed from received less applied less refunded rather than stored, because a fifth column can disagree with the four it comes from and the one it would disagree with is the liability on the balance sheet.\n\nRequires a session holding: deposit:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "estimateId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "outstandingOnly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Money held against work not yet done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDepositsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "deposit:read"
+        ]
+      },
       "post": {
         "operationId": "requestDeposit",
         "summary": "Ask for a deposit",
@@ -20911,6 +21352,279 @@
         ]
       }
     },
+    "/v1/ledger/journal": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listJournal",
+        "summary": "Postings, grouped by transaction",
+        "description": "Grouped rather than a flat list of entries, and paged by transaction rather than by row. Double entry is only readable when the two sides of one event sit next to each other, and a page boundary in the middle of a posting shows a reader half an event and invites them to conclude the books do not balance.\n\nRequires a session holding: ledger:read.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "accountCode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Postings, grouped by transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListJournalOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:read"
+        ]
+      }
+    },
+    "/v1/ledger/trial-balance": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getTrialBalance",
+        "summary": "Every account, both sides, and its balance",
+        "description": "Covers the whole company: there is no business unit filter, because nothing writes ledger_entry.business_unit_id on any posting path and a filter matching nothing is better than one matching a branch's revenue and none of its payments. Balances are signed towards each account's own normal side, so a positive number always means more of what that account holds and a contra revenue account comes back negative. Total debits and credits are reported rather than asserted: a trigger already refuses an unbalanced posting, and printing both is how a reader confirms that instead of taking the schema's word for it.\n\nRequires a session holding: ledger:read.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every account, both sides, and its balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetTrialBalanceOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:read"
+        ]
+      }
+    },
     "/v1/locations": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -25077,10 +25791,169 @@
       }
     },
     "/v1/payments": {
-      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
+        "GET",
         "POST"
       ],
+      "get": {
+        "operationId": "listPayments",
+        "summary": "What came in, and what the company actually kept",
+        "description": "Totalled per method, because cash and cheque sit in a drawer until somebody banks them and card settles net of a fee two days later. Totals cover one currency and leave the rest out rather than adding them in: a sum across currencies is not money in any of them.\n\nRequires a session holding: payment:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What came in, and what the company actually kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPaymentsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:read"
+        ]
+      },
       "post": {
         "operationId": "recordPayment",
         "summary": "Record a payment",
@@ -54188,6 +55061,88 @@
           "technicians"
         ]
       },
+      "GetRecordHistoryOutput": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "actorUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "actorAgentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "actorPortalGrantId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "entityType": {
+                  "type": "string"
+                },
+                "entityId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "before": {},
+                "after": {},
+                "ipAddress": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "userAgent": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "actorUserId",
+                "actorAgentId",
+                "actorPortalGrantId",
+                "action",
+                "entityType",
+                "entityId",
+                "ipAddress",
+                "userAgent",
+                "at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "rows"
+        ]
+      },
       "GetRegulatoryConstantOutput": {
         "anyOf": [
           {
@@ -54836,6 +55791,94 @@
           "weekStart",
           "policy",
           "rows"
+        ]
+      },
+      "GetTrialBalanceOutput": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accountCode": {
+                  "type": "string"
+                },
+                "accountClass": {
+                  "type": "string",
+                  "enum": [
+                    "asset",
+                    "liability",
+                    "equity",
+                    "revenue",
+                    "expense"
+                  ]
+                },
+                "normalBalance": {
+                  "type": "string",
+                  "enum": [
+                    "debit",
+                    "credit"
+                  ]
+                },
+                "debits": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "credits": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "balance": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "currency": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accountCode",
+                "accountClass",
+                "normalBalance",
+                "debits",
+                "credits",
+                "balance",
+                "currency"
+              ]
+            }
+          },
+          "totalDebits": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "totalCredits": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "balanced": {
+            "type": "boolean"
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "rows",
+          "totalDebits",
+          "totalCredits",
+          "balanced",
+          "from",
+          "to"
         ]
       },
       "GetUploadStatusOutput": {
@@ -58382,6 +59425,114 @@
           "submissions"
         ]
       },
+      "ListDepositsOutput": {
+        "type": "object",
+        "properties": {
+          "deposits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "estimateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "appliedInvoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "amountRequested": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "amountReceived": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "amountApplied": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "amountRefunded": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "outstanding": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "requestedAt": {
+                  "type": "string"
+                },
+                "receivedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "appliedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "customerId",
+                "estimateId",
+                "jobId",
+                "appliedInvoiceId",
+                "status",
+                "currency",
+                "amountRequested",
+                "amountReceived",
+                "amountApplied",
+                "amountRefunded",
+                "outstanding",
+                "requestedAt",
+                "receivedAt",
+                "appliedAt"
+              ]
+            }
+          },
+          "totalOutstanding": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "deposits",
+          "totalOutstanding"
+        ]
+      },
       "ListDueRequestsOutput": {
         "type": "object",
         "properties": {
@@ -59385,6 +60536,126 @@
           "hasMore"
         ]
       },
+      "ListJournalOutput": {
+        "type": "object",
+        "properties": {
+          "transactions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "transactionId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "occurredAt": {
+                  "type": "string"
+                },
+                "sourceType": {
+                  "type": "string"
+                },
+                "sourceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "direction": {
+                        "type": "string",
+                        "enum": [
+                          "debit",
+                          "credit"
+                        ]
+                      },
+                      "accountCode": {
+                        "type": "string"
+                      },
+                      "accountClass": {
+                        "type": "string",
+                        "enum": [
+                          "asset",
+                          "liability",
+                          "equity",
+                          "revenue",
+                          "expense"
+                        ]
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "memo": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "jobId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "customerId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "reversesEntryId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "direction",
+                      "accountCode",
+                      "accountClass",
+                      "amount",
+                      "currency",
+                      "memo",
+                      "jobId",
+                      "customerId",
+                      "reversesEntryId"
+                    ]
+                  }
+                },
+                "totalDebits": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "totalCredits": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "transactionId",
+                "occurredAt",
+                "sourceType",
+                "sourceId",
+                "lines",
+                "totalDebits",
+                "totalCredits"
+              ]
+            }
+          }
+        },
+        "required": [
+          "transactions"
+        ]
+      },
       "ListLeadConnectorsOutput": {
         "type": "object",
         "properties": {
@@ -60092,6 +61363,183 @@
         },
         "required": [
           "periods"
+        ]
+      },
+      "ListPaymentsOutput": {
+        "type": "object",
+        "properties": {
+          "payments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "feeAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "tipAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "surchargeAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "refundedAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "net": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "processor": {
+                  "type": "string"
+                },
+                "processorPaymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "checkNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receivedAt": {
+                  "type": "string"
+                },
+                "allocations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "invoiceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceNumber": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "invoiceId",
+                      "invoiceNumber",
+                      "amount"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "customerId",
+                "method",
+                "status",
+                "currency",
+                "amount",
+                "feeAmount",
+                "tipAmount",
+                "surchargeAmount",
+                "refundedAmount",
+                "net",
+                "processor",
+                "processorPaymentId",
+                "checkNumber",
+                "receivedAt",
+                "allocations"
+              ]
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "gross": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fees": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "refunded": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "net": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "gross",
+              "fees",
+              "refunded",
+              "net"
+            ]
+          },
+          "byMethod": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                },
+                "gross": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "net": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "method",
+                "count",
+                "gross",
+                "net"
+              ]
+            }
+          }
+        },
+        "required": [
+          "payments",
+          "totals",
+          "byMethod"
         ]
       },
       "ListPayrollExportsOutput": {
@@ -63826,6 +65274,95 @@
           "invoiceId",
           "amount",
           "created"
+        ]
+      },
+      "ReadAuditLogOutput": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "actorUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "actorAgentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "actorPortalGrantId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "entityType": {
+                  "type": "string"
+                },
+                "entityId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "before": {},
+                "after": {},
+                "ipAddress": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "userAgent": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "actorUserId",
+                "actorAgentId",
+                "actorPortalGrantId",
+                "action",
+                "entityType",
+                "entityId",
+                "ipAddress",
+                "userAgent",
+                "at"
+              ]
+            }
+          },
+          "nextBefore": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "rows",
+          "nextBefore"
         ]
       },
       "ReceivePurchaseOrderInput": {

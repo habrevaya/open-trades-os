@@ -1,0 +1,263 @@
+import { z } from "zod";
+import { defineRoute } from "../lib/define";
+import { Uuid, MoneyString } from "./common";
+
+/**
+ * FOUR PERMISSIONS GRANTED TO ROLES AND CHECKED BY NOTHING
+ *
+ * `permissions-enforced.test.ts` keeps a list of permissions the catalogue
+ * declares and no code enforces, each with the module that owes it. The list
+ * is the honest version of a backlog: a permission on a role's list that
+ * nothing checks is a restriction the owner believes they applied.
+ *
+ * Four of its entries said the same thing in different words: the data is
+ * written and nothing reads it back.
+ *
+ *   `audit:read`    every mutation writes a before and after, and the module
+ *                   page claims "a customer can replay their entire history
+ *                   from the log". No screen could read it.
+ *   `ledger:read`   postings are written, append only and trigger enforced,
+ *                   and no trial balance or journal existed. The whole
+ *                   argument for double entry is that it is auditable.
+ *   `payment:read`  payments are taken and allocated. "What came in this
+ *                   week" went to the card processor's dashboard, which does
+ *                   not know about the cheques.
+ *   `deposit:read`  deposits are requested, received, applied and refunded,
+ *                   and nothing listed what was still held, which is a
+ *                   LIABILITY and the number that bankrupts a contractor who
+ *                   reads their bank balance as profit.
+ *
+ * `ledger:post` is NOT here and stays owed on purpose. A posting in this
+ * product is a consequence of a guarded business action, never a bare entry.
+ * An operator who can post freely can make the books say anything with no
+ * document behind it.
+ */
+
+/* ------------------------------------------------------------- audit log */
+
+export const AuditRow = z.object({
+  id: Uuid,
+  /** Null for the system, the worker, a workflow or the portal. */
+  actorUserId: Uuid.nullable(),
+  /** Set when a model acted, which is a different fact from a person acting. */
+  actorAgentId: z.string().nullable(),
+  actorPortalGrantId: Uuid.nullable(),
+  action: z.string(),
+  entityType: z.string(),
+  entityId: Uuid.nullable(),
+  before: z.unknown(),
+  after: z.unknown(),
+  ipAddress: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  at: z.string(),
+});
+
+export const readAuditLog = defineRoute({
+  method: "get",
+  path: "/v1/audit",
+  summary: "Who did what to what",
+  description:
+    "Keyset paged on time rather than offset, because this is the one table that grows while somebody reads it and an offset cursor shows rows twice while missing others. There is no delete and no edit: an audit log that can be corrected is not one.",
+  module: "M01",
+  permissions: ["audit:read"],
+  input: z.object({
+    entityType: z.string().max(60).optional(),
+    entityId: Uuid.optional(),
+    actorUserId: Uuid.optional(),
+    action: z.string().max(80).optional(),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    before: z.string().datetime().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: z.object({ rows: z.array(AuditRow), nextBefore: z.string().nullable() }),
+});
+
+export const getRecordHistory = defineRoute({
+  method: "get",
+  path: "/v1/audit/history",
+  summary: "One record's whole history, oldest first",
+  description:
+    "Forwards, because the order is the point: 'what happened to this invoice' is read forwards, and a caller who has to remember to flip the sort will describe a history backwards to a customer.",
+  module: "M01",
+  permissions: ["audit:read"],
+  input: z.object({
+    entityType: z.string().min(1).max(60),
+    entityId: Uuid,
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: z.object({ rows: z.array(AuditRow) }),
+});
+
+/* ---------------------------------------------------------- the ledger */
+
+const AccountClass = z.enum(["asset", "liability", "equity", "revenue", "expense"]);
+const Direction = z.enum(["debit", "credit"]);
+
+export const getTrialBalance = defineRoute({
+  method: "get",
+  path: "/v1/ledger/trial-balance",
+  summary: "Every account, both sides, and its balance",
+  description:
+    "Covers the whole company: there is no business unit filter, because nothing writes ledger_entry.business_unit_id on any posting path and a filter matching nothing is better than one matching a branch's revenue and none of its payments. Balances are signed towards each account's own normal side, so a positive number always means more of what that account holds and a contra revenue account comes back negative. Total debits and credits are reported rather than asserted: a trigger already refuses an unbalanced posting, and printing both is how a reader confirms that instead of taking the schema's word for it.",
+  module: "M14",
+  permissions: ["ledger:read"],
+  input: z.object({
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+  }),
+  output: z.object({
+    rows: z.array(z.object({
+      accountCode: z.string(),
+      accountClass: AccountClass,
+      normalBalance: Direction,
+      debits: MoneyString,
+      credits: MoneyString,
+      balance: MoneyString,
+      currency: z.string(),
+    })),
+    totalDebits: MoneyString,
+    totalCredits: MoneyString,
+    balanced: z.boolean(),
+    from: z.string().nullable(),
+    to: z.string().nullable(),
+  }),
+});
+
+export const listJournal = defineRoute({
+  method: "get",
+  path: "/v1/ledger/journal",
+  summary: "Postings, grouped by transaction",
+  description:
+    "Grouped rather than a flat list of entries, and paged by transaction rather than by row. Double entry is only readable when the two sides of one event sit next to each other, and a page boundary in the middle of a posting shows a reader half an event and invites them to conclude the books do not balance.",
+  module: "M14",
+  permissions: ["ledger:read"],
+  input: z.object({
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    jobId: Uuid.optional(),
+    customerId: Uuid.optional(),
+    accountCode: z.string().max(20).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: z.object({
+    transactions: z.array(z.object({
+      transactionId: Uuid,
+      occurredAt: z.string(),
+      sourceType: z.string(),
+      sourceId: Uuid,
+      lines: z.array(z.object({
+        direction: Direction,
+        accountCode: z.string(),
+        accountClass: AccountClass,
+        amount: MoneyString,
+        currency: z.string(),
+        memo: z.string().nullable(),
+        jobId: Uuid.nullable(),
+        customerId: Uuid.nullable(),
+        reversesEntryId: Uuid.nullable(),
+      })),
+      totalDebits: MoneyString,
+      totalCredits: MoneyString,
+    })),
+  }),
+});
+
+/* --------------------------------------------------------------- payments */
+
+export const listPayments = defineRoute({
+  method: "get",
+  path: "/v1/payments",
+  summary: "What came in, and what the company actually kept",
+  description:
+    "Totalled per method, because cash and cheque sit in a drawer until somebody banks them and card settles net of a fee two days later. Totals cover one currency and leave the rest out rather than adding them in: a sum across currencies is not money in any of them.",
+  module: "M13",
+  permissions: ["payment:read"],
+  input: z.object({
+    customerId: Uuid.optional(),
+    invoiceId: Uuid.optional(),
+    method: z.string().max(40).optional(),
+    status: z.string().max(40).optional(),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+  }),
+  output: z.object({
+    payments: z.array(z.object({
+      id: Uuid,
+      customerId: Uuid,
+      method: z.string(),
+      status: z.string(),
+      currency: z.string(),
+      amount: MoneyString,
+      feeAmount: MoneyString,
+      tipAmount: MoneyString,
+      surchargeAmount: MoneyString,
+      refundedAmount: MoneyString,
+      net: MoneyString,
+      processor: z.string(),
+      processorPaymentId: z.string().nullable(),
+      checkNumber: z.string().nullable(),
+      receivedAt: z.string(),
+      allocations: z.array(z.object({
+        invoiceId: Uuid,
+        invoiceNumber: z.number().nullable(),
+        amount: MoneyString,
+      })),
+    })),
+    totals: z.object({
+      gross: MoneyString, fees: MoneyString, refunded: MoneyString, net: MoneyString,
+    }),
+    byMethod: z.array(z.object({
+      method: z.string(), count: z.number(), gross: MoneyString, net: MoneyString,
+    })),
+  }),
+});
+
+/* --------------------------------------------------------------- deposits */
+
+export const listDeposits = defineRoute({
+  method: "get",
+  path: "/v1/deposits",
+  summary: "Money held against work not yet done",
+  description:
+    "Outstanding is computed from received less applied less refunded rather than stored, because a fifth column can disagree with the four it comes from and the one it would disagree with is the liability on the balance sheet.",
+  module: "M13",
+  permissions: ["deposit:read"],
+  input: z.object({
+    customerId: Uuid.optional(),
+    jobId: Uuid.optional(),
+    estimateId: Uuid.optional(),
+    status: z.string().max(40).optional(),
+    outstandingOnly: z.boolean().optional(),
+  }),
+  output: z.object({
+    deposits: z.array(z.object({
+      id: Uuid,
+      customerId: Uuid,
+      estimateId: Uuid.nullable(),
+      jobId: Uuid.nullable(),
+      appliedInvoiceId: Uuid.nullable(),
+      status: z.string(),
+      currency: z.string(),
+      amountRequested: MoneyString,
+      amountReceived: MoneyString,
+      amountApplied: MoneyString,
+      amountRefunded: MoneyString,
+      outstanding: MoneyString,
+      requestedAt: z.string(),
+      receivedAt: z.string().nullable(),
+      appliedAt: z.string().nullable(),
+    })),
+    totalOutstanding: MoneyString,
+  }),
+});
+
+export const readbackRoutes = {
+  readAuditLog,
+  getRecordHistory,
+  getTrialBalance,
+  listJournal,
+  listPayments,
+  listDeposits,
+} as const;

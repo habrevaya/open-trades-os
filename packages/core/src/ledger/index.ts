@@ -50,6 +50,64 @@ export const ACCOUNTS = {
 
 export type Direction = "debit" | "credit";
 
+/** The five things an account can be. Nothing else is a class. */
+export type AccountClass = "asset" | "liability" | "equity" | "revenue" | "expense";
+
+/**
+ * What kind of account a code names, from the code itself.
+ *
+ * THE CHART IS NUMBERED ON PURPOSE AND NOTHING SAID SO UNTIL NOW. `ACCOUNTS`
+ * above assigns 1xxx to assets, 2xxx to liabilities, 3xxx to equity, 4xxx to
+ * revenue and 5xxx and 6xxx to expenses, which is the convention every
+ * bookkeeper in this industry already reads. It was a convention held in the
+ * ordering of a const and in nobody's head.
+ *
+ * It has to be a function because a trial balance cannot be computed without
+ * it: whether a debit balance on an account is a positive or a negative
+ * number depends entirely on which side that account normally sits, and
+ * getting it wrong produces a report that balances perfectly and states the
+ * opposite of the truth about every liability in the company.
+ *
+ * DERIVED FROM THE CODE RATHER THAN FROM A MAP OF THE CODES WE KNOW, because
+ * `account_mapping` lets an operator post to a code of their own. A map would
+ * answer "unknown" for every account a company added itself, and an unknown
+ * class in a trial balance is a row that cannot be placed on either side.
+ */
+export function classOf(accountCode: string): AccountClass {
+  switch (accountCode.trim().charAt(0)) {
+    case "1": return "asset";
+    case "2": return "liability";
+    case "3": return "equity";
+    case "4": return "revenue";
+    default: return "expense";
+  }
+}
+
+/**
+ * Which side an account normally sits on.
+ *
+ * Assets and expenses are debit balances; liabilities, equity and revenue are
+ * credit balances. This is accounting rather than a choice, and it is here so
+ * that exactly one place in this codebase knows it.
+ */
+export function normalBalance(accountClass: AccountClass): Direction {
+  return accountClass === "asset" || accountClass === "expense" ? "debit" : "credit";
+}
+
+/**
+ * The signed effect of one entry on its account's own balance.
+ *
+ * Positive means "more of what this account normally holds". A credit to
+ * revenue is positive revenue; a debit to revenue is a reduction, which is
+ * what a contra revenue account like DISCOUNTS collects. Returning a sign
+ * relative to the account rather than relative to debit is the difference
+ * between a trial balance a bookkeeper can read and a list of absolute
+ * values with a column of direction words beside it.
+ */
+export function signedFor(direction: Direction, accountCode: string): 1 | -1 {
+  return direction === normalBalance(classOf(accountCode)) ? 1 : -1;
+}
+
 export interface LedgerEntry {
   direction: Direction;
   accountCode: string;

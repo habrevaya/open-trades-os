@@ -42,7 +42,29 @@ const SRC = [
  * when an entry becomes enforced and is left here, so it cannot go stale in
  * the reassuring direction.
  */
+/**
+ * FOUR ENTRIES LEFT THIS LIST IN ONE COMMIT, which is what it is for.
+ *
+ * `audit:read`, `ledger:read`, `payment:read` and `deposit:read` all said the
+ * same thing in different words: the data is written and nothing reads it
+ * back. They are enforced now, by the audit log reader, the trial balance and
+ * journal, the payment list and the deposit list, and the test below is what
+ * made removing them compulsory rather than optional: it fails when a
+ * permission on this list becomes enforced and the entry is left behind.
+ *
+ * That direction matters more than it looks. A stale excuse is a sentence
+ * saying a module owes something it has already delivered, sitting in the one
+ * file somebody reads to find out what is missing.
+ */
 const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
+  /**
+   * `ledger:post` stays, and not because nobody got to it. A posting in this
+   * product is a consequence of a guarded business action: invoicing, taking
+   * a payment, writing one off. There is no bare journal entry surface and
+   * there should not be one, because an operator who can post freely can make
+   * the books say anything with no document behind it. The permission exists
+   * for the day a manual journal is genuinely needed.
+   */
   ["servicereport:read", "M11 reports exist as templates and fields; the report itself has no service."],
   ["servicereport:write", "M11."],
   ["servicereport:publish", "M11."],
@@ -53,12 +75,8 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
   ["data:export", "M30. Export exists per report; a whole-tenant export does not."],
   ["pricebook:publish", "M06 has no draft state to publish from."],
   ["estimate:discount", "M07 applies discounts as line amounts, with no separate authority."],
-  ["audit:read", "M01 writes the audit log; no screen reads it back."],
   ["job:delete", "M10 cancels rather than deletes, deliberately."],
-  ["ledger:read", "M14. Postings are written; no trial balance or journal is read back."],
   ["ledger:post", "M14. Postings are a consequence of a guarded business action, never a bare entry. A manual journal has no surface."],
-  ["payment:read", "M13 records payments and lists none. The invoice carries its own."],
-  ["deposit:read", "M13 requests, records, applies and refunds a deposit, and reads none back."],
   ["estimate.discount.unlimited", "M07 has no discount cap, so there is nothing to exceed."],
 ]);
 
