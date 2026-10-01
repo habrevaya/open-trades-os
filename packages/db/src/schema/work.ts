@@ -65,8 +65,8 @@ export const jobType = pgTable("job_type", {
   /** Skills a technician must hold to be assignable. Enforced by the scheduling engine. */
   requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
   /**
-   * Equipment this kind of work cannot be done without, as the same opaque
-   * asset ids `crew.required_asset_ids` holds.
+   * Equipment this kind of work cannot be done without, as the same
+   * `company_asset.requirement_code` values `crew.required_asset_ids` holds.
    *
    * It is the counterpart of that column and the reason it can be enforced.
    * A crew declares the kit it carries; a job type declares the kit the work
@@ -77,7 +77,9 @@ export const jobType = pgTable("job_type", {
    *
    * Per job type rather than per job, exactly like `required_skills` above,
    * because the chipper is a property of tree removal rather than of one
-   * customer's tree.
+   * customer's tree. For the same reason it is a code rather than a row id:
+   * tree removal needs a chipper, not chipper number two, and a job type
+   * pinned to one machine breaks the day that machine is sold.
    */
   requiredAssetIds: jsonb("required_asset_ids").$type<string[]>().notNull().default([]),
   checklistTemplate: jsonb("checklist_template").$type<Array<{ id: string; label: string; required: boolean }>>().notNull().default([]),

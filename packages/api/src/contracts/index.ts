@@ -30,6 +30,11 @@ import { profitabilityRoutes } from "./profitability";
 import { crewRoutes } from "./crews";
 import { payrollRoutes } from "./payroll";
 import { aiRoutes } from "./ai";
+import { assetRoutes } from "./assets";
+import { complianceRoutes } from "./compliance";
+import { projectRoutes } from "./projects";
+import { calendarRoutes } from "./calendar";
+import { callTrackingRoutes } from "./call-tracking";
 
 export * from "./common";
 export * from "./customers";
@@ -64,6 +69,11 @@ export * from "./profitability";
 export * from "./crews";
 export * from "./payroll";
 export * from "./ai";
+export * from "./assets";
+export * from "./compliance";
+export * from "./projects";
+export * from "./calendar";
+export * from "./call-tracking";
 
 /**
  * Every route in the product, and the only description of them.
@@ -116,6 +126,11 @@ export const routes = {
   ...crewRoutes,
   ...payrollRoutes,
   ...aiRoutes,
+  ...assetRoutes,
+  ...complianceRoutes,
+  ...projectRoutes,
+  ...calendarRoutes,
+  ...callTrackingRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

@@ -97,7 +97,16 @@ export const crew = pgTable("crew", {
    */
   productionRatePerDay: money("production_rate_per_day"),
   productionUnit: text("production_unit"),
-  /** Asset ids this crew must have to be assignable. Enforced at assignment. */
+  /**
+   * The kit this crew carries, as `company_asset.requirement_code` values.
+   * Enforced at assignment by `services/crews.ts`.
+   *
+   * CODES RATHER THAN ROW IDS, which is the whole reason this is a jsonb list
+   * of strings and not a join table of foreign keys. A crew carries "a
+   * chipper", not chipper number two: tying it to one physical machine means
+   * retiring that machine or buying a second one silently changes what the
+   * crew can do. The register resolves a code to every unit behind it.
+   */
   requiredAssetIds: jsonb("required_asset_ids").$type<string[]>().notNull().default([]),
   skills: jsonb("skills").$type<string[]>().notNull().default([]),
   color: text("color"),

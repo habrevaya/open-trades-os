@@ -19,6 +19,15 @@ import { registeredPaymentProviders } from "../src/payments/index";
 import { registeredEmailProviders } from "../src/email/index";
 import { registeredProviders as registeredAccountingProviders } from "../src/accounting/index";
 import { registeredAiProviders } from "../src/ai/index";
+/**
+ * Two more registries, for the same reason the comment above gives. The
+ * calendar feed and the call tracking adapters register themselves in their
+ * own barrels, and a sweep that did not name them would call a working
+ * connector a lie in one direction and let an unbuilt one through in the
+ * other.
+ */
+import { registeredCalendarProviders } from "../src/calendar/index";
+import { registeredCallTrackingProviders } from "../src/call-tracking/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -54,6 +63,7 @@ describe("the connector catalogue", () => {
       ...registeredSpendSources(), ...registeredLeadSources(),
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
+      ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -76,6 +86,7 @@ describe("the connector catalogue", () => {
       ...registeredSpendSources(), ...registeredLeadSources(),
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
+      ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);
@@ -95,6 +106,15 @@ describe("the connector catalogue", () => {
       "angi", "thumbtack", "lead_webhook", "spend_csv",
       /** Not marketing, and the catalogue covers every outside system now. */
       "stripe", "resend", "smtp", "quickbooks", "anthropic", "openai", "google",
+      /**
+       * Call tracking, which for a trades company is not a nice-to-have: it
+       * is the only thing that measures the half of the budget that goes on
+       * signs, vans and mailers. An owner looking for it and not finding it
+       * concludes this product does not do attribution at all.
+       */
+      "callrail",
+      /** And the calendar, which is the capability that sat in the enum with nothing behind it. */
+      "ics_feed",
     ]) {
       expect(keys.has(needed), `${needed} is not in the catalogue`).toBe(true);
     }

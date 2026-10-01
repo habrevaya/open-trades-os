@@ -93,6 +93,28 @@ async function visitOn(jobId: string, date: string): Promise<string> {
   return row!.id;
 }
 
+/** A certification type this company recognises, and the skills it grants. */
+async function certificationType(
+  code: string, name: string, grants: string[],
+): Promise<string> {
+  const [row] = await raw<{ id: string }[]>`
+    insert into public.certification_type (organization_id, code, name, grants_skills)
+    values (${ORG}, ${code}, ${name}, ${raw.json(grants as never)})
+    returning id`;
+  return row!.id;
+}
+
+/** A holding of one, with the expiry and status that decide whether it counts. */
+async function certification(
+  technicianId: string, typeId: string,
+  expiresOn: string | null, status = "active",
+): Promise<void> {
+  await raw`
+    insert into public.person_certification
+      (organization_id, technician_id, certification_type_id, expires_on, status)
+    values (${ORG}, ${technicianId}, ${typeId}, ${expiresOn}, ${status}::certification_status)`;
+}
+
 /** Approved time off, which is the only kind the board and this service count. */
 async function timeOff(technicianId: string, from: string, to: string, approved = true) {
   await raw`
@@ -252,6 +274,87 @@ run("can this crew take this job", () => {
   it("refuses a crew missing a skill the work needs", async () => {
     const { crewId } = await kitted();
     const jobId = await job(await jobType("Tree removal", [], ["crane"]));
+    const verdict = await crews.canTake(owner(), { id: crewId, jobId, on: "2026-06-02" });
+    expect(verdict.missingSkills).toEqual(["crane"]);
+    expect(verdict.canTake).toBe(false);
+  });
+
+  /**
+   * THE THREE TESTS BELOW ARE THE WHOLE OF WHY M24 WAS BUILT.
+   *
+   * Before them this file had one source for skills: a list somebody typed
+   * onto the crew record. It can say "not qualified for crane" and nothing
+   * else, and a dispatcher holding that sentence at seven in the morning
+   * cannot tell whether to reassign the job or ring the training provider.
+   *
+   * Each of these drives the certification path to a DIFFERENT verdict than
+   * the typed list alone would give, which is the only way to tell that the
+   * certification path is being consulted at all. A test where both sources
+   * agree would pass with `skillStanding` deleted.
+   */
+  it("refuses on an expired certification, and names whose and when", async () => {
+    /**
+     * The typed list SAYS the crew climbs, so the old check passes this. The
+     * refusal here comes from the certification and from nowhere else.
+     */
+    const { crewId, technicianId } = await kitted();
+    const typeId = await certificationType("climb-1", "Aerial rescue", ["climbing"]);
+    await certification(technicianId, typeId, "2026-05-01");
+    const jobId = await job(await jobType("Tree removal", [], ["climbing"]));
+
+    const verdict = await crews.canTake(owner(), { id: crewId, jobId, on: "2026-06-02" });
+    expect(verdict.canTake).toBe(false);
+    expect(verdict.missingSkills).toEqual(["climbing"]);
+    const refusal = verdict.blockers.find((b) => b.code === "missing_skills")?.explanation ?? "";
+    expect(refusal).toContain("Ana");
+    expect(refusal).toContain("Aerial rescue");
+    expect(refusal).toContain("2026-05-01");
+  });
+
+  it("clears a skill the crew record omits when somebody holds a live certification", async () => {
+    /**
+     * The converse, and the reason `covered` beats the typed list rather than
+     * being ANDed with it: the crew record does not say "crane", a recorded
+     * live certification does, and refusing here is a crew sitting in the
+     * yard because of a string nobody remembered to type.
+     */
+    const { crewId, technicianId } = await kitted();
+    const typeId = await certificationType("crane-1", "Crane operator", ["crane"]);
+    await certification(technicianId, typeId, "2027-01-01");
+    const jobId = await job(await jobType("Tree removal", [], ["crane"]));
+
+    const verdict = await crews.canTake(owner(), { id: crewId, jobId, on: "2026-06-02" });
+    expect(verdict.missingSkills).toEqual([]);
+    expect(verdict.canTake).toBe(true);
+  });
+
+  it("refuses when the skill is recognised here and nobody on the crew holds it", async () => {
+    /**
+     * `absent`, which is a different sentence from `lapsed` and a different
+     * morning's work: nobody to chase a renewal for, somebody to send on a
+     * course. The typed list would pass this one too.
+     */
+    const { crewId } = await kitted();
+    await certificationType("climb-2", "Aerial rescue", ["climbing"]);
+    const jobId = await job(await jobType("Tree removal", [], ["climbing"]));
+
+    const verdict = await crews.canTake(owner(), { id: crewId, jobId, on: "2026-06-02" });
+    expect(verdict.canTake).toBe(false);
+    const refusal = verdict.blockers.find((b) => b.code === "missing_skills")?.explanation ?? "";
+    expect(refusal).toContain("Nobody here holds a certification for climbing");
+  });
+
+  it("falls back to the crew record for a skill no certification here grants", async () => {
+    /**
+     * `uncertified` is NOT a clearance. A company that has declared no type
+     * granting "crane" gets exactly the behaviour it had before M24, which is
+     * the typed list, rather than a silent pass on an unmapped skill.
+     */
+    const { crewId, technicianId } = await kitted();
+    const typeId = await certificationType("climb-3", "Aerial rescue", ["climbing"]);
+    await certification(technicianId, typeId, "2027-01-01");
+    const jobId = await job(await jobType("Tree removal", [], ["crane"]));
+
     const verdict = await crews.canTake(owner(), { id: crewId, jobId, on: "2026-06-02" });
     expect(verdict.missingSkills).toEqual(["crane"]);
     expect(verdict.canTake).toBe(false);

@@ -61,7 +61,11 @@ export const Crew = z.object({
    */
   productionRatePerDay: MoneyString.nullable(),
   productionUnit: z.string().nullable(),
-  /** The kit this crew carries. Matched against what the work needs. */
+  /**
+   * The kit this crew carries, as requirement codes. Matched against what the
+   * work needs, and resolved against the company asset register for the real
+   * label and for whether the machine can go out today.
+   */
   requiredAssetIds: z.array(z.string()),
   skills: z.array(z.string()),
   color: z.string().nullable(),
@@ -94,7 +98,12 @@ export const createCrew = defineRoute({
     homeLocationId: Uuid.nullable().optional(),
     productionRatePerDay: MoneyString.nullable().optional(),
     productionUnit: z.string().max(50).nullable().optional(),
-    /** Opaque ids, compared by equality against what a job type requires. */
+    /**
+     * Requirement codes, compared by equality against what a job type
+     * requires and resolved against `company_asset.requirement_code` for the
+     * label and for whether any unit can go out. A code the register does
+     * not know still matches; it simply says nothing about availability.
+     */
     requiredAssetIds: z.array(z.string().max(200)).max(100).optional(),
     skills: z.array(z.string().max(100)).max(100).optional(),
     color: z.string().max(20).nullable().optional(),
@@ -145,7 +154,8 @@ export const setCrewMembers = defineRoute({
 
 export const CrewBlocker = z.enum([
   "crew_inactive", "no_members", "everybody_off", "lead_off",
-  "missing_equipment", "missing_skills", "different_business_unit",
+  "missing_equipment", "equipment_unavailable", "missing_skills",
+  "different_business_unit",
 ]);
 
 export const CrewVerdict = z.object({
@@ -161,6 +171,20 @@ export const CrewVerdict = z.object({
   })),
   /** What the work needs and this crew does not carry. The actionable list. */
   missingEquipment: z.array(z.string()),
+  /**
+   * What the crew does carry and the asset register says cannot go out that
+   * day. A separate list from the one above because they are different
+   * conversations: missing kit is a question for whoever picks the crew, and
+   * a chipper grounded by an expired inspection is a question for whoever
+   * books the inspection.
+   */
+  unavailableEquipment: z.array(z.object({
+    code: z.string(),
+    assetId: Uuid,
+    assetLabel: z.string(),
+    reason: z.enum(["retired", "grounded"]),
+    explanation: z.string(),
+  })),
   missingSkills: z.array(z.string()),
   headcount: z.object({
     onCrew: z.number().int(),
@@ -174,6 +198,14 @@ export const CrewVerdict = z.object({
    * list rather than a clearance for the crew.
    */
   equipmentBasis: z.enum(["job_type", "none_declared"]),
+  /**
+   * Which of the required codes the asset register has ever heard of. A code
+   * with nothing behind it is still compared by equality against the crew's
+   * kit, which is all that was possible before the register existed, but an
+   * empty `unavailableEquipment` for it is a statement about an empty
+   * register rather than about a working machine.
+   */
+  registeredEquipment: z.array(z.string()),
 });
 
 export const getCrewAvailability = defineRoute({
@@ -181,7 +213,7 @@ export const getCrewAvailability = defineRoute({
   path: "/v1/crews/{id}/availability",
   summary: "Can this crew take this job, on this day",
   description:
-    "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. There is no asset register in this product, so equipment ids are compared by equality: this can say the work needs a chipper and the crew does not carry one, and cannot say the chipper is in the shop.",
+    "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({

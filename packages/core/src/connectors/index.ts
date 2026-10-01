@@ -68,6 +68,16 @@ export type ConnectorCapability =
   | "payments"
   /** The books of record, which this product posts to and never owns. */
   | "accounting"
+  /**
+   * The technician's own calendar, which is the one piece of this product
+   * most of its users already have open on their phone all day.
+   *
+   * In the database's capability enum since the first migration with nothing
+   * behind it, which is the state this catalogue exists to make visible: a
+   * seam named in the schema and implemented by nobody reads, to anybody
+   * looking at the schema, as a feature.
+   */
+  | "calendar"
   /** A language model, running on the company's own key and the company's own bill. */
   | "ai_model";
 
@@ -85,6 +95,17 @@ export type ConnectorAuth =
   | "api_key"
   | "webhook_secret"
   | "file_upload"
+  /**
+   * A secret THIS product mints and hands over, rather than one the operator
+   * fetches from a vendor.
+   *
+   * A subscribable calendar URL is the case: there is nobody to get a
+   * credential from, the token in the path is the whole of the
+   * authentication, and whoever holds the URL has the access until it is
+   * revoked. Calling that `none` would be false, and calling it `api_key`
+   * would send an operator looking for a vendor screen that does not exist.
+   */
+  | "feed_token"
   | "none";
 
 /** What actually moves, and which way. */
@@ -121,7 +142,18 @@ export type ConnectorFlow =
   /** What changed over there read back, so the two do not silently diverge. */
   | "books_in"
   /** Questions out and answers back, priced per token against the operator's own account. */
-  | "model_calls";
+  | "model_calls"
+  /**
+   * The schedule out: visits leaving this product for a calendar somebody
+   * has already got open.
+   *
+   * None of the flows above fits and the nearest, `messages_out`, would be a
+   * claim that something is being sent to a customer. This is a read a
+   * client comes and collects, and the direction matters because it is the
+   * first thing in this catalogue that puts customer addresses somewhere
+   * this company does not control.
+   */
+  | "calendar_out";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -407,6 +439,38 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "An API key from your own Google AI account, plus prices and a default model in the connection settings if you want a ceiling, for the same reason as OpenAI.",
     limitation:
       "Gemini issues no id for a tool call, so when a model asks for the same tool twice in one turn the two are told apart by order rather than by identity. Everything else lines up with the other two.",
+  },
+
+  /* ------------------------------------------------------------- calendar */
+  {
+    key: "ics_feed",
+    label: "Calendar feed",
+    capability: "calendar",
+    auth: "feed_token",
+    flows: ["calendar_out"],
+    state: "built",
+    purpose:
+      "Put a technician's visits in the calendar they already have. A URL they subscribe to once in Google Calendar, Apple Calendar, Outlook or the phone's own app, and their day is there with the address ready to navigate to.",
+    setup:
+      "Mint a feed on the calendar settings screen and copy the URL it shows you once. Paste it into the calendar app as a subscription, not an import: an import is a one-off copy that never changes again. There is no account to open and nothing to approve, because there is no vendor involved at all.",
+    limitation:
+      "The URL is the whole credential: anybody who gets it sees those visits until it is revoked, so it is handed over once and cannot be read back, and rotating is one call. It is also read only in both directions. Nothing a technician changes in their own calendar comes back here, and how often a client collects it is the client's decision rather than ours: Google in particular can take hours to notice a change, so a visit moved this morning is not a reliable way to tell somebody. The customer's phone number is deliberately not in it, because a calendar syncs to accounts and devices this company does not control.",
+  },
+
+  /* -------------------------------------------------------- call tracking */
+  {
+    key: "callrail",
+    label: "CallRail",
+    capability: "telephony",
+    auth: "api_key",
+    flows: ["leads_in", "analytics_in"],
+    state: "built",
+    purpose:
+      "Attribute phone calls to what paid for them. For most trades companies this is the only measurement their marketing ever gets: a yard sign, a van, a mailer and a radio spot carry no query string, so the number on them is the tag, and a tracked call becomes a call record and a marketing touch here.",
+    setup:
+      "An API key from the integrations screen of your own CallRail account, which is self-serve on any paid plan. Then a Webhooks integration in CallRail pointed at the URL on this screen, and the signing key from that same page. Both values go in your secret store; this product holds the names of them and never the values. Record each tracking number here with the source it stands for, because that declaration is what turns a call into a channel rather than into an unrecognised number on the worklist.",
+    limitation:
+      "One long-lived API key, with no OAuth and no refresh token, so nothing expires and nothing will ever prompt a rotation: changing the key is somebody deciding to, minting a new one and replacing it in the secret store by hand. CallRail does not resend a webhook that failed either, so an outage is calls that never arrive on their own and the backfill is the only way to get them back. The webhook signature is HMAC-SHA1 rather than SHA-256, which is what they offer. The recording and the transcript CallRail sends are deliberately not stored: a recording needs a permission decision under your own declared policy and a webhook carries no evidence of one, and a transcript would land unredacted, card numbers and all.",
   },
 
   /* ------------------------------------------------------------ payments in */

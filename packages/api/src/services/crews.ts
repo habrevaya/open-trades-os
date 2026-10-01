@@ -1,10 +1,11 @@
 import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { time } from "@opentradesos/core";
+import { assets as assetCore, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
 } from "./context";
+import { skillStanding } from "./people";
 
 /**
  * CREWS: THE SECOND CAPACITY MODEL
@@ -277,6 +278,7 @@ export type Blocker =
   | "everybody_off"
   | "lead_off"
   | "missing_equipment"
+  | "equipment_unavailable"
   | "missing_skills"
   | "different_business_unit";
 
@@ -287,8 +289,21 @@ export interface CrewVerdict {
   on: string;
   canTake: boolean;
   blockers: { code: Blocker; explanation: string }[];
-  /** The ids the job needs and the crew does not carry. The actionable list. */
+  /** The codes the job needs and the crew does not carry. The actionable list. */
   missingEquipment: string[];
+  /**
+   * The kit the crew DOES carry and the register says cannot go out today.
+   *
+   * A separate list from `missingEquipment` because the two are different
+   * conversations. Missing kit is a question for whoever decides which crew
+   * takes the job; a grounded chipper is a question for whoever renews the
+   * inspection, and collapsing them into one list sends the wrong person to
+   * fix it.
+   */
+  unavailableEquipment: {
+    code: string; assetId: string; assetLabel: string;
+    reason: "retired" | "grounded"; explanation: string;
+  }[];
   missingSkills: string[];
   headcount: { onCrew: number; availableOn: number; offOn: number };
   leadDesignated: boolean;
@@ -302,6 +317,16 @@ export interface CrewVerdict {
    * second as a clearance.
    */
   equipmentBasis: "job_type" | "none_declared";
+  /**
+   * Which of the codes this job requires the asset register has ever heard
+   * of, published for the same reason as `equipmentBasis`.
+   *
+   * A code with nothing behind it is still compared by equality against what
+   * the crew carries, which is all this could do before the register existed,
+   * and an empty `unavailableEquipment` for such a code is a statement about
+   * an empty register rather than about a working chipper.
+   */
+  registeredEquipment: string[];
 }
 
 /**
@@ -313,13 +338,31 @@ export interface CrewVerdict {
  * Thursday is not available on Thursday.
  *
  * HOW EQUIPMENT IS MATCHED, stated plainly because the shape of the data
- * limits what can be claimed. There is no company asset register in this
- * schema: `crew.required_asset_ids` and `job_type.required_asset_ids` are
- * lists of opaque strings with no table behind them, so this compares them by
- * equality and nothing more. It cannot tell you the chipper is in the shop,
- * because nothing in this product records that. What it can tell you, and
- * what it does, is that this job needs a chipper and this crew does not carry
- * one. That is the answer that prevents the truck roll.
+ * limits what can be claimed.
+ *
+ * `crew.required_asset_ids` and `job_type.required_asset_ids` are still
+ * compared to each other by equality, and that comparison is still what
+ * prevents the truck roll: this job needs a chipper, this crew does not carry
+ * one. What changed is that the strings are no longer opaque. Each one is a
+ * `company_asset.requirement_code`, so the register can say what the company
+ * actually owns under that name and whether any of it can go out today.
+ *
+ * MATCHED BY CODE AND NOT BY ID, which is the part worth arguing about. This
+ * comment used to say the two columns should become foreign keys to a uuid
+ * the day a register landed. That turns out to be wrong: a job type saying
+ * tree removal needs a chipper is talking about a CLASS of machine, and
+ * pinning it to one row ties every tree removal in the company to one
+ * physical chipper, so buying a second or retiring the first silently breaks
+ * the job type. Two chippers carry the same code and either satisfies it.
+ *
+ * WHAT THE REGISTER ADDS, exactly. A missing item is named with its real
+ * label rather than its code when the company owns one. And a crew that
+ * carries the code is refused anyway when every unit behind it is retired or
+ * grounded by an expired obligation that `packages/core/src/assets` says
+ * stops the asset being used: an expired inspection on the only chipper is
+ * the same lost day as not owning one, and it was invisible here before.
+ * A code the register has never heard of makes no claim either way, and
+ * `registeredEquipment` says which codes those were.
  *
  * TIME OFF IS COUNTED ONLY WHEN APPROVED, matching the dispatch board, which
  * draws an empty column for approved leave only. A requested day that nobody
@@ -333,7 +376,8 @@ export async function canTake(
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const on = input.on ?? time.dateIn(new Date(), zone);
     const job = await loadJob(tx, ctx.actor.organizationId, input.jobId);
-    return verdict(tx, ctx.actor.organizationId, crew, job, on, zone);
+    const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
+    return verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register);
   });
 }
 
@@ -362,9 +406,18 @@ export async function crewsFor(
       ))
       .orderBy(asc(schema.crew.name));
 
+    /**
+     * The register is read ONCE for the whole board rather than once per
+     * crew. Every crew on this screen is being asked about the same job, so
+     * the kit the work needs is the same list, and a query per crew turns one
+     * read into one per crew on a screen that already does a time off read
+     * each.
+     */
+    const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
+
     const out: CrewVerdict[] = [];
     for (const crew of crews) {
-      out.push(await verdict(tx, ctx.actor.organizationId, crew, job, on, zone));
+      out.push(await verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register));
     }
     return { jobId: job.id, on, crews: out };
   });
@@ -382,6 +435,7 @@ async function verdict(
   tx: Database, organizationId: string,
   crew: typeof schema.crew.$inferSelect,
   job: JobFacts, on: string, zone: string,
+  register: Register,
 ): Promise<CrewVerdict> {
   const blockers: { code: Blocker; explanation: string }[] = [];
 
@@ -454,23 +508,120 @@ async function verdict(
   }
 
   const carried = new Set(crew.requiredAssetIds);
-  const missingEquipment = job.requiredAssetIds.filter((id) => !carried.has(id));
+  const missingEquipment = job.requiredAssetIds.filter((code) => !carried.has(code));
   if (missingEquipment.length > 0) {
     blockers.push({
       code: "missing_equipment",
       explanation:
-        `${crew.name} does not carry ${missingEquipment.join(", ")}, which this work needs. `
-        + "Sending it means a second trip for the kit and a day of crew time nobody sold.",
+        `${crew.name} does not carry ${missingEquipment.map((code) => describe(register, code)).join(", ")}, `
+        + "which this work needs. Sending it means a second trip for the kit and a day of crew "
+        + "time nobody sold.",
     });
   }
 
-  const known = new Set(crew.skills);
-  const missingSkills = job.requiredSkills.filter((s) => !known.has(s));
-  if (missingSkills.length > 0) {
-    blockers.push({
-      code: "missing_skills",
-      explanation: `${crew.name} is not qualified for ${missingSkills.join(", ")}.`,
+  /**
+   * THE KIT THE CREW HAS AND CANNOT USE.
+   *
+   * Only asked about codes the crew DOES carry, because a code it is already
+   * refused for being short of does not also need a second reason. A code the
+   * register has never heard of is skipped entirely rather than treated as
+   * unavailable: before this table existed every code was in that state, and
+   * refusing them all would stop every crew in every company that has not
+   * filled the register in.
+   */
+  const unavailableEquipment: CrewVerdict["unavailableEquipment"] = [];
+  for (const code of job.requiredAssetIds) {
+    if (!carried.has(code)) continue;
+    const units = register.get(code);
+    if (!units || units.length === 0) continue;
+    if (units.some((unit) => unit.reason === null)) continue;
+
+    /**
+     * Grounded before retired when both exist, because they are different
+     * jobs for different people. A grounded chipper is an inspection somebody
+     * can book this afternoon; a retired one means the company does not have
+     * the machine and somebody has to hire one.
+     */
+    const named = units.find((unit) => unit.reason === "grounded") ?? units[0]!;
+    unavailableEquipment.push({
+      code,
+      assetId: named.id,
+      assetLabel: named.label,
+      reason: named.reason ?? "retired",
+      explanation: named.explanation ?? "",
     });
+  }
+  if (unavailableEquipment.length > 0) {
+    blockers.push({
+      code: "equipment_unavailable",
+      explanation:
+        `${crew.name} carries ${unavailableEquipment.map((u) => u.assetLabel).join(", ")} and the `
+        + `register says it cannot go out on ${on}. `
+        + unavailableEquipment.map((u) => u.explanation).join(" "),
+    });
+  }
+
+  /**
+   * SKILLS, FROM TWO SOURCES THAT ANSWER DIFFERENT QUESTIONS.
+   *
+   * `crew.skills` is a list somebody typed onto the crew record. It was the
+   * only source this file had, and "not qualified for epa_608" is the whole
+   * of what it can say: true, and useless to the person deciding what to do
+   * with this job this morning. They cannot tell from it whether nobody ever
+   * held it, whether the person who held it left, or whether it ran out last
+   * month, and those have three different answers before the truck goes.
+   *
+   * `people.skillStanding` answers from recorded certifications, so it can
+   * name whose, why and when. It only speaks for skills this company has
+   * declared a certification type for; for anything else it returns
+   * `uncertified`, which is NOT a clearance, and the typed list stays the
+   * only thing that knows anything about that skill.
+   *
+   * So the refusal fires on either source, and the certification sentence is
+   * preferred wherever there is one:
+   *
+   *   lapsed, absent  refuse, naming the person and the date.
+   *   covered         clear it, even where the typed list omits the skill. A
+   *                   recorded live certification is harder evidence than a
+   *                   string somebody did or did not remember to type, and
+   *                   gating real capacity behind that omission is a crew
+   *                   sitting in the yard on a job it can do.
+   *   uncertified     fall back to the typed list, unchanged.
+   *
+   * Asked only about the people actually working that day, because a crew
+   * whose only EPA holder is on approved time off cannot do EPA work on that
+   * date, and that date is what `canTake` is being asked about. When nobody
+   * is available it is not asked at all: `no_members` and `everybody_off`
+   * already say so, and "nobody here holds a certification" when nobody is
+   * here is not a second fact to act on.
+   */
+  const known = new Set(crew.skills);
+  const standing = available.length === 0 || job.requiredSkills.length === 0
+    ? []
+    : await skillStanding(tx, organizationId, {
+      technicianIds: available.map((m) => m.technicianId),
+      skills: job.requiredSkills,
+      on,
+    });
+  const stated = new Map(standing.map((s) => [s.skill, s]));
+
+  const missingSkills: string[] = [];
+  const skillRefusals: string[] = [];
+  for (const skill of job.requiredSkills) {
+    const said = stated.get(skill.trim());
+    if (said && said.state !== "uncertified") {
+      if (said.state === "covered") continue;
+      missingSkills.push(skill);
+      skillRefusals.push(said.explanation);
+      continue;
+    }
+    if (!known.has(skill)) {
+      missingSkills.push(skill);
+      skillRefusals.push(`${crew.name} is not qualified for ${skill}.`);
+    }
+  }
+  if (missingSkills.length > 0) {
+    blockers.push({ code: "missing_skills", explanation: skillRefusals.join(" ") });
   }
 
   if (crew.businessUnitId && job.businessUnitId && crew.businessUnitId !== job.businessUnitId) {
@@ -488,6 +639,7 @@ async function verdict(
     canTake: blockers.length === 0,
     blockers,
     missingEquipment,
+    unavailableEquipment,
     missingSkills,
     headcount: {
       onCrew: members.length,
@@ -496,7 +648,110 @@ async function verdict(
     },
     leadDesignated,
     equipmentBasis: job.jobTypeId ? "job_type" : "none_declared",
+    registeredEquipment: job.requiredAssetIds.filter((code) => (register.get(code)?.length ?? 0) > 0),
   };
+}
+
+/* ------------------------------------------------- the company's own tools */
+
+/**
+ * WHAT THE COMPANY ACTUALLY OWNS UNDER EACH OF THESE NAMES.
+ *
+ * `company_asset.requirement_code` is what a crew and a job type name when
+ * they say they need a chipper. It is not unique and it is not a row id: see
+ * the long note on `canTake` for why pointing a job type at one physical
+ * machine would be the wrong reference.
+ *
+ * `reason` is null for a unit that can go out, and names the problem
+ * otherwise. The grounding decision is NOT made here: `packages/core/src/assets`
+ * owns it, and `COMPLIANCE[kind].groundsTheAsset` is what says that an
+ * expired inspection stops a van leaving the yard while an expired
+ * calibration, which is worse in a different way, does not.
+ */
+interface RegisteredUnit {
+  id: string;
+  label: string;
+  reason: "retired" | "grounded" | null;
+  explanation: string | null;
+}
+type Register = Map<string, RegisteredUnit[]>;
+
+async function registerFor(
+  tx: Database, organizationId: string, codes: readonly string[], on: string,
+): Promise<Register> {
+  const register: Register = new Map();
+  const wanted = [...new Set(codes)];
+  if (wanted.length === 0) return register;
+
+  const rows = await tx.select({
+    id: schema.companyAsset.id,
+    label: schema.companyAsset.label,
+    requirementCode: schema.companyAsset.requirementCode,
+    retiredOn: schema.companyAsset.retiredOn,
+  }).from(schema.companyAsset)
+    .where(and(
+      eq(schema.companyAsset.organizationId, organizationId),
+      inArray(schema.companyAsset.requirementCode, wanted),
+    ));
+  if (rows.length === 0) return register;
+
+  const obligations = await tx.select().from(schema.assetCompliance)
+    .where(and(
+      eq(schema.assetCompliance.organizationId, organizationId),
+      inArray(schema.assetCompliance.assetId, rows.map((r) => r.id)),
+    ));
+
+  /**
+   * Asked AS OF THE DAY THE WORK IS, not as of today, for the same reason
+   * `assign` judges the people on the day of the visit: an inspection that
+   * expires on Wednesday does not stop Tuesday's job and does stop Thursday's.
+   */
+  const alerts = assetCore.complianceOutlook(
+    obligations.map((o) => ({
+      assetId: o.assetId,
+      kind: o.kind,
+      expiresOn: o.expiresOn,
+      ...(o.reference === null ? {} : { reference: o.reference }),
+      ...(o.lastCertifiedOn === null ? {} : { lastCertifiedOn: o.lastCertifiedOn }),
+    })),
+    on,
+  );
+  const grounded = new Map<string, string>();
+  for (const alert of alerts) {
+    if (alert.status !== "expired" || !alert.groundsTheAsset) continue;
+    if (!grounded.has(alert.obligation.assetId)) {
+      grounded.set(alert.obligation.assetId, assetCore.explainAlert(alert));
+    }
+  }
+
+  for (const row of rows) {
+    if (row.requirementCode === null) continue;
+    const list = register.get(row.requirementCode) ?? [];
+    const groundedBy = grounded.get(row.id);
+    list.push({
+      id: row.id,
+      label: row.label,
+      reason: row.retiredOn !== null ? "retired" : groundedBy ? "grounded" : null,
+      explanation: row.retiredOn !== null
+        ? `${row.label} was retired on ${row.retiredOn}, so the company no longer has it.`
+        : groundedBy ?? null,
+    });
+    register.set(row.requirementCode, list);
+  }
+  return register;
+}
+
+/**
+ * A required code in the words somebody would use for it.
+ *
+ * The code itself when the register has never heard of it, which is what this
+ * said for every code before the register existed and is still the honest
+ * answer for a company that has not filled it in.
+ */
+function describe(register: Register, code: string): string {
+  const units = register.get(code);
+  const first = units?.[0];
+  return first ? `${first.label} (${code})` : code;
 }
 
 /* --------------------------------------------------- putting it on a visit */
@@ -544,7 +799,8 @@ export async function assign(
       ? time.dateIn(visit.windowStart, zone)
       : time.dateIn(new Date(), zone);
 
-    const answer = await verdict(tx, ctx.actor.organizationId, crew, job, on, zone);
+    const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
+    const answer = await verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register);
     if (!answer.canTake) {
       throw new ConflictError(answer.blockers.map((b) => b.explanation).join(" "));
     }

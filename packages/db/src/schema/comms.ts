@@ -492,6 +492,29 @@ export const call = pgTable("call", {
   orgIdx: index("call_org_idx").on(t.organizationId, t.startedAt),
   customerIdx: index("call_customer_idx").on(t.customerId),
   numberIdx: index("call_number_idx").on(t.organizationId, t.receivedOnE164),
+  /**
+   * ONE ROW PER CALL AT THE PROVIDER, AND THE REASON IT IS AN INDEX.
+   *
+   * A call tracking provider sends several webhooks about one call: a
+   * pre-call when it rings, another when it is routed, a post-call when the
+   * recording has attached, and a modified one every time somebody adds a
+   * tag afterwards. CallRail in particular does not resend a delivery that
+   * failed, which means the remedy for a missed one is a backfill over the
+   * same window, which replays calls that did land.
+   *
+   * So the same call arrives repeatedly by design, and the service upserts
+   * on this index rather than checking first. A select followed by an insert
+   * has a window between the two, and two workers in that window both see
+   * nothing and both insert: the operator gets two rows for one call, the
+   * duration on each is right, and every count of calls in the business is
+   * quietly too high.
+   *
+   * Partial, because the column is null for every call this product logged
+   * itself and a plain unique index would allow exactly one of them.
+   */
+  providerCallIdx: uniqueIndex("call_provider_call_idx")
+    .on(t.organizationId, t.providerCallId)
+    .where(sql`${t.providerCallId} is not null`),
 }));
 
 /* ------------------------------------------------- recording policy */

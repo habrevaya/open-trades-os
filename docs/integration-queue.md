@@ -63,6 +63,8 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `anthropic` | ai_model | Claude, on the operator's own key and their own bill. |
 | `openai` | ai_model | ChatGPT, same seam. |
 | `google` | ai_model | Gemini, same seam. Key sent as a header, never in the URL. |
+| `ics_feed` | calendar | A technician's visits as a subscribable feed. No vendor at all. Address in, phone number deliberately out. |
+| `callrail` | telephony | Tracked calls into `call` and `marketing_touch`, signed webhook plus a backfill, because they do not resend. |
 
 ---
 
@@ -71,39 +73,35 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 Self-serve credentials, a seam that already exists, and a data model that can
 take it. Each of these is an adapter rather than a module.
 
-### 1. CalDAV and ICS calendar feed (not a marketplace listing)
-The `calendar` capability is in the enum with no provider. A read-only ICS feed
-of a technician's visits is maybe eighty lines and works with Google Calendar,
-Apple Calendar, Outlook and every phone, with no vendor relationship at all.
-CalDAV two-way is the follow-up. This is first because it is the cheapest real
-improvement to a technician's day in the whole list.
+### 1. CalDAV two-way calendar sync (not a marketplace listing)
+The read-only ICS feed is built and is in Tier 0. What it cannot do is take a
+change back: a technician who moves an appointment in their own calendar has
+moved their own copy, and the next refresh puts it back. CalDAV is the
+follow-up, and it is a genuinely bigger piece of work than the feed was,
+because accepting a write means conflict handling between a phone that was
+offline and a dispatch board that has moved on.
+*What is already known from building the feed: the framing rules, the stable
+UID per visit, and the decision about what a feed may show of a customer's
+address and phone number, all of which CalDAV inherits.*
 
-### 2. CallRail: call tracking
-REST API v3, authenticated with `Authorization: Token token="..."`, keys
-self-serve from the integrations screen on a paid plan, nine webhook event
-types. Lands in the `telephony` and `ads` seams we already have, and attribution
-per call is exactly what `marketing_touch` was built to hold.
-*Caveat worth recording: a single long-lived key with no OAuth and no refresh,
-so rotation is manual.*
-
-### 3. CompanyCam: job photos
+### 2. CompanyCam: job photos
 Bearer-token REST, a public developer portal with an OpenAPI spec and a Postman
 collection, personal access tokens for testing and application keys for the
 real thing, and no separate developer account needed. Photos attach to
 `stored_file` and `visit`, both of which exist.
 
-### 4. JustCall: phone and SMS
+### 3. JustCall: phone and SMS
 REST plus webhooks for calls, SMS, contacts and numbers, authenticated with an
 API key and secret copied out of the account screen. Drops into the existing
 messaging provider seam beside Twilio, which is the test of whether that seam
 was drawn in the right place.
 
-### 5. ClearPathGPS: fleet tracking
+### 4. ClearPathGPS: fleet tracking
 Open API on their Pro plan, real-time location and vehicle data. Needs the
 `fleet` capability, which does not exist yet, but `M22` has 1,442 lines of asset
 logic in core already waiting for a schema.
 
-### 6. Avalara AvaTax: sales tax
+### 5. Avalara AvaTax: sales tax
 The `tax` capability is in the enum with no provider. REST v2, a sandbox at
 `sandbox-rest.avatax.com`, a free trial obtainable through the
 `RequestFreeTrial` API with no prior approval, and an API playground that needs
@@ -266,8 +264,8 @@ full gate.
 
 | Integration | Seam | Estimate | Why |
 |---|---|---|---|
-| ICS calendar feed | calendar (new) | **90k** | Below the floor because there is no vendor, no auth and no failure mode: it is a formatter over data we hold. The cheapest real improvement in the list. |
-| CallRail | telephony + ads | **180k** | Existing seams, one API key, documented webhooks. |
+| ICS calendar feed | calendar (new) | **90k**, BUILT | The reasoning behind the estimate was the part that was wrong: "no failure mode" is not true of a file format. There is no vendor and no auth, and the work is the framing. Folding at 75 octets, escaping, a stable UID and a DTSTAMP that does not move on every poll are each a way for the feed to look fine and be wrong, and breaking every one of them on purpose to confirm a named test goes red is a large share of the cost rather than a rounding error on it. |
+| CallRail | telephony + ads | **180k**, BUILT | Existing seams, one API key, documented webhooks, and one fact the plan had wrong: they DO sign, with HMAC-SHA1 over the raw body, and publish a worked example to test against. |
 | CompanyCam | storage | **200k** | Existing file model, bearer auth, OpenAPI spec published. |
 | JustCall | messaging | **160k** | The cheapest of the adapters, because it drops into the messaging seam beside Twilio. If it costs more than this the seam is in the wrong place, which is itself worth finding out. |
 | Avalara AvaTax | tax (new) | **320k** | New seam. Tax is where a quiet wrong answer is most expensive, so the verification burden is high. |

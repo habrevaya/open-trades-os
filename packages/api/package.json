@@ -14,7 +14,11 @@
     "./marketing": "./src/marketing/index.ts",
     "./mcp": "./src/mcp/index.ts",
     "./payments": "./src/payments/index.ts",
-    "./ai": "./src/ai/index.ts"
+    "./ai": "./src/ai/index.ts",
+    "./calendar": "./src/calendar/index.ts",
+    "./call-tracking": "./src/call-tracking/index.ts",
+    "./services/calendar": "./src/services/calendar.ts",
+    "./services/call-tracking": "./src/services/call-tracking.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

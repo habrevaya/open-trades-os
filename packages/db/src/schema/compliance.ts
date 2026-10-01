@@ -119,7 +119,29 @@ export const retentionPolicy = pgTable("retention_policy", {
  */
 export const regulatoryConstant = pgTable("regulatory_constant", {
   id: pk(),
-  /** Global by default, with an organization override where one is needed. */
+  /**
+   * ALWAYS THE COMPANY'S OWN, THOUGH THE COLUMN IS NULLABLE.
+   *
+   * This said "global by default, with an organization override where one is
+   * needed", and a global row cannot work. `sql/after.sql` applies row level
+   * security to every table carrying an `organization_id`, with
+   * `organization_id = app.current_organization_id()`, which is never true of
+   * NULL, and the table is under `force row level security`. A global figure
+   * would be written successfully and then be invisible to every tenant,
+   * including the one that wrote it, with no symptom beyond a lookup that
+   * finds nothing.
+   *
+   * So the service writes the organization on every constant, which also
+   * suits the decision that this product ships no figures of its own: a
+   * threshold seeded by the repository would be the repository telling a
+   * contractor what the law says, and a wrong one would be silently wrong in
+   * every deployment until a release fixed it.
+   *
+   * The column stays nullable rather than being tightened, because making it
+   * NOT NULL is a migration against a shared security file while several
+   * things are in flight. If a genuinely global row is ever wanted it needs
+   * its own select policy and a seeding path, not a null and a hope.
+   */
   organizationId: uuid("organization_id").references(() => organization.id, { onDelete: "cascade" }),
   key: text("key").notNull(),
   jurisdiction: text("jurisdiction").notNull().default("US"),
@@ -131,4 +153,117 @@ export const regulatoryConstant = pgTable("regulatory_constant", {
   ...timestamps,
 }, (t) => ({
   lookupIdx: index("regulatory_constant_lookup_idx").on(t.key, t.jurisdiction, t.effectiveFrom),
+}));
+
+/**
+ * WHAT A DOCUMENT IS DOING ON FILE.
+ *
+ * `active` is the one in force. `superseded` is the one a renewal replaced,
+ * and it is kept rather than overwritten because the question an authority or
+ * an insurer asks years later is "what were you holding in March", which a
+ * register that only remembers the current certificate cannot answer.
+ * `withdrawn` is one the operator pulled: revoked, issued in error, or simply
+ * no longer theirs.
+ *
+ * THERE IS NO `expired` STATE, and that is the important absence. Expiry is a
+ * date arriving, not a decision anybody records, so a stored state for it
+ * would be a column that is only correct while some sweep is running. The
+ * same argument `obligation` makes about breaches: a monitoring surface whose
+ * failure mode is a clean bill of health is worse than none. Expiry is
+ * computed from `expires_on` against the clock on every read.
+ */
+export const complianceDocumentState = pgEnum("compliance_document_state", [
+  "active", "superseded", "withdrawn",
+]);
+
+/**
+ * A DOCUMENT WITH AN EXPIRY SOMEBODY HAS TO ACT ON.
+ *
+ * A contractor's licence, a certificate of insurance, a permit, a safety data
+ * sheet, a technician's training card. The valuable part is not keeping the
+ * file: `stored_file` and `attachment` already do that, and this table does
+ * not duplicate them. The valuable part is the date, and the person who has
+ * to do something about it before it arrives.
+ *
+ * WHY THERE IS NO SECOND DEADLINE MECHANISM HERE. There is no `next_action_at`
+ * column, no reminder table, no sweep. `obligation` exists for exactly this
+ * and its own comment says why one table rather than a date column on six:
+ * "the thing everyone actually needs is what is about to breach, across all
+ * of them". A renewal that lived only in this table would be a deadline on a
+ * compliance screen instead of in the queue the office works, which is how a
+ * licence lapses in a product that knew the date.
+ *
+ * WHAT IT DOES NOT CLAIM. This is an inventory of documents the operator put
+ * here. Nothing in it knows which documents a business is required to hold:
+ * that depends on jurisdiction, trade, contract and insurer, and it changes.
+ * So the register can say that a document expired, and it can never say that
+ * the set on file is complete. `required_for_work` below is the operator's
+ * own declaration about their own work, held against them consistently, and
+ * is not a statement about law.
+ */
+export const complianceDocument = pgTable("compliance_document", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** "licence", "insurance", "permit", "sds", "training", "registration". */
+  kind: text("kind").notNull(),
+  name: text("name").notNull(),
+  /** The number on the document: licence number, policy number, permit number. */
+  reference: text("reference"),
+  /** Who issued it. A state board, an insurer, a city, a manufacturer. */
+  issuerName: text("issuer_name"),
+  jurisdiction: text("jurisdiction"),
+
+  /**
+   * What the document is about, or null for the company itself.
+   *
+   * A string pair rather than six nullable foreign keys, the same shape
+   * `attachment` and `obligation` use, because the alternative is a column
+   * per subject and a new migration every time a document can belong to one
+   * more kind of thing.
+   *
+   * A PERSON'S OWN CREDENTIAL DOES NOT BELONG HERE. `person_certification`
+   * is the register for what an individual holds, with the certification
+   * type's own renewal lead time on it, and a technician's licence recorded
+   * in both places is two expiry dates for one card. What belongs here is a
+   * document the COMPANY holds: its contractor licence, its liability cover,
+   * a permit on a job, a product's safety data sheet.
+   */
+  subjectType: text("subject_type"),
+  subjectId: uuid("subject_id"),
+
+  issuedOn: date("issued_on"),
+  /**
+   * Null means it does not expire. A safety data sheet is reissued when the
+   * formulation changes rather than on a date, and giving it an invented
+   * expiry would put a false deadline in the queue every year.
+   */
+  expiresOn: date("expires_on"),
+  /**
+   * How many days of notice the renewal needs, which is a fact about the
+   * issuer's turnaround and the operator's own process. The default is a
+   * starting point the operator changes, never a claim about any authority:
+   * a state board that takes ten weeks and a certificate of insurance the
+   * broker reissues the same afternoon are both in here.
+   */
+  noticeDays: integer("notice_days").notNull().default(30),
+  /**
+   * The operator's declaration that work they marked as needing this should
+   * not be assigned while it is lapsed. Their claim, not ours, and the same
+   * posture `recording_policy` takes: the software's job is to hold them to
+   * what they declared, and whether the declaration is right is a question
+   * for them and their counsel.
+   */
+  requiredForWork: boolean("required_for_work").notNull().default(false),
+
+  state: complianceDocumentState("state").notNull().default("active"),
+  /** The document this one renewed, so the history is a chain rather than edits. */
+  supersedesId: uuid("supersedes_id"),
+  /** Required when withdrawing. A withdrawal with no reason reads as a mistake. */
+  withdrawnReason: text("withdrawn_reason"),
+  notes: text("notes"),
+  ...timestamps,
+}, (t) => ({
+  /** The renewal screen: what is in force and when it runs out. */
+  expiryIdx: index("compliance_document_expiry_idx").on(t.organizationId, t.state, t.expiresOn),
+  subjectIdx: index("compliance_document_subject_idx").on(t.organizationId, t.subjectType, t.subjectId),
 }));
