@@ -1246,3 +1246,22 @@ create or replace function app.credential_suspended(p_token_hash text)
 
 revoke all on function app.credential_suspended(text) from public;
 grant execute on function app.credential_suspended(text) to authenticated;
+
+-- ---- The people in this company -------------------------------------------
+-- A user row is visible to that user alone, which is right for the table and
+-- left "who works here" unanswerable from inside the tenant: a join from
+-- membership to user returned the caller and nobody else. This answers it for
+-- the CURRENT organization only, and only the name and address a colleague can
+-- already see on the schedule, never anything from the credential.
+create or replace function app.organization_people()
+  returns table (membership_id uuid, user_id uuid, name text, email text)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select m.id, u.id, u.name, u.email
+    from public.membership m
+    join public."user" u on u.id = m.user_id
+    where m.organization_id = (select app.current_organization_id())
+  $$;
+
+revoke all on function app.organization_people() from public;
+grant execute on function app.organization_people() to authenticated;

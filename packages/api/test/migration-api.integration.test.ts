@@ -213,3 +213,59 @@ run("a job's next visit, on the list", () => {
     expect((page.data as Array<{ nextVisitAt: string }>)[0]!.nextVisitAt).toBe(soon);
   });
 });
+
+run("reading back what a migration needs to map and reconcile", () => {
+  it("lists the people, with the technician id a visit names, matchable by email", async () => {
+    const [membership] = await raw<{ id: string }[]>`select id from public.membership
+      where organization_id = ${ORG} and user_id = ${USER}`;
+    await raw`delete from public.technician where organization_id = ${ORG}`;
+    const [tech] = await raw<{ id: string }[]>`insert into public.technician
+      (organization_id, membership_id, display_name) values (${ORG}, ${membership!.id}, 'Mo Tech') returning id`;
+    // Another company's people are never in the answer.
+    const OTHER = fixtureId("migration-api:other-org");
+    await seedOrg(raw, { organizationId: OTHER, userId: fixtureId("migration-api:other-user"), name: "Other", slug: "migration-other" });
+
+    const people = await ok("listPeople", {});
+    const data = people.data as Array<{ email: string; technicianId: string | null; userId: string }>;
+    expect(data).toHaveLength(1);
+    expect(data[0]).toMatchObject({ email: "migration-co@test.local", technicianId: tech!.id, userId: USER });
+    const byEmail = await ok("listPeople", { email: "MIGRATION-CO@test.local" });
+    expect((byEmail.data as unknown[]).length).toBe(1);
+    expect((await call("listPeople", {}, { ctx: app(["job:read"]) })).status).toBe(403);
+  });
+
+  it("lists job types", async () => {
+    await raw`insert into public.job_type (organization_id, name, code) values (${ORG}, 'Repair', 'REP')`;
+    const types = await ok("listJobTypes", {});
+    expect((types.data as Array<{ name: string }>).map((t) => t.name)).toContain("Repair");
+  });
+
+  it("lists payments with their allocations and what they still hold, by customer, invoice and date", async () => {
+    const customer = await ok("createCustomer", { name: "Payer" });
+    const invoice = await ok("createInvoice", { customerId: customer.id, lines: [{ name: "Work", unitPrice: "50.00" }] });
+    const applied = await ok("recordPayment", {
+      customerId: customer.id, method: "check", amount: "50.00", receivedAt: "2024-02-01T15:00:00.000Z",
+      allocations: [{ invoiceId: invoice.id, amount: "50.00" }],
+    });
+    const held = await ok("recordPayment", {
+      customerId: customer.id, method: "cash", amount: "30.00", receivedAt: "2024-03-01T15:00:00.000Z", allocations: [],
+    });
+
+    const all = await ok("listPayments", { customerId: customer.id });
+    expect((all.data as Array<{ id: string }>).map((p) => p.id)).toEqual([held.id, applied.id]);
+    const one = (all.data as Array<{ id: string }>).find((p) => p.id === applied.id);
+    expect(one).toMatchObject({ allocations: [{ invoiceId: invoice.id, amount: "50.0000" }], unappliedAmount: "0.0000" });
+
+    const byInvoice = await ok("listPayments", { invoiceId: invoice.id });
+    expect((byInvoice.data as Array<{ id: string }>).map((p) => p.id)).toEqual([applied.id]);
+    const holding = await ok("listPayments", { customerId: customer.id, unappliedOnly: true });
+    expect((holding.data as Array<{ id: string }>).map((p) => p.id)).toEqual([held.id]);
+    const march = await ok("listPayments", { customerId: customer.id, receivedFrom: "2024-02-15T00:00:00.000Z" });
+    expect((march.data as Array<{ id: string }>).map((p) => p.id)).toEqual([held.id]);
+
+    const first = await ok("listPayments", { customerId: customer.id, limit: 1 });
+    expect(first.hasMore).toBe(true);
+    const second = await ok("listPayments", { customerId: customer.id, limit: 1, cursor: first.nextCursor });
+    expect((second.data as Array<{ id: string }>).map((p) => p.id)).toEqual([applied.id]);
+  });
+});

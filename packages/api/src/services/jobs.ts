@@ -14,7 +14,7 @@ import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
-import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit } from "../contracts/jobs";
+import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
 
@@ -663,6 +663,23 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
 
     await audit(tx, ctx, "visit.completed", "visit", input.id, visit, updated!);
     return { ...withProvenance(updated!), technicianIds: await assignedTo(tx, input.id), raisedDispatchException: wasCancelled };
+  });
+}
+
+/** The kinds of work this company does, by name. */
+export async function listTypes(ctx: ServiceContext, input: z.infer<typeof listJobTypes.input>) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const rows = await tx.select().from(schema.jobType)
+      // No `deleted_at` filter: nothing deletes a job type, it is made inactive.
+      .where(input.includeInactive ? undefined : eq(schema.jobType.active, true))
+      .orderBy(schema.jobType.name);
+    return {
+      data: rows.map((r) => ({
+        id: r.id, name: r.name, code: r.code,
+        defaultDurationMinutes: r.defaultDurationMinutes,
+        requiredSkills: r.requiredSkills, active: r.active,
+      })),
+    };
   });
 }
 

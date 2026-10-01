@@ -365,7 +365,36 @@ export const writeOffInvoice = defineRoute({
   output: Invoice,
 });
 
+/**
+ * Reading payments back.
+ *
+ * Payments could be recorded and never listed: the invoice carried its own
+ * `amountPaid`, and money held for a customer, a payment's method or its
+ * date could not be read at all, so nothing could reconcile against them.
+ */
+export const listPayments = defineRoute({
+  method: "get",
+  path: "/v1/payments",
+  summary: "List payments",
+  module: "M13",
+  permissions: ["payment:read"],
+  input: PageRequest.extend({
+    customerId: Uuid.optional(),
+    /** Payments with any allocation to this invoice. */
+    invoiceId: Uuid.optional(),
+    method: PaymentMethod.optional(),
+    /** Received on or after this instant. */
+    receivedFrom: z.string().datetime().optional(),
+    /** Received before this instant. */
+    receivedTo: z.string().datetime().optional(),
+    /** Only payments still holding money for the customer. */
+    unappliedOnly: z.boolean().default(false),
+    ...ExternalLookup,
+  }),
+  output: pageOf(Payment),
+});
+
 export const billingRoutes = {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging,
-  voidInvoice, writeOffInvoice, applyPayment,
+  voidInvoice, writeOffInvoice, applyPayment, listPayments,
 } as const;

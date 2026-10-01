@@ -36,4 +36,42 @@ export const setMembershipActive = defineRoute({
   }),
 });
 
-export const peopleRoutes = { setMembershipActive } as const;
+/**
+ * WHO WORKS HERE.
+ *
+ * There was no way to read it. A visit names its technicians by id, and an
+ * integration putting work on the board, or a migration mapping a source
+ * system's technicians onto this one's, had to have somebody copy every id
+ * out of a screen by hand. Matching by email is the job this exists for.
+ */
+export const listPeople = defineRoute({
+  method: "get",
+  path: "/v1/people",
+  summary: "List the people in this company",
+  description:
+    "Each membership, with the person's name and email and, for anybody who goes out on visits, the technician id a visit names. Offboarded people are left out unless asked for, because they still appear on every visit they worked.",
+  module: "M01",
+  permissions: ["user:read"],
+  input: z.object({
+    includeInactive: z.boolean().default(false),
+    /** Exact, case insensitive. */
+    email: z.string().max(320).optional(),
+  }),
+  output: z.object({
+    data: z.array(z.object({
+      membershipId: Uuid,
+      userId: Uuid,
+      name: z.string().nullable(),
+      email: z.string(),
+      /** The preset role, or the custom role's name where one decides. */
+      role: z.string(),
+      active: z.boolean(),
+      /** What `technicianIds` on a visit refers to. Null for office staff. */
+      technicianId: Uuid.nullable(),
+      technicianName: z.string().nullable(),
+      technicianActive: z.boolean().nullable(),
+    })),
+  }),
+});
+
+export const peopleRoutes = { setMembershipActive, listPeople } as const;

@@ -7,7 +7,7 @@ import {
   customers, jobs, billing, estimates, deposits, portal, booking,
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
-  roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
+  roles as roleService, people, contracts as contractService, customFields, webhooks, payments, email, accounting,
 } from "../services/index";
 
 /**
@@ -89,6 +89,7 @@ export const handlers = {
   updateJob: jobs.update,
   scheduleVisit: jobs.addVisit,
   completeVisit: jobs.complete,
+  listJobTypes: jobs.listTypes,
 
   // Money
   createInvoice: billing.create,
@@ -96,6 +97,7 @@ export const handlers = {
   listInvoices: billing.list,
   recordPayment: billing.pay,
   applyPayment: billing.applyPayment,
+  listPayments: billing.listPayments,
   voidInvoice: billing.voidInvoice,
   writeOffInvoice: billing.writeOff,
   getArAging: billing.arAging,
@@ -142,6 +144,7 @@ export const handlers = {
   updateProperty: properties.update,
   setPriceBookItemActive: priceBook.setActive,
   setMembershipActive: roleService.setMembershipActive,
+  listPeople: people.list,
 
   // Recurring work. Four models because reconstructing the wrong one
   // silently drifts every future date, and only one future occurrence is

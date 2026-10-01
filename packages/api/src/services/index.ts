@@ -37,6 +37,7 @@ export * as inspections from "./inspections";
 export * as reports from "./reports";
 export * as dashboards from "./dashboards";
 export * as roles from "./roles";
+export * as people from "./people";
 export * as tasks from "./tasks";
 export * as session from "./session";
 export { resolveSession, type ResolvedSession } from "./session";

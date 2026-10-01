@@ -292,6 +292,31 @@ export const completeVisit = defineRoute({
   }),
 });
 
+/**
+ * The kinds of work this company does.
+ *
+ * A job's `jobTypeId` had to be an id, and nothing listed them, so a caller
+ * could only set one it had found some other way.
+ */
+export const listJobTypes = defineRoute({
+  method: "get",
+  path: "/v1/job-types",
+  summary: "List job types",
+  module: "M10",
+  permissions: ["job:read"],
+  input: z.object({ includeInactive: z.boolean().default(false) }),
+  output: z.object({
+    data: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      code: z.string().nullable(),
+      defaultDurationMinutes: z.number().int(),
+      requiredSkills: z.array(z.string()),
+      active: z.boolean(),
+    })),
+  }),
+});
+
 export const jobRoutes = {
-  listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit,
+  listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit, listJobTypes,
 } as const;

@@ -1,4 +1,4 @@
-import { and, asc, eq, desc, lt, inArray, sql, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, lt, gte, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { authorization as authz, coverage, history, ledger, money as m, time } from "@opentradesos/core";
 import type { z } from "zod";
@@ -18,7 +18,7 @@ import { claimNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
-import type { createInvoice, listInvoices, getInvoice, recordPayment, getArAging } from "../contracts/billing";
+import type { createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_ } from "../contracts/billing";
 
 const usd = (v: string) => m.money(v, "USD");
 
@@ -862,6 +862,73 @@ export async function loadPayment(tx: Database, ctx: ServiceContext, id: string)
     allocations,
     unappliedAmount: m.toString(unappliedOf(payment, allocations)),
   };
+}
+
+/**
+ * Payments, newest received first.
+ *
+ * Cursor on the received instant and then the id, because a migration loads
+ * hundreds of payments dated the same day and a cursor on the instant alone
+ * would skip or repeat them at a page boundary.
+ */
+export async function listPayments(ctx: ServiceContext, input: z.infer<typeof listPayments_.input>) {
+  return guardedRead(ctx, "payment:read", async (tx) => {
+    const cursor = decodeCursor(input.cursor);
+    const [at, id] = cursor ? cursor.split("|") : [];
+    const rows = await tx.select().from(schema.payment)
+      .where(and(
+        input.customerId ? eq(schema.payment.customerId, input.customerId) : undefined,
+        input.method ? eq(schema.payment.method, input.method) : undefined,
+        input.receivedFrom ? gte(schema.payment.receivedAt, new Date(input.receivedFrom)) : undefined,
+        input.receivedTo ? lt(schema.payment.receivedAt, new Date(input.receivedTo)) : undefined,
+        input.invoiceId
+          ? inArray(schema.payment.id, tx.select({ id: schema.paymentAllocation.paymentId })
+            .from(schema.paymentAllocation)
+            .where(eq(schema.paymentAllocation.invoiceId, input.invoiceId)))
+          : undefined,
+        byExternal(schema.payment, input),
+        at && id
+          ? sql`(${schema.payment.receivedAt}, ${schema.payment.id}) < (${new Date(at).toISOString()}::timestamptz, ${id}::uuid)`
+          : undefined,
+      ))
+      .orderBy(desc(schema.payment.receivedAt), desc(schema.payment.id))
+      .limit(input.unappliedOnly ? 1000 : input.limit + 1);
+
+    const ids = rows.map((r) => r.id);
+    const allocations = ids.length
+      ? await tx.select({
+          paymentId: schema.paymentAllocation.paymentId,
+          invoiceId: schema.paymentAllocation.invoiceId,
+          amount: schema.paymentAllocation.amount,
+        }).from(schema.paymentAllocation)
+          .where(inArray(schema.paymentAllocation.paymentId, ids))
+          .orderBy(asc(schema.paymentAllocation.createdAt))
+      : [];
+
+    const shaped = rows.map((payment) => {
+      const own = allocations.filter((a) => a.paymentId === payment.id)
+        .map((a) => ({ invoiceId: a.invoiceId, amount: a.amount }));
+      const { idempotencyKey: _key, ...rest } = payment;
+      return {
+        row: payment,
+        out: {
+          ...clean(ctx, "payment", rest),
+          allocations: own,
+          unappliedAmount: m.toString(unappliedOf(payment, own)),
+        },
+      };
+    });
+    /**
+     * Held money is computed, not stored, so "only what still holds
+     * something" is a filter over the computed figure, bounded so a company
+     * with a decade of payments cannot ask for all of them at once.
+     */
+    const kept = input.unappliedOnly
+      ? shaped.filter((p) => m.isPositive(usd(p.out.unappliedAmount))).slice(0, input.limit + 1)
+      : shaped;
+    const page = paginate(kept, input.limit, (p) => `${p.row.receivedAt.toISOString()}|${p.row.id}`);
+    return { ...page, data: page.data.map((p) => p.out) };
+  });
 }
 
 /**

@@ -64,13 +64,11 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
   ["timeclock:own", "M17. The field app punches under field:sync; a self-service view is not built."],
   ["payroll:read", "M17 exports nothing yet; the timesheet reads under timesheet:read."],
   ["payroll:export", "M17."],
-  ["user:read", "M01 lists members through role:read on the settings screen."],
   ["audit:read", "M01 writes the audit log; no screen reads it back."],
   ["job:delete", "M10 cancels rather than deletes, deliberately."],
   ["ledger:read", "M14. Postings are written; no trial balance or journal is read back."],
   ["ledger:post", "M14. Postings are a consequence of a guarded business action, never a bare entry. A manual journal has no surface."],
   ["invoice:send", "M13 writes invoice_delivery rows through no service; delivery is not built."],
-  ["payment:read", "M13 records payments and lists none. The invoice carries its own."],
   ["deposit:read", "M13 requests, records, applies and refunds a deposit, and reads none back."],
   ["estimate.discount.unlimited", "M07 has no discount cap, so there is nothing to exceed."],
 ]);
