@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 
 export const ItemKind = z.enum(["service", "material", "equipment", "labor", "fee", "discount"]);
 
@@ -29,6 +29,7 @@ export const PriceBookItem = z.object({
   cost: MoneyString.nullable().optional(),
   margin: RateString.nullable().optional(),
   commissionRate: RateString.nullable().optional(),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const listPriceBook = defineRoute({
@@ -42,6 +43,8 @@ export const listPriceBook = defineRoute({
     kind: ItemKind.optional(),
     categoryId: Uuid.optional(),
     includeInactive: z.boolean().default(false),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(PriceBookItem),
 });
@@ -65,6 +68,8 @@ export const createPriceBookItem = defineRoute({
     taxClass: z.string().max(50).optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
     warrantyMonths: z.number().int().min(0).max(600).optional(),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
   }),
   output: PriceBookItem,
 });

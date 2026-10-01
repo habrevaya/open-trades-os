@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 
 /**
  * WHOSE PRICE GOVERNS.
@@ -62,6 +62,7 @@ export const Visit = z.object({
   arrivedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
   technicianNotes: z.string().nullable(),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const Job = z.object({
@@ -91,9 +92,18 @@ export const Job = z.object({
   /** Redacted unless the caller holds job.cost:read. */
   cost: MoneyString.nullable().optional(),
   grossMargin: MoneyString.nullable().optional(),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const JobCreate = z.object({
+  /**
+   * The source document's own number, kept for history. Needs
+   * `data:import`. Refused if taken; the next number this company is given
+   * is always past the highest one in use, imported or not.
+   */
+  number: z.number().int().min(1).max(2_000_000_000).optional(),
+  /** Where this came from in another system. See `ExternalRef`. */
+  externalRef: ExternalRef.optional(),
   customerId: Uuid,
   propertyId: Uuid,
   jobTypeId: Uuid.optional(),
@@ -160,6 +170,8 @@ export const JobCreate = z.object({
     windowEnd: z.string().datetime(),
     estimatedDurationMinutes: z.number().int().min(5).max(1440).default(60),
     technicianIds: z.array(Uuid).default([]),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
   }).optional(),
 });
 
@@ -177,6 +189,8 @@ export const listJobs = defineRoute({
     technicianId: Uuid.optional(),
     scheduledFrom: z.string().datetime().optional(),
     scheduledTo: z.string().datetime().optional(),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(Job.omit({ visits: true }).extend({
     customerName: z.string(),
@@ -212,7 +226,7 @@ export const updateJob = defineRoute({
   summary: "Update a job",
   module: "M10",
   permissions: ["job:write"],
-  input: JobCreate.partial().omit({ visit: true, parties: true, coverage: true }).extend({
+  input: JobCreate.partial().omit({ visit: true, parties: true, coverage: true, number: true, externalRef: true }).extend({
     id: Uuid,
     status: JobStatus.optional(),
     /**
@@ -240,6 +254,8 @@ export const scheduleVisit = defineRoute({
     estimatedDurationMinutes: z.number().int().min(5).max(1440).default(60),
     technicianIds: z.array(Uuid).default([]),
     crewId: Uuid.optional(),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
   }),
   output: Visit,
 });

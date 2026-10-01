@@ -1,5 +1,5 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, money } from "./_shared";
+import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
 import { capacityModel, crew, route, routeStop, rental, territory } from "./scheduling";
@@ -125,6 +125,7 @@ export const job = pgTable("job", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("job_source_ref_idx", t),
   orgStatusIdx: index("job_org_status_idx").on(t.organizationId, t.status),
   customerIdx: index("job_customer_idx").on(t.customerId),
   propertyIdx: index("job_property_idx").on(t.propertyId),
@@ -173,6 +174,7 @@ export const visit = pgTable("visit", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("visit_source_ref_idx", t),
   jobIdx: index("visit_job_idx").on(t.jobId),
   /** The dispatch board's primary query: everything in a window, by org. */
   boardIdx: index("visit_board_idx").on(t.organizationId, t.windowStart, t.status),

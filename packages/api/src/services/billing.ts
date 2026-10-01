@@ -14,7 +14,8 @@ import { writePosting } from "./ledger";
 import { emit } from "./events";
 import * as contracts from "./contracts";
 import * as obligations from "./obligations";
-import { nextNumber } from "./jobs";
+import { claimNumber } from "./jobs";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
 import type { createInvoice, listInvoices, getInvoice, recordPayment, getArAging } from "../contracts/billing";
@@ -296,7 +297,8 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       if (!decision.ok) throw new ConflictError(decision.detail);
     }
 
-    const number = await nextNumber(tx, ctx.actor.organizationId, "invoice");
+    await assertUnclaimed(tx, "invoice", input.externalRef);
+    const number = await claimNumber(tx, ctx, "invoice", input.number);
 
     const [invoice] = await tx.insert(schema.invoice).values({
       organizationId: ctx.actor.organizationId,
@@ -330,6 +332,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       total: m.toString(computed.totals.total),
       balance: m.toString(computed.totals.total),
       memo: input.memo ?? null,
+      ...provenance(input.externalRef),
     }).returning();
 
     /**
@@ -533,6 +536,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.customerId ? eq(schema.invoice.customerId, input.customerId) : undefined,
         input.payerCustomerId ? eq(schema.invoice.payerCustomerId, input.payerCustomerId) : undefined,
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
+        byExternal(schema.invoice, input),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))
       .orderBy(desc(schema.invoice.createdAt))
@@ -663,8 +667,10 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       );
     }
 
+    await assertUnclaimed(tx, "payment", input.externalRef);
     const [payment] = await tx.insert(schema.payment).values({
       organizationId: ctx.actor.organizationId,
+      ...provenance(input.externalRef),
       customerId: input.customerId,
       method: input.method,
       status: "succeeded",

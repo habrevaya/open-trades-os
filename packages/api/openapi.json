@@ -5203,6 +5203,24 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
           }
         ],
         "responses": {
@@ -7122,6 +7140,24 @@
             "schema": {
               "type": "string",
               "format": "date"
+            }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
             }
           }
         ],
@@ -9252,6 +9288,24 @@
               "type": "string",
               "format": "date"
             }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
           }
         ],
         "responses": {
@@ -9956,6 +10010,24 @@
             "schema": {
               "type": "string",
               "format": "date-time"
+            }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
             }
           }
         ],
@@ -14311,6 +14383,24 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
           }
         ],
         "responses": {
@@ -14856,6 +14946,24 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
             }
           }
         ],
@@ -22742,6 +22850,27 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -22769,6 +22898,7 @@
           "notes",
           "allocations",
           "unappliedAmount",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -23083,6 +23213,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -23110,6 +23261,7 @@
           "signerName",
           "currency",
           "options",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -23262,6 +23414,27 @@
                 "minLength": 3,
                 "maxLength": 3
               },
+              "externalRef": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "id"
+                ]
+              },
               "createdAt": {
                 "type": "string",
                 "format": "date-time"
@@ -23402,6 +23575,7 @@
               "selectedOptionId",
               "signerName",
               "currency",
+              "externalRef",
               "createdAt",
               "updatedAt",
               "organizationName",
@@ -24218,6 +24392,27 @@
               "null"
             ]
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -24245,6 +24440,7 @@
           "arrivedAt",
           "completedAt",
           "technicianNotes",
+          "externalRef",
           "createdAt",
           "updatedAt",
           "raisedDispatchException"
@@ -24943,6 +25139,27 @@
                   ]
                 }
               },
+              "externalRef": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "id"
+                ]
+              },
               "createdAt": {
                 "type": "string",
                 "format": "date-time"
@@ -24970,6 +25187,7 @@
               "signerName",
               "currency",
               "options",
+              "externalRef",
               "createdAt",
               "updatedAt"
             ]
@@ -25815,6 +26033,24 @@
             "required": [
               "address"
             ]
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
           }
         },
         "required": [
@@ -25931,6 +26167,27 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -25954,6 +26211,7 @@
           "doNotServiceReason",
           "tags",
           "customFields",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -25961,6 +26219,29 @@
       "CreateEstimateInput": {
         "type": "object",
         "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000000000
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "customerId": {
             "type": "string",
             "format": "uuid"
@@ -26358,6 +26639,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -26385,6 +26687,7 @@
           "signerName",
           "currency",
           "options",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -26392,6 +26695,29 @@
       "CreateInvoiceInput": {
         "type": "object",
         "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000000000
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "customerId": {
             "type": "string",
             "format": "uuid"
@@ -26757,6 +27083,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -26787,6 +27134,7 @@
           "depositHeld",
           "memo",
           "lines",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -26794,6 +27142,29 @@
       "CreateJobInput": {
         "type": "object",
         "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000000000
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "customerId": {
             "type": "string",
             "format": "uuid"
@@ -26970,6 +27341,24 @@
                   "format": "uuid"
                 },
                 "default": []
+              },
+              "externalRef": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "id"
+                ]
               }
             },
             "required": [
@@ -27202,6 +27591,27 @@
                     "null"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -27226,6 +27636,7 @@
                 "arrivedAt",
                 "completedAt",
                 "technicianNotes",
+                "externalRef",
                 "createdAt",
                 "updatedAt"
               ]
@@ -27244,6 +27655,27 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
           },
           "createdAt": {
             "type": "string",
@@ -27276,6 +27708,7 @@
           "tags",
           "customFields",
           "visits",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -27428,6 +27861,24 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 600
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
           }
         },
         "required": [
@@ -27535,6 +27986,27 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -27560,6 +28032,7 @@
           "laborMinutes",
           "warrantyMonths",
           "active",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -27652,6 +28125,24 @@
               "billing"
             ],
             "default": "owner"
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
           }
         },
         "required": [
@@ -27768,6 +28259,27 @@
             "type": "object",
             "additionalProperties": {}
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -27791,6 +28303,7 @@
           "hazardNotes",
           "hasDog",
           "customFields",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -28652,6 +29165,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -28679,6 +29213,7 @@
           "signerName",
           "currency",
           "options",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -29925,6 +30460,27 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -29948,6 +30504,7 @@
           "doNotServiceReason",
           "tags",
           "customFields",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -30388,6 +30945,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -30415,6 +30993,7 @@
           "signerName",
           "currency",
           "options",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -30928,6 +31507,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -30958,6 +31558,7 @@
           "depositHeld",
           "memo",
           "lines",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -31180,6 +31781,27 @@
                     "null"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -31204,6 +31826,7 @@
                 "arrivedAt",
                 "completedAt",
                 "technicianNotes",
+                "externalRef",
                 "createdAt",
                 "updatedAt"
               ]
@@ -31222,6 +31845,27 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
           },
           "createdAt": {
             "type": "string",
@@ -31254,6 +31898,7 @@
           "tags",
           "customFields",
           "visits",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -31675,6 +32320,27 @@
             "type": "object",
             "additionalProperties": {}
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -31730,6 +32396,7 @@
           "hazardNotes",
           "hasDog",
           "customFields",
+          "externalRef",
           "createdAt",
           "updatedAt",
           "customers",
@@ -34079,6 +34746,27 @@
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -34102,6 +34790,7 @@
                 "doNotServiceReason",
                 "tags",
                 "customFields",
+                "externalRef",
                 "createdAt",
                 "updatedAt"
               ]
@@ -34400,6 +35089,27 @@
                   "minLength": 3,
                   "maxLength": 3
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -34436,6 +35146,7 @@
                 "selectedOptionId",
                 "signerName",
                 "currency",
+                "externalRef",
                 "createdAt",
                 "updatedAt",
                 "customerName",
@@ -34608,6 +35319,27 @@
                     "null"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -34640,6 +35372,7 @@
                 "balance",
                 "depositHeld",
                 "memo",
+                "externalRef",
                 "createdAt",
                 "updatedAt",
                 "customerName"
@@ -34805,6 +35538,27 @@
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -34848,6 +35602,7 @@
                 "total",
                 "tags",
                 "customFields",
+                "externalRef",
                 "createdAt",
                 "updatedAt",
                 "customerName",
@@ -35232,6 +35987,27 @@
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -35257,6 +36033,7 @@
                 "laborMinutes",
                 "warrantyMonths",
                 "active",
+                "externalRef",
                 "createdAt",
                 "updatedAt"
               ]
@@ -35393,6 +36170,27 @@
                   "type": "object",
                   "additionalProperties": {}
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -35445,6 +36243,7 @@
                 "hazardNotes",
                 "hasDog",
                 "customFields",
+                "externalRef",
                 "createdAt",
                 "updatedAt",
                 "customers"
@@ -37199,6 +37998,24 @@
       "RecordPaymentInput": {
         "type": "object",
         "properties": {
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "customerId": {
             "type": "string",
             "format": "uuid"
@@ -38700,6 +39517,27 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,6})?$"
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -38725,6 +39563,7 @@
           "laborMinutes",
           "warrantyMonths",
           "active",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -39165,6 +40004,24 @@
           "crewId": {
             "type": "string",
             "format": "uuid"
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
           }
         },
         "required": [
@@ -39264,6 +40121,27 @@
               "null"
             ]
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -39288,6 +40166,7 @@
           "arrivedAt",
           "completedAt",
           "technicianNotes",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -39651,6 +40530,27 @@
                   ]
                 }
               },
+              "externalRef": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "source",
+                  "id"
+                ]
+              },
               "createdAt": {
                 "type": "string",
                 "format": "date-time"
@@ -39678,6 +40578,7 @@
               "signerName",
               "currency",
               "options",
+              "externalRef",
               "createdAt",
               "updatedAt"
             ]
@@ -41283,6 +42184,27 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -41306,6 +42228,7 @@
           "doNotServiceReason",
           "tags",
           "customFields",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -41627,6 +42550,27 @@
                     "null"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -41651,6 +42595,7 @@
                 "arrivedAt",
                 "completedAt",
                 "technicianNotes",
+                "externalRef",
                 "createdAt",
                 "updatedAt"
               ]
@@ -41669,6 +42614,27 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
           },
           "createdAt": {
             "type": "string",
@@ -41701,6 +42667,7 @@
           "tags",
           "customFields",
           "visits",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -41876,6 +42843,27 @@
             "type": "object",
             "additionalProperties": {}
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -41899,6 +42887,7 @@
           "hazardNotes",
           "hasDog",
           "customFields",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -42121,6 +43110,27 @@
             "minLength": 3,
             "maxLength": 3
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -42261,6 +43271,7 @@
           "selectedOptionId",
           "signerName",
           "currency",
+          "externalRef",
           "createdAt",
           "updatedAt",
           "organizationName",
@@ -42627,6 +43638,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -42657,6 +43689,7 @@
           "depositHeld",
           "memo",
           "lines",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]
@@ -42985,6 +44018,27 @@
               ]
             }
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -43015,6 +44069,7 @@
           "depositHeld",
           "memo",
           "lines",
+          "externalRef",
           "createdAt",
           "updatedAt"
         ]

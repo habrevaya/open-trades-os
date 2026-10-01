@@ -1,5 +1,5 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, money, currency, rate } from "./_shared";
+import { pk, timestamps, sourceRef, sourceRefIndex, money, currency, rate } from "./_shared";
 import { organization, businessUnit } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
@@ -55,6 +55,7 @@ export const estimate = pgTable("estimate", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("estimate_source_ref_idx", t),
   /** UNIQUE for the same reason as job_number_idx: see services/jobs.ts. */
   numberIdx: uniqueIndex("estimate_number_idx").on(t.organizationId, t.number),
   orgIdx: index("estimate_org_idx").on(t.organizationId, t.status),
@@ -242,6 +243,7 @@ export const invoice = pgTable("invoice", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("invoice_source_ref_idx", t),
   /** AR aging: open invoices by due date. The report every owner opens first. */
   /** UNIQUE for the same reason as job_number_idx: see services/jobs.ts. */
   numberIdx: uniqueIndex("invoice_number_idx").on(t.organizationId, t.number),
@@ -325,6 +327,7 @@ export const payment = pgTable("payment", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("payment_source_ref_idx", t),
   orgIdx: index("payment_org_idx").on(t.organizationId, t.receivedAt),
   idemIdx: index("payment_idempotency_idx").on(t.organizationId, t.idempotencyKey),
   processorIdx: index("payment_processor_idx").on(t.processor, t.processorPaymentId),

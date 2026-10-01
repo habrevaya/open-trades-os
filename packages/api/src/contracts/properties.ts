@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, Address, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, Address, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 
 /**
  * Properties are a first class resource, not a field on a customer.
@@ -27,6 +27,7 @@ export const Property = z.object({
   hazardNotes: z.string().nullable(),
   hasDog: z.boolean(),
   customFields: z.record(z.unknown()),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const PropertyCreate = z.object({
@@ -42,6 +43,8 @@ export const PropertyCreate = z.object({
   /** Link to a customer on create, with the role they hold. */
   customerId: Uuid.optional(),
   customerRole: PropertyRole.default("owner"),
+  /** Where this came from in another system. See `ExternalRef`. */
+  externalRef: ExternalRef.optional(),
 });
 
 /**
@@ -92,6 +95,8 @@ export const listProperties = defineRoute({
     q: z.string().max(200).optional(),
     customerId: Uuid.optional(),
     territoryId: Uuid.optional(),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(Property.extend({
     customers: z.array(z.object({ id: Uuid, name: z.string(), role: PropertyRole })),

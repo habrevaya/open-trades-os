@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, Address, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, Address, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 
 export const CustomerType = z.enum(["residential", "commercial"]);
 
@@ -35,6 +35,7 @@ export const Customer = z.object({
    */
   balance: MoneyString.optional(),
   discountRate: MoneyString.nullable().optional(),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 /**
@@ -81,6 +82,8 @@ export const CustomerCreate = z.object({
     address: Address,
     accessNotes: z.string().max(2000).optional(),
   }).optional(),
+  /** Where this came from in another system. See `ExternalRef`. */
+  externalRef: ExternalRef.optional(),
 });
 
 export const listCustomers = defineRoute({
@@ -95,6 +98,8 @@ export const listCustomers = defineRoute({
     type: CustomerType.optional(),
     tag: z.string().optional(),
     includeInactive: z.boolean().default(false),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(Customer),
 });
@@ -133,7 +138,7 @@ export const updateCustomer = defineRoute({
    * needs "clear it". Without this a customer whose email is wrong can have
    * it replaced and never removed.
    */
-  input: CustomerCreate.partial().omit({ property: true }).extend({
+  input: CustomerCreate.partial().omit({ property: true, externalRef: true }).extend({
     id: Uuid,
     email: z.string().email().nullable().optional(),
     phone: z.string().max(40).nullable().optional(),

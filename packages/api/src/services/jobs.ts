@@ -4,8 +4,10 @@ import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
+  withProvenance,
 } from "./context";
-import { admitInstant } from "./history";
+import { admitInstant, requireImport } from "./history";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { enforceWithin } from "./custom-fields";
 import { audit } from "./customers";
 import { releaseAllFor } from "./inventory";
@@ -58,6 +60,42 @@ async function nextNumber(
   return Number((row as { next: number }).next);
 }
 
+/**
+ * A number for a new document: the next one, or the one a migration asked
+ * for.
+ *
+ * Asking for one is recording history, so it needs `data:import`. The source
+ * document's number is what the customer knows it by, and an invoice that
+ * changes number on the way in is one nobody can find on the phone.
+ *
+ * Taken under the same lock as `nextNumber`, and refused if it is in use
+ * rather than left to the unique index, so the answer is a sentence instead
+ * of a constraint name. Nothing has to "move the sequence past" an imported
+ * number, because there is no sequence: the next number is always one more
+ * than the highest in use, so importing invoice 2201 makes the next new one
+ * 2202 and two documents can never share a number.
+ */
+async function claimNumber(
+  tx: Database, ctx: ServiceContext,
+  table: "job" | "invoice" | "estimate",
+  requested: number | undefined,
+): Promise<number> {
+  if (requested === undefined) return nextNumber(tx, ctx.actor.organizationId, table);
+  requireImport(ctx);
+  await tx.execute(sql`
+    select pg_advisory_xact_lock(hashtext(${`number:${table}:${ctx.actor.organizationId}`}))
+  `);
+  const taken = await tx.execute(sql`
+    select 1 from ${sql.raw(`public.${table}`)}
+    where organization_id = ${ctx.actor.organizationId} and number = ${requested}
+    limit 1
+  `);
+  if (taken.length > 0) {
+    throw new ConflictError(`${table[0]!.toUpperCase()}${table.slice(1)} number ${requested} is already taken.`);
+  }
+  return requested;
+}
+
 export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.input>) {
   return guardedRead(ctx, "job:read", async (tx) => {
     const cursor = decodeCursor(input.cursor);
@@ -73,6 +111,20 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         job: schema.job,
         customerName: schema.customer.name,
         propertyAddress: schema.property.addressLine1,
+        /**
+         * Published on every row and produced by nothing, so a board or a
+         * migration reading "when is this job next out" always got
+         * undefined. The earliest window still ahead of a visit that is
+         * still going to happen. The outer id is written out, not
+         * interpolated: see test/sql-fragments.test.ts for why.
+         */
+        nextVisitAt: sql<string | null>`(
+          select to_char(min(v.window_start) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          from public.visit v
+          where v.job_id = "job"."id"
+            and v.window_start >= now()
+            and v.status in ('unassigned', 'scheduled', 'dispatched', 'en_route', 'working')
+        )`,
       })
       .from(schema.job)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
@@ -82,6 +134,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.status ? inArray(schema.job.status, input.status) : undefined,
         input.customerId ? eq(schema.job.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.job.propertyId, input.propertyId) : undefined,
+        byExternal(schema.job, input),
         cursor ? lt(schema.job.createdAt, new Date(cursor)) : undefined,
         // Every scope, not just `own`. An unhandled one used to fall through
         // to no filter, which turned a role written to be limited into one
@@ -98,6 +151,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         ...clean(ctx, "job", r.job),
         customerName: r.customerName,
         propertyAddress: r.propertyAddress,
+        nextVisitAt: r.nextVisitAt,
       })),
     };
   });
@@ -109,12 +163,36 @@ export async function get(ctx: ServiceContext, input: z.infer<typeof getJob.inpu
       .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
     if (!job) throw new NotFoundError("Job");
 
-    const visits = await tx.select().from(schema.visit)
-      .where(eq(schema.visit.jobId, input.id))
-      .orderBy(schema.visit.sequence);
-
-    return { ...clean(ctx, "job", job), visits };
+    return { ...clean(ctx, "job", job), visits: await visitsOf(tx, input.id) };
   });
+}
+
+/**
+ * A job's visits as the contract publishes them, with who is assigned to
+ * each. `technicianIds` was published on every visit and never read, so a
+ * migration checking which technician it had put on a visit always saw none.
+ */
+async function visitsOf(tx: Database, jobId: string) {
+  const visits = await tx.select().from(schema.visit)
+    .where(eq(schema.visit.jobId, jobId))
+    .orderBy(schema.visit.sequence);
+  if (visits.length === 0) return [];
+  const assigned = await tx.select({
+    visitId: schema.visitAssignment.visitId, technicianId: schema.visitAssignment.technicianId,
+  }).from(schema.visitAssignment)
+    .where(inArray(schema.visitAssignment.visitId, visits.map((v) => v.id)))
+    .orderBy(desc(schema.visitAssignment.isLead));
+  return visits.map((v) => ({
+    ...withProvenance(v),
+    technicianIds: assigned.filter((a) => a.visitId === v.id).map((a) => a.technicianId),
+  }));
+}
+
+async function assignedTo(tx: Database, visitId: string): Promise<string[]> {
+  const rows = await tx.select({ technicianId: schema.visitAssignment.technicianId })
+    .from(schema.visitAssignment).where(eq(schema.visitAssignment.visitId, visitId))
+    .orderBy(desc(schema.visitAssignment.isLead));
+  return rows.map((r) => r.technicianId);
 }
 
 /**
@@ -166,7 +244,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         )).limit(1);
       if (seen?.entityId) {
         const [existing] = await tx.select().from(schema.job).where(eq(schema.job.id, seen.entityId)).limit(1);
-        if (existing) return clean(ctx, "job", existing);
+        if (existing) return { ...clean(ctx, "job", existing), visits: await visitsOf(tx, existing.id) };
       }
     }
 
@@ -177,7 +255,9 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       });
     }
 
-    const number = await nextNumber(tx, ctx.actor.organizationId, "job");
+    await assertUnclaimed(tx, "job", input.externalRef);
+    await assertUnclaimed(tx, "visit", input.visit?.externalRef);
+    const number = await claimNumber(tx, ctx, "job", input.number);
 
     await enforceWithin(
       tx, ctx.actor.organizationId, "job", input.customFields,
@@ -210,6 +290,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       parentJobId: input.parentJobId ?? null,
       isWarranty: input.isWarranty ?? false,
       priceSource: input.priceSource ?? "price_book",
+      ...provenance(input.externalRef),
     }).returning();
 
     /**
@@ -252,6 +333,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         windowStart: new Date(input.visit.windowStart),
         windowEnd: new Date(input.visit.windowEnd),
         estimatedDurationMinutes: input.visit.estimatedDurationMinutes,
+        ...provenance(input.visit.externalRef),
       }).returning({ id: schema.visit.id });
 
       if (input.visit.technicianIds.length > 0) {
@@ -288,7 +370,12 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     });
 
     await audit(tx, ctx, "job.created", "job", job!.id, null, job!);
-    return clean(ctx, "job", job!);
+    /**
+     * With its visits, as the contract has always said. The created job came
+     * back without them, so a caller that booked a visit inline had to read
+     * the job again to learn the visit's id.
+     */
+    return { ...clean(ctx, "job", job!), visits: await visitsOf(tx, job!.id) };
   });
 }
 
@@ -473,6 +560,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
   return guardedWrite(ctx, "visit:write", async (tx) => {
     const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, input.id)).limit(1);
     if (!job) throw new NotFoundError("Job");
+    await assertUnclaimed(tx, "visit", input.externalRef);
 
     const rows = await tx.execute<{ next: number }>(sql`
       select coalesce(max(sequence), 0) + 1 as next from public.visit where job_id = ${input.id}
@@ -488,6 +576,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       windowEnd: new Date(input.windowEnd),
       estimatedDurationMinutes: input.estimatedDurationMinutes,
       crewId: input.crewId ?? null,
+      ...provenance(input.externalRef),
     }).returning();
 
     if (input.technicianIds.length > 0) {
@@ -500,7 +589,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
     }
 
     await audit(tx, ctx, "visit.scheduled", "visit", visit!.id, null, visit!);
-    return visit!;
+    return { ...withProvenance(visit!), technicianIds: input.technicianIds };
   });
 }
 
@@ -521,7 +610,7 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
 
     if (visit.status === "completed" || visit.status === "completed_after_cancellation") {
       // Idempotent by nature: a retry from a truck must not double-complete.
-      return { ...visit, raisedDispatchException: false };
+      return { ...withProvenance(visit), technicianIds: await assignedTo(tx, visit.id), raisedDispatchException: false };
     }
 
     const wasCancelled = visit.status === "cancelled";
@@ -573,8 +662,8 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
     }
 
     await audit(tx, ctx, "visit.completed", "visit", input.id, visit, updated!);
-    return { ...updated!, raisedDispatchException: wasCancelled };
+    return { ...withProvenance(updated!), technicianIds: await assignedTo(tx, input.id), raisedDispatchException: wasCancelled };
   });
 }
 
-export { nextNumber };
+export { nextNumber, claimNumber };

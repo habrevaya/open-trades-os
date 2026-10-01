@@ -5,6 +5,7 @@ import {
   type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError,
 } from "./context";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { audit } from "./customers";
 import type {
   listPriceBook, createPriceBookItem, revisePriceBookItem,
@@ -90,6 +91,9 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     laborMinutes: row.version.laborMinutes ?? null,
     warrantyMonths: row.version.warrantyMonths ?? null,
     active: row.item.active,
+    externalRef: row.item.sourceSystem && row.item.sourceId
+      ? { source: row.item.sourceSystem, id: row.item.sourceId }
+      : null,
     // Absent entirely, rather than null, when the caller may not see it. A
     // null reads as "this item has no cost recorded", which is a different
     // fact from "you are not allowed to know".
@@ -113,6 +117,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       input.includeInactive ? undefined : eq(schema.priceBookItem.active, true),
       input.kind ? eq(schema.priceBookItem.kind, input.kind) : undefined,
       input.categoryId ? eq(schema.priceBookItem.categoryId, input.categoryId) : undefined,
+      byExternal(schema.priceBookItem, input),
       // A technician in a truck searches by what the part is called, and the
       // office searches by code. Both have to work from one box.
       input.q
@@ -173,12 +178,14 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
     if (clash) {
       throw new ConflictError(`A price book item with code "${input.code}" already exists.`);
     }
+    await assertUnclaimed(tx, "price_book_item", input.externalRef);
 
     const [item] = await tx.insert(schema.priceBookItem).values({
       organizationId: ctx.actor.organizationId,
       categoryId: input.categoryId ?? null,
       kind: input.kind,
       code: input.code,
+      ...provenance(input.externalRef),
     }).returning();
 
     const [version] = await tx.insert(schema.priceBookItemVersion).values({

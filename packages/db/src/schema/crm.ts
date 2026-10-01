@@ -1,5 +1,5 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, date, timestamp } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, money } from "./_shared";
+import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization } from "./tenancy";
 
 /**
@@ -65,10 +65,10 @@ export const customer = pgTable("customer", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("customer_source_ref_idx", t),
   orgIdx: index("customer_org_idx").on(t.organizationId),
   nameIdx: index("customer_name_idx").on(t.organizationId, t.name),
   emailIdx: index("customer_email_idx").on(t.organizationId, t.email),
-  sourceIdx: index("customer_source_idx").on(t.organizationId, t.sourceSystem, t.sourceId),
 }));
 
 export const property = pgTable("property", {
@@ -98,6 +98,7 @@ export const property = pgTable("property", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("property_source_ref_idx", t),
   orgIdx: index("property_org_idx").on(t.organizationId),
   addrIdx: index("property_addr_idx").on(t.organizationId, t.postalCode, t.addressLine1),
 }));

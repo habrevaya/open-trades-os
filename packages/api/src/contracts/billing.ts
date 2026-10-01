@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 import { CoverageSource } from "./jobs";
 
 export const InvoiceStatus = z.enum(["draft", "open", "partially_paid", "paid", "void", "written_off"]);
@@ -50,6 +50,7 @@ export const Invoice = z.object({
   depositHeld: MoneyString,
   memo: z.string().nullable(),
   lines: z.array(InvoiceLine),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const createInvoice = defineRoute({
@@ -62,6 +63,14 @@ export const createInvoice = defineRoute({
   permissions: ["invoice:write"],
   idempotent: true,
   input: z.object({
+    /**
+     * The source document's own number, kept for history. Needs
+     * `data:import`. Refused if taken; the next number this company is given
+     * is always past the highest one in use, imported or not.
+     */
+    number: z.number().int().min(1).max(2_000_000_000).optional(),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
     customerId: Uuid,
     payerCustomerId: Uuid.optional(),
     jobId: Uuid.optional(),
@@ -147,6 +156,8 @@ export const listInvoices = defineRoute({
     payerCustomerId: Uuid.optional(),
     jobId: Uuid.optional(),
     dueBefore: z.string().date().optional(),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(Invoice.omit({ lines: true }).extend({ customerName: z.string() })),
 });
@@ -174,6 +185,8 @@ export const recordPayment = defineRoute({
   permissions: ["payment:collect"],
   idempotent: true,
   input: z.object({
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
     customerId: Uuid,
     method: PaymentMethod,
     amount: MoneyString,
@@ -254,6 +267,7 @@ export const Payment = z.object({
   allocations: z.array(z.object({ invoiceId: Uuid, amount: MoneyString })),
   /** What arrived, less what is applied, less what was given back. */
   unappliedAmount: MoneyString,
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 /**

@@ -90,3 +90,39 @@ export const Timestamps = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
+
+/**
+ * Source systems this product writes provenance for itself. A caller may not
+ * claim one: a job tagged `recurring_schedule` by an integration would look,
+ * to the recurring engine, like an occurrence it had already generated, and
+ * the real one would never be booked.
+ */
+export const RESERVED_SOURCES = ["recurring_schedule"] as const;
+
+/**
+ * WHERE A RECORD CAME FROM, WHEN IT CAME FROM ANOTHER SYSTEM.
+ *
+ * `source` names the system, in lower case: `jobber`, `housecall_pro`,
+ * `servicetitan`. `id` is that system's own id for the record, exactly as it
+ * gave it. The pair is unique per company per kind of record, so a migration
+ * that is run twice finds what it already loaded rather than loading it again,
+ * and "which invoice did Jobber invoice 2201 become" has one answer, forever.
+ *
+ * Set on create and never changed: provenance that can be edited is not
+ * provenance.
+ */
+export const ExternalRef = z.object({
+  source: z.string()
+    .regex(/^[a-z0-9][a-z0-9_.-]{0,49}$/, "A source is a lower case name, like jobber or housecall_pro")
+    .refine((v) => !(RESERVED_SOURCES as readonly string[]).includes(v), "That source is written by this product itself"),
+  id: z.string().min(1).max(200),
+});
+
+/**
+ * Finding a record by where it came from. Both together name one record;
+ * `externalSource` alone lists everything that came from that system.
+ */
+export const ExternalLookup = {
+  externalSource: z.string().max(50).optional(),
+  externalId: z.string().max(200).optional(),
+};

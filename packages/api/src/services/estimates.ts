@@ -11,7 +11,8 @@ import {
 import { admitDate } from "./history";
 import { estimateScopeFilter } from "./scope";
 import { audit } from "./customers";
-import { nextNumber } from "./jobs";
+import { claimNumber, nextNumber } from "./jobs";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
@@ -80,7 +81,8 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
     if (input.issuedOn) await admitDate(tx, ctx, input.issuedOn, "issuedOn");
 
-    const number = await nextNumber(tx, ctx.actor.organizationId, "estimate");
+    await assertUnclaimed(tx, "estimate", input.externalRef);
+    const number = await claimNumber(tx, ctx, "estimate", input.number);
 
     const [row] = await tx.insert(schema.estimate).values({
       organizationId: ctx.actor.organizationId,
@@ -92,6 +94,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       issuedOn,
       expiresOn: input.expiresOn ?? null,
       status: "draft",
+      ...provenance(input.externalRef),
     }).returning({ id: schema.estimate.id });
 
     const estimateId = row!.id;
@@ -190,6 +193,8 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
       selectedOptionId: schema.estimate.selectedOptionId,
       signerName: schema.estimate.signerName,
       currency: schema.estimate.currency,
+      sourceSystem: schema.estimate.sourceSystem,
+      sourceId: schema.estimate.sourceId,
       createdAt: schema.estimate.createdAt,
       updatedAt: schema.estimate.updatedAt,
     })
@@ -201,6 +206,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         input.status ? inArray(schema.estimate.status, input.status) : undefined,
         input.customerId ? eq(schema.estimate.customerId, input.customerId) : undefined,
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,
+        byExternal(schema.estimate, input),
         after ? lt(schema.estimate.id, after) : undefined,
       ))
       .orderBy(desc(schema.estimate.id))

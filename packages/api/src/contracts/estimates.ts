@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 
 export const EstimateStatus = z.enum([
   "draft", "sent", "viewed", "approved", "declined", "expired", "converted",
@@ -67,6 +67,7 @@ export const Estimate = z.object({
   currency: z.string().length(3),
   /** Presented most expensive first, with any recommended option pulled up. */
   options: z.array(EstimateOption),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 const LineInput = z.object({
@@ -100,6 +101,14 @@ export const createEstimate = defineRoute({
   permissions: ["estimate:write"],
   idempotent: true,
   input: z.object({
+    /**
+     * The source document's own number, kept for history. Needs
+     * `data:import`. Refused if taken; the next number this company is given
+     * is always past the highest one in use, imported or not.
+     */
+    number: z.number().int().min(1).max(2_000_000_000).optional(),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
     customerId: Uuid,
     propertyId: Uuid,
     jobId: Uuid.optional(),
@@ -143,6 +152,8 @@ export const listEstimates = defineRoute({
     jobId: Uuid.optional(),
     /** Ages out the pipeline: everything sent and undecided before this date. */
     sentBefore: z.string().date().optional(),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(Estimate.omit({ options: true }).extend({
     customerName: z.string(),
