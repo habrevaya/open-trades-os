@@ -2,7 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { marketing as mk } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError,
+  guardedRead, guardedWrite, NotFoundError, ConflictError, OrganizationSuspendedError,
   type ServiceContext,
 } from "./context";
 import { audit } from "./customers";
@@ -158,10 +158,15 @@ export async function submit(
   return db.transaction(async (raw) => {
     const tx = raw as unknown as Database;
 
-    const [org] = await tx.select({ id: schema.organization.id })
+    const [org] = await tx.select({
+      id: schema.organization.id, suspendedAt: schema.organization.suspendedAt,
+    })
       .from(schema.organization)
       .where(eq(schema.organization.slug, input.organizationSlug)).limit(1);
     if (!org) throw new NotFoundError("Company");
+    // Refused before anything is stored, for the reason booking is: a lead
+    // captured for a company nobody can sign in to is a lead nobody calls.
+    if (org.suspendedAt) throw new OrganizationSuspendedError();
 
     const [form] = await tx.select().from(schema.webForm)
       .where(and(

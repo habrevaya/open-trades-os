@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { resolveSession, type ResolvedSession } from "@opentradesos/api/services";
+import { resolveSession, OrganizationSuspendedError, type ResolvedSession } from "@opentradesos/api/services";
 import { getDb } from "./db";
 import { SESSION_COOKIE, hashToken } from "./session";
 
@@ -29,8 +29,20 @@ import { SESSION_COOKIE, hashToken } from "./session";
  */
 export type CurrentUser = ResolvedSession;
 
+/**
+ * The signed in user, or null, and null for a suspended company too.
+ *
+ * The callers of this one (a logo, a stored file) answer "not found" to
+ * anybody without a user, which is the right answer for a suspended company
+ * as well. Pages go through `requireUser`, which tells the person why.
+ */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
-  return sessionFromCookie();
+  try {
+    return await sessionFromCookie();
+  } catch (error) {
+    if (error instanceof OrganizationSuspendedError) return null;
+    throw error;
+  }
 }
 
 /**
@@ -59,7 +71,14 @@ export async function sessionFromCookie(): Promise<CurrentUser | null> {
 
 /** For a page that must not render to a signed out visitor. */
 export async function requireUser(): Promise<CurrentUser> {
-  const user = await getCurrentUser();
+  let user: CurrentUser | null;
+  try {
+    user = await sessionFromCookie();
+  } catch (error) {
+    // Not the login page: they would sign in, succeed, and land back here.
+    if (error instanceof OrganizationSuspendedError) redirect("/suspended");
+    throw error;
+  }
   if (!user) {
     const path = (await headers()).get("x-pathname") ?? "/";
     redirect(`/login?next=${encodeURIComponent(path)}`);

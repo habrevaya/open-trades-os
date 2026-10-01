@@ -90,6 +90,24 @@ export class InvalidGrantError extends Error {
   }
 }
 
+/**
+ * A credential that is fine, for a company that is suspended.
+ *
+ * Kept apart from "not signed in" on purpose. A person whose company has been
+ * suspended and who is told to sign in again will do exactly that, succeed,
+ * and be told the same thing, and the next thing anybody hears about it is a
+ * support ticket that says the login page is broken. Here with the other
+ * domain errors so the HTTP layer can map it to a 403 without importing a
+ * service.
+ */
+export class OrganizationSuspendedError extends Error {
+  readonly code = "organization_suspended";
+  constructor() {
+    super("This account is suspended. Contact whoever provides your service.");
+    this.name = "OrganizationSuspendedError";
+  }
+}
+
 export class NotFoundError extends Error {
   constructor(resource: string) {
     super(`${resource} not found`);

@@ -56,3 +56,6 @@ export * as customFields from "./custom-fields";
 export * as payments from "./payments";
 export * as email from "./email";
 export * as accounting from "./accounting";
+export * as organizations from "./organizations";
+export * as operator from "./operator";
+export * as setupTokens from "./setup-tokens";

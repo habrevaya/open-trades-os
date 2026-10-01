@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@opentradesos/db";
+import { OrganizationSuspendedError } from "./context";
 import {
   resolveMembership, isScope,
   type Actor, type Permission, type RoleId, type Scope, type ScopedResource,
@@ -88,7 +89,10 @@ export async function resolveSession(
     sql`select * from app.resolve_session(${tokenHash})`,
   );
   const row = rows[0];
-  if (!row) return null;
+  if (!row) {
+    await assertNotSuspended(db, tokenHash);
+    return null;
+  }
 
   const role = row.role as RoleId;
 
@@ -176,4 +180,22 @@ export async function resolveSession(
     organizationTimezone: row.organization_timezone ?? "America/Chicago",
     setupCompleted: row.setup_completed_at != null,
   };
+}
+
+/**
+ * Why a credential that resolved nothing resolved nothing, when the answer is
+ * "your company is suspended".
+ *
+ * `app.resolve_session` and `app.resolve_app_token` already refuse a
+ * suspended company, in the SQL, so forgetting to call this can never let
+ * anybody in. What it changes is the answer: a 403 that says so rather than a
+ * 401 that sends the person back to a login page that will let them in and
+ * refuse them again. Asked only after a lookup failed, so a signed in request
+ * pays nothing for it.
+ */
+export async function assertNotSuspended(db: Database, tokenHash: string): Promise<void> {
+  const [row] = await db.execute<{ suspended: boolean }>(
+    sql`select app.credential_suspended(${tokenHash}) as suspended`,
+  );
+  if (row?.suspended) throw new OrganizationSuspendedError();
 }

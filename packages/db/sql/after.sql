@@ -144,6 +144,17 @@ create policy user_self_access on public."user"
   to authenticated
   using (id = (select app.current_user_id()));
 
+-- A first-password link sits above the tenant for the same reason a
+-- credential does, and is closed the same way: nothing selects it, and the
+-- three functions near the end of this file are the only way in or out.
+alter table public.setup_token enable row level security;
+alter table public.setup_token force row level security;
+drop policy if exists setup_token_no_direct_access on public.setup_token;
+create policy setup_token_no_direct_access on public.setup_token
+  to authenticated
+  using (false)
+  with check (false);
+
 -- ---- Ledger is append only ---------------------------------------------
 -- No UPDATE. No DELETE. Ever. A correction is a new reversing entry.
 -- Enforced in the database rather than in application code, because
@@ -398,6 +409,11 @@ create function app.resolve_session(p_token_hash text)
       and s.expires_at > now()
       and s.revoked_at is null
       and m.active
+      -- A suspended company resolves no session. Here rather than in the
+      -- caller, for the reason every revocation path below is in SQL: a check
+      -- in TypeScript is one the next caller can forget to make. The session
+      -- itself is untouched, so resuming the company signs nobody out.
+      and o.suspended_at is null
     limit 1
   $$;
 
@@ -462,6 +478,11 @@ create or replace function app.consume_portal_grant(
        and g.expires_at > now()
        and g.revoked_at is null
        and (g.max_uses is null or g.use_count < g.max_uses)
+       -- A suspended company's links open nothing, and spend no use trying.
+       and not exists (
+         select 1 from public.organization o
+          where o.id = g.organization_id and o.suspended_at is not null
+       )
     returning
       g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
       case when g.max_uses is null then null else g.max_uses - g.use_count end
@@ -492,6 +513,10 @@ create or replace function app.peek_portal_grant(p_token_hash text)
       and g.expires_at > now()
       and g.revoked_at is null
       and (g.max_uses is null or g.use_count < g.max_uses)
+      and not exists (
+        select 1 from public.organization o
+         where o.id = g.organization_id and o.suspended_at is not null
+      )
     limit 1
   $$;
 
@@ -700,11 +725,14 @@ create or replace function app.resolve_app_token(p_token_hash text)
     select a.id, a.organization_id, a.name, a.permissions, a.scopes, t.id
     from public.app_token t
     join public.connected_app a on a.id = t.app_id
+    join public.organization o on o.id = a.organization_id
     where t.token_hash = p_token_hash
       and t.revoked_at is null
       and t.expires_at > now()
       and a.status = 'active'
       and a.revoked_at is null
+      -- Suspension is a revocation path like the others, and lives with them.
+      and o.suspended_at is null
     limit 1
   $$;
 
@@ -769,6 +797,13 @@ create or replace function app.pending_event_organizations(
     left join public.event_cursor c
       on c.organization_id = e.organization_id and c.consumer = p_consumer
     where e.sequence > coalesce(c.last_sequence, 0)
+      -- A suspended company's events wait, unread, rather than being skipped
+      -- past. See docs/self-hosting/operator-api.md for what that means when
+      -- it is resumed.
+      and not exists (
+        select 1 from public.organization o
+         where o.id = e.organization_id and o.suspended_at is not null
+      )
     group by e.organization_id
     -- Most behind first. A tenant that has been waiting longest should not be
     -- starved by one that produces events constantly.
@@ -814,6 +849,7 @@ returns table (
       and w.trigger_kind = 'schedule'
       and w.schedule is not null
       and w.active_version_id is not null
+      and o.suspended_at is null
     -- A workflow with no row yet sorts first, so a new schedule is planned
     -- on the next tick rather than whenever the list happens to reach it.
     order by coalesce(s.next_run_at, '-infinity'::timestamptz)
@@ -841,6 +877,10 @@ returns table (organization_id uuid, run_id uuid, resume_at timestamptz)
     where r.status = 'waiting'
       and r.resume_at is not null
       and r.resume_at <= now()
+      and not exists (
+        select 1 from public.organization o
+         where o.id = r.organization_id and o.suspended_at is not null
+      )
     -- Longest overdue first, so a backlog drains in the order it built up.
     order by r.resume_at
     limit p_limit
@@ -867,6 +907,10 @@ returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
       and w.trigger_kind = 'dwell'
       and w.dwell is not null
       and w.active_version_id is not null
+      and not exists (
+        select 1 from public.organization o
+         where o.id = w.organization_id and o.suspended_at is not null
+      )
     order by w.created_at
     limit p_limit
   $$;
@@ -946,3 +990,259 @@ create or replace function app.revoke_sessions_for(
 
 revoke all on function app.revoke_sessions_for(uuid, uuid, uuid) from public;
 grant execute on function app.revoke_sessions_for(uuid, uuid, uuid) to authenticated;
+
+-- =========================================================================
+-- THE OPERATOR ROLE
+--
+-- Whoever runs a deployment with more than one company in it (a hosted
+-- service, a firm that keeps the books for several contractors) needs to do
+-- a handful of things no tenant may: create a company, look one up by the
+-- operator's own reference, count what one has used, suspend and resume one.
+-- docs/self-hosting/operator-api.md describes the HTTP surface.
+--
+-- It gets the shape the worker got, for the same reason. Finding a company by
+-- an external reference is a cross tenant read, and row level security is
+-- forced, so it cannot be done by selecting. It goes through functions that
+-- return ids and counts and nothing else, executable by `platform_operator`
+-- and not by `authenticated`, and everything else the operator does happens
+-- inside the ordinary tenant context of the one company it named. Like
+-- `background`, it is a member of `authenticated` so the policies apply to it
+-- exactly as they apply to a request.
+--
+-- The request path never holds this role. The operator API drops into it
+-- with `set local role`, inside its own transaction, after checking a bearer
+-- token that has nothing to do with sessions.
+-- =========================================================================
+
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'platform_operator') then
+    create role platform_operator nologin;
+  end if;
+end
+$$;
+
+grant authenticated to platform_operator;
+
+-- `set local role` needs the CONNECTED role to be a member of the target. A
+-- superuser already is of everything; on a managed host such as Supabase the
+-- account running this file is not a superuser, and without this grant the
+-- operator API would fail on its first statement with a permission error that
+-- names a role and not the reason. The account running migrations already
+-- owns every function below, so this widens nothing. A deployment whose web
+-- app connects as a different account grants it to that account by hand.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = current_user and rolsuper)
+     and not pg_has_role(current_user, 'platform_operator', 'MEMBER') then
+    execute format('grant platform_operator to %I', current_user);
+  end if;
+exception when others then
+  raise warning 'Could not grant platform_operator to %: %. The operator API will refuse until it is granted.',
+    current_user, sqlerrm;
+end
+$$;
+
+-- ---- Columns only the operator writes -----------------------------------
+-- `organization_member_access` lets a member's own requests update their own
+-- organization row, which the settings screens need. It would also let them
+-- clear their own suspension, or take another customer's external reference
+-- and be handed that customer's ids on the operator's next retry. So these
+-- three columns are refused to any role that is not the operator, by a
+-- trigger, because a policy cannot see which columns an update touches.
+create or replace function app.guard_operator_columns() returns trigger
+  language plpgsql as $$
+begin
+  if (new.suspended_at is distinct from old.suspended_at
+      or new.suspended_reason is distinct from old.suspended_reason
+      or new.external_ref is distinct from old.external_ref)
+     and not pg_has_role(current_user, 'platform_operator', 'MEMBER') then
+    raise exception 'suspended_at, suspended_reason and external_ref are written by the operator only'
+      using errcode = '42501';
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists organization_operator_columns on public.organization;
+create trigger organization_operator_columns
+  before update on public.organization
+  for each row execute function app.guard_operator_columns();
+
+-- ---- Finding a company by the operator's reference ----------------------
+create or replace function app.operator_organization_by_ref(p_external_ref text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select id from public.organization where external_ref = p_external_ref limit 1
+  $$;
+
+revoke all on function app.operator_organization_by_ref(text) from public;
+grant execute on function app.operator_organization_by_ref(text) to platform_operator;
+
+-- ---- Whether a person already exists ------------------------------------
+-- A user sits above the tenant, so "is there already somebody with this
+-- address" cannot be answered from inside one. Returns the id and whether
+-- they have a password, never the password.
+create or replace function app.operator_user_by_email(p_email text)
+  returns table (user_id uuid, has_password boolean)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select u.id, exists (select 1 from public.credential c where c.user_id = u.id)
+    from public."user" u
+    where lower(u.email) = lower(p_email)
+    limit 1
+  $$;
+
+create or replace function app.operator_user_has_password(p_user_id uuid)
+  returns boolean
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select exists (select 1 from public.credential c where c.user_id = p_user_id)
+  $$;
+
+revoke all on function app.operator_user_by_email(text) from public;
+revoke all on function app.operator_user_has_password(uuid) from public;
+grant execute on function app.operator_user_by_email(text) to platform_operator;
+grant execute on function app.operator_user_has_password(uuid) to platform_operator;
+
+-- ---- People who were signed in ------------------------------------------
+-- The session table is readable by its own user only, so counting a
+-- company's signed in people is the one usage number that needs a door.
+--
+-- "Held a live session at some point in the window" rather than "signed in
+-- during it". `last_seen_at` is written when a session is created and not on
+-- every request, and a session lasts thirty days, so counting sign-ins would
+-- call somebody who signed in five weeks ago and works in it every day
+-- inactive.
+create or replace function app.operator_active_users(
+  p_organization_id uuid, p_since timestamptz
+) returns integer
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select count(distinct s.user_id)::integer
+    from public.session s
+    join public.membership m
+      on m.user_id = s.user_id and m.organization_id = p_organization_id
+    where s.active_organization_id = p_organization_id
+      and s.expires_at >= p_since
+      and (s.revoked_at is null or s.revoked_at >= p_since)
+  $$;
+
+revoke all on function app.operator_active_users(uuid, timestamptz) from public;
+grant execute on function app.operator_active_users(uuid, timestamptz) to platform_operator;
+
+-- ---- First-password links -----------------------------------------------
+-- Issued by the operator, read and spent by whoever holds the link. Every
+-- one of the three refuses a user who already has a password, in the SQL,
+-- because the alternative is that issuing a link for an address is a way to
+-- take over the account behind it.
+create or replace function app.issue_setup_token(
+  p_user_id uuid, p_token_hash text, p_expires_at timestamptz
+) returns boolean
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  begin
+    if exists (select 1 from public.credential where user_id = p_user_id) then
+      return false;
+    end if;
+    -- Only the newest link works. An operator asking again is usually one
+    -- that lost the first response, and the first link is then in nobody's
+    -- hands that should be using it.
+    update public.setup_token
+       set revoked_at = now(), updated_at = now()
+     where user_id = p_user_id and used_at is null and revoked_at is null;
+    insert into public.setup_token (user_id, token_hash, expires_at)
+    values (p_user_id, p_token_hash, p_expires_at);
+    return true;
+  end;
+  $$;
+
+create or replace function app.peek_setup_token(p_token_hash text)
+  returns table (user_id uuid, email text, name text)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select u.id, u.email, u.name
+    from public.setup_token t
+    join public."user" u on u.id = t.user_id
+    where t.token_hash = p_token_hash
+      and t.used_at is null
+      and t.revoked_at is null
+      and t.expires_at > now()
+      and not exists (select 1 from public.credential c where c.user_id = t.user_id)
+    limit 1
+  $$;
+
+-- Spending the link and writing the password are one statement's worth of
+-- work in one function, so two tabs submitting together cannot both set one:
+-- the second waits on the row lock, finds it used, and gets nothing.
+create or replace function app.consume_setup_token(p_token_hash text, p_password_hash text)
+  returns uuid
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_user uuid;
+  begin
+    update public.setup_token t
+       set used_at = now(), updated_at = now()
+     where t.token_hash = p_token_hash
+       and t.used_at is null
+       and t.revoked_at is null
+       and t.expires_at > now()
+       and not exists (select 1 from public.credential c where c.user_id = t.user_id)
+    returning t.user_id into v_user;
+
+    if v_user is null then
+      return null;
+    end if;
+
+    insert into public.credential (user_id, password_hash) values (v_user, p_password_hash);
+    return v_user;
+  end;
+  $$;
+
+revoke all on function app.issue_setup_token(uuid, text, timestamptz) from public;
+revoke all on function app.peek_setup_token(text) from public;
+revoke all on function app.consume_setup_token(text, text) from public;
+grant execute on function app.issue_setup_token(uuid, text, timestamptz) to platform_operator;
+grant execute on function app.peek_setup_token(text) to authenticated;
+grant execute on function app.consume_setup_token(text, text) to authenticated;
+
+-- ---- Telling somebody WHY they were refused -----------------------------
+-- `resolve_session` and `resolve_app_token` return nothing for a suspended
+-- company, which is the safe half. The other half is the person: a refusal
+-- that reads "not signed in" sends them round the login page forever, so the
+-- caller asks this, ONLY after resolution failed, with the same 256 bit hash
+-- it already holds. It answers yes or no about the holder's own company and
+-- cannot be used to learn anything about anybody else's.
+create or replace function app.credential_suspended(p_token_hash text)
+  returns boolean
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select exists (
+      select 1
+      from public.session s
+      join public.organization o on o.id = s.active_organization_id
+      join public.membership m
+        on m.user_id = s.user_id and m.organization_id = s.active_organization_id
+      where s.token_hash = p_token_hash
+        and s.expires_at > now()
+        and s.revoked_at is null
+        and m.active
+        and o.suspended_at is not null
+    ) or exists (
+      select 1
+      from public.app_token t
+      join public.connected_app a on a.id = t.app_id
+      join public.organization o on o.id = a.organization_id
+      where t.token_hash = p_token_hash
+        and t.revoked_at is null
+        and t.expires_at > now()
+        and a.status = 'active'
+        and a.revoked_at is null
+        and o.suspended_at is not null
+    )
+  $$;
+
+revoke all on function app.credential_suspended(text) from public;
+grant execute on function app.credential_suspended(text) to authenticated;

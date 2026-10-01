@@ -6,7 +6,7 @@ import type { z } from "zod";
 import {
   type RequestMeta,
   type ServiceContext, guardedRead, guardedWrite, clean,
-  decodeCursor, paginate, NotFoundError, ConflictError,
+  decodeCursor, paginate, NotFoundError, ConflictError, OrganizationSuspendedError,
 } from "./context";
 import { emit } from "./events";
 import { audit } from "./customers";
@@ -51,9 +51,17 @@ async function resolveOrg(db: Database, slug: string) {
     // Carried because every date on this screen is a calendar day, and a
     // calendar day is only a pair of instants once you know the zone.
     timezone: schema.organization.timezone,
+    suspendedAt: schema.organization.suspendedAt,
   }).from(schema.organization).where(eq(schema.organization.slug, slug)).limit(1);
   if (!org) throw new NotFoundError("Company");
-  return org;
+  /**
+   * A suspended company takes no bookings. Every public read and the write
+   * come through here, which is why the check is here once rather than in
+   * each of them, and a booking request accepted for a company nobody can
+   * sign in to read would be a customer waiting for a call that never comes.
+   */
+  if (org.suspendedAt) throw new OrganizationSuspendedError();
+  return { id: org.id, name: org.name, timezone: org.timezone };
 }
 
 export async function listServices(db: Database, input: z.infer<typeof listBookableServices.input>) {

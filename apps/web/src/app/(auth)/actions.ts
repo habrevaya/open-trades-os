@@ -4,7 +4,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
-import { schema } from "@opentradesos/db";
+import { schema, type Database } from "@opentradesos/db";
+import { organizations, setupTokens } from "@opentradesos/api/services";
 import { hashPassword, verifyPassword, issueToken, SESSION_COOKIE, SESSION_TTL_DAYS, sessionCookieOptions } from "@/lib/session";
 
 /**
@@ -15,25 +16,6 @@ import { hashPassword, verifyPassword, issueToken, SESSION_COOKIE, SESSION_TTL_D
  * The window restarts on every further attempt, so somebody hammering the
  * form keeps extending their own lock rather than waiting it out.
  */
-/**
- * Whether this is a zone this runtime actually knows.
- *
- * `Intl.DateTimeFormat` throws a RangeError on an unrecognised zone, and the
- * places that read this column call it on every booking page. Storing an
- * unchecked string would move a crash from the signup form, where it is one
- * person's problem, to the customer facing booking page, where it is every
- * one of that company's customers.
- */
-function knownZone(zone: string | undefined): zone is string {
-  if (!zone) return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 import { getDb } from "@/lib/db";
@@ -57,9 +39,6 @@ const SignUp = z.object({
   timezone: z.string().max(64).optional(),
 });
 
-const slugify = (s: string) =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "company";
-
 export async function signUp(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = SignUp.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
@@ -80,42 +59,34 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
   }
 
   const passwordHash = await hashPassword(password);
-  let slug = slugify(companyName);
 
   /**
    * Everything below happens in one transaction. A half created company, with
    * a user who cannot reach it or an organization nobody belongs to, is a
    * support ticket that has to be resolved by hand in the database.
+   *
+   * The organization and its owner's membership are written by the same
+   * function the operator API uses, so a company somebody created for you
+   * and one you created yourself are the same kind of company. The password
+   * and the session are this form's own business.
    */
-  const result = await db.transaction(async (tx) => {
-    const taken = await tx.select({ id: schema.organization.id }).from(schema.organization)
-      .where(eq(schema.organization.slug, slug)).limit(1);
-    if (taken.length > 0) slug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
+  const result = await db.transaction(async (raw) => {
+    const tx = raw as unknown as Database;
+    const userId = await organizations.createUser(tx, { email, name });
+    await tx.insert(schema.credential).values({ userId, passwordHash });
 
-    const [org] = await tx.insert(schema.organization)
-      .values({
-        name: companyName, slug, legalName: companyName,
-        ...(knownZone(timezone) ? { timezone } : {}),
-      })
-      .returning({ id: schema.organization.id });
-
-    const [created] = await tx.insert(schema.user)
-      .values({ email: email.toLowerCase(), name })
-      .returning({ id: schema.user.id });
-
-    await tx.insert(schema.credential).values({ userId: created!.id, passwordHash });
-
-    // The person who creates the company owns it. Anything less means the
-    // first thing a new user hits is a permission error on their own data.
-    await tx.insert(schema.membership)
-      .values({ organizationId: org!.id, userId: created!.id, role: "owner" });
+    const org = await organizations.createOrganization(tx, {
+      name: companyName,
+      timezone,
+      ownerUserId: userId,
+    });
 
     const { token, tokenHash } = issueToken();
     const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 864e5);
     // Through the SECURITY DEFINER door, same as resolution. The session table
     // denies direct access to the application role.
     await tx.execute(
-      sql`select app.create_session(${created!.id}::uuid, ${tokenHash}, ${org!.id}::uuid, ${expiresAt.toISOString()}::timestamptz)`,
+      sql`select app.create_session(${userId}::uuid, ${tokenHash}, ${org.organizationId}::uuid, ${expiresAt.toISOString()}::timestamptz)`,
     );
 
     return { token };
@@ -199,10 +170,21 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
   // right must not carry those attempts toward a lock next week.
   await db.execute(sql`select app.clear_failed_logins(${row.userId}::uuid)`);
 
+  /**
+   * A company that is not suspended first, when there is one.
+   *
+   * Somebody who belongs to two companies, one of which has been suspended,
+   * would otherwise be signed into whichever row the database returned first
+   * and told their account is suspended when the other one is fine. When
+   * every company they belong to is suspended they still get a session, and
+   * the app shows them the suspension rather than a wrong password.
+   */
   const memberships = await db
     .select({ organizationId: schema.membership.organizationId })
     .from(schema.membership)
+    .innerJoin(schema.organization, eq(schema.organization.id, schema.membership.organizationId))
     .where(and(eq(schema.membership.userId, row.userId), eq(schema.membership.active, true)))
+    .orderBy(sql`${schema.organization.suspendedAt} is not null`)
     .limit(1);
 
   if (memberships.length === 0) return { error: "This account is not a member of any company" };
@@ -227,4 +209,56 @@ export async function signOut(): Promise<void> {
   }
   jar.delete(SESSION_COOKIE);
   redirect("/login");
+}
+
+const Welcome = z.object({
+  token: z.string().min(1),
+  password: z.string().min(12, "Use at least 12 characters"),
+});
+
+/**
+ * Choosing a first password from a link the operator API issued.
+ *
+ * The link is spent and the password stored in one SQL function, so two tabs
+ * submitting together cannot both set one, and a link for somebody who
+ * already has a password stores nothing. Then the same session sign in
+ * creates, in the same company sign in would choose.
+ */
+export async function completeWelcome(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = Welcome.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    const fields: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const key = issue.path[0];
+      if (typeof key === "string" && !fields[key]) fields[key] = issue.message;
+    }
+    return fields["token"] ? { error: "This link is no longer valid." } : { fields };
+  }
+
+  const db = getDb();
+  const passwordHash = await hashPassword(parsed.data.password);
+  const userId = await setupTokens.consume(db, parsed.data.token, passwordHash);
+  if (!userId) {
+    return { error: "This link is no longer valid. Ask whoever set up your account for a new one." };
+  }
+
+  const memberships = await db
+    .select({ organizationId: schema.membership.organizationId })
+    .from(schema.membership)
+    .innerJoin(schema.organization, eq(schema.organization.id, schema.membership.organizationId))
+    .where(and(eq(schema.membership.userId, userId), eq(schema.membership.active, true)))
+    .orderBy(sql`${schema.organization.suspendedAt} is not null`)
+    .limit(1);
+
+  // The password is set either way, so the honest next step is the sign in
+  // page rather than an error that implies nothing happened.
+  if (memberships.length === 0) redirect("/login");
+
+  const { token, tokenHash } = issueToken();
+  await db.execute(
+    sql`select app.create_session(${userId}::uuid, ${tokenHash}, ${memberships[0]!.organizationId}::uuid, ${new Date(Date.now() + SESSION_TTL_DAYS * 864e5).toISOString()}::timestamptz)`,
+  );
+
+  (await cookies()).set(SESSION_COOKIE, token, sessionCookieOptions);
+  redirect("/");
 }
