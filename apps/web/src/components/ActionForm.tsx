@@ -42,8 +42,16 @@ export function ActionForm({
         >
           {pending ? "Saving" : submit}
         </button>
-        {state?.done && done ? <span role="status" className="text-sm text-ink-700">{done}</span> : null}
+        {state?.done && (state.message ?? done)
+          ? <span role="status" className="text-sm text-ink-700">{state.message ?? done}</span>
+          : null}
       </div>
+      {state?.link ? (
+        <p className="text-sm">
+          <span className="text-ink-500">Link: </span>
+          <a href={state.link} className="break-all font-mono text-blue-600 underline underline-offset-4">{state.link}</a>
+        </p>
+      ) : null}
       {state?.error ? <p role="alert" className="text-sm text-red-600">{state.error}</p> : null}
     </form>
   );

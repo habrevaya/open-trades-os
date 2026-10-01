@@ -18,7 +18,10 @@ import { claimNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
-import type { createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_ } from "../contracts/billing";
+import type {
+  createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_,
+  updateInvoice, issueInvoice, deleteInvoice,
+} from "../contracts/billing";
 
 const usd = (v: string) => m.money(v, "USD");
 
@@ -50,240 +53,18 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
      * as every other business date (see services/history.ts), and the
      * posting below is dated by it.
      */
+    if (input.draft && input.issuedOn) {
+      throw new UnprocessableError("A draft has not been issued", [{
+        path: "issuedOn", message: "Leave issuedOn off a draft, and send it when the draft is issued.",
+      }]);
+    }
     const now = new Date();
     const admitted = input.issuedOn
       ? await admitDate(tx, ctx, input.issuedOn, "issuedOn")
       : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
     const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
 
-    /**
-     * Prices come from the price book VERSION, not from the request, whenever
-     * an item id is given. A client that can name its own price is a client
-     * that will, and the version reference is what keeps an old invoice saying
-     * what it said after a price rise.
-     */
-    const itemIds = input.lines.map((l) => l.priceBookItemId).filter((x): x is string => Boolean(x));
-    const versions = itemIds.length
-      ? await tx.select({
-          itemId: schema.priceBookItemVersion.itemId,
-          versionId: schema.priceBookItemVersion.id,
-          name: schema.priceBookItemVersion.name,
-          price: schema.priceBookItemVersion.price,
-          cost: schema.priceBookItemVersion.cost,
-          taxable: schema.priceBookItemVersion.taxable,
-        })
-        .from(schema.priceBookItemVersion)
-        .where(and(
-          inArray(schema.priceBookItemVersion.itemId, itemIds),
-          /**
-           * The version IN FORCE, not the open ended one. `isNull(effectiveTo)`
-           * picks a revision dated ahead, so a price increase scheduled for
-           * next month applied today and the price actually in force became
-           * invisible. The reasoning is on `inForceAt`.
-           */
-          inForceAt(),
-        ))
-      : [];
-    const byItem = new Map(versions.map((v) => [v.itemId, v]));
-
-    /**
-     * WHOSE PRICE GOVERNS, PER LINE.
-     *
-     * Our price book is not the authority when the customer holds a
-     * contract with a rate card: the schema has said so since it was
-     * written, and until now nothing read it, so every commercial job
-     * invoiced at our list price and got rejected.
-     *
-     * Resolved per line rather than once per invoice, because a card covers
-     * some items and not others. A line the card prices takes the card's
-     * price; a line it does not is left at ours AND recorded, so the caller
-     * is told rather than finding out when the client rejects the invoice.
-     *
-     * COST IS NEVER TAKEN FROM THE CARD. The price is theirs and the cost is
-     * ours, which is the whole reason margin reporting still works on work
-     * we did not price.
-     */
-    const contracted = new Map<string, contracts.PriceResolution>();
-    const uncovered: string[] = [];
-    for (const itemId of new Set(itemIds)) {
-      const resolution = await contracts.priceFor(ctx, {
-        customerId: input.customerId,
-        priceBookItemId: itemId,
-      });
-      contracted.set(itemId, resolution);
-      if (!resolution.covered && resolution.cardApplies) {
-        uncovered.push(byItem.get(itemId)?.name ?? itemId);
-      }
-    }
-
-    /**
-     * TAX AS CHARGED, AND PRICES AS CHARGED, ARE HISTORY ONLY.
-     *
-     * Deciding what something costs and what tax is owed on it today is this
-     * server's job, for the reason at the top of this function. Recording
-     * what another system charged in 2021 is a different act, and the power
-     * to state a tax or keep a price the price book disagrees with is the
-     * power to make an invoice say anything, so it needs `data:import`.
-     */
-    if (input.lines.some((l) => l.taxRate !== undefined || l.taxAmount !== undefined || l.priceAsGiven)) {
-      requireImport(ctx);
-    }
-
-    const resolved = input.lines.map((line) => {
-      const linked = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
-      /**
-       * A line kept as given still links the item, so "which invoices sold
-       * this" has an answer, and takes nothing else from it: the name,
-       * price, cost and taxability are what the source charged.
-       */
-      const version = line.priceAsGiven ? undefined : linked;
-      const contract = line.priceBookItemId && !line.priceAsGiven ? contracted.get(line.priceBookItemId) : undefined;
-      const contractPrice = contract?.covered ? contract.price : undefined;
-      return {
-        name: version?.name ?? line.name,
-        description: line.description ?? null,
-        quantity: line.quantity,
-        unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
-        unitCost: version?.cost ? usd(version.cost) : null,
-        discountAmount: usd(line.discountAmount),
-        taxable: version?.taxable ?? line.taxable,
-        /**
-         * Resolved per jurisdiction in phase 5. Zero until then, honestly,
-         * unless the line is history and says what it was taxed at.
-         */
-        taxRate: line.taxRate ?? "0",
-        taxAmount: line.taxAmount === undefined ? undefined : usd(line.taxAmount),
-        costCode: line.costCode ?? null,
-        versionId: linked?.versionId ?? null,
-        coverageSource: line.coverageSource ?? null,
-        origin: "job" as "job" | "manual",
-      };
-    });
-
-    /**
-     * AN AMOUNT THE LINES DO NOT ACCOUNT FOR.
-     *
-     * An invoice-wide discount, or a manual adjustment, had nowhere to go:
-     * the total is computed from lines and there was no line for it. It
-     * becomes one, at the end and marked `manual`, never taxable. A negative
-     * amount is a DISCOUNT rather than a negative price, so it posts to
-     * contra revenue like every other discount instead of quietly netting
-     * revenue down.
-     */
-    if (input.adjustment) {
-      const amount = usd(input.adjustment.amount);
-      if (m.isZero(amount)) {
-        throw new UnprocessableError("An adjustment of nothing is not an adjustment", [{
-          path: "adjustment.amount", message: "Send a non-zero amount, or leave the adjustment off.",
-        }]);
-      }
-      const negative = m.isNegative(amount);
-      resolved.push({
-        name: input.adjustment.name,
-        description: null,
-        quantity: "1",
-        unitPrice: negative ? usd("0") : amount,
-        unitCost: null,
-        discountAmount: negative ? m.negate(amount) : usd("0"),
-        taxable: false,
-        taxRate: "0",
-        taxAmount: undefined,
-        costCode: null,
-        versionId: null,
-        coverageSource: null,
-        origin: "manual",
-      });
-    }
-
-    /**
-     * WORK THE CUSTOMER DOES NOT PAY FOR MUST NOT REACH THEM.
-     *
-     * A guard rather than a calculation. The sources this refuses on are the
-     * ones where billing the customer is not a pricing question but a
-     * mistake: we are back because of something we did, or we chose to
-     * absorb it. Rework billed to a customer is the complaint that ends a
-     * relationship, and it happens because the person invoicing was not the
-     * person who decided.
-     *
-     * A line's own `coverageSource` wins over the job's, because a job can
-     * be a callback with one chargeable extra on it.
-     */
-    const terms = input.jobId ? await entitlements.termsFor(tx, input.jobId) : null;
-    if (terms) {
-      /**
-       * Only the lines that INHERIT the job's coverage are tested. A line
-       * that names its own source was an explicit decision by whoever wrote
-       * it, including naming the customer: a callback can have one
-       * chargeable extra on it, and refusing that would make the guard
-       * something people work around rather than with.
-       */
-      const charges = resolved
-        .filter((r) => r.coverageSource == null)
-        .map((r) => ({
-          kind: chargeKindOf(r.name, r.costCode),
-          amount: m.multiply(r.unitPrice, r.quantity),
-        }));
-      const refusal = entitlements.refusalFor(terms, charges);
-      if (refusal) throw new ConflictError(refusal);
-    }
-
-    let computed: ReturnType<typeof ledger.computeInvoice>;
-    try {
-      computed = ledger.computeInvoice(resolved.map((r) => ({
-        quantity: r.quantity,
-        unitPrice: r.unitPrice,
-        discountAmount: r.discountAmount,
-        taxable: r.taxable,
-        taxRate: r.taxRate,
-        ...(r.taxAmount ? { taxAmount: r.taxAmount } : {}),
-      })));
-    } catch (error) {
-      if (error instanceof ledger.TaxAsAppliedError) {
-        throw new UnprocessableError("A line's tax is not what its rate gives", [{
-          path: `lines.${error.line}.taxAmount`, message: error.message,
-        }]);
-      }
-      throw error;
-    }
-
-    /**
-     * The caller's totals, compared and never used. See the contract.
-     */
-    if (input.expectedTotals) {
-      const expected: Partial<Record<keyof ledger.InvoiceTotals, ReturnType<typeof usd>>> = {};
-      for (const [field, value] of Object.entries(input.expectedTotals)) {
-        if (value !== undefined) expected[field as keyof ledger.InvoiceTotals] = usd(value);
-      }
-      const wrong = ledger.totalsMismatch(computed.totals, expected);
-      if (wrong.length > 0) {
-        throw new UnprocessableError("The invoice does not add up to the totals expected", wrong.map((w) => ({
-          path: `expectedTotals.${w.field}`,
-          message: `Expected ${w.expected}; the lines give ${w.computed}.`,
-        })));
-      }
-    }
-
-    /**
-     * THE INVOICE GOES TO WHOEVER IS BEING BILLED, NOT TO WHOEVER IS ON SITE.
-     *
-     * A property manager orders the work, a tenant is there, an owner pays.
-     * The product assumed one customer holding every role, and an invoice
-     * addressed to the tenant is a document the payer will not accept and
-     * the tenant should never have seen.
-     *
-     * Nobody named means the residential case, where the job's customer is
-     * all of them, and nothing about that gets harder.
-     */
-    if (input.jobId) {
-      const billTo = await commercial.billToFor(tx, input.jobId);
-      if (billTo?.customerId && billTo.customerId !== input.customerId) {
-        const [who] = await tx.select({ name: schema.customer.name })
-          .from(schema.customer).where(eq(schema.customer.id, billTo.customerId)).limit(1);
-        throw new ConflictError(
-          `This job is billed to ${who?.name ?? "another party"}, not to the customer on the invoice.`,
-        );
-      }
-    }
+    const { resolved, computed, uncovered } = await priceInvoice(tx, ctx, input);
 
     /**
      * AND IT MAY NOT GO OVER WHAT THEY AUTHORISED.
@@ -329,8 +110,13 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
        * is a join.
        */
       authorizationId: ceiling?.id ?? null,
-      status: "open",
-      issuedOn,
+      /**
+       * A draft is numbered (so it can be found and talked about) and is
+       * nothing else yet: no issue date, no posting, nothing owed. It
+       * becomes a receivable when it is issued.
+       */
+      status: input.draft ? "draft" : "open",
+      issuedOn: input.draft ? null : issuedOn,
       dueOn: input.dueOn ?? null,
       subtotal: m.toString(computed.totals.subtotal),
       discountTotal: m.toString(computed.totals.discountTotal),
@@ -370,71 +156,13 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       });
     }
 
-    /**
-     * The link the schema has always had a column for and nothing wrote.
-     * Without it, an invoice line that was free under a plan and one that
-     * was free because we got it wrong are the same row, and the API
-     * contract has promised a `coverageSource` on every line since it was
-     * written.
-     */
-    const entitlementId = input.jobId ? await entitlementIdFor(tx, input.jobId) : null;
+    await writeLines(tx, ctx, { invoiceId: invoice!.id, jobId: input.jobId ?? null, resolved, computed });
 
-    await tx.insert(schema.invoiceLine).values(resolved.map((r, i) => ({
-      organizationId: ctx.actor.organizationId,
-      invoiceId: invoice!.id,
-      /**
-       * A line that explicitly says the customer is paying does not carry
-       * the job's coverage, so the document does not later claim a
-       * chargeable extra was covered by a warranty.
-       */
-      entitlementId: r.coverageSource === "customer" || r.origin === "manual" ? null : entitlementId,
-      origin: r.origin,
-      sortOrder: i,
-      name: r.name,
-      description: r.description,
-      quantity: r.quantity,
-      unitPrice: m.toString(r.unitPrice),
-      unitCost: r.unitCost ? m.toString(r.unitCost) : null,
-      discountAmount: m.toString(r.discountAmount),
-      taxable: r.taxable,
-      taxRate: r.taxRate,
-      taxAmount: m.toString(computed.lines[i]!.taxAmount),
-      lineTotal: m.toString(computed.lines[i]!.lineTotal),
-      costCode: r.costCode,
-      priceBookItemVersionId: r.versionId,
-    })));
-
-    /**
-     * Dated by the issue date, and still an append: a back-dated posting is a
-     * new balanced pair on an earlier day, never an edit to anything already
-     * in the ledger. `writePosting` refuses it if that day is in a closed
-     * period.
-     */
-    await writePosting(tx, ctx, ledger.postInvoice({
-      invoiceId: invoice!.id,
-      occurredAt: history.postingInstant(issuedOn, admitted.timeZone, now),
-      totals: computed.totals,
-      customerId: input.customerId,
-      jobId: input.jobId,
-    }));
-
-    if (input.jobId) {
-      await tx.update(schema.job)
-        .set({ status: "invoiced", total: m.toString(computed.totals.total), updatedAt: new Date() })
-        .where(eq(schema.job.id, input.jobId));
-    }
-
-    /**
-     * Consumed once the invoice exists, so a second invoice on the same job
-     * knows what the first one used. An increment rather than a computed
-     * write, so two raised at the same moment cannot both read three hundred
-     * and both write six hundred.
-     */
-    if (ceiling) {
-      await commercial.consume(tx, {
-        authorizationId: ceiling.id,
-        terms: ceiling.terms,
-        amount: computed.totals.total,
+    if (!input.draft) {
+      await postIssue(tx, ctx, {
+        invoiceId: invoice!.id, customerId: input.customerId, jobId: input.jobId ?? null,
+        totals: computed.totals, issuedOn, timeZone: admitted.timeZone, now,
+        historical: admitted.historical, ceiling,
       });
     }
 
@@ -447,38 +175,573 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       });
     }
 
-    /**
-     * BILLING EMITTED NOTHING, AT ALL.
-     *
-     * The workflow builder offered "when an invoice is paid" and "when an
-     * invoice is sent" and this module never emitted a domain event in its
-     * life. A company automating a thank-you text on payment got a workflow
-     * that saved, enabled, and never fired, and nothing logs a subscription
-     * that matches nothing because matching nothing is what a quiet week
-     * looks like.
-     */
-    /**
-     * NOT FOR HISTORY. An invoice from 2019 being recorded is not an invoice
-     * being issued, and a workflow that sends "your invoice is ready" on this
-     * event would send ten years of them on the day of a migration. The
-     * audit line below still records it, marked as history.
-     */
-    if (!admitted.historical) {
-      await emit(tx, ctx, {
-        name: "invoice.issued", entityType: "invoice", entityId: invoice!.id,
-        payload: {
-          invoiceId: invoice!.id,
-          customerId: invoice!.customerId,
-          total: computed.totals.total ? m.toString(computed.totals.total) : "0",
-          ...(input.jobId ? { jobId: input.jobId } : {}),
-        },
-      });
-    }
-
-    await audit(tx, ctx, "invoice.created", "invoice", invoice!.id, null,
+    await audit(tx, ctx, input.draft ? "invoice.drafted" : "invoice.created", "invoice", invoice!.id, null,
       admitted.historical ? { ...invoice!, historical: true } : invoice!);
     return loadInvoice(tx, ctx, invoice!.id);
   });
+}
+
+
+/**
+ * An invoice's lines, written, and the job lines they bill marked as billed.
+ *
+ * `job_line.invoice_line_id` exists so that "what is still to invoice" is a
+ * query, and nothing ever set it, so every part a technician recorded read
+ * as unbilled forever. A line that names the job line it bills now closes it.
+ */
+async function writeLines(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    invoiceId: string; jobId: string | null;
+    resolved: Awaited<ReturnType<typeof priceInvoice>>["resolved"];
+    computed: Awaited<ReturnType<typeof priceInvoice>>["computed"];
+  },
+): Promise<void> {
+  const { resolved, computed } = input;
+  /**
+   * The link the schema has always had a column for and nothing wrote.
+   * Without it, an invoice line that was free under a plan and one that
+   * was free because we got it wrong are the same row, and the API
+   * contract has promised a `coverageSource` on every line since it was
+   * written.
+   */
+  const entitlementId = input.jobId ? await entitlementIdFor(tx, input.jobId) : null;
+
+  const written = await tx.insert(schema.invoiceLine).values(resolved.map((r, i) => ({
+    organizationId: ctx.actor.organizationId,
+    invoiceId: input.invoiceId,
+    /**
+     * A line that explicitly says the customer is paying does not carry
+     * the job's coverage, so the document does not later claim a
+     * chargeable extra was covered by a warranty.
+     */
+    entitlementId: r.coverageSource === "customer" || r.origin === "manual" ? null : entitlementId,
+    origin: r.origin,
+    sortOrder: i,
+    name: r.name,
+    description: r.description,
+    quantity: r.quantity,
+    unitPrice: m.toString(r.unitPrice),
+    unitCost: r.unitCost ? m.toString(r.unitCost) : null,
+    discountAmount: m.toString(r.discountAmount),
+    taxable: r.taxable,
+    taxRate: r.taxRate,
+    taxAmount: m.toString(computed.lines[i]!.taxAmount),
+    lineTotal: m.toString(computed.lines[i]!.lineTotal),
+    costCode: r.costCode,
+    priceBookItemVersionId: r.versionId,
+  }))).returning({ id: schema.invoiceLine.id, sortOrder: schema.invoiceLine.sortOrder });
+
+  for (const line of written) {
+    const jobLineId = resolved[line.sortOrder]?.jobLineId;
+    if (!jobLineId) continue;
+    await tx.update(schema.jobLine).set({ invoiceLineId: line.id, updatedAt: new Date() })
+      .where(eq(schema.jobLine.id, jobLineId));
+  }
+}
+
+/** A draft's job lines go back to unbilled, before its lines are replaced or it is deleted. */
+async function releaseJobLines(tx: Database, invoiceId: string): Promise<void> {
+  const ids = (await tx.select({ id: schema.invoiceLine.id }).from(schema.invoiceLine)
+    .where(eq(schema.invoiceLine.invoiceId, invoiceId))).map((r) => r.id);
+  if (ids.length === 0) return;
+  await tx.update(schema.jobLine).set({ invoiceLineId: null, updatedAt: new Date() })
+    .where(inArray(schema.jobLine.invoiceLineId, ids));
+}
+
+/**
+ * The job lines an invoice says it bills must be this job's, still unbilled,
+ * and billable. A line billed twice is the customer charged twice for one
+ * capacitor; a warranty part billed at all is the complaint that ends the
+ * relationship.
+ */
+async function assertJobLines(tx: Database, input: PricingInput, ownInvoiceId?: string): Promise<void> {
+  const ids = input.lines.map((l) => l.jobLineId).filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return;
+  if (new Set(ids).size !== ids.length) {
+    throw new ConflictError("The same job line is on this invoice twice.");
+  }
+  if (!input.jobId) {
+    throw new UnprocessableError("A job line belongs to a job", [{
+      path: "jobId", message: "Name the job the lines were used on.",
+    }]);
+  }
+  const rows = await tx.select().from(schema.jobLine).where(inArray(schema.jobLine.id, ids));
+  const mine = ownInvoiceId
+    ? new Set((await tx.select({ id: schema.invoiceLine.id }).from(schema.invoiceLine)
+      .where(eq(schema.invoiceLine.invoiceId, ownInvoiceId))).map((r) => r.id))
+    : new Set<string>();
+  for (const id of ids) {
+    const row = rows.find((r) => r.id === id);
+    if (!row || row.jobId !== input.jobId) throw new NotFoundError("Job line");
+    if (row.invoiceLineId && !mine.has(row.invoiceLineId)) {
+      throw new ConflictError(`"${row.name}" is already on another invoice.`);
+    }
+    if (row.nonBillableReason) {
+      throw new ConflictError(`"${row.name}" is not billable: ${row.nonBillableReason}.`);
+    }
+  }
+}
+
+/**
+ * Everything issuing an invoice does beyond writing it: the posting, the
+ * job moving to invoiced, the client's authorisation consumed, and the
+ * event a workflow waits for. Shared by an invoice raised as issued and a
+ * draft issued later, so the two cannot post differently.
+ */
+async function postIssue(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    invoiceId: string; customerId: string; jobId: string | null;
+    totals: ledger.InvoiceTotals; issuedOn: string; timeZone: string; now: Date;
+    historical: boolean;
+    ceiling: Awaited<ReturnType<typeof commercial.ceilingFor>>;
+  },
+): Promise<void> {
+  /**
+   * Dated by the issue date, and still an append: a back-dated posting is a
+   * new balanced pair on an earlier day, never an edit to anything already
+   * in the ledger. `writePosting` refuses it if that day is in a closed
+   * period.
+   */
+  await writePosting(tx, ctx, ledger.postInvoice({
+    invoiceId: input.invoiceId,
+    occurredAt: history.postingInstant(input.issuedOn, input.timeZone, input.now),
+    totals: input.totals,
+    customerId: input.customerId,
+    jobId: input.jobId ?? undefined,
+  }));
+
+  if (input.jobId) {
+    await tx.update(schema.job)
+      .set({ status: "invoiced", total: m.toString(input.totals.total), updatedAt: new Date() })
+      .where(eq(schema.job.id, input.jobId));
+  }
+
+  /**
+   * Consumed once the invoice exists, so a second invoice on the same job
+   * knows what the first one used. An increment rather than a computed
+   * write, so two raised at the same moment cannot both read three hundred
+   * and both write six hundred.
+   */
+  if (input.ceiling) {
+    await commercial.consume(tx, {
+      authorizationId: input.ceiling.id,
+      terms: input.ceiling.terms,
+      amount: input.totals.total,
+    });
+  }
+
+  /**
+   * BILLING EMITTED NOTHING, AT ALL.
+   *
+   * The workflow builder offered "when an invoice is paid" and "when an
+   * invoice is sent" and this module never emitted a domain event in its
+   * life. A company automating a thank-you text on payment got a workflow
+   * that saved, enabled, and never fired, and nothing logs a subscription
+   * that matches nothing because matching nothing is what a quiet week
+   * looks like.
+   *
+   * NOT FOR HISTORY. An invoice from 2019 being recorded is not an invoice
+   * being issued, and a workflow that sends "your invoice is ready" on this
+   * event would send ten years of them on the day of a migration. The
+   * audit line still records it, marked as history.
+   */
+  if (!input.historical) {
+    await emit(tx, ctx, {
+      name: "invoice.issued", entityType: "invoice", entityId: input.invoiceId,
+      payload: {
+        invoiceId: input.invoiceId,
+        customerId: input.customerId,
+        total: m.toString(input.totals.total),
+        ...(input.jobId ? { jobId: input.jobId } : {}),
+      },
+    });
+  }
+}
+
+/* ------------------------------------------------------------- drafts */
+
+/**
+ * A DRAFT IS EDITED, ISSUED OR THROWN AWAY.
+ *
+ * `invoice_status` has carried `draft` since the first migration, sending
+ * and voiding both refuse a draft by name ("issue it before sending it",
+ * "delete it rather than voiding it"), and converting an estimate writes
+ * one. Nothing could edit, issue or delete one, so an invoice converted
+ * from an approved estimate sat as a draft forever: it could not be sent,
+ * could not be paid, and could not be got rid of.
+ */
+async function loadDraft(tx: Database, id: string) {
+  const [invoice] = await tx.select().from(schema.invoice)
+    .where(and(eq(schema.invoice.id, id), isNull(schema.invoice.deletedAt))).limit(1);
+  if (!invoice) throw new NotFoundError("Invoice");
+  if (invoice.status !== "draft") {
+    throw new ConflictError(
+      `Invoice ${invoice.number} has been issued. An issued invoice is not edited: void it and raise another.`,
+    );
+  }
+  return invoice;
+}
+
+export async function updateDraft(ctx: ServiceContext, input: z.infer<typeof updateInvoice.input>) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const before = await loadDraft(tx, input.id);
+    if (input.lines?.some((l) => l.taxRate !== undefined || l.taxAmount !== undefined || l.priceAsGiven)) {
+      requireImport(ctx);
+    }
+
+    let totals: ledger.InvoiceTotals | null = null;
+    if (input.lines) {
+      const priced = await pricedForDraft(tx, ctx, before, input);
+      totals = priced.computed.totals;
+      await releaseJobLines(tx, before.id);
+      await tx.delete(schema.invoiceLine).where(eq(schema.invoiceLine.invoiceId, before.id));
+      await writeLines(tx, ctx, { invoiceId: before.id, jobId: before.jobId, ...priced });
+    }
+
+    const [after] = await tx.update(schema.invoice).set({
+      ...(totals ? {
+        subtotal: m.toString(totals.subtotal),
+        discountTotal: m.toString(totals.discountTotal),
+        taxTotal: m.toString(totals.taxTotal),
+        total: m.toString(totals.total),
+        balance: m.toString(totals.total),
+      } : {}),
+      ...(input.dueOn !== undefined ? { dueOn: input.dueOn } : {}),
+      ...(input.memo !== undefined ? { memo: input.memo } : {}),
+      ...(input.purchaseOrderNumber !== undefined ? { purchaseOrderNumber: input.purchaseOrderNumber } : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, before.id)).returning();
+
+    await audit(tx, ctx, "invoice.draft_updated", "invoice", before.id, before, after!);
+    return loadInvoice(tx, ctx, before.id);
+  });
+}
+
+/** A draft's new lines, priced by the same rules as a new invoice's. */
+async function pricedForDraft(
+  tx: Database, ctx: ServiceContext,
+  draft: typeof schema.invoice.$inferSelect,
+  input: z.infer<typeof updateInvoice.input>,
+) {
+  const pricing: PricingInput = {
+    customerId: draft.customerId,
+    ...(draft.jobId ? { jobId: draft.jobId } : {}),
+    lines: input.lines!,
+    ...(input.adjustment ? { adjustment: input.adjustment } : {}),
+    ...(input.expectedTotals ? { expectedTotals: input.expectedTotals } : {}),
+  };
+  return priceInvoice(tx, ctx, pricing, draft.id);
+}
+
+export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvoice.input>) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const draft = await loadDraft(tx, input.id);
+    const now = new Date();
+    const admitted = input.issuedOn
+      ? await admitDate(tx, ctx, input.issuedOn, "issuedOn")
+      : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
+    const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
+
+    const totals: ledger.InvoiceTotals = {
+      subtotal: usd(draft.subtotal),
+      discountTotal: usd(draft.discountTotal),
+      taxTotal: usd(draft.taxTotal),
+      total: usd(draft.total),
+    };
+    if (!m.isPositive(totals.total) && !m.isZero(totals.total)) {
+      throw new ConflictError(`Invoice ${draft.number} totals less than nothing. A credit is not an invoice.`);
+    }
+
+    /** Checked again now: the authorisation may have been used since the draft was written. */
+    const ceiling = draft.jobId ? await commercial.ceilingFor(tx, draft.jobId) : null;
+    if (ceiling) {
+      const decision = authz.decide(ceiling.terms, totals.total);
+      if (!decision.ok) throw new ConflictError(decision.detail);
+    }
+
+    const [after] = await tx.update(schema.invoice).set({
+      status: "open",
+      issuedOn,
+      balance: m.toString(m.subtract(totals.total, usd(draft.amountPaid))),
+      authorizationId: ceiling?.id ?? draft.authorizationId,
+      updatedAt: now,
+    }).where(eq(schema.invoice.id, draft.id)).returning();
+
+    await postIssue(tx, ctx, {
+      invoiceId: draft.id, customerId: draft.customerId, jobId: draft.jobId,
+      totals, issuedOn, timeZone: admitted.timeZone, now, historical: admitted.historical, ceiling,
+    });
+
+    await audit(tx, ctx, "invoice.issued", "invoice", draft.id, { status: "draft" },
+      admitted.historical ? { ...after!, historical: true } : after!);
+    return loadInvoice(tx, ctx, draft.id);
+  });
+}
+
+export async function deleteDraft(ctx: ServiceContext, input: z.infer<typeof deleteInvoice.input>) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const draft = await loadDraft(tx, input.id);
+    await releaseJobLines(tx, draft.id);
+    /**
+     * Gone rather than marked deleted. A draft was never a document anybody
+     * received and never touched the ledger, so there is nothing to keep but
+     * the audit line below, which records what it said.
+     */
+    await tx.delete(schema.invoice).where(eq(schema.invoice.id, draft.id));
+    await audit(tx, ctx, "invoice.draft_deleted", "invoice", draft.id, draft, null);
+    return { deleted: true as const, id: draft.id };
+  });
+}
+
+/**
+ * WHAT AN INVOICE CHARGES, AND WHETHER IT MAY.
+ *
+ * The pricing and the guards of `create`, on their own, so a draft being
+ * edited is priced by exactly the rules a new invoice is: price book
+ * versions in force, a contract's rate card, coverage that keeps rework off
+ * the customer's bill, the bill-to party, and the caller's expected totals
+ * as a cross check. Two copies of these rules would be two invoices that
+ * disagree about the same lines.
+ */
+type PricingInput = Pick<z.infer<typeof createInvoice.input>,
+  "customerId" | "jobId" | "lines" | "adjustment" | "expectedTotals">;
+
+async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInput, ownInvoiceId?: string) {
+  /**
+   * Prices come from the price book VERSION, not from the request, whenever
+   * an item id is given. A client that can name its own price is a client
+   * that will, and the version reference is what keeps an old invoice saying
+   * what it said after a price rise.
+   */
+  const itemIds = input.lines.map((l) => l.priceBookItemId).filter((x): x is string => Boolean(x));
+  const versions = itemIds.length
+    ? await tx.select({
+        itemId: schema.priceBookItemVersion.itemId,
+        versionId: schema.priceBookItemVersion.id,
+        name: schema.priceBookItemVersion.name,
+        price: schema.priceBookItemVersion.price,
+        cost: schema.priceBookItemVersion.cost,
+        taxable: schema.priceBookItemVersion.taxable,
+      })
+      .from(schema.priceBookItemVersion)
+      .where(and(
+        inArray(schema.priceBookItemVersion.itemId, itemIds),
+        /**
+         * The version IN FORCE, not the open ended one. `isNull(effectiveTo)`
+         * picks a revision dated ahead, so a price increase scheduled for
+         * next month applied today and the price actually in force became
+         * invisible. The reasoning is on `inForceAt`.
+         */
+        inForceAt(),
+      ))
+    : [];
+  const byItem = new Map(versions.map((v) => [v.itemId, v]));
+
+  /**
+   * WHOSE PRICE GOVERNS, PER LINE.
+   *
+   * Our price book is not the authority when the customer holds a
+   * contract with a rate card: the schema has said so since it was
+   * written, and until now nothing read it, so every commercial job
+   * invoiced at our list price and got rejected.
+   *
+   * Resolved per line rather than once per invoice, because a card covers
+   * some items and not others. A line the card prices takes the card's
+   * price; a line it does not is left at ours AND recorded, so the caller
+   * is told rather than finding out when the client rejects the invoice.
+   *
+   * COST IS NEVER TAKEN FROM THE CARD. The price is theirs and the cost is
+   * ours, which is the whole reason margin reporting still works on work
+   * we did not price.
+   */
+  const contracted = new Map<string, contracts.PriceResolution>();
+  const uncovered: string[] = [];
+  for (const itemId of new Set(itemIds)) {
+    const resolution = await contracts.priceFor(ctx, {
+      customerId: input.customerId,
+      priceBookItemId: itemId,
+    });
+    contracted.set(itemId, resolution);
+    if (!resolution.covered && resolution.cardApplies) {
+      uncovered.push(byItem.get(itemId)?.name ?? itemId);
+    }
+  }
+
+  /**
+   * TAX AS CHARGED, AND PRICES AS CHARGED, ARE HISTORY ONLY.
+   *
+   * Deciding what something costs and what tax is owed on it today is this
+   * server's job, for the reason at the top of this function. Recording
+   * what another system charged in 2021 is a different act, and the power
+   * to state a tax or keep a price the price book disagrees with is the
+   * power to make an invoice say anything, so it needs `data:import`.
+   */
+  if (input.lines.some((l) => l.taxRate !== undefined || l.taxAmount !== undefined || l.priceAsGiven)) {
+    requireImport(ctx);
+  }
+
+  const resolved = input.lines.map((line) => {
+    const linked = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
+    /**
+     * A line kept as given still links the item, so "which invoices sold
+     * this" has an answer, and takes nothing else from it: the name,
+     * price, cost and taxability are what the source charged.
+     */
+    const version = line.priceAsGiven ? undefined : linked;
+    const contract = line.priceBookItemId && !line.priceAsGiven ? contracted.get(line.priceBookItemId) : undefined;
+    const contractPrice = contract?.covered ? contract.price : undefined;
+    return {
+      name: version?.name ?? line.name,
+      description: line.description ?? null,
+      quantity: line.quantity,
+      unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
+      unitCost: version?.cost ? usd(version.cost) : null,
+      discountAmount: usd(line.discountAmount),
+      taxable: version?.taxable ?? line.taxable,
+      /**
+       * Resolved per jurisdiction in phase 5. Zero until then, honestly,
+       * unless the line is history and says what it was taxed at.
+       */
+      taxRate: line.taxRate ?? "0",
+      taxAmount: line.taxAmount === undefined ? undefined : usd(line.taxAmount),
+      costCode: line.costCode ?? null,
+      versionId: linked?.versionId ?? null,
+      coverageSource: line.coverageSource ?? null,
+      origin: "job" as "job" | "manual",
+      jobLineId: line.jobLineId ?? null as string | null,
+    };
+  });
+
+  /**
+   * AN AMOUNT THE LINES DO NOT ACCOUNT FOR.
+   *
+   * An invoice-wide discount, or a manual adjustment, had nowhere to go:
+   * the total is computed from lines and there was no line for it. It
+   * becomes one, at the end and marked `manual`, never taxable. A negative
+   * amount is a DISCOUNT rather than a negative price, so it posts to
+   * contra revenue like every other discount instead of quietly netting
+   * revenue down.
+   */
+  if (input.adjustment) {
+    const amount = usd(input.adjustment.amount);
+    if (m.isZero(amount)) {
+      throw new UnprocessableError("An adjustment of nothing is not an adjustment", [{
+        path: "adjustment.amount", message: "Send a non-zero amount, or leave the adjustment off.",
+      }]);
+    }
+    const negative = m.isNegative(amount);
+    resolved.push({
+      name: input.adjustment.name,
+      description: null,
+      quantity: "1",
+      unitPrice: negative ? usd("0") : amount,
+      unitCost: null,
+      discountAmount: negative ? m.negate(amount) : usd("0"),
+      taxable: false,
+      taxRate: "0",
+      taxAmount: undefined,
+      costCode: null,
+      versionId: null,
+      coverageSource: null,
+      origin: "manual",
+      jobLineId: null,
+    });
+  }
+
+  /**
+   * WORK THE CUSTOMER DOES NOT PAY FOR MUST NOT REACH THEM.
+   *
+   * A guard rather than a calculation. The sources this refuses on are the
+   * ones where billing the customer is not a pricing question but a
+   * mistake: we are back because of something we did, or we chose to
+   * absorb it. Rework billed to a customer is the complaint that ends a
+   * relationship, and it happens because the person invoicing was not the
+   * person who decided.
+   *
+   * A line's own `coverageSource` wins over the job's, because a job can
+   * be a callback with one chargeable extra on it.
+   */
+  const terms = input.jobId ? await entitlements.termsFor(tx, input.jobId) : null;
+  if (terms) {
+    /**
+     * Only the lines that INHERIT the job's coverage are tested. A line
+     * that names its own source was an explicit decision by whoever wrote
+     * it, including naming the customer: a callback can have one
+     * chargeable extra on it, and refusing that would make the guard
+     * something people work around rather than with.
+     */
+    const charges = resolved
+      .filter((r) => r.coverageSource == null)
+      .map((r) => ({
+        kind: chargeKindOf(r.name, r.costCode),
+        amount: m.multiply(r.unitPrice, r.quantity),
+      }));
+    const refusal = entitlements.refusalFor(terms, charges);
+    if (refusal) throw new ConflictError(refusal);
+  }
+
+  let computed: ReturnType<typeof ledger.computeInvoice>;
+  try {
+    computed = ledger.computeInvoice(resolved.map((r) => ({
+      quantity: r.quantity,
+      unitPrice: r.unitPrice,
+      discountAmount: r.discountAmount,
+      taxable: r.taxable,
+      taxRate: r.taxRate,
+      ...(r.taxAmount ? { taxAmount: r.taxAmount } : {}),
+    })));
+  } catch (error) {
+    if (error instanceof ledger.TaxAsAppliedError) {
+      throw new UnprocessableError("A line's tax is not what its rate gives", [{
+        path: `lines.${error.line}.taxAmount`, message: error.message,
+      }]);
+    }
+    throw error;
+  }
+
+  /**
+   * The caller's totals, compared and never used. See the contract.
+   */
+  if (input.expectedTotals) {
+    const expected: Partial<Record<keyof ledger.InvoiceTotals, ReturnType<typeof usd>>> = {};
+    for (const [field, value] of Object.entries(input.expectedTotals)) {
+      if (value !== undefined) expected[field as keyof ledger.InvoiceTotals] = usd(value);
+    }
+    const wrong = ledger.totalsMismatch(computed.totals, expected);
+    if (wrong.length > 0) {
+      throw new UnprocessableError("The invoice does not add up to the totals expected", wrong.map((w) => ({
+        path: `expectedTotals.${w.field}`,
+        message: `Expected ${w.expected}; the lines give ${w.computed}.`,
+      })));
+    }
+  }
+
+  /**
+   * THE INVOICE GOES TO WHOEVER IS BEING BILLED, NOT TO WHOEVER IS ON SITE.
+   *
+   * A property manager orders the work, a tenant is there, an owner pays.
+   * The product assumed one customer holding every role, and an invoice
+   * addressed to the tenant is a document the payer will not accept and
+   * the tenant should never have seen.
+   *
+   * Nobody named means the residential case, where the job's customer is
+   * all of them, and nothing about that gets harder.
+   */
+  if (input.jobId) {
+    const billTo = await commercial.billToFor(tx, input.jobId);
+    if (billTo?.customerId && billTo.customerId !== input.customerId) {
+      const [who] = await tx.select({ name: schema.customer.name })
+        .from(schema.customer).where(eq(schema.customer.id, billTo.customerId)).limit(1);
+      throw new ConflictError(
+        `This job is billed to ${who?.name ?? "another party"}, not to the customer on the invoice.`,
+      );
+    }
+  }
+
+  await assertJobLines(tx, input, ownInvoiceId);
+  return { resolved, computed, uncovered };
 }
 
 /**
@@ -1292,6 +1555,29 @@ export async function voidInvoice(
       balance: "0",
       updatedAt: new Date(),
     }).where(eq(schema.invoice.id, invoice.id));
+
+    /**
+     * THE JOB IS NO LONGER INVOICED once nothing live bills it. The status
+     * graph has always allowed invoiced back to completed "if the invoice is
+     * voided", and nothing ever made the move, so a job whose only invoice
+     * was voided said invoiced for ever and never reached a list of work
+     * waiting to be billed. Its job lines go back to unbilled for the same
+     * reason: the invoice that billed them no longer charges anything.
+     */
+    await releaseJobLines(tx, invoice.id);
+    if (invoice.jobId) {
+      const [live] = await tx.select({ id: schema.invoice.id }).from(schema.invoice)
+        .where(and(
+          eq(schema.invoice.jobId, invoice.jobId),
+          inArray(schema.invoice.status, ["open", "partially_paid", "paid", "written_off"]),
+          isNull(schema.invoice.deletedAt),
+          sql`${schema.invoice.id} <> ${invoice.id}`,
+        )).limit(1);
+      if (!live) {
+        await tx.update(schema.job).set({ status: "completed", updatedAt: new Date() })
+          .where(and(eq(schema.job.id, invoice.jobId), eq(schema.job.status, "invoiced")));
+      }
+    }
 
     await audit(tx, ctx, "invoice.voided", "invoice", invoice.id,
       { status: invoice.status, balance: invoice.balance },

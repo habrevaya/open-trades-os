@@ -6,9 +6,9 @@ import { test, expect, run, api } from "./fixtures";
  * "Create a customer, book a job, complete it, invoice it, take a payment, and
  * see the money in a report that agrees with the ledger to the cent."
  *
- * The customer, their address, booking the job and completing its visit go
- * through the screens. Raising the invoice and recording the payment have
- * no office screen yet, so those two go through the HTTP API as the same
+ * The customer, their address, booking the job, completing its visit and
+ * raising and sending the invoice go through the screens. Recording the
+ * payment has no office screen yet, so that goes through the HTTP API as the same
  * signed in owner; every result is then read back off the screens a person
  * would check, which is where a wrong number would be seen.
  */
@@ -19,7 +19,7 @@ type Invoice = { id: string; number: number; total: string; balance: string; sta
 const money = (amount: string) =>
   `$${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-test("the owner books a job from a new customer through to paid, and the report agrees with the invoice to the cent", async ({ owner }) => {
+test("the owner books a job from a new customer through to paid, and the report agrees with the invoice to the cent", async ({ owner, stranger }) => {
   const name = `Imogen Hartley ${run}`;
 
   // The customer and their address, through the form.
@@ -72,18 +72,43 @@ test("the owner books a job from a new customer through to paid, and the report 
   await expect(owner.getByText("Dual run capacitor failed.")).toBeVisible();
   await expect(owner.getByRole("button", { name: "Reopen job" })).toBeVisible();
 
-  // Invoiced: one line at an odd price, so a rounding slip shows.
-  const invoice = await api<Invoice>(owner.request, "POST", "/v1/invoices", {
-    customerId, jobId: job.id,
-    lines: [
-      { name: "Diagnostic fee", quantity: "1", unitPrice: "129.00", discountAmount: "0", taxable: false },
-      { name: "Dual run capacitor", quantity: "3", unitPrice: "43.37", discountAmount: "0", taxable: false },
-    ],
-  });
-  expect(invoice.total).toBe("259.1100");
+  // Invoiced from the job: two lines, one at an odd price, so a rounding slip shows.
+  await owner.getByRole("link", { name: "Invoice this job" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/new\?job=/);
+  await owner.getByLabel("Line 1 description").fill("Diagnostic fee");
+  await owner.getByLabel("Line 1 quantity").fill("1");
+  await owner.getByLabel("Line 1 unit price").fill("129.00");
+  await owner.getByRole("button", { name: "Add a line" }).click();
+  await owner.getByLabel("Line 2 description").fill("Dual run capacitor");
+  await owner.getByLabel("Line 2 quantity").fill("3");
+  await owner.getByLabel("Line 2 unit price").fill("43.37");
+  await owner.getByRole("button", { name: "Create invoice" }).click();
 
-  await owner.goto(`/invoices/${invoice.id}`);
-  await expect(owner.getByText(money(invoice.total)).first()).toBeVisible();
+  await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  const invoiceId = owner.url().split("/").pop()!;
+  const invoice = await api<Invoice>(owner.request, "GET", `/v1/invoices/${invoiceId}`);
+  expect(invoice.total).toBe("259.1100");
+  await expect(factOf(owner, "Total")).toHaveText(money(invoice.total));
+
+  /*
+    Sent. The seeded company has connected no mail provider, so emailing is
+    refused in words and the attempt is recorded rather than lost, which is
+    what a company that has not set up email yet would see. The link is then
+    handed over instead, and it opens the invoice for somebody holding
+    nothing else.
+  */
+  await owner.getByRole("button", { name: "Email invoice" }).click();
+  await expect(owner.getByRole("status")).toContainText("Not sent: No email provider is connected");
+  await owner.getByRole("button", { name: "Get a link instead" }).click();
+  const link = owner.getByRole("link", { name: /\/i\// });
+  await expect(link).toBeVisible();
+  const url = (await link.getAttribute("href"))!;
+  await stranger.goto(url);
+  await expect(stranger.getByRole("heading", { name: `Invoice #${invoice.number}` })).toBeVisible();
+  await expect(stranger.getByText(money(invoice.total)).first()).toBeVisible();
+  await owner.reload();
+  await expect(owner.getByRole("region", { name: "Sent" })).toContainText(`emailed to imogen+${run}@example.test`);
+  await expect(owner.getByRole("region", { name: "Sent" })).toContainText("a link handed over");
 
   await owner.goto(`/customers/${customerId}`);
   await expect(balanceOf(owner)).toHaveText(money(invoice.total));

@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
+import { billing, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
-import { JOB_STATUS, label } from "@/lib/labels";
+import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { Money } from "@opentradesos/ui";
@@ -78,6 +78,9 @@ export default async function CustomerPage({
     : null;
 
   const people = await contactService.list(ctx, { customerId: id });
+  const invoices = can(user.actor, "invoice:read")
+    ? (await billing.list(ctx, { limit: 50, customerId: id })).data
+    : null;
   const addresses = can(user.actor, "property:read")
     ? (await propertyService.list(ctx, { limit: 50, customerId: id })).data
     : [];
@@ -228,6 +231,36 @@ export default async function CustomerPage({
             </tr>
           ))}
         </Table>
+      )}
+
+      {invoices && (
+        <section aria-label="Invoices">
+          <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Invoices</h2>
+            {can(user.actor, "invoice:write") && (
+              <a href={`/invoices/new?customer=${id}`}
+                 className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                New invoice
+              </a>
+            )}
+          </div>
+          {invoices.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">None yet.</p>
+          ) : (
+            <Table head={<><Th className="w-20">Number</Th><Th>Status</Th><Th className="text-right">Total</Th><Th className="text-right">Balance</Th></>}>
+              {invoices.map((inv) => (
+                <tr key={inv.id} className="hover:bg-steel-100">
+                  <Td className="font-mono tabular-nums">
+                    <a href={`/invoices/${inv.id}`} className="hover:underline">{inv.number}</a>
+                  </Td>
+                  <Td><Chip tone={tone(INVOICE_TONE, inv.status)}>{label(INVOICE_STATUS, inv.status)}</Chip></Td>
+                  <Td className="text-right"><Money value={inv.total} /></Td>
+                  <Td className="text-right"><Money value={inv.balance} muted={Number(inv.balance) === 0} /></Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </section>
       )}
     </div>
   );

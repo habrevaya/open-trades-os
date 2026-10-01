@@ -7,7 +7,15 @@ import type { z } from "zod";
  * refused. Shared by every office form built over a service, so a refusal
  * reads the same on every screen and nothing has to invent its own shape.
  */
-export type FormState = { done?: boolean; error?: string; values?: Record<string, string> } | null;
+export type FormState = {
+  done?: boolean;
+  error?: string;
+  values?: Record<string, string>;
+  /** What happened, when the page itself does not show it: "Emailed to ...". */
+  message?: string;
+  /** A link the person is meant to copy and hand on, shown once. */
+  link?: string;
+} | null;
 
 /**
  * The sentence a refusal carries, or null for something that is not a
@@ -59,7 +67,10 @@ function humanise(field: string): string {
  */
 export async function attempt(run: () => Promise<unknown>): Promise<FormState> {
   try {
-    await run();
+    const said = await run();
+    if (said && typeof said === "object" && ("message" in said || "link" in said)) {
+      return { done: true, ...(said as { message?: string; link?: string }) };
+    }
   } catch (error) {
     const message = refusalOf(error);
     if (message === null) throw error;

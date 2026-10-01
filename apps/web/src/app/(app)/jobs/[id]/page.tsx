@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  jobs, customers, commercial, entitlements, files, profitability, priceBook, NotFoundError,
+  jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, NotFoundError,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -14,7 +14,7 @@ import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
-import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, label, tone } from "@/lib/labels";
+import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
 import { ActionForm } from "@/components/ActionForm";
 import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
@@ -87,6 +87,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const completes = can(user.actor, "job:complete");
   const openVisits = job.visits.filter((v) => (OPEN_VISIT as readonly string[]).includes(v.status));
   const used = (await jobs.lines(ctx, { id })).data;
+  const invoices = can(user.actor, "invoice:read")
+    ? (await billing.list(ctx, { limit: 50, jobId: id })).data
+    : [];
+  const canInvoice = can(user.actor, "invoice:write") && job.status !== "cancelled";
   const items = completes && openVisits.length > 0 && can(user.actor, "pricebook:read")
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
       .map((item) => ({ id: item.id, name: item.name, price: item.price }))
@@ -303,6 +307,33 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       )}
 
       <UsedOnJob lines={used} />
+
+      {(invoices.length > 0 || canInvoice) && (
+        <section aria-label="Invoices">
+          <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Invoices</h2>
+            {canInvoice && (
+              <a href={`/invoices/new?job=${id}`}
+                 className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+                Invoice this job
+              </a>
+            )}
+          </div>
+          {invoices.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">Not invoiced yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm">
+              {invoices.map((inv) => (
+                <li key={inv.id} className="flex flex-wrap items-center gap-3">
+                  <a href={`/invoices/${inv.id}`} className="font-mono tabular-nums hover:underline">Invoice {inv.number}</a>
+                  <Money value={inv.total} />
+                  <Chip tone={tone(INVOICE_TONE, inv.status)}>{label(INVOICE_STATUS, inv.status)}</Chip>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {(photos.length > 0 || outstanding.pending > 0 || outstanding.abandoned > 0) && (
         <>

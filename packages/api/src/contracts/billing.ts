@@ -53,6 +53,46 @@ export const Invoice = z.object({
   externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
+/** A line as a caller writes it. Shared by a new invoice and a draft being edited. */
+export const InvoiceLineInput = z.object({
+  priceBookItemId: Uuid.optional(),
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  quantity: MoneyString.default("1"),
+  unitPrice: MoneyString,
+  discountAmount: MoneyString.default("0"),
+  taxable: z.boolean().default(true),
+  /**
+   * The rate this line was taxed at by the system it came from, frozen on
+   * the line as applied. Recording history only: needs `data:import`.
+   * Today's tax is the server's to determine, never the caller's.
+   */
+  taxRate: RateString.optional(),
+  /**
+   * The tax that system charged on this line. Accepted only within
+   * rounding of `taxRate` on the line's net (less than a cent away), so a
+   * source that rounded per line keeps its cents and a made-up figure is
+   * a 422. Needs `data:import`.
+   */
+  taxAmount: MoneyString.optional(),
+  /**
+   * Link the price book item and keep this line's own name, price and
+   * taxability. Without it a linked line is re-priced from the item's
+   * CURRENT version, which is right for a new invoice and rewrites what a
+   * historical one charged. Needs `data:import`.
+   */
+  priceAsGiven: z.boolean().optional(),
+  costCode: z.string().max(50).optional(),
+  coverageSource: CoverageSource.optional(),
+  /**
+   * The job line this bills: a part or an hour recorded on the job. Marks it
+   * billed, so the same capacitor cannot reach two invoices and "what is
+   * still to invoice on this job" has an answer. Must be this invoice's
+   * job's, unbilled, and billable.
+   */
+  jobLineId: Uuid.optional(),
+});
+
 export const createInvoice = defineRoute({
   method: "post",
   path: "/v1/invoices",
@@ -83,39 +123,15 @@ export const createInvoice = defineRoute({
      * future, and never inside a closed period.
      */
     issuedOn: z.string().date().optional(),
+    /**
+     * Save it as a draft: numbered, editable, and nothing else. No posting,
+     * nothing owed, the job not yet invoiced, and it cannot be sent or paid
+     * until `POST /v1/invoices/{id}/issue`.
+     */
+    draft: z.boolean().optional(),
     dueOn: z.string().date().optional(),
     memo: z.string().max(2000).optional(),
-    lines: z.array(z.object({
-      priceBookItemId: Uuid.optional(),
-      name: z.string().min(1).max(200),
-      description: z.string().max(2000).optional(),
-      quantity: MoneyString.default("1"),
-      unitPrice: MoneyString,
-      discountAmount: MoneyString.default("0"),
-      taxable: z.boolean().default(true),
-      /**
-       * The rate this line was taxed at by the system it came from, frozen on
-       * the line as applied. Recording history only: needs `data:import`.
-       * Today's tax is the server's to determine, never the caller's.
-       */
-      taxRate: RateString.optional(),
-      /**
-       * The tax that system charged on this line. Accepted only within
-       * rounding of `taxRate` on the line's net (less than a cent away), so a
-       * source that rounded per line keeps its cents and a made-up figure is
-       * a 422. Needs `data:import`.
-       */
-      taxAmount: MoneyString.optional(),
-      /**
-       * Link the price book item and keep this line's own name, price and
-       * taxability. Without it a linked line is re-priced from the item's
-       * CURRENT version, which is right for a new invoice and rewrites what a
-       * historical one charged. Needs `data:import`.
-       */
-      priceAsGiven: z.boolean().optional(),
-      costCode: z.string().max(50).optional(),
-      coverageSource: CoverageSource.optional(),
-    })).min(1),
+    lines: z.array(InvoiceLineInput).min(1),
     /**
      * One invoice-level amount the lines do not account for: an
      * invoice-wide discount (negative) or a charge (positive). Becomes a
@@ -442,7 +458,73 @@ export const listPayments = defineRoute({
   }),
 });
 
+
+/**
+ * EDITING, ISSUING AND THROWING AWAY A DRAFT.
+ *
+ * A draft could be written (by converting an estimate) and nothing else:
+ * sending refused it, voiding refused it, and nothing could change or issue
+ * it, so it was stranded. An issued invoice is never edited; a draft is
+ * nothing else.
+ */
+export const updateInvoice = defineRoute({
+  method: "patch",
+  path: "/v1/invoices/{id}",
+  summary: "Edit a draft invoice",
+  description:
+    "Drafts only. Lines, when sent, replace the draft's lines and are priced by the same rules as a new invoice. An issued invoice is refused: void it and raise another.",
+  module: "M13",
+  permissions: ["invoice:write"],
+  /** A replacement, not an increment: sending the same edit twice leaves the same draft. */
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    lines: z.array(InvoiceLineInput).min(1).optional(),
+    adjustment: z.object({ name: z.string().min(1).max(200), amount: MoneyString }).optional(),
+    expectedTotals: z.object({
+      subtotal: MoneyString.optional(),
+      discountTotal: MoneyString.optional(),
+      taxTotal: MoneyString.optional(),
+      total: MoneyString.optional(),
+    }).optional(),
+    dueOn: z.string().date().nullable().optional(),
+    memo: z.string().max(2000).nullable().optional(),
+    purchaseOrderNumber: z.string().max(100).nullable().optional(),
+  }),
+  output: Invoice,
+});
+
+export const issueInvoice = defineRoute({
+  method: "post",
+  path: "/v1/invoices/{id}/issue",
+  summary: "Issue a draft invoice",
+  description:
+    "Posts it to the ledger, moves its job to invoiced, consumes the client's authorisation, and makes it something that can be sent and paid. The issue date follows the same rules as on create.",
+  module: "M13",
+  permissions: ["invoice:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    issuedOn: z.string().date().optional(),
+  }),
+  output: Invoice,
+});
+
+export const deleteInvoice = defineRoute({
+  method: "delete",
+  path: "/v1/invoices/{id}",
+  summary: "Delete a draft invoice",
+  description: "Drafts only, which were never posted or sent. Its job lines go back to unbilled. An issued invoice is voided instead.",
+  module: "M13",
+  permissions: ["invoice:write"],
+  /** A retry finds nothing to delete and says so, and nothing else happens. */
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ deleted: z.literal(true), id: Uuid }),
+});
+
 export const billingRoutes = {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging,
   voidInvoice, writeOffInvoice, applyPayment, listPayments, recordRefund,
+  updateInvoice, issueInvoice, deleteInvoice,
 } as const;

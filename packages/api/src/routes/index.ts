@@ -104,6 +104,9 @@ export const handlers = {
   applyPayment: billing.applyPayment,
   recordRefund: billing.recordRefund,
   voidInvoice: billing.voidInvoice,
+  updateInvoice: billing.updateDraft,
+  issueInvoice: billing.issue,
+  deleteInvoice: billing.deleteDraft,
   writeOffInvoice: billing.writeOff,
   getArAging: billing.arAging,
 
