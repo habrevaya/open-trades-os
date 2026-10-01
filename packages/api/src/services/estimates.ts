@@ -17,6 +17,7 @@ import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
 } from "../contracts/estimates";
+import { portalBase } from "../lib/portal-base";
 
 const usd = (v: string) => m.money(v, "USD");
 
@@ -785,8 +786,7 @@ function hashDocument(input: Record<string, unknown>): string {
   return createHash("sha256").update(JSON.stringify(input, Object.keys(input).sort())).digest("hex");
 }
 
-const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
-const approvalUrl = (token: string) => `${PORTAL_BASE}/e/${token}`;
+const approvalUrl = (token: string) => `${portalBase()}/e/${token}`;
 
 async function seenBefore(tx: Database, key: string, entityType: string): Promise<string | null> {
   const [row] = await tx.select({ entityId: schema.integrationEvent.entityId })

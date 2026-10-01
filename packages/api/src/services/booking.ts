@@ -17,8 +17,8 @@ import type {
   configureBookableService,
   createBookableService, setArrivalWindows, setBusinessHours,
 } from "../contracts/booking";
+import { portalBase } from "../lib/portal-base";
 
-const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
 
 /**
  * How long a resubmission counts as the same submission.
@@ -449,7 +449,7 @@ export async function createRequest(
       query: input.landingQuery ?? utmAsQuery(input.utm),
       referrer: input.referrer ?? null,
       landingPath: pathOf(input.sourceUrl),
-      ownHosts: [new URL(PORTAL_BASE).host],
+      ownHosts: [new URL(portalBase()).host],
     });
 
     const deposit = depositDue(service, service.displayPrice);
@@ -851,7 +851,7 @@ async function issueTrackingUrl(tx: Database, organizationId: string, requestId:
     tokenHash: createHash("sha256").update(token).digest("hex"),
     expiresAt: new Date(Date.now() + 90 * 864e5),
   });
-  return `${PORTAL_BASE}/b/${token}`;
+  return `${portalBase()}/b/${token}`;
 }
 
 function shapeRequest(r: typeof schema.bookingRequest.$inferSelect) {
@@ -1186,7 +1186,7 @@ function sourceOf(request: typeof schema.bookingRequest.$inferSelect): string {
      * to the booking page is one session, and counting it as a referral from
      * ourselves is how "our own website" becomes the top lead source.
      */
-    ownHosts: [new URL(PORTAL_BASE).host],
+    ownHosts: [new URL(portalBase()).host],
   });
 
   return touch.source;

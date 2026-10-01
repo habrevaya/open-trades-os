@@ -14,6 +14,7 @@ import type {
   openPortalLink, viewPortalEstimate, approvePortalEstimate,
   declinePortalEstimate, viewPortalJob, issuePortalGrant, revokePortalGrant,
 } from "../contracts/portal";
+import { portalBase } from "../lib/portal-base";
 
 /**
  * THE CUSTOMER SIDE
@@ -540,7 +541,7 @@ export async function mintGrant(tx: Database, input: {
     maxUses: input.maxUses ?? null,
   }).returning();
 
-  return { row: row!, token, url: `${PORTAL_BASE}/${pathFor(input.scope)}/${token}` };
+  return { row: row!, token, url: `${portalBase()}/${pathFor(input.scope)}/${token}` };
 }
 
 /** Issuing a link, from the office or a technician's phone. */
@@ -576,7 +577,6 @@ export async function revokeGrant(ctx: ServiceContext, input: z.infer<typeof rev
   });
 }
 
-const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
 
 /**
  * Where each kind of link lands, under the portal's base URL.
