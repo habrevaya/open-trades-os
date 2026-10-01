@@ -92,11 +92,16 @@ export function ConnectForm({
               ) : (
                 <input
                   name={`setting:${field.key}`}
-                  type={field.kind === "secret" ? "password" : field.kind === "number" ? "number" : "text"}
+                  type={field.kind === "number" ? "number" : "text"}
                   className={input}
                   placeholder={field.placeholder}
                   autoComplete="off"
                 />
+              )}
+              {field.kind === "secret_name" && (
+                <span className="text-xs text-ink-500">
+                  A name in your secret store, not the secret. A value pasted here is refused.
+                </span>
               )}
               {field.hint && <span className="text-xs text-ink-500">{field.hint}</span>}
             </label>

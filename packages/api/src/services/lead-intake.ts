@@ -60,6 +60,23 @@ export interface ConnectorView {
   webhookPath: string | null;
   /** The name of the secret holding the credential. Never the value. */
   credentialRef: string | null;
+  /**
+   * Something the operator has to do that nothing else on the row says. Today
+   * only one thing: a secret's value is still in the database from before
+   * secrets moved to the store, and which name to move it to.
+   */
+  notice: string | null;
+}
+
+/** A secret value stored in settings by an older version, as a sentence to act on. */
+export function legacySecretNotice(provider: string, settings: Record<string, unknown> | null): string | null {
+  const legacy = cat.LEGACY_SECRET_SETTINGS[provider] ?? {};
+  const held = Object.keys(legacy).filter((key) => settings?.[key] !== undefined);
+  if (held.length === 0) return null;
+  return held.map((key) =>
+    `A secret is stored in this product's database as "${key}" from an earlier version. It still works, `
+    + `and it should not be there: put it in your secret store and enter its name as "${legacy[key]}". `
+    + `The stored copy is deleted when you do.`).join(" ");
 }
 
 /**
@@ -114,6 +131,9 @@ export async function catalogue(ctx: ServiceContext): Promise<ConnectorView[]> {
         lastError: connection?.lastError ?? null,
         webhookPath: connection && connection.status === "connected" ? webhookPathOf(connection) : null,
         credentialRef: connection?.credentialRef ?? null,
+        notice: connection
+          ? legacySecretNotice(spec.key, connection.settings as Record<string, unknown> | null)
+          : null,
       };
     });
   });
@@ -158,6 +178,34 @@ export async function connect(
       );
     }
 
+    /**
+     * Only keys this provider reads, and never a secret's value. The column
+     * is plain jsonb; `credentialRef` and every `...Ref` setting hold the
+     * NAME of a secret in the deployment's store. A key that once held a
+     * value is refused with the name of the key that replaced it.
+     */
+    if (input.credentialRef && cat.looksLikeSecretValue(input.credentialRef)) {
+      throw new ConflictError(
+        "The credential is the NAME your deployment keeps the secret under, and that looks like the "
+        + "secret itself. Nothing was saved. Put the value in your secret store and send its name.",
+      );
+    }
+    const checked = cat.checkConnectorSettings(spec.key, input.settings ?? {});
+    if (!checked.ok) throw new ConflictError(checked.reason);
+
+    /**
+     * A legacy secret value is removed the moment its replacement name is
+     * set, so the copy in the database does not outlive the move.
+     */
+    const legacy = cat.LEGACY_SECRET_SETTINGS[spec.key] ?? {};
+    const superseded = Object.entries(legacy)
+      .filter(([, replacement]) => (input.settings ?? {})[replacement] !== undefined)
+      .map(([key]) => key);
+    const merged = superseded.reduce(
+      (acc, key) => sql`${acc} - ${key}::text`,
+      sql`${schema.integrationConnection.settings}`,
+    );
+
     const [row] = await tx.insert(schema.integrationConnection).values({
       organizationId: ctx.actor.organizationId,
       capability: spec.capability as typeof schema.capability.enumValues[number],
@@ -177,7 +225,7 @@ export async function connect(
           status: "connected",
           ...(input.accountLabel ? { accountLabel: input.accountLabel } : {}),
           ...(input.credentialRef ? { credentialRef: input.credentialRef } : {}),
-          settings: sql`${schema.integrationConnection.settings} || ${JSON.stringify(input.settings ?? {})}::jsonb`,
+          settings: sql`(${merged}) || ${JSON.stringify(input.settings ?? {})}::jsonb`,
           lastError: null,
           updatedAt: new Date(),
         }

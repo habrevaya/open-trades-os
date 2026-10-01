@@ -6,11 +6,13 @@
  * nobody reads is a field somebody fills in and believes did something.
  *
  * `credential` is the NAME of a secret in the deployment's secret store,
- * never its value. The one exception is Resend's webhook secret, which its
- * adapter reads from the settings themselves; it is a password field and is
- * never shown back.
+ * never its value, and so is every `...Ref` field: a provider with a second
+ * secret (a webhook signing secret) takes a second name. There is no field
+ * kind for a secret's value, so this screen cannot accept one, and the
+ * service refuses a settings key it does not declare
+ * (`connectors.CONNECTOR_SETTINGS` in core) whatever posts it.
  */
-export type FieldKind = "text" | "secret" | "number" | "select" | "list";
+export type FieldKind = "text" | "secret_name" | "number" | "select" | "list";
 
 export interface Field {
   key: string;
@@ -37,7 +39,7 @@ export const FORMS: Record<string, ProviderForm> = {
     fields: [
       { key: "publishableKey", label: "Publishable key", kind: "text", placeholder: "pk_live_…",
         hint: "Sent to the customer's browser to show the card form. Without it the invoice page cannot take a card." },
-      { key: "webhookSecretRef", label: "Webhook signing secret, as a secret name", kind: "text",
+      { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name",
         hint: "Without it cards are taken and no payment is ever recorded." },
     ],
   },
@@ -70,7 +72,8 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "fromAddress", label: "Send from", kind: "text", placeholder: "office@yourcompany.com" },
       { key: "fromName", label: "Sender name", kind: "text" },
       { key: "verifiedDomains", label: "Domains verified with Resend, comma separated", kind: "list" },
-      { key: "webhookSecret", label: "Webhook signing secret", kind: "secret", placeholder: "whsec_…",
+      { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it",
+        kind: "secret_name", placeholder: "RESEND_WEBHOOK_SECRET",
         hint: "Without it bounces and complaints are never heard." },
     ],
   },

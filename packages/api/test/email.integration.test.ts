@@ -8,6 +8,8 @@ import type {
   EmailProvider, OutboundEmail, SendResult,
 } from "../src/email/provider";
 import { ConflictError, type ServiceContext } from "../src/services/context";
+import * as leadIntake from "../src/services/lead-intake";
+import { svixSignature } from "../src/email/resend";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -654,6 +656,102 @@ run("the webhook", () => {
      */
     await connect({ webhookToken: "short" });
     expect(await email.resolveWebhook(db(), "short")).toBeNull();
+  });
+});
+
+run("the Resend webhook signing secret", () => {
+  /**
+   * It was read from `settings.webhookSecret`, which is a database column,
+   * and the settings screen had a box for it. Whoever can read a backup could
+   * then sign a hard bounce for any address and suppress a company's
+   * customers one by one. It is a secret in the store now, named by
+   * `webhookSecretRef`, exactly as the API key is named by `credentialRef`.
+   */
+  const SECRET = `whsec_${Buffer.from("resend-signing-key-for-tests").toString("base64")}`;
+  const store: Record<string, string> = { RESEND_HOOK: SECRET };
+  const readSecret = async (ref: string) => {
+    const value = store[ref];
+    if (!value) throw new Error(`no secret ${ref}`);
+    return value;
+  };
+
+  async function signedDelivery(token: string) {
+    const body = JSON.stringify({ type: "email.delivered", data: { email_id: "re_nobody" } });
+    const id = "msg_1";
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    return email.receiveByToken(db(), {
+      token,
+      url: "https://example.com/api/webhooks/email/x",
+      headers: {
+        "svix-id": id, "svix-timestamp": timestamp,
+        "svix-signature": `v1,${svixSignature(SECRET, id, timestamp, body)}`,
+      },
+      rawBody: body,
+    }, readSecret);
+  }
+
+  const settingsOf = async () => (await raw<{ settings: Record<string, unknown> }[]>`
+    select settings from public.integration_connection
+    where organization_id = ${ORG} and provider = 'resend'`)[0]?.settings;
+
+  it("refuses the secret itself in the settings, and stores nothing", async () => {
+    await expect(leadIntake.connect(owner(), {
+      provider: "resend", credentialRef: "RESEND_KEY",
+      settings: { fromAddress: FROM, webhookSecret: SECRET },
+    })).rejects.toThrow(/secret store.*webhookSecretRef/);
+    expect(await settingsOf()).toBeUndefined();
+  });
+
+  it("refuses a secret pasted where its name goes", async () => {
+    await expect(leadIntake.connect(owner(), {
+      provider: "resend", credentialRef: "RESEND_KEY",
+      settings: { fromAddress: FROM, webhookSecretRef: SECRET },
+    })).rejects.toThrow(/looks like the secret/);
+    await expect(leadIntake.connect(owner(), {
+      provider: "resend", credentialRef: "re_123456789_abcdefghijklmnop",
+      settings: { fromAddress: FROM },
+    })).rejects.toThrow(/looks like the\s+secret/);
+  });
+
+  it("refuses a key Resend does not read", async () => {
+    await expect(leadIntake.connect(owner(), {
+      provider: "resend", credentialRef: "RESEND_KEY",
+      settings: { fromAddress: FROM, apiKey: "anything" },
+    })).rejects.toThrow(/not a setting resend reads/);
+  });
+
+  it("verifies a callback with the secret read from the store by name", async () => {
+    await leadIntake.connect(owner(), {
+      provider: "resend", credentialRef: "RESEND_KEY",
+      settings: { fromAddress: FROM, webhookSecretRef: "RESEND_HOOK" },
+    });
+    const settings = (await settingsOf())!;
+    expect(JSON.stringify(settings)).not.toContain(SECRET);
+    store["RESEND_KEY"] = "re_api_key";
+    const outcome = await signedDelivery(settings["webhookToken"] as string);
+    expect(outcome.kind).toBe("recorded");
+  });
+
+  it("keeps a secret an earlier version stored working, says so, and deletes it once named", async () => {
+    await raw`
+      insert into public.integration_connection
+        (organization_id, capability, provider, status, credential_ref, settings)
+      values (${ORG}, 'email', 'resend', 'connected', 'RESEND_KEY',
+              ${raw.json({ fromAddress: FROM, webhookSecret: SECRET, webhookToken: "t".repeat(43) })})`;
+    store["RESEND_KEY"] = "re_api_key";
+
+    expect((await signedDelivery("t".repeat(43))).kind).toBe("recorded");
+    const before = (await leadIntake.catalogue(owner())).find((c) => c.key === "resend")!;
+    expect(before.notice).toMatch(/webhookSecretRef/);
+
+    await leadIntake.connect(owner(), {
+      provider: "resend", settings: { webhookSecretRef: "RESEND_HOOK" }, keepExisting: true,
+    });
+    const after = (await settingsOf())!;
+    expect(after["webhookSecret"]).toBeUndefined();
+    expect(after["webhookToken"]).toBe("t".repeat(43));
+    expect((await leadIntake.catalogue(owner())).find((c) => c.key === "resend")!.notice).toBeNull();
+    expect((await signedDelivery("t".repeat(43))).kind).toBe("recorded");
   });
 });
 

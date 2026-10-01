@@ -60,6 +60,27 @@ parameter either, since both are things the caller chooses. The token is a
 secret the carrier must already hold, and it is inside the URL the signature
 covers, so it cannot be moved to a URL an attacker controls.
 
+## Secrets are names, for every provider
+
+Every secret a connection needs is a name in your deployment's secret store:
+the main credential is `credentialRef`, and a provider that needs a second one
+takes a second name in a setting ending in `Ref`. Resend's webhook signing
+secret is `webhookSecretRef`; Stripe's is `webhookSecretRef` too. The settings
+a provider may store are declared in `packages/core/src/connectors/settings.ts`,
+and a connect call carrying anything else is refused, as is a name that is
+plainly the secret itself (`whsec_...`, `sk_live_...`).
+
+An earlier version stored Resend's signing secret itself in
+`settings.webhookSecret`. An install that has one keeps verifying with it, logs
+a deprecation warning, and shows a notice on **Settings → Integrations**. Put
+the value in your secret store and enter its name there; the stored copy is
+deleted in the same write. Nothing can store a new one.
+
+The webhook token in the path is the one secret-looking value kept in
+`settings`, on purpose: it is looked up before the tenant is known, and it
+does not authenticate anything by itself, because every request is still
+checked against a signature made with a secret that is in the store.
+
 ## The webhook signature is not optional
 
 Every provider must implement `verify`, and the inbound path checks it before

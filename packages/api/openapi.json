@@ -62158,6 +62158,12 @@
                     "string",
                     "null"
                   ]
+                },
+                "notice": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -62174,7 +62180,8 @@
                 "connectionStatus",
                 "lastError",
                 "webhookPath",
-                "credentialRef"
+                "credentialRef",
+                "notice"
               ]
             }
           }

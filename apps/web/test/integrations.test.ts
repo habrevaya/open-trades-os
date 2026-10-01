@@ -27,6 +27,30 @@ describe("the integrations screen", () => {
     expect(Object.keys(FORMS).filter((key) => !known.has(key))).toEqual([]);
   });
 
+  it("asks only for settings the provider reads, and only for secret names", () => {
+    /**
+     * Resend's webhook signing secret had a password box here and went into
+     * the database. A field is now a declared setting or it is not offered,
+     * and a declared secret is a `secret_name` field: the name it is kept
+     * under in the store. There is no kind of field for a secret's value.
+     */
+    const wrong: string[] = [];
+    for (const [provider, form] of Object.entries(FORMS)) {
+      const declared = connectors.CONNECTOR_SETTINGS[provider] ?? {};
+      for (const field of form.fields) {
+        const spec = declared[field.key];
+        if (!spec) wrong.push(`${provider}.${field.key} is not a setting ${provider} reads`);
+        else if ((spec.kind === "secret_name") !== (field.kind === "secret_name")) {
+          wrong.push(`${provider}.${field.key} is ${spec.kind} and the form treats it as ${field.kind}`);
+        }
+        if (/secret|password/i.test(field.key) && field.kind !== "secret_name") {
+          wrong.push(`${provider}.${field.key} takes a secret's value`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
   it("sends only what was typed, so a blank box keeps what is stored", () => {
     const data = new FormData();
     data.set("setting:host", " smtp.example.com ");

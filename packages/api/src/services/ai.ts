@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { isSystem } from "@opentradesos/core";
+import { connectors, isSystem } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, timezoneOf,
   ConflictError, NotFoundError, type ServiceContext,
@@ -359,6 +359,14 @@ export async function connect(ctx: ServiceContext, input: ConnectInput) {
         + "The key itself is never stored here.",
       );
     }
+    if (connectors.looksLikeSecretValue(input.credentialRef)) {
+      throw new ConflictError(
+        "That looks like the API key itself rather than the name it is kept under. Nothing was "
+        + "saved. Put the key in your secret store and send its name.",
+      );
+    }
+    const checked = connectors.checkConnectorSettings(input.provider, input.settings ?? {});
+    if (!checked.ok) throw new ConflictError(checked.reason);
 
     const [row] = await tx.insert(schema.integrationConnection).values({
       organizationId: ctx.actor.organizationId,

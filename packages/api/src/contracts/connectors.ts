@@ -37,6 +37,8 @@ export const Connector = z.object({
   webhookPath: z.string().nullable(),
   /** The name of the secret holding the credential, never the value. */
   credentialRef: z.string().nullable(),
+  /** Something to do that nothing else here says, such as a secret value left in the database by an earlier version. */
+  notice: z.string().nullable(),
 });
 
 export const listConnectors = defineRoute({

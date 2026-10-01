@@ -1,0 +1,213 @@
+/**
+ * WHAT A CONNECTION'S `settings` MAY HOLD, PER PROVIDER
+ *
+ * `integration_connection.settings` is an ordinary jsonb column. It is in
+ * every backup, every replica, every `select *` a support engineer runs and
+ * every row an export hands to a migration tool. A secret put there is a
+ * secret the company no longer controls, which is why `credentialRef` exists
+ * and holds a NAME in the deployment's secret store rather than a value.
+ *
+ * That rule was written down and not enforced: the column took any key, so a
+ * Resend webhook signing secret went straight into it from a settings form.
+ * This is the enforcement. Every key a provider's adapter or service reads is
+ * declared here with what kind of value it is, a connect call carrying a key
+ * that is not declared is refused, and a key whose value is a secret is
+ * declared as `secret_name`: it holds the name of a second secret in the
+ * store, resolved the same way `credentialRef` is, never the value.
+ *
+ * A test walks this table and fails on any key whose name looks like it
+ * carries a secret and is not a `secret_name`, so the next adapter cannot put
+ * one back without somebody writing down why in that test's allowlist.
+ */
+
+export type SettingKind =
+  | "text"
+  | "number"
+  | "boolean"
+  /** An array of strings. */
+  | "list"
+  /** A nested object, such as a model's price table. */
+  | "record"
+  /**
+   * The NAME of a secret in the deployment's secret store. Resolved through
+   * the same reader as `credentialRef`. By convention the key ends in `Ref`.
+   */
+  | "secret_name";
+
+export interface SettingSpec {
+  kind: SettingKind;
+  /**
+   * Written by the product rather than typed by an operator, such as the
+   * webhook token minted on first connect. Still accepted on the API for an
+   * install that set one by hand before the product minted them.
+   */
+  system?: true;
+  /** Exists so a test can point the adapter at a fake server. */
+  testOnly?: true;
+}
+
+const BASE_URL: SettingSpec = { kind: "text", testOnly: true };
+const WEBHOOK_TOKEN: SettingSpec = { kind: "text", system: true };
+
+/**
+ * Every key each built provider reads, and nothing else.
+ *
+ * Marketing connectors are absent because they never pass operator settings
+ * through `integration_connection`: lead webhooks keep their own table and a
+ * spend file is parsed on upload. A provider absent from here takes no
+ * settings at all.
+ */
+export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string, SettingSpec>>>> = {
+  stripe: {
+    /** Public by design: Stripe sends it to the customer's browser. */
+    publishableKey: { kind: "text" },
+    webhookSecretRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+  },
+  quickbooks: {
+    realmId: { kind: "text" },
+    minorVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  xero: {
+    tenantId: { kind: "text" },
+    baseUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  twilio: {
+    accountSid: { kind: "text" },
+    messagingServiceSid: { kind: "text" },
+    webhookToken: WEBHOOK_TOKEN,
+    baseUrl: BASE_URL,
+  },
+  justcall: {
+    webhookUrl: { kind: "text" },
+    webhookToken: WEBHOOK_TOKEN,
+    baseUrl: BASE_URL,
+  },
+  resend: {
+    fromAddress: { kind: "text" },
+    fromName: { kind: "text" },
+    verifiedDomains: { kind: "list" },
+    webhookSecretRef: { kind: "secret_name" },
+    toleranceSeconds: { kind: "number" },
+    webhookToken: WEBHOOK_TOKEN,
+    baseUrl: BASE_URL,
+  },
+  smtp: {
+    host: { kind: "text" },
+    port: { kind: "number" },
+    security: { kind: "text" },
+    username: { kind: "text" },
+    fromAddress: { kind: "text" },
+    fromName: { kind: "text" },
+    verifiedDomains: { kind: "list" },
+    envelopeFrom: { kind: "text" },
+    allowUntrustedCertificate: { kind: "boolean" },
+    allowPlaintextAuth: { kind: "boolean" },
+    connectionTimeoutMs: { kind: "number" },
+    webhookToken: WEBHOOK_TOKEN,
+  },
+  anthropic: { defaultModel: { kind: "text" }, rates: { kind: "record" }, baseUrl: BASE_URL },
+  openai: {
+    defaultModel: { kind: "text" }, organization: { kind: "text" },
+    rates: { kind: "record" }, baseUrl: BASE_URL,
+  },
+  google: { defaultModel: { kind: "text" }, rates: { kind: "record" }, baseUrl: BASE_URL },
+  callrail: {
+    accountId: { kind: "text" },
+    companyId: { kind: "text" },
+    webhookToken: WEBHOOK_TOKEN,
+    webhookSecretRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+  },
+};
+
+/**
+ * Settings keys that once held a secret's VALUE, and the key that now holds
+ * its name. Refused on every write with the replacement named; read once on
+ * an install that already has one, with a warning, so its webhooks do not go
+ * quiet on upgrade.
+ */
+export const LEGACY_SECRET_SETTINGS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  resend: { webhookSecret: "webhookSecretRef" },
+};
+
+/**
+ * Prefixes real secrets carry. A secret name that starts with one is almost
+ * certainly the secret pasted into the name box, and storing it would put
+ * exactly the value this file exists to keep out of the database into it.
+ */
+const SECRET_VALUE_PREFIXES = [
+  "whsec_", "sk_live_", "sk_test_", "rk_live_", "rk_test_", "re_", "sk-ant-", "sk-proj-", "AIza",
+];
+
+export function looksLikeSecretValue(value: string): boolean {
+  const v = value.trim();
+  if (SECRET_VALUE_PREFIXES.some((p) => v.startsWith(p))) return true;
+  // A secret store name is an identifier or a path. Whitespace, or a long
+  // run of mixed-case letters and digits with no separator in it, is a value.
+  if (/\s/.test(v)) return true;
+  return v.length >= 32 && /^[A-Za-z0-9+/=]+$/.test(v)
+    && /[a-z]/.test(v) && /[A-Z]/.test(v) && /[0-9]/.test(v);
+}
+
+export type SettingsCheck = { ok: true } | { ok: false; reason: string };
+
+function kindMatches(kind: SettingKind, value: unknown): boolean {
+  switch (kind) {
+    case "text":
+    case "secret_name": return typeof value === "string";
+    case "number": return typeof value === "number" && Number.isFinite(value);
+    case "boolean": return typeof value === "boolean";
+    case "list": return Array.isArray(value) && value.every((v) => typeof v === "string");
+    case "record": return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+}
+
+/**
+ * Whether these settings may be stored for this provider.
+ *
+ * Refuses an undeclared key (a key nothing reads is a field somebody fills in
+ * and believes did something, and an open column is how a secret got in), a
+ * legacy secret key with its replacement named, a value of the wrong kind,
+ * and a secret name that is plainly a secret.
+ */
+export function checkConnectorSettings(provider: string, settings: Record<string, unknown>): SettingsCheck {
+  const declared = CONNECTOR_SETTINGS[provider] ?? {};
+  const legacy = LEGACY_SECRET_SETTINGS[provider] ?? {};
+  for (const [key, value] of Object.entries(settings)) {
+    const replacement = legacy[key];
+    if (replacement) {
+      return {
+        ok: false,
+        reason:
+          `"${key}" would put a secret in the database, which this product does not do. `
+          + `Put the secret in your deployment's secret store and send its name as "${replacement}".`,
+      };
+    }
+    const spec = declared[key];
+    if (!spec) {
+      const known = Object.keys(declared).filter((k) => !declared[k]!.testOnly && !declared[k]!.system);
+      return {
+        ok: false,
+        reason:
+          `"${key}" is not a setting ${provider} reads, so storing it would change nothing. `
+          + (known.length ? `It reads: ${known.join(", ")}.` : `It takes no settings.`),
+      };
+    }
+    if (!kindMatches(spec.kind, value)) {
+      return { ok: false, reason: `"${key}" should be ${spec.kind === "list" ? "a list of text" : `a ${spec.kind}`}.` };
+    }
+    if (spec.kind === "secret_name" && looksLikeSecretValue(value as string)) {
+      return {
+        ok: false,
+        reason:
+          `"${key}" takes the NAME a secret is kept under in your secret store, and that looks like the secret `
+          + `itself. Nothing was saved. Put the value in the store and send the name.`,
+      };
+    }
+  }
+  return { ok: true };
+}

@@ -134,6 +134,11 @@ export default async function IntegrationsPage() {
                         <code className="break-all font-mono text-xs">{c.webhookPath}</code>
                       </p>
                     )}
+                    {c.notice && (
+                      <p className="mt-2 rounded bg-red-tint px-3 py-2 text-sm text-red-600" role="alert">
+                        {c.notice}
+                      </p>
+                    )}
                     {c.lastError && <p className="mt-2 text-sm text-red-600">{c.lastError}</p>}
 
                     {c.state === "built" && form?.noForm && (
