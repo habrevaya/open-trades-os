@@ -2,10 +2,8 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { automation, events, permissionsFor } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, inTenant,
-  ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 import { SHAPES } from "./workflow-dwell";
 
 /**

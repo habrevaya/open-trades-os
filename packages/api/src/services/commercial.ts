@@ -2,9 +2,8 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { authorization as authz, money as m, parties as partyRoles } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * THE COMMERCIAL ARRANGEMENT

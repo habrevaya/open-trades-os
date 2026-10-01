@@ -7,10 +7,8 @@ import {
   SYSTEM_USER_ID,
 } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, ConflictError, NotFoundError,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * CONNECTED APPLICATIONS

@@ -1,8 +1,7 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms } from "@opentradesos/core";
-import { guardedRead, guardedWrite, ConflictError, type ServiceContext } from "./context";
-import { audit } from "./customers";
+import { audit, guardedRead, guardedWrite, ConflictError, type ServiceContext } from "./context";
 
 /**
  * RECORDING CONSENT, WHICH NOTHING COULD DO

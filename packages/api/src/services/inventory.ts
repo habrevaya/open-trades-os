@@ -2,9 +2,8 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { inventory as inv, money as m } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 
 /**
@@ -190,6 +189,220 @@ export async function commitments(ctx: ServiceContext) {
  * of the bug where a system reorders the same part every night until twelve
  * of them arrive.
  */
+/* ---------------------------------------------- when to buy it, declared */
+
+export interface ReorderPolicyInput {
+  itemId: string;
+  locationId: string;
+  /** Buy when the position reaches this. A decimal string: never a float. */
+  reorderPoint: string;
+  /** How much to buy, when `targetLevel` is not given. */
+  reorderQuantity: string;
+  /**
+   * Buy up TO this instead of buying a fixed amount.
+   *
+   * `inv.suggestReorders` prefers it when present, which is the difference
+   * between a part that arrives in boxes of fifty and one you keep twelve of.
+   */
+  targetLevel?: string | null | undefined;
+  preferredVendorId?: string | null | undefined;
+}
+
+export interface ReorderPolicyView {
+  id: string;
+  itemId: string;
+  itemName: string | null;
+  locationId: string;
+  locationName: string | null;
+  reorderPoint: string;
+  reorderQuantity: string;
+  targetLevel: string | null;
+  preferredVendorId: string | null;
+}
+
+/**
+ * WHAT TO BUY HAD NOTHING TO READ.
+ *
+ * `toOrder` below opens with `if (policies.length === 0) return []`, and
+ * nothing in the product could write a `reorder_policy` row. So the
+ * suggestion screen returned an empty array for every company that ever
+ * opened it, and `inv.suggestReorders` in core, with its reorder point, its
+ * target level and its on-order arithmetic, had no caller that could reach
+ * it with data.
+ *
+ * The empty return is not a bug. It is the correct answer to "what should I
+ * buy" when nobody has said what they keep in stock. What was missing was any
+ * way to say.
+ *
+ * ON THE PERMISSION. `po:write`, not `inventory:adjust`. Adjusting inventory
+ * is a statement about what is physically on the shelf; a reorder point is a
+ * decision about what to spend money on, and the person who may raise a
+ * purchase order is the person who gets to make it. `settings:write` would
+ * have been wrong in the other direction: this is per item and per location
+ * and changes weekly, which is not what a settings screen is.
+ */
+export async function setReorderPolicy(
+  ctx: ServiceContext, input: ReorderPolicyInput,
+) {
+  return guardedWrite(ctx, "po:write", async (tx) => {
+    const point = inv.quantity(input.reorderPoint);
+    const amount = inv.quantity(input.reorderQuantity);
+    const target = input.targetLevel ? inv.quantity(input.targetLevel) : null;
+
+    if (point < 0n) {
+      throw new ConflictError(
+        "A reorder point cannot be negative. Buying when stock falls below minus two means "
+        + "never buying.",
+      );
+    }
+    if (amount <= 0n && target === null) {
+      throw new ConflictError(
+        "A policy needs something to buy: a reorder quantity above zero, or a target level "
+        + "to buy up to. Zero of both is a policy that fires and orders nothing.",
+      );
+    }
+    /**
+     * A target below the point would suggest an order and then cap it at less
+     * than the level that triggered it, so the position stays under the point
+     * and the same suggestion appears again tomorrow, forever.
+     */
+    if (target !== null && target < point) {
+      throw new ConflictError(
+        "The target level is below the reorder point, so every order would leave stock under "
+        + "the point that triggered it and the same suggestion would come back tomorrow.",
+      );
+    }
+
+    const [location] = await tx.select({ isWarehouse: schema.location.isWarehouse })
+      .from(schema.location)
+      .where(and(
+        eq(schema.location.organizationId, ctx.actor.organizationId),
+        eq(schema.location.id, input.locationId),
+      ));
+    if (!location) throw new NotFoundError("Location");
+    /**
+     * Stock is only counted where `is_warehouse` is true, which is the filter
+     * `levels` applies. A policy against anywhere else compares a reorder
+     * point against a position that is always zero, so it suggests an order
+     * every single day and the suggestion is never satisfied by anything
+     * arriving.
+     */
+    if (!location.isWarehouse) {
+      throw new ConflictError(
+        "Stock is only counted at a warehouse, so a reorder policy anywhere else would "
+        + "compare against a position of zero and suggest the same order every day.",
+      );
+    }
+
+    const [row] = await tx.insert(schema.reorderPolicy).values({
+      organizationId: ctx.actor.organizationId,
+      itemId: input.itemId,
+      locationId: input.locationId,
+      reorderPoint: input.reorderPoint,
+      reorderQuantity: input.reorderQuantity,
+      targetLevel: input.targetLevel ?? null,
+      preferredVendorId: input.preferredVendorId ?? null,
+    })
+      /**
+       * One LIVE policy per item per location. Upserting rather than
+       * refusing, because "set the reorder point for this part here" is one
+       * intention whether or not a row exists, and making the caller know
+       * which is a screen that fails the second time somebody uses it.
+       *
+       * `targetWhere` IS REQUIRED HERE AND ITS ABSENCE IS NOT A TYPE ERROR.
+       *
+       * The index is PARTIAL: unique on (organization, item, location) where
+       * `deleted_at is null`. Postgres will not match an ON CONFLICT
+       * specification to a partial index unless the predicate is given, and
+       * it says so at runtime with "there is no unique or exclusion
+       * constraint matching the ON CONFLICT specification" rather than at
+       * compile time. Drizzle spells it `targetWhere` on this method and
+       * plain `where` on `onConflictDoNothing`, which is a trap worth naming
+       * because the two read as the same thing.
+       *
+       * WHAT THE PARTIAL PREDICATE MEANS FOR A CLEARED POLICY, since it is
+       * not what it looks like: a soft deleted row does not take part in the
+       * index, so it does not conflict. Setting a policy after clearing one
+       * INSERTS a second row and leaves the dead one in place, which is the
+       * behaviour worth having: the cleared policy stays readable as the
+       * record that somebody once bought this part automatically. An earlier
+       * version of this set `deletedAt: null` in the update clause to
+       * "un-delete" it, which could never fire, because the conflict it was
+       * written for cannot happen.
+       */
+      .onConflictDoUpdate({
+        target: [
+          schema.reorderPolicy.organizationId,
+          schema.reorderPolicy.itemId,
+          schema.reorderPolicy.locationId,
+        ],
+        targetWhere: isNull(schema.reorderPolicy.deletedAt),
+        set: {
+          reorderPoint: input.reorderPoint,
+          reorderQuantity: input.reorderQuantity,
+          targetLevel: input.targetLevel ?? null,
+          preferredVendorId: input.preferredVendorId ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    await audit(tx, ctx, "reorder_policy.set", "reorder_policy", row!.id, null, row!);
+    return row!;
+  });
+}
+
+/** Stop buying this automatically. Soft deleted, which is what `toOrder` filters on. */
+export async function clearReorderPolicy(
+  ctx: ServiceContext, input: { itemId: string; locationId: string },
+) {
+  return guardedWrite(ctx, "po:write", async (tx) => {
+    const [row] = await tx.update(schema.reorderPolicy)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(schema.reorderPolicy.organizationId, ctx.actor.organizationId),
+        eq(schema.reorderPolicy.itemId, input.itemId),
+        eq(schema.reorderPolicy.locationId, input.locationId),
+        isNull(schema.reorderPolicy.deletedAt),
+      )).returning();
+    if (!row) throw new NotFoundError("Reorder policy");
+
+    await audit(tx, ctx, "reorder_policy.cleared", "reorder_policy", row.id, row, null);
+    return { itemId: row.itemId, locationId: row.locationId, cleared: true };
+  });
+}
+
+export async function reorderPolicies(ctx: ServiceContext): Promise<ReorderPolicyView[]> {
+  return guardedRead(ctx, "inventory:read", async (tx) => {
+    const rows = await tx.select().from(schema.reorderPolicy)
+      .where(and(
+        eq(schema.reorderPolicy.organizationId, ctx.actor.organizationId),
+        isNull(schema.reorderPolicy.deletedAt),
+      ));
+
+    const items = await tx.select({
+      itemId: schema.priceBookItemVersion.itemId,
+      name: schema.priceBookItemVersion.name,
+    }).from(schema.priceBookItemVersion);
+    const places = await tx.select({ id: schema.location.id, name: schema.location.name })
+      .from(schema.location);
+    const nameOf = new Map(items.map((i) => [i.itemId, i.name]));
+    const placeOf = new Map(places.map((p) => [p.id, p.name]));
+
+    return rows.map((row) => ({
+      id: row.id,
+      itemId: row.itemId,
+      itemName: nameOf.get(row.itemId) ?? null,
+      locationId: row.locationId,
+      locationName: placeOf.get(row.locationId) ?? null,
+      reorderPoint: row.reorderPoint,
+      reorderQuantity: row.reorderQuantity,
+      targetLevel: row.targetLevel,
+      preferredVendorId: row.preferredVendorId,
+    }));
+  });
+}
+
 export async function toOrder(ctx: ServiceContext, now = new Date()) {
   return guardedRead(ctx, "inventory:read", async (tx) => {
     const policies = await tx.select().from(schema.reorderPolicy)
@@ -977,4 +1190,24 @@ export const handlers = {
     purchaseOrderId: input.id,
     lines: input.lines.map((l) => ({ lineId: l.lineId, quantity: l.quantity })),
   }),
+
+  listReorderPolicies: async (ctx: ServiceContext): Promise<{ policies: ReorderPolicyView[] }> =>
+    ({ policies: await reorderPolicies(ctx) }),
+
+  setReorderPolicy: async (ctx: ServiceContext, input: ReorderPolicyInput): Promise<{
+    id: string; itemId: string; locationId: string;
+    reorderPoint: string; reorderQuantity: string;
+    targetLevel: string | null; preferredVendorId: string | null;
+  }> => {
+    const row = await setReorderPolicy(ctx, input);
+    return {
+      id: row.id, itemId: row.itemId, locationId: row.locationId,
+      reorderPoint: row.reorderPoint, reorderQuantity: row.reorderQuantity,
+      targetLevel: row.targetLevel, preferredVendorId: row.preferredVendorId,
+    };
+  },
+
+  clearReorderPolicy: (ctx: ServiceContext, input: { itemId: string; locationId: string }): Promise<{
+    itemId: string; locationId: string; cleared: boolean;
+  }> => clearReorderPolicy(ctx, input),
 } as const;

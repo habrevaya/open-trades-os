@@ -2,10 +2,8 @@ import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { reviews as rv } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * REVIEWS AND REPUTATION

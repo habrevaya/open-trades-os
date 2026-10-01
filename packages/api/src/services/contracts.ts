@@ -2,10 +2,8 @@ import { and, asc, eq, isNull, lte, gte, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m, time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * CONTRACTS AND RATE CARDS: THE PRICE AUTHORITY PROBLEM

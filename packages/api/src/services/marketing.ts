@@ -2,10 +2,8 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "d
 import { schema, type Database } from "@opentradesos/db";
 import { marketing as mk, money as m } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * MARKETING

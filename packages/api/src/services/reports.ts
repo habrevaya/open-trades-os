@@ -2,12 +2,10 @@ import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { permissionsFor, reporting } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, scopeOf, inTenant,
-  ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, scopeOf, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { CATALOGUE } from "./report-catalogue";
 import { jobScopeFilter, invoiceScopeFilter, estimateScopeFilter } from "./scope";
-import { audit } from "./customers";
 import { BUILT_IN } from "./report-built-in";
 
 export { CATALOGUE, BUILT_IN };

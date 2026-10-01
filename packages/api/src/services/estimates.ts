@@ -4,12 +4,9 @@ import { estimate as est, money as m } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, clean,
-  decodeCursor, paginate, NotFoundError, ConflictError,
-  scopeOf,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
 } from "./context";
 import { estimateScopeFilter } from "./scope";
-import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,

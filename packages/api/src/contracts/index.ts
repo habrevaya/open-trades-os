@@ -35,6 +35,7 @@ import { complianceRoutes } from "./compliance";
 import { projectRoutes } from "./projects";
 import { calendarRoutes } from "./calendar";
 import { callTrackingRoutes } from "./call-tracking";
+import { companyRoutes } from "./company";
 
 export * from "./common";
 export * from "./customers";
@@ -74,6 +75,7 @@ export * from "./compliance";
 export * from "./projects";
 export * from "./calendar";
 export * from "./call-tracking";
+export * from "./company";
 
 /**
  * Every route in the product, and the only description of them.
@@ -131,6 +133,7 @@ export const routes = {
   ...projectRoutes,
   ...calendarRoutes,
   ...callTrackingRoutes,
+  ...companyRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

@@ -3,9 +3,8 @@ import { schema, type Database } from "@opentradesos/db";
 import { estimate as est, ledger, money as m } from "@opentradesos/core";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedWrite, NotFoundError, ConflictError,
+  audit, type ServiceContext, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
-import { audit } from "./customers";
 import { writePosting } from "./ledger";
 import type { requestDeposit, applyDeposit, refundDeposit } from "../contracts/estimates";
 

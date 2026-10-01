@@ -1,8 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { packById, type TradePack } from "@opentradesos/trade-packs";
-import { type ServiceContext, guardedWrite, NotFoundError } from "./context";
-import { audit } from "./customers";
+import { audit, type ServiceContext, guardedWrite, NotFoundError } from "./context";
 
 /**
  * APPLYING A TRADE PACK

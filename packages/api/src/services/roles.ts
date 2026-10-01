@@ -5,10 +5,8 @@ import {
   type Permission, type RoleDefinition, type Scope, type ScopedResource,
 } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * CUSTOM ROLES

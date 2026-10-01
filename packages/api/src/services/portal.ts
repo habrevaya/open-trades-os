@@ -4,13 +4,11 @@ import { money as m, branding as brand } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError,
-  InvalidGrantError,
+  audit, type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError, InvalidGrantError,
 } from "./context";
 
 /** Re-exported so existing importers of this module keep working. */
 export { InvalidGrantError };
-import { audit } from "./customers";
 import { decide, loadEstimate } from "./estimates";
 import type {
   openPortalLink, viewPortalEstimate, approvePortalEstimate,

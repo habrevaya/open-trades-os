@@ -2,10 +2,8 @@ import { and, eq, desc, lt, or, ilike, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, clean,
-  decodeCursor, paginate, NotFoundError, ConflictError,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError,
 } from "./context";
-import { audit } from "./customers";
 import type {
   listPriceBook, createPriceBookItem, revisePriceBookItem,
 } from "../contracts/pricebook";

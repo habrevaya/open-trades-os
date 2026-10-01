@@ -1,10 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
-import { branding } from "@opentradesos/core";
+import { branding, time } from "@opentradesos/core";
 import {
-  guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * A COMPANY'S OWN LOOK
@@ -224,33 +223,22 @@ export async function setTimezone(ctx: ServiceContext, input: { timezone: string
     const zone = input.timezone.trim();
 
     /**
-     * Validated against the runtime's own zone database rather than a regex.
+     * Validated against the runtime's own zone database rather than a regex,
+     * through `time.isZone`, which is where this check now lives.
      *
-     * `Intl.DateTimeFormat` throws a RangeError on a zone it does not know,
-     * and the readers of this column call it on the public booking page. An
-     * unchecked string moves a crash from this settings form, where it is one
-     * person's problem, to a page every one of that company's customers
-     * loads.
-     */
-    let known = false;
-    try {
-      new Intl.DateTimeFormat("en-US", { timeZone: zone });
-      known = true;
-    } catch {
-      known = false;
-    }
-
-    /**
-     * The empty string is left to the constructor, which throws on it.
+     * It was written out here, and `services/company.ts` needed the same
+     * check for the per-branch zone on `location.timezone`. Two copies of a
+     * rule about which zones exist can disagree, and which answer you get
+     * depends on which screen you went through. The reasoning is in core
+     * with the function, including why the empty string needs no clause of
+     * its own.
      *
-     * An earlier version of this had an explicit `zone !== ""` clause, and a
-     * test that deleted the clause stayed green: the constructor rejects ""
-     * and " " with a RangeError on its own, so the clause could never be the
-     * thing that decided. A guard that cannot fail is not a guard, and
-     * keeping one reads as protection that is not there.
+     * Why it matters at all: the readers of this column call `Intl` on the
+     * public booking page. An unchecked string moves a crash from this
+     * settings form, where it is one person's problem, to a page every one of
+     * that company's customers loads.
      */
-
-    if (!known) {
+    if (!time.isZone(zone)) {
       throw new ConflictError(
         `${zone || "That"} is not a time zone this server knows. `
         + "Use an IANA name such as America/Phoenix.",

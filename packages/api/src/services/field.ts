@@ -3,10 +3,9 @@ import { schema, type Database } from "@opentradesos/db";
 import { field } from "@opentradesos/core";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
+  audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
 import { emit } from "./events";
-import { audit } from "./customers";
 import { freezeRate } from "./labor";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,

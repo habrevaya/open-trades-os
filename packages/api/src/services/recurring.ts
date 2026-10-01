@@ -2,10 +2,8 @@ import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { recurrence as rc, time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf,
-  type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 import { nextNumber } from "./jobs";
 
 /**
