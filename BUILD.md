@@ -15,18 +15,23 @@
 
 | | State |
 |---|---|
-| Schema | 14 files. Residential through commercial, franchise, regulated inspection, commodity delivery |
-| Domain logic | Access control, money, estimates, the ledger, the field operation model |
-| API | Every declared route is served, over HTTP, at `/api/v1`. Booked-to-paid, the sell path, dispatch, field sync, properties, the price book and job editing |
-| Web app | Dispatch board, a technician's day, the customer portal: proposal, tracking, booking |
+| Schema | 22 files. Residential through commercial, franchise, regulated inspection, commodity delivery, communications, marketing, reviews, inventory |
+| Domain logic | Access control, money, estimates, the ledger, the field operation model, recurrence, automation, inspection, labor, coverage, reporting |
+| API | Every declared route is served, over HTTP, at `/api/v1`. Booked-to-paid, the sell path, dispatch, field sync, properties, the price book, job editing, inventory, purchasing, time, reviews, forms, webhooks |
+| Web app | Dispatch board, a technician's day, the customer portal (proposal, tracking, booking), and office screens for customers, jobs, invoices, agreements, inventory, purchasing, timesheets, reports, dashboards, automations, reviews and the inbox |
 | Mobile | The technician's day runs as a web page on the phone they already have. The Expo app is not built |
-| Worker | Not started |
+| Worker | Built. `pnpm --filter @opentradesos/api worker` drains the event log, fires schedules, resumes waiting runs, sweeps for things that did not happen, and then sends the outbox, webhooks and accounting sync. On a host with no long running processes the same pass runs from `POST /api/internal/worker/tick`. `docs/self-hosting/worker.md` |
 | Trade packs | 8 shipped: HVAC, plumbing, electrical, lawn and landscape, pest control, cleaning, dumpster rental, trash bin cleaning |
-| Migration | Jobber and Housecall Pro read. Extract, profile and reconcile work. Nothing writes to a target yet |
+| Migration | Lives in the separate migration toolkit, not in this repository; nothing here imports from Jobber or Housecall Pro. What is here is the provenance every imported row carries (`source_ref`), so an import is re-runnable |
 | Demo | `pnpm db:seed` builds a company with a day of work in it, and the product screenshots come from it |
-| Automation | Domain event log, workflow versions, runs and step runs. Trigger matching, condition evaluation and the publish authority check. No worker yet |
-| Comms | Schema and the consent decision. Phone numbers, conversations, messages, calls, per-purpose consent, carrier registration. No provider adapter yet |
-| Multi location | Tables, columns and scope filters exist. No shipped role uses a branch or shop scope yet, and scope is applied to job reads only. `docs/concepts/multi-location.md` |
+| Automation | Event, schedule and "did not happen" triggers, conditions, waits that survive a deploy, versioned workflows, and the publish authority check, all run by the worker |
+| Comms | SMS through Twilio, email through Resend or any SMTP server, inbound for both, per-purpose consent and suppression enforced on every send. `docs/self-hosting/messaging.md` |
+| Payments | Stripe, on the company's own account with a restricted key. A payment is recorded only from a verified webhook |
+| Accounting | QuickBooks Online, both directions, against Intuit's metered read budget. Xero is not built |
+| MCP | Every signed in, non internal route is offered as a tool, filtered by what the caller holds, at `/api/mcp` and over stdio. `docs/modules/m28-developer-agent-platform.md` |
+| Operator API | Create, read, meter, suspend and resume a company, for a deployment that runs several. Off unless `OPERATOR_TOKEN` is set. `docs/self-hosting/operator-api.md` |
+| Deployment | Docker Compose for everything on one machine (`deploy/docker`). A Netlify template for the web app and the worker tick, with Postgres on Supabase or Neon (`deploy/templates/netlify`). The Netlify template is not deployed by CI |
+| Multi location | Tables, columns and scope filters exist. A branch or shop scope narrows jobs and everything read through a job: customers, invoices, estimates, conversations and reports. No shipped role uses either yet. `docs/concepts/multi-location.md` |
 
 A company cannot yet be run on this. The gap to Phase 4 done is not a feature
 list, it is three design partners willing to put real jobs through it.
@@ -67,13 +72,13 @@ once each.
 | Money: exact decimals, allocation that reconciles | Done |
 | Docker Compose: Postgres, Redis, MinIO | Done |
 | CI: lint, typecheck, test, RLS suite | Done |
-| Generated migrations from the schema | Not started |
-| Seed data and a first trade pack | Not started |
-| `packages/api`: contracts, OpenAPI, service layer | Not started |
-| Auth, sessions, tenant context in a request | Not started |
-| `packages/ui`: design system in code | Not started |
-| `apps/web`: shell, navigation, auth screens | Not started |
-| Company setup wizard | Not started |
+| Generated migrations from the schema | Done |
+| Seed data and a first trade pack | Done |
+| `packages/api`: contracts, OpenAPI, service layer | Done |
+| Auth, sessions, tenant context in a request | Done |
+| `packages/ui`: design system in code | Done |
+| `apps/web`: shell, navigation, auth screens | Done |
+| Company setup wizard | Done |
 
 **Done means:** `docker compose up`, sign up, create a company through the
 wizard, land in an app shell with a seeded price book.

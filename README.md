@@ -40,8 +40,11 @@ This is for the trades businesses that want to own their own software. You shoul
 
 ## Status
 
-**Phase 0.** Foundations. Not usable yet. Watch the repo or check the
-[roadmap](https://opentradesos.com/roadmap) for where things stand.
+**Phase 4, alpha.** Booked to paid, the sell path, dispatch and the
+technician's day all work against a real database, and no company runs its
+business on it yet. [BUILD.md](BUILD.md) says what is built and what is not,
+row by row, and the [roadmap](https://opentradesos.com/roadmap) says what is
+next.
 
 ## Quickstart
 
@@ -50,15 +53,27 @@ git clone https://github.com/habrevaya/open-trades-os
 cd open-trades-os
 pnpm install
 cp .env.example .env
+docker compose -f deploy/docker/docker-compose.yml up -d postgres
+DATABASE_URL=postgresql://opentradesos:opentradesos@localhost:5432/opentradesos pnpm db:migrate
 docker compose -f deploy/docker/docker-compose.yml up
 ```
 
-Then open http://localhost:3000.
+Then open http://localhost:3000. The migration step is not optional: the
+containers do not migrate on start, and without it the first sign up fails on
+a table that does not exist.
+
+Elsewhere: [Netlify with Supabase](deploy/templates/netlify/README.md) for the
+web app and a once a minute worker on a free tier, and
+[the worker](docs/self-hosting/worker.md) for what runs automations and why it
+is a separate process.
 
 ## Stack
 
-TypeScript end to end. Next.js, Postgres 16 with Drizzle, BullMQ on Redis,
-Expo for the technician app, Stripe for payments, LiveKit for voice agents.
+TypeScript end to end. Next.js, Postgres 16 with Drizzle, Stripe for
+payments, Twilio for texts, Resend or any SMTP server for email. The worker
+polls the event log in Postgres rather than a queue, so Redis is in the
+compose file and nothing uses it yet. Expo for the technician app and LiveKit
+for voice agents are planned, not built.
 
 Runs on plain Postgres or on your own Supabase project. Supabase is the
 recommended default, never a requirement.
