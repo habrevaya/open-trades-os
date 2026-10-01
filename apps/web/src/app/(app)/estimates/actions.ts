@@ -20,7 +20,7 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
  */
 export async function writeEstimate(_previous: FormState, form: FormData): Promise<FormState> {
   let id: string | null = null;
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(createEstimate.input, {
       customerId: field(form, "customerId"),
       propertyId: field(form, "propertyId"),
@@ -46,7 +46,7 @@ export async function actOnEstimate(_previous: FormState, form: FormData): Promi
   const op = field(form, "op");
   const c = await ctx();
   let jobId: string | null = null;
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     switch (op) {
       case "send": {
         /**

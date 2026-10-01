@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { connect, disconnect, type ActionState } from "./actions";
 import type { ProviderForm } from "./fields";
 
@@ -24,8 +25,8 @@ export function ConnectForm({
   credentialRef: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, action, pending] = useActionState<ActionState, FormData>(connect, {});
-  const [offState, offAction, offPending] = useActionState<ActionState, FormData>(disconnect, {});
+  const [state, actionForm, pending] = useKeptAction<ActionState>(connect, {});
+  const [offState, offActionForm, offPending] = useKeptAction<ActionState>(disconnect, {});
 
   return (
     <div className="mt-3">
@@ -39,7 +40,7 @@ export function ConnectForm({
           {open ? "Cancel" : connected ? "Change settings" : `Connect ${label}`}
         </button>
         {connected && (
-          <form action={offAction}>
+          <form {...offActionForm}>
             <input type="hidden" name="provider" value={provider} />
             <button
               type="submit"
@@ -54,7 +55,7 @@ export function ConnectForm({
       {offState.error && <p className="mt-2 text-sm text-red-600" role="alert">{offState.error}</p>}
 
       {open && (
-        <form action={action} className="mt-3 grid max-w-xl gap-3">
+        <form {...actionForm} className="mt-3 grid max-w-xl gap-3">
           <input type="hidden" name="provider" value={provider} />
           <input type="hidden" name="existing" value={connected ? "1" : "0"} />
           {connected && (

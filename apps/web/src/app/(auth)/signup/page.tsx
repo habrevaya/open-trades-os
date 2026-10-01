@@ -1,11 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { Button, Field, Input } from "@opentradesos/ui";
 import { signUp, type ActionState } from "../actions";
 
 export default function SignUpPage() {
-  const [state, action, pending] = useActionState<ActionState, FormData>(signUp, {});
+  const [state, actionForm, pending] = useKeptAction<ActionState>(signUp, {});
 
   return (
     <>
@@ -14,7 +14,7 @@ export default function SignUpPage() {
         This creates your company and makes you its owner. Takes about a minute.
       </p>
 
-      <form action={action} className="mt-7 flex flex-col gap-5">
+      <form {...actionForm} className="mt-7 flex flex-col gap-5">
         <Field label="Your name" htmlFor="name" required error={state.fields?.name}>
           <Input id="name" name="name" defaultValue={state.values?.name} autoComplete="name" required invalid={!!state.fields?.name} />
         </Field>

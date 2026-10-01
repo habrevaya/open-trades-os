@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
@@ -17,7 +18,7 @@ export async function setEnabled(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     // "It has nothing published to run" is a sentence, not a crash.
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/automations");
@@ -84,7 +85,7 @@ export async function createAutomation(_previous: unknown, form: FormData) {
   try {
     created = await workflows.create(await ctx(), definitionFrom(form));
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/automations");
@@ -96,7 +97,7 @@ export async function publishAutomation(_previous: unknown, form: FormData) {
   try {
     await workflows.publish(await ctx(), { id, ...definitionFrom(form) });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/automations/${id}`);
@@ -107,7 +108,7 @@ export async function deleteAutomation(_previous: unknown, form: FormData) {
   try {
     await workflows.remove(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/automations");

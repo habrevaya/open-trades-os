@@ -23,7 +23,7 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
 export async function raiseInvoice(_previous: FormState, form: FormData): Promise<FormState> {
   let id: string | null = null;
   const adjustment = adjustmentFrom(form);
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(createInvoice.input, {
       customerId: field(form, "customerId"),
       jobId: field(form, "jobId"),
@@ -44,7 +44,7 @@ export async function raiseInvoice(_previous: FormState, form: FormData): Promis
 export async function saveDraft(_previous: FormState, form: FormData): Promise<FormState> {
   const id = field(form, "invoiceId") ?? "";
   const adjustment = adjustmentFrom(form);
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(updateInvoice.input, {
       id,
       lines: linesFromForm(form),
@@ -76,7 +76,7 @@ export async function actOnInvoice(_previous: FormState, form: FormData): Promis
   const op = field(form, "op");
   const c = await ctx();
   let deleted = false;
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     switch (op) {
       case "issue":
         await billing.issue(c, { id });

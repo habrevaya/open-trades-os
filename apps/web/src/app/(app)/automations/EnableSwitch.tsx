@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { setEnabled } from "./actions";
 
 /**
@@ -12,10 +12,10 @@ import { setEnabled } from "./actions";
  * exactly the wrong place for one.
  */
 export function EnableSwitch({ id, enabled }: { id: string; enabled: boolean }) {
-  const [state, submit, pending] = useActionState(setEnabled, null);
+  const [state, submitForm, pending] = useKeptAction(setEnabled, null);
 
   return (
-    <form action={submit} className="flex items-center gap-2">
+    <form {...submitForm} className="flex items-center gap-2">
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="enabled" value={enabled ? "0" : "1"} />
       <button

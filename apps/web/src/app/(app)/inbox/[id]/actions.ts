@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -22,7 +23,7 @@ export async function sendReply(_previous: unknown, form: FormData) {
   } catch (error) {
     // A refusal is shown to the person, not thrown at them. The message it
     // carries names what happened rather than saying "forbidden".
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
 

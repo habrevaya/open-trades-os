@@ -45,7 +45,7 @@ export async function recordPaymentFromOffice(_previous: FormState, form: FormDa
   const back = field(form, "back");
   const receivedAt = receivedAtFrom(field(form, "receivedOn"), user.organizationTimezone);
   let done = false;
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(recordPayment.input, {
       customerId,
       method: field(form, "method"),
@@ -66,7 +66,7 @@ export async function recordPaymentFromOffice(_previous: FormState, form: FormDa
 export async function applyHeld(_previous: FormState, form: FormData): Promise<FormState> {
   const { ctx } = await session();
   const customerId = field(form, "customerId") ?? "";
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(applyPayment.input, {
       id: field(form, "paymentId"),
       allocations: allocationsFromForm(form),
@@ -86,7 +86,7 @@ export async function refund(_previous: FormState, form: FormData): Promise<Form
   const { ctx } = await session();
   const customerId = field(form, "customerId") ?? "";
   const amount = (field(form, "amount") ?? "").replace(/[$,\s]/g, "");
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     if (field(form, "through") === "processor") {
       const input = parsed(refundPayment.input, {
         paymentId: field(form, "paymentId"),

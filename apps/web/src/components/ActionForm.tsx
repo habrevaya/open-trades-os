@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, type ReactNode } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { type ReactNode } from "react";
 import type { FormState } from "@/lib/actions";
 
 /**
@@ -24,9 +25,9 @@ export function ActionForm({
   /** Said after it worked, when the page does not visibly change. */
   done?: string;
 }) {
-  const [state, run, pending] = useActionState(action, null);
+  const [state, runForm, pending] = useKeptAction(action, null);
   return (
-    <form action={run} className={className}>
+    <form {...runForm} className={className}>
       {Object.entries(hidden).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
       {children}
       <div className="flex flex-wrap items-center gap-3">

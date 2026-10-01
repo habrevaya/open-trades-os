@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useEffect, useRef } from "react";
 import { close, declare, exportCsv, payOut, reopen, type ExportState, type PayrollState } from "./actions";
 
 const input = "h-9 rounded border border-steel-300 px-2 text-sm";
@@ -15,9 +16,9 @@ function Said({ state }: { state: PayrollState }) {
 
 /** A start date and whole workweeks, which is all a period is. */
 export function DeclarePeriod() {
-  const [state, action, pending] = useActionState(declare, null);
+  const [state, actionForm, pending] = useKeptAction(declare, null);
   return (
-    <form action={action} className="mt-3 flex flex-wrap items-end gap-2">
+    <form {...actionForm} className="mt-3 flex flex-wrap items-end gap-2">
       <label className="grid gap-1 text-xs text-ink-500">Name
         <input name="label" required placeholder="Weeks 11 and 12" className={input} />
       </label>
@@ -36,9 +37,9 @@ export function DeclarePeriod() {
 }
 
 export function ClosePeriod({ periodId }: { periodId: string }) {
-  const [state, action, pending] = useActionState(close, null);
+  const [state, actionForm, pending] = useKeptAction(close, null);
   return (
-    <form action={action} className="flex flex-wrap items-end gap-2">
+    <form {...actionForm} className="flex flex-wrap items-end gap-2">
       <input type="hidden" name="periodId" value={periodId} />
       <input name="note" placeholder="Note, e.g. sent to the bureau" className={`${input} min-w-64`} />
       <button type="submit" disabled={pending} className={primary}>{pending ? "Closing" : "Close period"}</button>
@@ -48,9 +49,9 @@ export function ClosePeriod({ periodId }: { periodId: string }) {
 }
 
 export function ReopenPeriod({ periodId }: { periodId: string }) {
-  const [state, action, pending] = useActionState(reopen, null);
+  const [state, actionForm, pending] = useKeptAction(reopen, null);
   return (
-    <form action={action} className="flex flex-wrap items-end gap-2">
+    <form {...actionForm} className="flex flex-wrap items-end gap-2">
       <input type="hidden" name="periodId" value={periodId} />
       <input name="reason" required placeholder="Why it is being reopened" className={`${input} min-w-64`} />
       <button type="submit" disabled={pending} className={button}>{pending ? "Reopening" : "Reopen"}</button>
@@ -60,9 +61,9 @@ export function ReopenPeriod({ periodId }: { periodId: string }) {
 }
 
 export function PayCommissions({ periodId }: { periodId: string }) {
-  const [state, action, pending] = useActionState(payOut, null);
+  const [state, actionForm, pending] = useKeptAction(payOut, null);
   return (
-    <form action={action}>
+    <form {...actionForm}>
       <input type="hidden" name="periodId" value={periodId} />
       <button type="submit" disabled={pending} className={button}>
         {pending ? "Recording" : "Record commissions as paid"}
@@ -74,7 +75,7 @@ export function PayCommissions({ periodId }: { periodId: string }) {
 
 /** Produces the file, then saves it from the browser. */
 export function ExportCsv({ periodId, label }: { periodId: string; label: string }) {
-  const [state, action, pending] = useActionState<ExportState, FormData>(exportCsv, null);
+  const [state, actionForm, pending] = useKeptAction<ExportState>(exportCsv, null);
   const saved = useRef<string | null>(null);
 
   useEffect(() => {
@@ -87,7 +88,7 @@ export function ExportCsv({ periodId, label }: { periodId: string; label: string
   }, [state]);
 
   return (
-    <form action={action}>
+    <form {...actionForm}>
       <input type="hidden" name="periodId" value={periodId} />
       <input type="hidden" name="label" value={label} />
       <button type="submit" disabled={pending} className={primary}>{pending ? "Exporting" : "Export CSV"}</button>

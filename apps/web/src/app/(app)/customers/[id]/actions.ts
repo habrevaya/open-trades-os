@@ -6,7 +6,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { comms, consent, contacts, customerLifecycle, portal, ConflictError, NotFoundError } from "@opentradesos/api/services";
 import { issuePortalGrant } from "@opentradesos/api/contracts";
-import { attempt, parsed, type FormState } from "@/lib/actions";
+import { attempt, parsed, type FormState, refused } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -27,7 +27,7 @@ export async function grantMarketing(_previous: unknown, form: FormData) {
       proofText: String(form.get("proofText") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/customers");
@@ -44,7 +44,7 @@ export async function revokeMarketing(_previous: unknown, form: FormData) {
       proofText: String(form.get("proofText") ?? "") || null,
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/customers");
@@ -74,7 +74,7 @@ export async function addContact(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -88,7 +88,7 @@ export async function removeContact(_previous: unknown, form: FormData) {
     await contacts.remove(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -110,7 +110,7 @@ export async function makePrimary(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -133,7 +133,7 @@ export async function removeCustomer(_previous: unknown, form: FormData) {
       id, reason: String(form.get("reason") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/customers");
@@ -149,7 +149,7 @@ export async function mergeCustomer(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -176,7 +176,7 @@ export async function textCustomer(_previous: unknown, form: FormData) {
       customerId, body: String(form.get("body") ?? ""),
     }));
   } catch (error) {
-    if (error instanceof ConflictError || error instanceof NotFoundError) return { error: error.message };
+    if (error instanceof ConflictError || error instanceof NotFoundError) return refused(form, error.message);
     throw error;
   }
   redirect(`/inbox/${conversationId}`);
@@ -189,7 +189,7 @@ export async function textCustomer(_previous: unknown, form: FormData) {
  * in this answer, and is shown to be handed on.
  */
 export async function accountLink(_previous: FormState, form: FormData): Promise<FormState> {
-  return attempt(async () => {
+  return attempt(form, async () => {
     const issued = await portal.issueGrant(await ctx(), parsed(issuePortalGrant.input, {
       customerId: String(form.get("customerId") ?? ""), scope: "customer",
     }));

@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -27,7 +28,7 @@ export async function registerUnit(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -51,7 +52,7 @@ export async function retireUnit(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }

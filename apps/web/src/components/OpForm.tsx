@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, type ReactNode } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { type ReactNode } from "react";
 
 export type OpState = { done?: boolean; error?: string } | null;
 
@@ -24,9 +25,9 @@ export function OpForm({
   quiet?: boolean;
   hidden?: Record<string, string>;
 }) {
-  const [state, run, pending] = useActionState(action, null);
+  const [state, runForm, pending] = useKeptAction(action, null);
   return (
-    <form action={run} className={className}>
+    <form {...runForm} className={className}>
       <input type="hidden" name="op" value={op} />
       {Object.entries(hidden).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
       {children}

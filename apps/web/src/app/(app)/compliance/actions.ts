@@ -1,11 +1,12 @@
 "use server";
 
+import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { compliance } from "@opentradesos/api/services";
 
-export type ComplianceState = { done?: boolean; error?: string } | null;
+export type ComplianceState = FormState;
 
 const text = (form: FormData, key: string): string | null => {
   const value = String(form.get(key) ?? "").trim();
@@ -71,11 +72,11 @@ export async function act(_previous: ComplianceState, form: FormData): Promise<C
         await compliance.handlers.resubmitRegulatorySubmission(ctx, { id });
         break;
       default:
-        return { error: "Nothing to do." };
+        return refused(form, "Nothing to do.");
     }
   } catch (error) {
     if (error instanceof Error && ["ConflictError", "NotFoundError", "UnprocessableError", "PermissionError"].includes(error.name)) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }

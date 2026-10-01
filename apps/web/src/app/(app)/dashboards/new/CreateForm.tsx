@@ -1,13 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { createDashboard } from "../actions";
 
 export function CreateForm() {
-  const [state, submit, pending] = useActionState(createDashboard, null);
+  const [state, submitForm, pending] = useKeptAction(createDashboard, null);
 
   return (
-    <form action={submit} className="mt-6 flex flex-col gap-4">
+    <form {...submitForm} className="mt-6 flex flex-col gap-4">
       <label className="text-sm">
         <span className="block text-ink-700">Name</span>
         <input

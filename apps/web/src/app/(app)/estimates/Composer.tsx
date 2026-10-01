@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useRef, useState } from "react";
 import type { FormState } from "@/lib/actions";
 
 /**
@@ -26,7 +27,7 @@ export function EstimateComposer({
   items: { id: string; name: string; price: string }[];
   defaultPropertyId?: string | undefined;
 }) {
-  const [state, run, pending] = useActionState(action, null);
+  const [state, runForm, pending] = useKeptAction(action, null);
   const counter = useRef(100);
   const [options, setOptions] = useState<Option[]>([{ key: 0, name: NAMES[0]!, rows: [{ key: 0 }] }]);
   const nextKey = () => { counter.current += 1; return counter.current; };
@@ -43,7 +44,7 @@ export function EstimateComposer({
       : { ...o, rows: o.rows.map((r) => r.key === rk ? { ...r, priceBookItemId: id || undefined } : r) }));
 
   return (
-    <form action={run} className="mt-6 space-y-6">
+    <form {...runForm} className="mt-6 space-y-6">
       {Object.entries(hidden).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
       <input type="hidden" name="optionKeys" value={options.map((o) => o.key).join(",")} />
 

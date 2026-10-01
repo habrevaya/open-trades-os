@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
@@ -17,7 +18,7 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
  */
 export async function saveReport(_previous: unknown, form: FormData) {
   const definition = definitionFromForm(form);
-  if (!definition) return { error: "Pick a dataset first" };
+  if (!definition) return refused(form, "Pick a dataset first");
 
   const description = String(form.get("description") ?? "").trim();
   let saved;
@@ -28,7 +29,7 @@ export async function saveReport(_previous: unknown, form: FormData) {
       ...(description ? { description } : {}),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
 
@@ -40,7 +41,7 @@ export async function deleteReport(_previous: unknown, form: FormData) {
   try {
     await reports.remove(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/reports");

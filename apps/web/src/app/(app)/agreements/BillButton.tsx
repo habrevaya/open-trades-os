@@ -1,15 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { billInstalment } from "./actions";
 
 export function BillButton({
   agreementId, agreementBillingId,
 }: { agreementId: string; agreementBillingId: string }) {
-  const [state, submit, pending] = useActionState(billInstalment, null);
+  const [state, submitForm, pending] = useKeptAction(billInstalment, null);
 
   return (
-    <form action={submit}>
+    <form {...submitForm}>
       <input type="hidden" name="agreementBillingId" value={agreementBillingId} />
       <input type="hidden" name="agreementId" value={agreementId} />
       <button type="submit" disabled={pending}

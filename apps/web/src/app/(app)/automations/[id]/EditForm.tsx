@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { publishAutomation } from "../actions";
 import { Builder, type StepOption, type DwellShape } from "../Builder";
 
@@ -13,10 +13,10 @@ export function EditForm({
   shapes: DwellShape[];
   initial: React.ComponentProps<typeof Builder>["initial"];
 }) {
-  const [state, submit, pending] = useActionState(publishAutomation, null);
+  const [state, submitForm, pending] = useKeptAction(publishAutomation, null);
 
   return (
-    <form action={submit} className="mt-4">
+    <form {...submitForm} className="mt-4">
       <input type="hidden" name="id" value={id} />
       <Builder events={events} steps={steps} shapes={shapes} initial={initial} />
 

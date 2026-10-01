@@ -1,11 +1,12 @@
 "use server";
 
+import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { assets } from "@opentradesos/api/services";
 
-export type FleetState = { done?: boolean; error?: string } | null;
+export type FleetState = FormState;
 
 const text = (form: FormData, key: string): string | null => {
   const value = String(form.get(key) ?? "").trim();
@@ -63,11 +64,11 @@ export async function act(_previous: FleetState, form: FormData): Promise<FleetS
         await assets.handlers.retireAsset(ctx, { id: assetId, ...(text(form, "reason") ? { reason: text(form, "reason")! } : {}) });
         break;
       default:
-        return { error: "Nothing to do." };
+        return refused(form, "Nothing to do.");
     }
   } catch (error) {
     if (error instanceof Error && ["ConflictError", "NotFoundError", "UnprocessableError", "PermissionError"].includes(error.name)) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }

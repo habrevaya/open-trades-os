@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { setBrandColor, setBrandAsset, clearBrandAsset } from "./actions";
 
 /**
@@ -60,10 +60,10 @@ function ColorForm({ color, on, text }: {
   on: string | null;
   text: string | null;
 }) {
-  const [state, submit, pending] = useActionState(setBrandColor, null);
+  const [state, submitForm, pending] = useKeptAction(setBrandColor, null);
 
   return (
-    <form action={submit} className="mt-4 flex flex-wrap items-end gap-3">
+    <form {...submitForm} className="mt-4 flex flex-wrap items-end gap-3">
       <label className="text-sm">
         <span className="block text-ink-700">Brand colour</span>
         <input
@@ -116,8 +116,8 @@ function AssetForm({ kind, label, hint, present, version }: {
   present: boolean;
   version: number;
 }) {
-  const [state, submit, pending] = useActionState(setBrandAsset, null);
-  const [, clear, clearing] = useActionState(clearBrandAsset, null);
+  const [state, submitForm, pending] = useKeptAction(setBrandAsset, null);
+  const [, clearForm, clearing] = useKeptAction(clearBrandAsset, null);
 
   return (
     <div className="rounded-lg border border-steel-200 bg-canvas p-4">
@@ -138,7 +138,7 @@ function AssetForm({ kind, label, hint, present, version }: {
         </div>
       </div>
 
-      <form action={submit} className="mt-3 flex flex-wrap items-center gap-2">
+      <form {...submitForm} className="mt-3 flex flex-wrap items-center gap-2">
         <input type="hidden" name="kind" value={kind} />
         <input
           type="file" name="file"
@@ -157,7 +157,7 @@ function AssetForm({ kind, label, hint, present, version }: {
       </form>
 
       {present && (
-        <form action={clear} className="mt-2">
+        <form {...clearForm} className="mt-2">
           <input type="hidden" name="kind" value={kind} />
           <button type="submit" disabled={clearing}
                   className="text-xs text-ink-500 hover:text-red-600 hover:underline disabled:opacity-60">

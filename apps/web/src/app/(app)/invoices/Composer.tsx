@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import type { FormState } from "@/lib/actions";
 
 /**
@@ -42,7 +43,7 @@ export function Composer({
   dueOn?: string | undefined;
   purchaseOrderNumber?: string | undefined;
 }) {
-  const [state, run, pending] = useActionState(action, null);
+  const [state, runForm, pending] = useKeptAction(action, null);
   const [rows, setRows] = useState<(ComposerLine & { key: number })[]>(
     () => (lines.length > 0 ? lines : [blank()]).map((line, key) => ({ ...line, key })),
   );
@@ -53,7 +54,7 @@ export function Composer({
   const itemById = new Map(items.map((item) => [item.id, item]));
 
   return (
-    <form action={run} className="mt-6 space-y-6">
+    <form {...runForm} className="mt-6 space-y-6">
       {Object.entries(hidden).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
       <input type="hidden" name="lineKeys" value={rows.map((r) => r.key).join(",")} />
 

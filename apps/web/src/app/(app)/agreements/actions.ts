@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
@@ -17,7 +18,7 @@ export async function bookVisit(_previous: unknown, form: FormData) {
   } catch (error) {
     // "Somebody else booked that one" is the expected outcome of two people
     // working the owed list at the same moment, not an error to throw at them.
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/agreements");
@@ -31,7 +32,7 @@ export async function deliverVisit(_previous: unknown, form: FormData) {
       agreementVisitId: String(form.get("agreementVisitId") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/agreements/${agreementId}`);
@@ -54,7 +55,7 @@ export async function skipVisit(_previous: unknown, form: FormData) {
       reason: String(form.get("reason") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/agreements/${agreementId}`);
@@ -69,7 +70,7 @@ export async function unskipVisit(_previous: unknown, form: FormData) {
       agreementVisitId: String(form.get("agreementVisitId") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/agreements/${agreementId}`);
@@ -84,7 +85,7 @@ export async function billInstalment(_previous: unknown, form: FormData) {
       agreementBillingId: String(form.get("agreementBillingId") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/agreements/${agreementId}`);
@@ -100,7 +101,7 @@ export async function cancelAgreement(_previous: unknown, form: FormData) {
       keepThePrepayment: form.get("keepThePrepayment") === "1",
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/agreements/${id}`);

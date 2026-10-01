@@ -83,3 +83,36 @@ test("money that arrives before the invoice is held, applied to it later, and th
   await owner.goto(`/invoices/${invoice.id}`);
   await expect(owner.getByRole("heading", { level: 1 }).locator("..").getByText("Paid")).toBeVisible();
 });
+
+test("a payment the service refuses keeps everything that was typed, so only the wrong box needs changing", async ({ owner }) => {
+  await newCustomer(owner, { name: `Wendell Achterberg ${run}` });
+  await owner.getByRole("link", { name: "New invoice" }).click();
+  await owner.getByLabel("Line 1 description").fill("Thermostat replaced");
+  await owner.getByLabel("Line 1 unit price").fill("149.00");
+  await owner.getByRole("button", { name: "Create invoice" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  const number = (await owner.getByRole("heading", { level: 1 }).textContent())!.replace(/\D/g, "");
+
+  // More applied to the invoice than came in: refused by the service.
+  await owner.getByRole("link", { name: "Record a payment" }).click();
+  await owner.getByLabel("How it was paid").selectOption("check");
+  await owner.getByLabel("Amount received").fill("50.00");
+  await owner.getByLabel(`Apply to invoice ${number}`).fill("80.00");
+  await owner.getByLabel("Cheque number").fill("2210");
+  await owner.getByLabel("Notes").fill(`Left in the mailbox ${run}`);
+  await owner.getByRole("button", { name: "Record payment" }).click();
+  await expect(owner.getByRole("alert")).toBeVisible();
+
+  // Nothing typed was lost under the refusal.
+  await expect(owner.getByLabel("How it was paid")).toHaveValue("check");
+  await expect(owner.getByLabel("Amount received")).toHaveValue("50.00");
+  await expect(owner.getByLabel(`Apply to invoice ${number}`)).toHaveValue("80.00");
+  await expect(owner.getByLabel("Cheque number")).toHaveValue("2210");
+  await expect(owner.getByLabel("Notes")).toHaveValue(`Left in the mailbox ${run}`);
+
+  // So fixing the one box is enough.
+  await owner.getByLabel(`Apply to invoice ${number}`).fill("50.00");
+  await owner.getByRole("button", { name: "Record payment" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  await expect(owner.locator('dt:text-is("Balance") + dd').first()).toHaveText("$99.00");
+});

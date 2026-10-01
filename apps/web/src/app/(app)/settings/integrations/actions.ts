@@ -1,12 +1,13 @@
 "use server";
 
+import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { ai, callTracking, leadIntake } from "@opentradesos/api/services";
 import { FORMS, settingsFrom } from "./fields";
 
-export type ActionState = { done?: boolean; error?: string };
+export type ActionState = NonNullable<FormState>;
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -34,7 +35,7 @@ function message(error: unknown): string {
 export async function connect(_previous: ActionState, data: FormData): Promise<ActionState> {
   const provider = String(data.get("provider") ?? "");
   const form = FORMS[provider];
-  if (!form || form.noForm) return { error: "That provider is not connected from here." };
+  if (!form || form.noForm) return refused(data, "That provider is not connected from here.");
 
   const accountLabel = String(data.get("accountLabel") ?? "").trim();
   const credentialRef = String(data.get("credentialRef") ?? "").trim();
@@ -45,7 +46,7 @@ export async function connect(_previous: ActionState, data: FormData): Promise<A
     const context = await ctx();
     if (form.via === "ai") {
       if (!credentialRef && !existing) {
-        return { error: "A model connection needs the name of the secret holding the API key." };
+        return refused(data, "A model connection needs the name of the secret holding the API key.");
       }
       await ai.connect(context, {
         provider,
@@ -69,7 +70,7 @@ export async function connect(_previous: ActionState, data: FormData): Promise<A
       });
     }
   } catch (error) {
-    return { error: message(error) };
+    return refused(data, message(error));
   }
   revalidatePath("/settings/integrations");
   return { done: true };
@@ -82,7 +83,7 @@ export async function disconnect(_previous: ActionState, data: FormData): Promis
     if (FORMS[provider]?.via === "ai") await ai.disconnect(context, { provider });
     else await leadIntake.disconnect(context, provider);
   } catch (error) {
-    return { error: message(error) };
+    return refused(data, message(error));
   }
   revalidatePath("/settings/integrations");
   return { done: true };

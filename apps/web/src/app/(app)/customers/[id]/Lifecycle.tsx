@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { removeCustomer, mergeCustomer } from "./actions";
 
 const BUTTON =
@@ -28,8 +29,8 @@ export function Lifecycle({
   wouldRemove: { label: string; n: number }[];
   candidates: { id: string; name: string }[];
 }) {
-  const [removeState, remove, removing] = useActionState(removeCustomer, null);
-  const [mergeState, merge, merging] = useActionState(mergeCustomer, null);
+  const [removeState, removeForm, removing] = useKeptAction(removeCustomer, null);
+  const [mergeState, mergeForm, merging] = useKeptAction(mergeCustomer, null);
   const [confirming, setConfirming] = useState(false);
   const [joining, setJoining] = useState(false);
 
@@ -73,7 +74,7 @@ export function Lifecycle({
       </div>
 
       {confirming && (
-        <form action={remove} className="mt-3 rounded-md border border-red-600/20 bg-red-tint p-3">
+        <form {...removeForm} className="mt-3 rounded-md border border-red-600/20 bg-red-tint p-3">
           <input type="hidden" name="id" value={id} />
           <p className="text-sm text-ink-900">
             {wouldRemove.length === 0
@@ -93,7 +94,7 @@ export function Lifecycle({
       )}
 
       {joining && (
-        <form action={merge} className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3">
+        <form {...mergeForm} className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3">
           <input type="hidden" name="keepId" value={id} />
           <div>
             <label htmlFor="merge-id" className="block text-xs text-ink-500">

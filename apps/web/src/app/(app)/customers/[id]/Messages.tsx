@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { textCustomer } from "./actions";
 
 /**
@@ -11,9 +11,9 @@ import { textCustomer } from "./actions";
  * a box that pretends to work.
  */
 export function TextCustomer({ customerId }: { customerId: string }) {
-  const [state, action, pending] = useActionState(textCustomer, null);
+  const [state, actionForm, pending] = useKeptAction(textCustomer, null);
   return (
-    <form action={action} className="mt-3">
+    <form {...actionForm} className="mt-3">
       <input type="hidden" name="customerId" value={customerId} />
       <label className="block">
         <span className="sr-only">Message</span>

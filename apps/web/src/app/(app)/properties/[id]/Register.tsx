@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction, type KeptFormProps } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { Chip } from "@opentradesos/ui";
 import { registerUnit, retireUnit } from "./actions";
 
@@ -46,8 +47,8 @@ export function Register({
   units: Unit[];
   writes: boolean;
 }) {
-  const [addState, add, adding] = useActionState(registerUnit, null);
-  const [retireState, retire, retiring] = useActionState(retireUnit, null);
+  const [addState, addForm, adding] = useKeptAction(registerUnit, null);
+  const [retireState, retireForm, retiring] = useKeptAction(retireUnit, null);
   const [open, setOpen] = useState(false);
 
   const error = [addState, retireState]
@@ -77,13 +78,13 @@ export function Register({
         <ul className="mt-3 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
           {units.map((unit) => (
             <Row key={unit.id} unit={unit} depth={0} writes={writes}
-                 propertyId={propertyId} retire={retire} retiring={retiring} />
+                 propertyId={propertyId} retireForm={retireForm} retiring={retiring} />
           ))}
         </ul>
       )}
 
       {open && (
-        <form action={add} className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-steel-200 p-3 sm:grid-cols-3">
+        <form {...addForm} className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-steel-200 p-3 sm:grid-cols-3">
           <input type="hidden" name="propertyId" value={propertyId} />
           <label className="block">
             <span className="block text-xs text-ink-500">What it is</span>
@@ -144,13 +145,13 @@ export function Register({
 }
 
 function Row({
-  unit, depth, writes, propertyId, retire, retiring,
+  unit, depth, writes, propertyId, retireForm, retiring,
 }: {
   unit: Unit;
   depth: number;
   writes: boolean;
   propertyId: string;
-  retire: (payload: FormData) => void;
+  retireForm: KeptFormProps;
   retiring: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -204,7 +205,7 @@ function Row({
         </div>
 
         {confirming && (
-          <form action={retire} className="mt-2 flex flex-wrap items-center gap-2">
+          <form {...retireForm} className="mt-2 flex flex-wrap items-center gap-2">
             <input type="hidden" name="id" value={unit.id} />
             <input type="hidden" name="propertyId" value={propertyId} />
             <label className="sr-only" htmlFor={`why-${unit.id}`}>Why</label>
@@ -220,7 +221,7 @@ function Row({
 
       {unit.children?.map((child) => (
         <Row key={child.id} unit={child} depth={depth + 1} writes={writes}
-             propertyId={propertyId} retire={retire} retiring={retiring} />
+             propertyId={propertyId} retireForm={retireForm} retiring={retiring} />
       ))}
     </>
   );

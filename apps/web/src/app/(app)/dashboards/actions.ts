@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
@@ -18,7 +19,7 @@ export async function createDashboard(_previous: unknown, form: FormData) {
       ...(description ? { description } : {}),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
 
@@ -30,7 +31,7 @@ export async function deleteDashboard(_previous: unknown, form: FormData) {
   try {
     await dashboards.remove(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/dashboards");
@@ -50,12 +51,12 @@ export async function addTile(_previous: unknown, form: FormData) {
   const id = String(form.get("id") ?? "");
   const existing = JSON.parse(String(form.get("tiles") ?? "[]")) as dashboards.StoredTile[];
   const tile = tileFromForm(form, existing);
-  if (!tile) return { error: "Pick a report to show" };
+  if (!tile) return refused(form, "Pick a report to show");
 
   try {
     await dashboards.setTiles(await ctx(), { id, tiles: [...existing, tile] });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/dashboards/saved/${id}`);
@@ -71,7 +72,7 @@ export async function removeTile(_previous: unknown, form: FormData) {
       id, tiles: withoutTile(existing, String(form.get("key") ?? "")),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/dashboards/saved/${id}`);
@@ -89,7 +90,7 @@ export async function moveTile(_previous: unknown, form: FormData) {
       tiles: moved(existing, String(form.get("key") ?? ""), direction === "up" ? -1 : 1),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/dashboards/saved/${id}`);

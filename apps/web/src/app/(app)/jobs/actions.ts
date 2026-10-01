@@ -6,7 +6,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { jobs } from "@opentradesos/api/services";
 import { createJob, scheduleVisit } from "@opentradesos/api/contracts";
-import { attempt, field, fields, parsed, type FormState } from "@/lib/actions";
+import { attempt, field, fields, parsed, type FormState, refused } from "@/lib/actions";
 import { windowFrom } from "@/lib/visit-window";
 
 /**
@@ -24,10 +24,10 @@ export async function bookJob(_previous: FormState, form: FormData): Promise<For
   const window = windowFrom({
     date: field(form, "date"), start: field(form, "start"), windowHours: field(form, "windowHours"),
   }, user.organizationTimezone);
-  if (window.kind === "invalid") return { error: window.message };
+  if (window.kind === "invalid") return refused(form, window.message);
 
   let createdId: string | null = null;
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(createJob.input, {
       customerId: field(form, "customerId"),
       propertyId: field(form, "propertyId"),
@@ -63,9 +63,9 @@ export async function addVisit(_previous: FormState, form: FormData): Promise<Fo
   const window = windowFrom({
     date: field(form, "date"), start: field(form, "start"), windowHours: field(form, "windowHours"),
   }, user.organizationTimezone);
-  if (window.kind === "invalid") return { error: window.message };
+  if (window.kind === "invalid") return refused(form, window.message);
 
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(scheduleVisit.input, {
       id: jobId,
       ...(window.kind === "window" ? { windowStart: window.windowStart, windowEnd: window.windowEnd } : {}),

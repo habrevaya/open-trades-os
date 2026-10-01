@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { keptForm, type Kept } from "./kept-values";
 
 /**
  * WHAT A FORM'S SERVER ACTION ANSWERS
@@ -10,7 +11,8 @@ import type { z } from "zod";
 export type FormState = {
   done?: boolean;
   error?: string;
-  values?: Record<string, string>;
+  /** What was posted, handed back with a refusal so the form can put it back. */
+  values?: Kept;
   /** What happened, when the page itself does not show it: "Emailed to ...". */
   message?: string;
   /** A link the person is meant to copy and hand on, shown once. */
@@ -59,13 +61,24 @@ function humanise(field: string): string {
 }
 
 /**
+ * A refusal, with everything the form posted, so the boxes are not emptied
+ * under the sentence explaining what to change (lib/use-kept-action.ts puts
+ * them back). Every refusal an office action returns goes through here; a
+ * test fails on a server action that builds `{ error }` itself.
+ */
+export function refused(form: FormData, error: string): NonNullable<FormState> {
+  return { error, values: keptForm(form) };
+}
+
+/**
  * Run a write and turn a refusal into the form's answer.
  *
  * Everything else is rethrown. The write itself is always a service call:
  * nothing in an action decides what is allowed, the service does, and the
- * action only reports it.
+ * action only reports it. The form is passed so a refusal hands back what
+ * was typed.
  */
-export async function attempt(run: () => Promise<unknown>): Promise<FormState> {
+export async function attempt(form: FormData, run: () => Promise<unknown>): Promise<FormState> {
   try {
     const said = await run();
     if (said && typeof said === "object" && ("message" in said || "link" in said)) {
@@ -74,7 +87,7 @@ export async function attempt(run: () => Promise<unknown>): Promise<FormState> {
   } catch (error) {
     const message = refusalOf(error);
     if (message === null) throw error;
-    return { error: message };
+    return refused(form, message);
   }
   return { done: true };
 }

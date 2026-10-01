@@ -1,11 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { Button, Field, Input } from "@opentradesos/ui";
 import { completeWelcome, type ActionState } from "../actions";
 
 export function WelcomeForm({ token, email, name }: { token: string; email: string; name: string | null }) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(completeWelcome, {});
+  const [state, actionForm, pending] = useKeptAction<ActionState>(completeWelcome, {});
 
   return (
     <>
@@ -14,7 +14,7 @@ export function WelcomeForm({ token, email, name }: { token: string; email: stri
         Your company is ready. Choose a password for <strong>{email}</strong> and you are in.
       </p>
 
-      <form action={action} className="mt-7 flex flex-col gap-5">
+      <form {...actionForm} className="mt-7 flex flex-col gap-5">
         <input type="hidden" name="token" value={token} />
         {/* For password managers, so the new password is saved against the right account. */}
         <input type="hidden" name="username" autoComplete="username" value={email} />

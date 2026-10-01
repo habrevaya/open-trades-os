@@ -1,12 +1,13 @@
 "use server";
 
+import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { projects } from "@opentradesos/api/services";
 
-export type ProjectState = { done?: boolean; error?: string } | null;
+export type ProjectState = FormState;
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 const text = (form: FormData, key: string): string | null => {
@@ -88,11 +89,11 @@ export async function act(_previous: ProjectState, form: FormData): Promise<Proj
         });
         break;
       default:
-        return { error: "Nothing to do." };
+        return refused(form, "Nothing to do.");
     }
   } catch (error) {
     if (error instanceof Error && ["ConflictError", "NotFoundError", "UnprocessableError", "PermissionError"].includes(error.name)) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }

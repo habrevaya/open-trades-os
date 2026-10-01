@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { cancelAgreement } from "./actions";
 
 /**
@@ -13,10 +13,10 @@ import { cancelAgreement } from "./actions";
  * accountant has to discover from the ledger.
  */
 export function CancelForm({ id }: { id: string }) {
-  const [state, submit, pending] = useActionState(cancelAgreement, null);
+  const [state, submitForm, pending] = useKeptAction(cancelAgreement, null);
 
   return (
-    <form action={submit} className="mt-3 flex flex-wrap items-end gap-3">
+    <form {...submitForm} className="mt-3 flex flex-wrap items-end gap-3">
       <input type="hidden" name="id" value={id} />
       <label className="text-sm">
         <span className="block text-ink-700">Why</span>

@@ -194,7 +194,7 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
     .orderBy(sql`${schema.organization.suspendedAt} is not null`)
     .limit(1);
 
-  if (memberships.length === 0) return { error: "This account is not a member of any company" };
+  if (memberships.length === 0) return { error: "This account is not a member of any company", values: { email } };
 
   const { token, tokenHash } = issueToken();
   await db.execute(
@@ -239,14 +239,15 @@ export async function completeWelcome(_prev: ActionState, formData: FormData): P
       const key = issue.path[0];
       if (typeof key === "string" && !fields[key]) fields[key] = issue.message;
     }
-    return fields["token"] ? { error: "This link is no longer valid." } : { fields };
+    // The one field on this form is the password, which is never handed back.
+    return fields["token"] ? { error: "This link is no longer valid.", values: {} } : { fields };
   }
 
   const db = getDb();
   const passwordHash = await hashPassword(parsed.data.password);
   const userId = await setupTokens.consume(db, parsed.data.token, passwordHash);
   if (!userId) {
-    return { error: "This link is no longer valid. Ask whoever set up your account for a new one." };
+    return { error: "This link is no longer valid. Ask whoever set up your account for a new one.", values: {} };
   }
 
   const memberships = await db

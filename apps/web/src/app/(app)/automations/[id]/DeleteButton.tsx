@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { deleteAutomation } from "../actions";
 
 /**
@@ -10,11 +10,11 @@ import { deleteAutomation } from "../actions";
  * March" still has an answer after somebody tidied up in April.
  */
 export function DeleteButton({ id, name }: { id: string; name: string }) {
-  const [state, submit, pending] = useActionState(deleteAutomation, null);
+  const [state, submitForm, pending] = useKeptAction(deleteAutomation, null);
 
   return (
     <form
-      action={submit}
+      {...submitForm}
       onSubmit={(event) => {
         if (!confirm(`Delete "${name}"? Its run history stays.`)) event.preventDefault();
       }}

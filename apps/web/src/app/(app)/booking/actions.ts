@@ -1,5 +1,6 @@
 "use server";
 
+import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -8,9 +9,10 @@ import { booking, ConflictError, NotFoundError } from "@opentradesos/api/service
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 const refresh = () => revalidatePath("/booking");
 
-type Result = { done?: boolean; error?: string };
+type Result = NonNullable<FormState>;
 
 const caught = async (
+  form: FormData,
   fn: (context: Awaited<ReturnType<typeof ctx>>) => Promise<unknown>,
 ): Promise<Result> => {
   try {
@@ -27,7 +29,7 @@ const caught = async (
      * sends them to support for a typo.
      */
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -35,7 +37,7 @@ const caught = async (
 
 export async function offerService(_previous: unknown, form: FormData): Promise<Result> {
   const price = String(form.get("displayPrice") ?? "").trim();
-  return caught((context) => booking.createService(context, {
+  return caught(form, (context) => booking.createService(context, {
     jobTypeId: String(form.get("jobTypeId") ?? ""),
     publicName: String(form.get("publicName") ?? ""),
     ...(String(form.get("publicDescription") ?? "").trim()
@@ -72,7 +74,7 @@ export async function saveWindows(_previous: unknown, form: FormData): Promise<R
     }))
     .filter((w) => w.name !== "" && w.startsAt !== "" && w.endsAt !== "");
 
-  return caught((context) => booking.setWindows(context, { windows }));
+  return caught(form, (context) => booking.setWindows(context, { windows }));
 }
 
 export async function saveHours(_previous: unknown, form: FormData): Promise<Result> {
@@ -88,5 +90,5 @@ export async function saveHours(_previous: unknown, form: FormData): Promise<Res
     };
   });
 
-  return caught((context) => booking.setHours(context, { days }));
+  return caught(form, (context) => booking.setHours(context, { days }));
 }

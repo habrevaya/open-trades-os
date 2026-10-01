@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { saveReport } from "../actions";
 
 /**
@@ -13,7 +13,7 @@ import { saveReport } from "../actions";
  * whose result the person was looking at when they pressed save.
  */
 export function SaveReport({ query }: { query: string }) {
-  const [state, save, saving] = useActionState(saveReport, null);
+  const [state, saveForm, saving] = useKeptAction(saveReport, null);
   /**
    * From the canonical query the server built, not from the address bar.
    *
@@ -24,7 +24,7 @@ export function SaveReport({ query }: { query: string }) {
   const carried = [...new URLSearchParams(query).entries()];
 
   return (
-    <form action={save} className="mt-8 rounded-md border border-steel-200 bg-canvas p-4">
+    <form {...saveForm} className="mt-8 rounded-md border border-steel-200 bg-canvas p-4">
       {carried.map(([key, value], index) => (
         <input key={`${key}-${index}`} type="hidden" name={key} value={value} />
       ))}

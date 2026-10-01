@@ -1,5 +1,7 @@
 "use server";
 
+import { refused, type FormState } from "@/lib/actions";
+import { keptForm, type Kept } from "@/lib/kept-values";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -7,19 +9,19 @@ import { payroll, ConflictError, NotFoundError } from "@opentradesos/api/service
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
-export type PayrollState = { done?: boolean; error?: string } | null;
+export type PayrollState = FormState;
 
 /**
  * Every refusal on this path is the service's own sentence: a period that
  * cuts a workweek, a close with a punch still open, an export of a period
  * whose punches moved after it closed. Shown, not thrown.
  */
-async function attempt(run: () => Promise<unknown>, path: string): Promise<PayrollState> {
+async function attempt(form: FormData, run: () => Promise<unknown>, path: string): Promise<PayrollState> {
   try {
     await run();
   } catch (error) {
-    if (error instanceof ConflictError || error instanceof NotFoundError) return { error: error.message };
-    if (error instanceof Error && error.name === "UnprocessableError") return { error: error.message };
+    if (error instanceof ConflictError || error instanceof NotFoundError) return refused(form, error.message);
+    if (error instanceof Error && error.name === "UnprocessableError") return refused(form, error.message);
     throw error;
   }
   revalidatePath(path);
@@ -27,7 +29,7 @@ async function attempt(run: () => Promise<unknown>, path: string): Promise<Payro
 }
 
 export async function declare(_previous: PayrollState, form: FormData): Promise<PayrollState> {
-  return attempt(async () => payroll.declarePeriod(await ctx(), {
+  return attempt(form, async () => payroll.declarePeriod(await ctx(), {
     label: String(form.get("label") ?? "").trim(),
     startDate: String(form.get("startDate") ?? ""),
     weeks: Number(form.get("weeks") ?? 1),
@@ -37,25 +39,25 @@ export async function declare(_previous: PayrollState, form: FormData): Promise<
 export async function close(_previous: PayrollState, form: FormData): Promise<PayrollState> {
   const periodId = String(form.get("periodId") ?? "");
   const note = String(form.get("note") ?? "").trim();
-  return attempt(async () => payroll.closePeriod(await ctx(), { periodId, ...(note ? { note } : {}) }),
+  return attempt(form, async () => payroll.closePeriod(await ctx(), { periodId, ...(note ? { note } : {}) }),
     `/payroll/${periodId}`);
 }
 
 export async function reopen(_previous: PayrollState, form: FormData): Promise<PayrollState> {
   const periodId = String(form.get("periodId") ?? "");
-  return attempt(async () => payroll.reopenPeriod(await ctx(), {
+  return attempt(form, async () => payroll.reopenPeriod(await ctx(), {
     periodId, reason: String(form.get("reason") ?? "").trim(),
   }), `/payroll/${periodId}`);
 }
 
 export async function payOut(_previous: PayrollState, form: FormData): Promise<PayrollState> {
   const periodId = String(form.get("periodId") ?? "");
-  return attempt(async () => payroll.payCommissions(await ctx(), { periodId }), `/payroll/${periodId}`);
+  return attempt(form, async () => payroll.payCommissions(await ctx(), { periodId }), `/payroll/${periodId}`);
 }
 
 export type ExportState =
   | { file: { name: string; content: string; checksum: string; previouslyExported: boolean } }
-  | { error: string }
+  | { error: string; values: Kept }
   | null;
 
 /**
@@ -77,7 +79,7 @@ export async function exportCsv(_previous: ExportState, form: FormData): Promise
       },
     };
   } catch (error) {
-    if (error instanceof ConflictError || error instanceof NotFoundError) return { error: error.message };
+    if (error instanceof ConflictError || error instanceof NotFoundError) return { error: error.message, values: keptForm(form) };
     throw error;
   }
 }

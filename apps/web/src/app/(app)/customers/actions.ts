@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -44,7 +45,7 @@ export async function createCustomer(_previous: unknown, form: FormData) {
 
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return { error: first ? `${first.path.join(".")}: ${first.message}` : "Check the form." };
+    return refused(form, first ? `${first.path.join(".")}: ${first.message}` : "Check the form.");
   }
 
   const created = await customers.create(

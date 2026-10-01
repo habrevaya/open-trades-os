@@ -7,7 +7,7 @@ import { commercial, entitlements, jobs, ConflictError } from "@opentradesos/api
 import type { coverage } from "@opentradesos/core";
 import { partiesFromForm } from "@/lib/job-parties";
 import { completeVisit } from "@opentradesos/api/contracts";
-import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
 import { PART_ROWS } from "./parts";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -35,7 +35,7 @@ export async function authorizeJob(_previous: unknown, form: FormData) {
         ? { externalReference: String(form.get("authorizationReference")).trim() } : {}),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/jobs/${jobId}`);
@@ -57,7 +57,7 @@ export async function setCoverage(_previous: unknown, form: FormData) {
       });
     }
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/jobs/${jobId}`);
@@ -69,7 +69,7 @@ export async function setPriority(_previous: unknown, form: FormData) {
   try {
     await jobs.update(await ctx(), { id: jobId, priority: Number(form.get("priority") ?? 0) });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/jobs/${jobId}`);
@@ -98,7 +98,7 @@ export async function setJobParties(_previous: unknown, form: FormData) {
   try {
     await commercial.setParties(await ctx(), { jobId, parties: rows });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/jobs/${jobId}`);
@@ -122,7 +122,7 @@ export async function completeVisitFromOffice(_previous: FormState, form: FormDa
     if (!item) continue;
     partsUsed.push({ priceBookItemId: item, quantity: field(form, `partQuantity${i}`) ?? "1" });
   }
-  const result = await attempt(async () => {
+  const result = await attempt(form, async () => {
     const input = parsed(completeVisit.input, {
       id: field(form, "visitId"),
       technicianNotes: field(form, "technicianNotes"),
@@ -143,8 +143,8 @@ export async function completeVisitFromOffice(_previous: FormState, form: FormDa
 export async function setJobStatus(_previous: FormState, form: FormData): Promise<FormState> {
   const jobId = field(form, "jobId") ?? "";
   const status = field(form, "status");
-  if (status !== "completed" && status !== "in_progress") return { error: "Nothing to do." };
-  const result = await attempt(async () => {
+  if (status !== "completed" && status !== "in_progress") return refused(form, "Nothing to do.");
+  const result = await attempt(form, async () => {
     await jobs.update(await ctx(), { id: jobId, status });
   });
   revalidatePath(`/jobs/${jobId}`);

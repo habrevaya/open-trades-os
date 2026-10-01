@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { Chip, Phone } from "@opentradesos/ui";
 import { addNumber, releaseNumber } from "./actions";
 
@@ -40,8 +41,8 @@ export function Numbers({
   numbers: NumberRow[];
   sources: { key: string; label: string }[];
 }) {
-  const [addState, add, adding] = useActionState(addNumber, null);
-  const [releaseState, release, releasing] = useActionState(releaseNumber, null);
+  const [addState, addForm, adding] = useKeptAction(addNumber, null);
+  const [releaseState, releaseForm, releasing] = useKeptAction(releaseNumber, null);
   const [open, setOpen] = useState(false);
   const [purpose, setPurpose] = useState("main");
 
@@ -79,7 +80,7 @@ export function Numbers({
               </Chip>
               {number.isSender && <Chip tone="success">Texts come from here</Chip>}
 
-              <form action={release} className="ml-auto">
+              <form {...releaseForm} className="ml-auto">
                 <input type="hidden" name="id" value={number.id} />
                 <button type="submit" disabled={releasing} className={BUTTON}>
                   {releasing ? "Releasing" : "Hand it back"}
@@ -105,7 +106,7 @@ export function Numbers({
       )}
 
       {open && (
-        <form action={add} className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3">
+        <form {...addForm} className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3">
           <div>
             <label htmlFor="n-e164" className="block text-xs text-ink-500">Number</label>
             <input id="n-e164" name="e164" required placeholder="+15125550123"

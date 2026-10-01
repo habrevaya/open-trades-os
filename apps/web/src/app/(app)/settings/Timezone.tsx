@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { setTimezone } from "./actions";
 
 /**
@@ -18,9 +18,8 @@ import { setTimezone } from "./actions";
  * in the same place as the company.
  */
 export function Timezone({ current }: { current: string }) {
-  const [state, action, pending] = useActionState<
-    { done?: boolean; note?: string; error?: string },
-    FormData
+  const [state, actionForm, pending] = useKeptAction<
+    { done?: boolean; note?: string; error?: string }
   >(setTimezone, {});
 
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -34,7 +33,7 @@ export function Timezone({ current }: { current: string }) {
         agreement dates, and when a scheduled automation runs.
       </p>
 
-      <form action={action} className="mt-3 flex flex-wrap items-end gap-3">
+      <form {...actionForm} className="mt-3 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium text-ink-700">IANA name</span>
           <input
