@@ -1,7 +1,7 @@
 import {
   registerProvider,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
-  type ExternalAccount, type ExternalChange, type ExternalCredit,
+  type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
   type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
@@ -152,7 +152,14 @@ const KEY_FIELD: Record<AccountingEntityKind, {
   credit_memo: {
     path: "CreditNotes", collection: "CreditNotes", field: "CreditNoteNumber", id: "CreditNoteID",
   },
+  /** The cash half of a refund, which is the half that says it happened. See `pushRefund`. */
+  refund: {
+    path: "BankTransactions", collection: "BankTransactions", field: "Reference", id: "BankTransactionID",
+  },
 };
+
+/** The receivable half of a refund. Numbered from the refund's key so a retry finds it. */
+const REFUND_CHARGE = { path: "Invoices", collection: "Invoices", id: "InvoiceID" } as const;
 
 /**
  * What Xero says when it already has one.
@@ -772,6 +779,84 @@ export function createXeroProvider(
         }],
       }, credit.idempotencyKey, "&unitdp=4");
     },
+
+    /**
+     * TWO DOCUMENTS, BECAUSE XERO WILL NOT LET ONE DO IT.
+     *
+     * A refund here posts cash out and the customer's receivable back up.
+     * Xero's Accounts Receivable is a system account: no bank transaction
+     * and no manual journal may touch it, and the only thing that debits it
+     * is a sales invoice. Xero's own refund instrument, a cash refund of a
+     * credit note or an overpayment, posts against revenue or against a
+     * credit the customer holds, neither of which is what happened.
+     *
+     * So the receivable goes up on an ACCREC invoice to the customer for the
+     * refunded amount, coded to the account mapped for customer deposits,
+     * and the cash goes out on a Spend Money transaction from the bank coded
+     * to that same account. The deposits account nets to nothing; what is
+     * left is cash down and the customer owing it again, which is the
+     * ledger's posting. The invoice is numbered with the refund's key and
+     * sent with its own idempotency key, so a retry after the first call
+     * lands on the same invoice, and the Spend Money carries the key as its
+     * reference, which is what `findPushed` asks for.
+     *
+     * Only what had been applied to invoices is sent. Money a payment held
+     * unapplied never reached Xero, because a batch payment carries only its
+     * applications, so giving it back moves nothing there.
+     */
+    async pushRefund(refund: ExternalRefund): Promise<PushResult> {
+      if (!refund.clearingAccountExternalId) {
+        return {
+          ok: false,
+          code: "unmapped",
+          message: "Map the customer deposits account before refunds can be sent to Xero: it carries a refund "
+            + "between the invoice that puts it back on what the customer owes and the bank payment that sends it.",
+          retryable: false,
+          duplicate: false,
+        };
+      }
+      const amount = lineAmount(refund.appliedAmount);
+      const line = {
+        Description: refund.memo,
+        Quantity: 1,
+        UnitAmount: amount,
+        LineAmount: amount,
+        AccountID: refund.clearingAccountExternalId,
+        TaxType: "NONE",
+        TaxAmount: 0,
+      };
+
+      const charge = await create(REFUND_CHARGE, {
+        Invoices: [{
+          Type: "ACCREC",
+          Contact: { ContactID: refund.customerExternalId },
+          InvoiceNumber: refund.idempotencyKey,
+          Reference: `Refund of payment ${refund.paymentExternalId}`,
+          Date: refund.refundedOn,
+          DueDate: refund.refundedOn,
+          Status: "AUTHORISED",
+          LineAmountTypes: "NoTax",
+          LineItems: [line],
+        }],
+      }, `${refund.idempotencyKey}-charge`, "&unitdp=4");
+      // Already there from an attempt that died before the cash half: carry on.
+      if (!charge.ok && !charge.duplicate) return charge;
+
+      return create(KEY_FIELD.refund, {
+        BankTransactions: [{
+          Type: "SPEND",
+          Contact: { ContactID: refund.customerExternalId },
+          BankAccount: { AccountID: refund.bankAccountExternalId },
+          Date: refund.refundedOn,
+          Reference: refund.idempotencyKey,
+          Status: "AUTHORISED",
+          LineAmountTypes: "NoTax",
+          LineItems: [line],
+        }],
+      }, refund.idempotencyKey, "&unitdp=4");
+    },
+
+    heldMoneyReachesBooks: false,
 
     async findPushed(
       kind: AccountingEntityKind, idempotencyKey: string,

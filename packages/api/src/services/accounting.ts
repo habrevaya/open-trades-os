@@ -480,6 +480,8 @@ export function shortKey(prefix: string, id: string): string {
 export const invoiceKey = (number: number): string => String(number);
 export const creditKey = (number: number): string => `C${number}`;
 export const paymentKey = (paymentId: string): string => shortKey("OT", paymentId);
+/** A refund's ledger transaction, hashed like a payment, `OR` for "our refund". */
+export const refundKey = (transactionId: string): string => shortKey("OR", transactionId);
 export const customerKey = (name: string): string => name.trim();
 
 /* ------------------------------------------------------------- the claim */
@@ -1264,6 +1266,7 @@ async function pushOutbound(
     const allocations = [...net.entries()]
       .filter(([, v]) => m.isPositive(v.amount))
       .map(([invoiceId, v]) => ({
+        invoiceId,
         invoiceExternalId: v.externalId ?? invoiceRefs.get(invoiceId) ?? null,
         amount: { amount: m.toString(v.amount), currency: payment.currency },
       }));
@@ -1286,32 +1289,40 @@ async function pushOutbound(
       kind: "payment",
       entityId: payment.id,
       idempotencyKey: key,
-      send: () => deps.provider.pushPayment({
-        idempotencyKey: key,
-        customerExternalId,
-        receivedOn: payment.receivedAt.toISOString().slice(0, 10),
+      send: async () => {
         /**
-         * What the company kept. A refund made before this payment reached
-         * the books is netted out here, as its allocations are above, so
-         * the books are not handed a receipt larger than the money that
-         * stayed, with the difference sitting as a customer credit that was
-         * in fact paid back.
+         * WHAT THE COMPANY KEPT, decided at the moment of sending and written
+         * down in the same breath.
+         *
+         * A refund made before this payment reached the books is netted out
+         * of it, so the books are not handed a receipt larger than the money
+         * that stayed. Every refund netted is recorded as a `refund` link
+         * with no document of its own, under a lock on the payment row so no
+         * refund can land between deciding the amount and recording what it
+         * covered. A refund after this moment is not in the amount and has
+         * no link, so it goes to the books as a refund once this payment is
+         * there; one before it never goes twice.
          */
-        amount: {
-          amount: m.toString(m.subtract(
-            m.money(payment.amount, payment.currency), m.money(payment.refundedAmount, payment.currency),
-          )),
-          currency: payment.currency,
-        },
-        depositAccountExternalId: cashAccount.externalId,
-        allocations: allocations.map((a) => ({
-          invoiceExternalId: a.invoiceExternalId!,
-          amount: a.amount,
-        })),
-      }),
+        const netted = await guardedWrite(ctx, "accounting:sync", (tx) =>
+          nettedPayment(tx, organizationId, connection.id, payment.id, null));
+        return deps.provider.pushPayment({
+          idempotencyKey: key,
+          customerExternalId,
+          receivedOn: payment.receivedAt.toISOString().slice(0, 10),
+          amount: { amount: m.toString(netted.kept), currency: payment.currency },
+          depositAccountExternalId: cashAccount.externalId,
+          allocations: netted.allocations.map(({ invoiceId, amount }) => ({
+            invoiceExternalId: allocations.find((a) => a.invoiceId === invoiceId)?.invoiceExternalId
+              ?? invoiceRefs.get(invoiceId)!,
+            amount: { amount: m.toString(amount), currency: payment.currency },
+          })),
+        });
+      },
       find: (k) => deps.provider.findPushed("payment", k),
     });
   }
+
+  await pushRefunds(ctx, deps, connection, state, closedOn, limit, meteredRead, customerRef);
 
   for (const credit of work.credits) {
     const customerExternalId = await customerRef(credit.customerId);
@@ -1334,13 +1345,282 @@ async function pushOutbound(
         idempotencyKey: key,
         customerExternalId,
         issuedOn: (credit.voidedAt ?? new Date()).toISOString().slice(0, 10),
-        amount: { amount: credit.total, currency: credit.currency },
+        /**
+         * What was written off or voided, which is what was still owed: a
+         * partly paid invoice written off loses its balance, not its total,
+         * and crediting the total would leave the customer a credit in the
+         * books for money they had already paid.
+         */
+        amount: {
+          amount: m.toString(m.subtract(
+            m.money(credit.total, credit.currency), m.money(credit.amountPaid, credit.currency),
+          )),
+          currency: credit.currency,
+        },
         accountExternalId: resolved.value[ledger.ACCOUNTS.WRITE_OFF]!.externalId,
         reason: credit.status === "void" ? "Invoice voided" : "Invoice written off",
       }),
       find: (k) => deps.provider.findPushed("credit_memo", k),
     });
   }
+}
+
+/**
+ * A payment's refunds as of now, recorded as netted into it, and what the
+ * payment still holds.
+ *
+ * Locks the payment row first. A refund updates that row in the same
+ * transaction that writes its ledger posting and its negative allocation,
+ * so with the lock held every refund is either fully visible here or cannot
+ * commit until this has.
+ *
+ * `through` limits the netting to refunds made by then. It is how a payment
+ * pushed before refunds were synced is settled: whatever was refunded
+ * before its push was netted into it by the code of the day, and nothing
+ * after was sent anywhere.
+ */
+async function nettedPayment(
+  tx: Database, organizationId: string, connectionId: string, paymentId: string, through: Date | null,
+): Promise<{ kept: m.Money; allocations: { invoiceId: string; amount: m.Money }[] }> {
+  const [payment] = await tx.select({
+    amount: schema.payment.amount, currency: schema.payment.currency,
+  }).from(schema.payment).where(eq(schema.payment.id, paymentId)).for("update");
+  if (!payment) throw new NotFoundError("Payment");
+
+  const refunds = await tx.select({
+    transactionId: schema.ledgerEntry.transactionId,
+    amount: schema.ledgerEntry.amount,
+  })
+    .from(schema.ledgerEntry)
+    .where(and(
+      eq(schema.ledgerEntry.sourceType, "refund"),
+      eq(schema.ledgerEntry.sourceId, paymentId),
+      eq(schema.ledgerEntry.accountCode, ledger.ACCOUNTS.CASH),
+      eq(schema.ledgerEntry.direction, "credit"),
+      through ? sql`${schema.ledgerEntry.createdAt} <= ${through.toISOString()}::timestamptz` : undefined,
+    ));
+
+  if (refunds.length > 0) {
+    await tx.insert(schema.accountingEntityLink).values(refunds.map((r) => ({
+      organizationId,
+      connectionId,
+      kind: "refund" as const,
+      entityId: r.transactionId,
+      idempotencyKey: refundKey(r.transactionId),
+      /**
+       * Linked with no document: it is in the books inside the payment's
+       * amount, and that is the whole of its presence there.
+       */
+      state: "linked" as const,
+      externalId: null,
+      lastError: null,
+    }))).onConflictDoNothing();
+  }
+  await tx.update(schema.accountingEntityLink)
+    .set({ refundsNettedAt: new Date(), updatedAt: new Date() })
+    .where(and(
+      eq(schema.accountingEntityLink.connectionId, connectionId),
+      eq(schema.accountingEntityLink.kind, "payment"),
+      eq(schema.accountingEntityLink.entityId, paymentId),
+    ));
+
+  /** Netted against exactly the refunds recorded as netted, whatever pass recorded them. */
+  const absorbed = await tx.select({ amount: schema.ledgerEntry.amount })
+    .from(schema.ledgerEntry)
+    .innerJoin(schema.accountingEntityLink, and(
+      eq(schema.accountingEntityLink.connectionId, connectionId),
+      eq(schema.accountingEntityLink.kind, "refund"),
+      eq(schema.accountingEntityLink.entityId, schema.ledgerEntry.transactionId),
+      isNull(schema.accountingEntityLink.externalId),
+    ))
+    .where(and(
+      eq(schema.ledgerEntry.sourceType, "refund"),
+      eq(schema.ledgerEntry.sourceId, paymentId),
+      eq(schema.ledgerEntry.accountCode, ledger.ACCOUNTS.CASH),
+      eq(schema.ledgerEntry.direction, "credit"),
+    ));
+  const zero = m.money("0", payment.currency);
+  const refunded = absorbed.reduce((sum, r) => m.add(sum, m.money(r.amount, payment.currency)), zero);
+
+  const rows = await tx.select({
+    invoiceId: schema.paymentAllocation.invoiceId, amount: schema.paymentAllocation.amount,
+  }).from(schema.paymentAllocation).where(eq(schema.paymentAllocation.paymentId, paymentId));
+  const net = new Map<string, m.Money>();
+  for (const row of rows) {
+    net.set(row.invoiceId, m.add(net.get(row.invoiceId) ?? zero, m.money(row.amount, payment.currency)));
+  }
+
+  return {
+    kept: m.subtract(m.money(payment.amount, payment.currency), refunded),
+    allocations: [...net.entries()]
+      .filter(([, amount]) => m.isPositive(amount))
+      .map(([invoiceId, amount]) => ({ invoiceId, amount })),
+  };
+}
+
+/**
+ * Refunds made after their payment reached the books.
+ *
+ * Each is its own document, dated when the money went back, because the
+ * payment over there is a filed fact about the day it arrived and editing
+ * it would move cash between periods. A refund that was netted into its
+ * payment already has a link and is not in this set; a refund of a payment
+ * that has not reached the books yet waits, and is netted into it when it
+ * goes.
+ */
+async function pushRefunds(
+  ctx: ServiceContext,
+  deps: SyncDeps,
+  connection: AccountingConnection,
+  state: PassState,
+  closedOn: string | null,
+  limit: number,
+  meteredRead: MeteredRead,
+  customerRef: (customerId: string) => Promise<string | null>,
+): Promise<void> {
+  const organizationId = ctx.actor.organizationId;
+
+  /**
+   * A payment pushed before refunds were synced has no record of which of
+   * its refunds it netted. Settled once, from the time it was pushed, so
+   * none of them is sent as a refund on top of a payment already net of it.
+   */
+  const unsettled = await guardedRead(ctx, "accounting:sync", (tx) =>
+    tx.select({
+      entityId: schema.accountingEntityLink.entityId,
+      pushedAt: schema.accountingEntityLink.pushedAt,
+      updatedAt: schema.accountingEntityLink.updatedAt,
+    }).from(schema.accountingEntityLink).where(and(
+      eq(schema.accountingEntityLink.connectionId, connection.id),
+      eq(schema.accountingEntityLink.kind, "payment"),
+      eq(schema.accountingEntityLink.state, "linked"),
+      isNull(schema.accountingEntityLink.refundsNettedAt),
+    )).limit(limit));
+  for (const row of unsettled) {
+    await guardedWrite(ctx, "accounting:sync", (tx) =>
+      nettedPayment(tx, organizationId, connection.id, row.entityId, row.pushedAt ?? row.updatedAt));
+  }
+
+  const work = await guardedRead(ctx, "accounting:sync", async (tx) => ({
+    refunds: await refundsToPush(tx, connection.id, closedOn, limit),
+    accounts: await tx.select({
+      accountCode: schema.accountMapping.accountCode,
+      externalId: schema.accountMapping.externalId,
+    }).from(schema.accountMapping).where(and(
+      eq(schema.accountMapping.connectionId, connection.id),
+      inArray(schema.accountMapping.accountCode, [
+        ledger.ACCOUNTS.CASH, ledger.ACCOUNTS.AR, ledger.ACCOUNTS.CUSTOMER_DEPOSITS,
+      ]),
+    )),
+  }));
+  const mapped = (code: string) => work.accounts.find((a) => a.accountCode === code)?.externalId ?? null;
+
+  for (const refund of work.refunds) {
+    const key = refundKey(refund.transactionId);
+    const currency = refund.currency;
+    const zero = m.money("0", currency);
+    const held = m.money(refund.held ?? "0", currency);
+    const applied = m.money(refund.applied ?? "0", currency);
+    /** What of it the books ever saw. See `heldMoneyReachesBooks`. */
+    const toSend = deps.provider.heldMoneyReachesBooks ? m.add(applied, held) : applied;
+
+    if (!m.isPositive(toSend)) {
+      /**
+       * Nothing over there to give back: the money came in and went out
+       * without the books ever holding it. Recorded so it is not offered
+       * again, with no document.
+       */
+      await guardedWrite(ctx, "accounting:sync", (tx) =>
+        tx.insert(schema.accountingEntityLink).values({
+          organizationId, connectionId: connection.id, kind: "refund",
+          entityId: refund.transactionId, idempotencyKey: key, state: "linked",
+        }).onConflictDoNothing());
+      state.skipped += 1;
+      continue;
+    }
+
+    const cash = mapped(ledger.ACCOUNTS.CASH);
+    if (!cash) {
+      await recordRefusal(ctx, connection.id, "refund", refund.transactionId, key,
+        `Account ${ledger.ACCOUNTS.CASH} is not mapped to anything in the accounting system. Map it on `
+        + "the accounting settings screen; this refund is not sent until you do.");
+      state.failed += 1;
+      continue;
+    }
+
+    const customerExternalId = await customerRef(refund.customerId);
+    if (!customerExternalId) { state.skipped += 1; continue; }
+
+    const money = (value: m.Money) => ({ amount: m.toString(value), currency });
+    await pushOne(ctx, connection.id, state, meteredRead, {
+      kind: "refund",
+      entityId: refund.transactionId,
+      idempotencyKey: key,
+      send: () => deps.provider.pushRefund({
+        idempotencyKey: key,
+        customerExternalId,
+        paymentExternalId: refund.paymentExternalId,
+        refundedOn: refund.occurredAt.toISOString().slice(0, 10),
+        amount: money(toSend),
+        appliedAmount: money(applied),
+        heldAmount: money(deps.provider.heldMoneyReachesBooks ? held : zero),
+        bankAccountExternalId: cash,
+        receivableAccountExternalId: mapped(ledger.ACCOUNTS.AR),
+        clearingAccountExternalId: mapped(ledger.ACCOUNTS.CUSTOMER_DEPOSITS),
+        memo: `Refund of payment ${refund.paymentExternalId}`,
+      }),
+      find: (k) => deps.provider.findPushed("refund", k),
+    });
+  }
+}
+
+/**
+ * Refund postings whose payment is in the books and which have not gone
+ * themselves. One row per refund: the ledger transaction, with its cash,
+ * receivable and held-credit legs summed out of its entries.
+ */
+async function refundsToPush(
+  tx: Database, connectionId: string, closedOn: string | null, limit: number,
+) {
+  const paymentLink = alias(schema.accountingEntityLink, "refunded_payment_link");
+  const refundLink = alias(schema.accountingEntityLink, "refund_link");
+  const leg = (code: string, direction: "debit" | "credit") =>
+    sql<string | null>`sum(case when ${schema.ledgerEntry.accountCode} = ${code}
+      and ${schema.ledgerEntry.direction} = ${direction} then ${schema.ledgerEntry.amount} end)::text`;
+  return tx.select({
+    transactionId: schema.ledgerEntry.transactionId,
+    paymentId: schema.ledgerEntry.sourceId,
+    occurredAt: sql<Date>`min(${schema.ledgerEntry.occurredAt})`.mapWith((v) => new Date(v as string)),
+    customerId: schema.payment.customerId,
+    currency: schema.payment.currency,
+    paymentExternalId: sql<string>`min(${paymentLink.externalId})`,
+    applied: leg(ledger.ACCOUNTS.AR, "debit"),
+    held: leg(ledger.ACCOUNTS.CUSTOMER_DEPOSITS, "debit"),
+  })
+    .from(schema.ledgerEntry)
+    .innerJoin(schema.payment, eq(schema.payment.id, schema.ledgerEntry.sourceId))
+    .innerJoin(paymentLink, and(
+      eq(paymentLink.connectionId, connectionId),
+      eq(paymentLink.kind, "payment"),
+      eq(paymentLink.entityId, schema.payment.id),
+      eq(paymentLink.state, "linked"),
+      isNotNull(paymentLink.externalId),
+      isNotNull(paymentLink.refundsNettedAt),
+    ))
+    .leftJoin(refundLink, and(
+      eq(refundLink.connectionId, connectionId),
+      eq(refundLink.kind, "refund"),
+      eq(refundLink.entityId, schema.ledgerEntry.transactionId),
+    ))
+    .where(and(
+      eq(schema.ledgerEntry.sourceType, "refund"),
+      offerable(refundLink.id, refundLink.state),
+      closedOn ? sql`${schema.ledgerEntry.occurredAt}::date > ${closedOn}` : undefined,
+    ))
+    .groupBy(schema.ledgerEntry.transactionId, schema.ledgerEntry.sourceId,
+      schema.payment.customerId, schema.payment.currency)
+    .orderBy(sql`min(${schema.ledgerEntry.occurredAt})`)
+    .limit(limit);
 }
 
 /**
@@ -1559,6 +1839,7 @@ async function creditsToPush(
     customerId: schema.invoice.customerId,
     status: schema.invoice.status,
     total: schema.invoice.total,
+    amountPaid: schema.invoice.amountPaid,
     currency: schema.invoice.currency,
     voidedAt: schema.invoice.voidedAt,
     updatedAt: schema.invoice.updatedAt,

@@ -60097,7 +60097,8 @@
                     "customer",
                     "invoice",
                     "payment",
-                    "credit_memo"
+                    "credit_memo",
+                    "refund"
                   ]
                 },
                 "entityId": {
@@ -72632,7 +72633,8 @@
               "customer",
               "invoice",
               "payment",
-              "credit_memo"
+              "credit_memo",
+              "refund"
             ]
           },
           "attempts": {

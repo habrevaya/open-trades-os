@@ -61,7 +61,7 @@
  * and a provider has to be told which it is. An open string would let a
  * caller invent `"refund"` and have an adapter quietly ignore it.
  */
-export type AccountingEntityKind = "customer" | "invoice" | "payment" | "credit_memo";
+export type AccountingEntityKind = "customer" | "invoice" | "payment" | "credit_memo" | "refund";
 
 /** ISO 4217, carried on every amount for the same reason the schema carries it. */
 export interface ExternalMoney {
@@ -131,6 +131,36 @@ export interface ExternalPayment {
    * receivable it was meant to clear stays open.
    */
   allocations: { invoiceExternalId: string; amount: ExternalMoney }[];
+}
+
+/**
+ * Money given back against a payment that is already in the books.
+ *
+ * What our ledger posts for it is the whole specification: cash out, and the
+ * customer's receivable back up by the part that had been applied to
+ * invoices (`appliedAmount`) and their held credit down by the part that had
+ * not (`heldAmount`). Revenue does not move. Revenue moves only if the
+ * reopened invoice is then voided or written off, and that already reaches
+ * the books as its own credit note, so an adapter that also reduced revenue
+ * here would reduce it twice.
+ */
+export interface ExternalRefund {
+  idempotencyKey: string;
+  customerExternalId: string;
+  /** The payment it comes back out of, as the books know it. */
+  paymentExternalId: string;
+  refundedOn: string;
+  /** All of it: `appliedAmount` plus `heldAmount`. */
+  amount: ExternalMoney;
+  appliedAmount: ExternalMoney;
+  heldAmount: ExternalMoney;
+  /** The mapped id for our cash account, where the money left from. */
+  bankAccountExternalId: string;
+  /** Our receivable account's mapping, when there is one. */
+  receivableAccountExternalId: string | null;
+  /** Our customer deposits account's mapping, when there is one. */
+  clearingAccountExternalId: string | null;
+  memo: string;
 }
 
 export interface ExternalCredit {
@@ -291,6 +321,21 @@ export interface AccountingProvider {
    * in the interface rather than in an adapter.
    */
   pushCredit(credit: ExternalCredit): Promise<PushResult>;
+
+  /**
+   * A refund of a payment already in the books. See `ExternalRefund` for
+   * what it must post; how is the adapter's, because the two systems allow
+   * different documents to touch a receivable.
+   */
+  pushRefund(refund: ExternalRefund): Promise<PushResult>;
+
+  /**
+   * Whether money a payment held unapplied reached the books with it.
+   * QuickBooks takes a payment larger than its lines and holds the rest as
+   * the customer's credit; a Xero batch payment carries only what is
+   * applied. A refund of held money is sent only where the money went.
+   */
+  readonly heldMoneyReachesBooks: boolean;
 
   /**
    * "Did a document carrying this key already land?"
