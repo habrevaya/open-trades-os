@@ -87,7 +87,8 @@ export async function sendMessage(
     .limit(1);
   if (!customer) return { ok: false, reason: "customer not found" };
 
-  const address = channel === "email" ? customer.email : customer.phone;
+  // E.164 for a number, so a STOP the carrier recorded is found. See comms.phoneAddress.
+  const address = channel === "email" ? customer.email : customer.phone && comms.phoneAddress(customer.phone);
   if (!address) return { ok: false, reason: `customer has no ${channel} address` };
 
   /**

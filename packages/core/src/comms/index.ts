@@ -194,3 +194,30 @@ export function inboundIntent(body: string): InboundIntent {
   if (HELP_WORDS.has(word)) return "help";
   return "message";
 }
+
+/**
+ * THE ADDRESS A PHONE NUMBER IS KNOWN BY
+ *
+ * A customer's number is kept the way somebody typed it, "(512) 555-0192"
+ * or "512-555-0192", and a carrier knows the same person as "+15125550192".
+ * Consent, STOP and threading are all looked up by address, so a text started
+ * from the customer's record and checked against the typed form found no
+ * STOP the carrier had recorded against the E.164 one, and was queued to the
+ * carrier in a form it does not accept. Every phone address is compared and
+ * sent in E.164.
+ *
+ * North American numbers only are completed with a country code, because
+ * that is the only numbering plan this product's addresses default to; a
+ * number written with a leading `+` is taken as already international.
+ * Anything that is not a phone number (an email address, a chat handle) is
+ * returned trimmed and otherwise untouched, so this is safe on any address.
+ */
+export function phoneAddress(raw: string): string {
+  const trimmed = raw.trim();
+  if (!/^\+?[\d\s().-]+$/.test(trimmed)) return trimmed;
+  const digits = trimmed.replace(/\D/g, "");
+  if (trimmed.startsWith("+")) return digits.length >= 8 ? `+${digits}` : trimmed;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return trimmed;
+}

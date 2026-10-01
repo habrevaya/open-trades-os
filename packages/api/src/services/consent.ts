@@ -92,7 +92,8 @@ async function record(
     );
   }
 
-  const address = input.address.trim();
+  // E.164, so the decision at send time finds it. See comms.phoneAddress.
+  const address = comms.phoneAddress(input.address);
 
   await tx.update(schema.communicationConsent)
     .set({ supersededAt: new Date(), updatedAt: new Date() })
@@ -152,7 +153,7 @@ export async function history(ctx: ServiceContext, input: { address: string }) {
     const rows = await tx.select().from(schema.communicationConsent)
       .where(and(
         eq(schema.communicationConsent.organizationId, ctx.actor.organizationId),
-        eq(schema.communicationConsent.address, input.address.trim()),
+        eq(schema.communicationConsent.address, comms.phoneAddress(input.address)),
       ))
       .orderBy(desc(schema.communicationConsent.capturedAt));
 
@@ -181,7 +182,7 @@ export async function history(ctx: ServiceContext, input: { address: string }) {
  */
 export async function marketable(ctx: ServiceContext, input: { address: string }) {
   return guardedRead(ctx, "message:read", async (tx) => {
-    const address = input.address.trim();
+    const address = comms.phoneAddress(input.address);
 
     const consents = await tx.select().from(schema.communicationConsent)
       .where(and(
