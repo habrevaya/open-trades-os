@@ -68,6 +68,8 @@ export const NAV: NavGroup[] = [
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
       { href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks" },
       { href: "/recurring", label: "Recurring", permission: "job:read", icon: "recurring" },
+      /** Phased work under one contract, billed in draws. Work, because it is jobs. */
+      { href: "/projects", label: "Projects", permission: "job:read", icon: "projects" },
       /**
        * Under Work rather than Business, because a deficiency backlog is a
        * list of jobs that have not been booked yet. Filing it as a report
