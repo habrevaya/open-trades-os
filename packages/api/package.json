@@ -13,7 +13,8 @@
     "./email": "./src/email/index.ts",
     "./marketing": "./src/marketing/index.ts",
     "./mcp": "./src/mcp/index.ts",
-    "./payments": "./src/payments/index.ts"
+    "./payments": "./src/payments/index.ts",
+    "./ai": "./src/ai/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

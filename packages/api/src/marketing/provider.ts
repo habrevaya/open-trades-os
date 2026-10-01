@@ -109,14 +109,32 @@ export class SourceNotConfiguredError extends Error {
   }
 }
 
+/**
+ * What a lead source is configured WITH, per connector.
+ *
+ * The factory used to take nothing, and that is why a field map was dead
+ * configuration: the adapter accepted one, the registry discarded it, and
+ * every sender was parsed with the same default guesses. The messaging and
+ * payments registries have always passed settings through; this one was the
+ * odd case and nothing made it obvious, because a lead still arrived.
+ */
+export interface LeadSourceOptions {
+  /** Where to find each field in whatever shape this sender uses. */
+  fieldMap?: Record<string, string> | undefined;
+  /** What the lead is attributed to. Appears on every report that groups by channel. */
+  source?: string | undefined;
+}
+
 const spendRegistry = new Map<string, () => SpendSource>();
-const leadRegistry = new Map<string, () => LeadSource>();
+const leadRegistry = new Map<string, (options: LeadSourceOptions) => LeadSource>();
 
 export function registerSpendSource(name: string, factory: () => SpendSource): void {
   spendRegistry.set(name, factory);
 }
 
-export function registerLeadSource(name: string, factory: () => LeadSource): void {
+export function registerLeadSource(
+  name: string, factory: (options: LeadSourceOptions) => LeadSource,
+): void {
   leadRegistry.set(name, factory);
 }
 
@@ -126,10 +144,10 @@ export function createSpendSource(name: string): SpendSource {
   return factory();
 }
 
-export function createLeadSource(name: string): LeadSource {
+export function createLeadSource(name: string, options: LeadSourceOptions = {}): LeadSource {
   const factory = leadRegistry.get(name);
   if (!factory) throw new SourceNotConfiguredError(name);
-  return factory();
+  return factory(options);
 }
 
 /**

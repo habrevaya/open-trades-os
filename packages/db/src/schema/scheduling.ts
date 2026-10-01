@@ -136,6 +136,26 @@ export const route = pgTable("route", {
   dayOfWeek: integer("day_of_week"),
   /** Target stops per day. The density number an owner actually manages to. */
   targetStopCount: integer("target_stop_count"),
+  /**
+   * The operator's own drive time between two consecutive stops on this
+   * route, in minutes.
+   *
+   * Density is stop time PLUS travel, and travel is the half that decides
+   * whether a fifteenth stop runs into overtime: a dense subdivision pool
+   * route is four minutes between gates and a rural one is twenty five, on
+   * identical stop times. There is no geocoding in this product, so the only
+   * honest source of that number is the person who drives the route.
+   *
+   * It lives on the route rather than being passed in by whoever asks,
+   * because two screens passing different assumptions would give two
+   * different answers to "will this day run long", and the dispatch board
+   * already learned that lesson with `isLate`.
+   *
+   * NULLABLE, and null is not zero. An undeclared route reports its stop
+   * time as a FLOOR and says that travel is not included, rather than
+   * claiming a day fits when nobody has said how far apart the stops are.
+   */
+  travelMinutesBetweenStops: integer("travel_minutes_between_stops"),
   startsAt: time("starts_at"),
   color: text("color"),
   active: boolean("active").notNull().default(true),

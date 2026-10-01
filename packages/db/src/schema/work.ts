@@ -64,6 +64,22 @@ export const jobType = pgTable("job_type", {
   defaultDurationMinutes: integer("default_duration_minutes").notNull().default(60),
   /** Skills a technician must hold to be assignable. Enforced by the scheduling engine. */
   requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
+  /**
+   * Equipment this kind of work cannot be done without, as the same opaque
+   * asset ids `crew.required_asset_ids` holds.
+   *
+   * It is the counterpart of that column and the reason it can be enforced.
+   * A crew declares the kit it carries; a job type declares the kit the work
+   * needs; a crew missing one of these cannot take the job no matter who is
+   * standing in the truck. Without this column `crew.required_asset_ids` is
+   * a list with nothing to compare against, and the comment on it saying
+   * "enforced at assignment" could not be true of any code.
+   *
+   * Per job type rather than per job, exactly like `required_skills` above,
+   * because the chipper is a property of tree removal rather than of one
+   * customer's tree.
+   */
+  requiredAssetIds: jsonb("required_asset_ids").$type<string[]>().notNull().default([]),
   checklistTemplate: jsonb("checklist_template").$type<Array<{ id: string; label: string; required: boolean }>>().notNull().default([]),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   color: text("color"),

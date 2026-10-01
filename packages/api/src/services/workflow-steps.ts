@@ -1,6 +1,7 @@
 import { and, eq, isNull, desc } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import * as phoneNumbers from "./phone-numbers";
+import { renderWithin } from "./message-templates";
 import { comms } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import { raise } from "./tasks";
@@ -31,34 +32,10 @@ export type StepResult =
   | { ok: true; waitUntil: Date; output?: Record<string, unknown> }
   | { ok: false; reason: string };
 
-/**
- * Fills `{{ job.summary }}` style placeholders from the event payload.
- *
- * Substitution only. No expressions, no function calls, nothing evaluated,
- * for the same reason conditions are data: a template language that executes
- * is arbitrary code execution wearing a friendly name, in a product a
- * contractor self hosts.
- *
- * An unresolved placeholder becomes an empty string rather than being left
- * as literal braces, because "Hi {{ customer.name }}" reaching a customer is
- * worse than "Hi ".
- */
-export function render(template: string, scope: Record<string, unknown>): string {
-  return template.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_, path: string) => {
-    const value = readPath(scope, path);
-    return value === null || value === undefined ? "" : String(value);
-  });
-}
+/** Defined in `lib/render.ts`, because the template service needs it too. */
+export { render } from "../lib/render";
+import { render, readPath } from "../lib/render";
 
-function readPath(source: unknown, path: string): unknown {
-  let current: unknown = source;
-  for (const part of path.split(".")) {
-    if (part === "__proto__" || part === "constructor" || part === "prototype") return undefined;
-    if (current === null || current === undefined || typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
-}
 
 /**
  * Send a message to the customer this event is about.
@@ -78,8 +55,26 @@ export async function sendMessage(
   const organizationId = ctx.actor.organizationId;
   const channel = (config["channel"] as comms.Channel) ?? "sms";
   const purpose = (config["purpose"] as comms.Purpose) ?? "transactional";
-  const body = typeof config["body"] === "string" ? config["body"] : "";
-  if (body.trim() === "") return { ok: false, reason: "step has no body" };
+  /**
+   * A TEMPLATE CODE, OR A LITERAL BODY, AND THE CODE WINS.
+   *
+   * A workflow carrying its own copy of a sentence is how the same message
+   * ends up written in three places that drift: the arrival notice lives in
+   * `dispatch.ts`, an automation that texts on the way carries a second
+   * wording, and nothing anywhere compares them. Naming a template means the
+   * words live where an operator can change them without editing the
+   * automation that sends them.
+   *
+   * A literal body stays supported, because every workflow built before
+   * templates existed has one and an automation that stopped sending on the
+   * day this shipped would be a worse outcome than two ways of saying it.
+   *
+   * A code naming a template this company has not defined falls back to the
+   * literal body rather than failing: a step configured with both is a step
+   * whose author wanted the template and accepted the literal as the floor.
+   */
+  const templateCode = typeof config["templateCode"] === "string" ? config["templateCode"] : null;
+  const literal = typeof config["body"] === "string" ? config["body"] : "";
 
   const payload = event.payload as Record<string, unknown>;
   const customerId = (config["customerId"] as string | undefined)
@@ -154,7 +149,26 @@ export async function sendMessage(
     return { ok: true, output: { sent: false, refused: decision.reason } };
   }
 
-  const rendered = render(body, { ...payload, customer });
+  const scope = { ...payload, customer };
+
+  const fromTemplate = templateCode
+    ? await renderWithin(tx, organizationId, templateCode, scope)
+    : null;
+
+  const rendered = fromTemplate?.body.trim() ? fromTemplate.body : render(literal, scope);
+
+  /**
+   * CHECKED HERE RATHER THAN AT THE TOP, because until the template has been
+   * looked up there is no way to know whether an empty literal body is a
+   * misconfigured step or a step that gets its words from somewhere else.
+   * The original check ran before the lookup existed and would have refused
+   * every template-driven step in the product.
+   */
+  if (rendered.trim() === "") {
+    return { ok: false, reason: templateCode
+      ? `template "${templateCode}" is not defined here and the step has no body to fall back on`
+      : "step has no body" };
+  }
 
   const conversationId = await threadFor(tx, {
     organizationId, channel, address, customerId,

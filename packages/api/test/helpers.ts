@@ -15,7 +15,16 @@ import { createClient, type Database } from "@opentradesos/db";
  * So: scoped deletes, in foreign key order, in one place.
  */
 const ORDER = [
-  // Money first, since it references almost everything.
+  /**
+   * Payroll first. A commission event points at an invoice and a job, an entry
+   * points at the event and at a pay period, and an export points at a close.
+   * Deleting the children before the invoices below is what keeps a reset from
+   * tripping on a foreign key, and the whole block is here rather than beside
+   * the timeclock because it is the most child-like thing in the schema.
+   */
+  "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
+  "commission_event", "commission_plan", "pay_period",
+  // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
@@ -74,6 +83,13 @@ const ORDER = [
    * the company was using when it filed.
    */
   "accounting_entity_link", "account_mapping", "accounting_period",
+  /**
+   * Model spend, before the connection every row of it cascades from. The
+   * budget points at no connection at all, which is deliberate: a company's
+   * monthly ceiling outlives whichever vendor's key it was holding when the
+   * ceiling was set.
+   */
+  "ai_usage", "ai_budget",
   "integration_connection",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.

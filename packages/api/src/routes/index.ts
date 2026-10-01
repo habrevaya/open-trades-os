@@ -8,6 +8,8 @@ import {
   fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
+  messageTemplates, messagingRegistration, leadConnectors,
+  invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai,
 } from "../services/index";
 
 /**
@@ -302,6 +304,85 @@ export const handlers = {
   listAccountingPeriods: accounting.handlers.listAccountingPeriods,
   closeAccountingPeriod: accounting.handlers.closeAccountingPeriod,
   reopenAccountingPeriod: accounting.handlers.reopenAccountingPeriod,
+
+  defineMessageTemplate: messageTemplates.handlers.defineMessageTemplate,
+  listMessageTemplates: messageTemplates.handlers.listMessageTemplates,
+  updateMessageTemplate: messageTemplates.handlers.updateMessageTemplate,
+  deleteMessageTemplate: messageTemplates.handlers.deleteMessageTemplate,
+  previewMessageTemplate: messageTemplates.handlers.previewMessageTemplate,
+
+  recordMessagingBrand: messagingRegistration.handlers.recordMessagingBrand,
+  setMessagingBrandStatus: messagingRegistration.handlers.setMessagingBrandStatus,
+  recordMessagingCampaign: messagingRegistration.handlers.recordMessagingCampaign,
+  setMessagingCampaignStatus: messagingRegistration.handlers.setMessagingCampaignStatus,
+  listMessagingRegistrations: messagingRegistration.handlers.listMessagingRegistrations,
+
+  listLeadFieldTargets: leadConnectors.handlers.listLeadFieldTargets,
+  createLeadConnector: leadConnectors.handlers.createLeadConnector,
+  listLeadConnectors: leadConnectors.handlers.listLeadConnectors,
+  updateLeadConnector: leadConnectors.handlers.updateLeadConnector,
+  testLeadMapping: leadConnectors.handlers.testLeadMapping,
+  rotateLeadConnectorSecret: leadConnectors.handlers.rotateLeadConnectorSecret,
+  deleteLeadConnector: leadConnectors.handlers.deleteLeadConnector,
+
+  sendInvoice: invoiceDelivery.handlers.sendInvoice,
+  listInvoiceDeliveries: invoiceDelivery.handlers.listInvoiceDeliveries,
+  listUndeliveredInvoices: invoiceDelivery.handlers.listUndeliveredInvoices,
+  viewPortalInvoice: invoiceDelivery.handlers.viewPortalInvoice,
+  payPortalInvoice: invoiceDelivery.handlers.payPortalInvoice,
+
+  getJobProfitability: profitability.handlers.getJobProfitability,
+  getProfitabilitySummary: profitability.handlers.getProfitabilitySummary,
+
+  listCrews: crews.handlers.listCrews,
+  createCrew: crews.handlers.createCrew,
+  updateCrew: crews.handlers.updateCrew,
+  setCrewMembers: crews.handlers.setCrewMembers,
+  getCrewAvailability: crews.handlers.getCrewAvailability,
+  listCrewsForJob: crews.handlers.listCrewsForJob,
+  assignCrewToVisit: crews.handlers.assignCrewToVisit,
+
+  listServiceRoutes: serviceRoutes.handlers.listServiceRoutes,
+  createServiceRoute: serviceRoutes.handlers.createServiceRoute,
+  listServiceRouteStops: serviceRoutes.handlers.listServiceRouteStops,
+  addServiceRouteStop: serviceRoutes.handlers.addServiceRouteStop,
+  reorderServiceRouteStops: serviceRoutes.handlers.reorderServiceRouteStops,
+  setServiceRouteStopActive: serviceRoutes.handlers.setServiceRouteStopActive,
+  recordServiceRouteStopServiced: serviceRoutes.handlers.recordServiceRouteStopServiced,
+  materialiseServiceRoute: serviceRoutes.handlers.materialiseServiceRoute,
+  getServiceRouteDensity: serviceRoutes.handlers.getServiceRouteDensity,
+
+  getOnCallNow: onCall.handlers.getOnCallNow,
+  listOnCallRotations: onCall.handlers.listOnCallRotations,
+  scheduleOnCall: onCall.handlers.scheduleOnCall,
+  handOverOnCall: onCall.handlers.handOverOnCall,
+
+  listCommissionBases: commissions.handlers.listCommissionBases,
+  listCommissionPlans: commissions.handlers.listCommissionPlans,
+  declareCommissionPlan: commissions.handlers.declareCommissionPlan,
+  deactivateCommissionPlan: commissions.handlers.deactivateCommissionPlan,
+  settleCommission: commissions.handlers.settleCommission,
+  reverseCommission: commissions.handlers.reverseCommission,
+  listCommissionEarnings: commissions.handlers.listCommissionEarnings,
+
+  declarePayPeriod: payroll.handlers.declarePayPeriod,
+  listPayPeriods: payroll.handlers.listPayPeriods,
+  closePayPeriod: payroll.handlers.closePayPeriod,
+  reopenPayPeriod: payroll.handlers.reopenPayPeriod,
+  getPayrollRegister: payroll.handlers.getPayrollRegister,
+  exportPayPeriod: payroll.handlers.exportPayPeriod,
+  listPayrollExports: payroll.handlers.listPayrollExports,
+  payCommissions: payroll.handlers.payCommissions,
+  getMyTimeclock: labor.handlers.getMyTimeclock,
+
+  getAiStatus: ai.handlers.getAiStatus,
+  getAiUsage: ai.handlers.getAiUsage,
+  listAgentTools: ai.handlers.listAgentTools,
+  connectAiProvider: ai.handlers.connectAiProvider,
+  disconnectAiProvider: ai.handlers.disconnectAiProvider,
+  testAiConnection: ai.handlers.testAiConnection,
+  setAiSpendLimit: ai.handlers.setAiSpendLimit,
+  runAiCompletion: ai.handlers.runAiCompletion,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

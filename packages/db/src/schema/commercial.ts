@@ -4,6 +4,8 @@ import { organization } from "./tenancy";
 import { customer, property, contact } from "./crm";
 import { job } from "./work";
 import { invoice } from "./billing";
+import { message } from "./comms";
+import { portalGrant } from "./portal";
 
 /**
  * THE COMMERCIAL ARRANGEMENT
@@ -295,6 +297,30 @@ export const invoiceDelivery = pgTable("invoice_delivery", {
   channel: invoiceDeliveryChannel("channel").notNull(),
   destination: text("destination"),
   externalReference: text("external_reference"),
+  /**
+   * The outbound email this attempt became, when the channel was email.
+   *
+   * It is the join that answers "did it arrive". Everything a provider tells
+   * us afterwards, a delivery, a bounce, a spam complaint, is recorded by
+   * `services/email.ts` against the message and nowhere else, so without this
+   * column the only way to connect a bounce to the invoice it was carrying is
+   * to match an address against a timestamp and hope one company does not
+   * invoice the same address twice in a minute.
+   *
+   * It is deliberately NOT a copy of the message's status. Two rows holding
+   * the same fact disagree eventually, and the one being read is always the
+   * stale one.
+   */
+  messageId: uuid("message_id").references(() => message.id, { onDelete: "set null" }),
+  /**
+   * The portal link this attempt handed out.
+   *
+   * Kept so a link can be withdrawn after the fact. An invoice emailed to the
+   * wrong address is a document a stranger can open until the grant expires,
+   * and without this column there is nothing connecting that grant to the
+   * send that leaked it.
+   */
+  portalGrantId: uuid("portal_grant_id").references(() => portalGrant.id, { onDelete: "set null" }),
   /** Several networks make an invoice immutable once submitted. */
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
   acceptedAt: timestamp("accepted_at", { withTimezone: true }),

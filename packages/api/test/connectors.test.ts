@@ -18,6 +18,7 @@ import {
 import { registeredPaymentProviders } from "../src/payments/index";
 import { registeredEmailProviders } from "../src/email/index";
 import { registeredProviders as registeredAccountingProviders } from "../src/accounting/index";
+import { registeredAiProviders } from "../src/ai/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -52,7 +53,7 @@ describe("the connector catalogue", () => {
     const registered = new Set([
       ...registeredSpendSources(), ...registeredLeadSources(),
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
-      ...registeredAccountingProviders(),
+      ...registeredAccountingProviders(), ...registeredAiProviders(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -74,7 +75,7 @@ describe("the connector catalogue", () => {
     const registered = [
       ...registeredSpendSources(), ...registeredLeadSources(),
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
-      ...registeredAccountingProviders(),
+      ...registeredAccountingProviders(), ...registeredAiProviders(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);
@@ -93,7 +94,7 @@ describe("the connector catalogue", () => {
       "ga4", "search_console", "google_business_profile",
       "angi", "thumbtack", "lead_webhook", "spend_csv",
       /** Not marketing, and the catalogue covers every outside system now. */
-      "stripe", "resend", "smtp", "quickbooks",
+      "stripe", "resend", "smtp", "quickbooks", "anthropic", "openai", "google",
     ]) {
       expect(keys.has(needed), `${needed} is not in the catalogue`).toBe(true);
     }

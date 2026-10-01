@@ -23,6 +23,13 @@ import { customFieldRoutes } from "./custom-fields";
 import { paymentRoutes } from "./payments";
 import { emailRoutes } from "./email";
 import { accountingRoutes } from "./accounting";
+import { messagingRoutes } from "./messaging";
+import { leadConnectorRoutes } from "./lead-connectors";
+import { invoiceDeliveryRoutes } from "./invoice-delivery";
+import { profitabilityRoutes } from "./profitability";
+import { crewRoutes } from "./crews";
+import { payrollRoutes } from "./payroll";
+import { aiRoutes } from "./ai";
 
 export * from "./common";
 export * from "./customers";
@@ -50,6 +57,13 @@ export * from "./custom-fields";
 export * from "./payments";
 export * from "./email";
 export * from "./accounting";
+export * from "./messaging";
+export * from "./lead-connectors";
+export * from "./invoice-delivery";
+export * from "./profitability";
+export * from "./crews";
+export * from "./payroll";
+export * from "./ai";
 
 /**
  * Every route in the product, and the only description of them.
@@ -95,6 +109,13 @@ export const routes = {
   ...paymentRoutes,
   ...emailRoutes,
   ...accountingRoutes,
+  ...messagingRoutes,
+  ...leadConnectorRoutes,
+  ...invoiceDeliveryRoutes,
+  ...profitabilityRoutes,
+  ...crewRoutes,
+  ...payrollRoutes,
+  ...aiRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

@@ -21,3 +21,4 @@ export * from "./automation";
 export * from "./inventory";
 export * from "./marketing";
 export * from "./reviews";
+export * from "./ai";

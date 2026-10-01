@@ -67,7 +67,9 @@ export type ConnectorCapability =
    */
   | "payments"
   /** The books of record, which this product posts to and never owns. */
-  | "accounting";
+  | "accounting"
+  /** A language model, running on the company's own key and the company's own bill. */
+  | "ai_model";
 
 /**
  * How the operator proves who they are.
@@ -117,7 +119,9 @@ export type ConnectorFlow =
   /** Invoices, payments and credits pushed into the books of record. */
   | "books_out"
   /** What changed over there read back, so the two do not silently diverge. */
-  | "books_in";
+  | "books_in"
+  /** Questions out and answers back, priced per token against the operator's own account. */
+  | "model_calls";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -359,6 +363,50 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "Connect the QuickBooks company you already use, then map your account codes to your own chart of accounts on the screen that follows. Nothing is mapped for you: a posting whose code has no mapping stops and names the code, because a default that quietly picks a plausible income account is a year of misfiled revenue found by an accountant in March.",
     limitation:
       "Intuit meters READS and refuses the overage with a 429 rather than billing it, so a pass that runs out of read budget stops reading, says so on the run, and keeps pushing: the invoices still land, the change feed waits for the next window. Connecting it does not import history either; it starts from the day you connect, because their change feed will not answer for anything older than thirty days.",
+  },
+
+  /* -------------------------------------------------------------- models */
+  {
+    key: "anthropic",
+    label: "Claude",
+    capability: "ai_model",
+    auth: "api_key",
+    flows: ["model_calls"],
+    state: "built",
+    purpose:
+      "Point Claude at your own data with your own key, and give it the same tools a person with your permissions would have. Nothing it can reach is anything you could not do by hand.",
+    setup:
+      "An API key from your own Anthropic account, put in your secret store. This product holds the name of it and never the value. Set a monthly ceiling at the same time: the key is yours and so is the bill.",
+    limitation:
+      "The ceiling is checked before each call against the worst case cost of that call, so a month can overrun by at most one call's input, which nothing can know in advance. No word of any prompt or answer is stored here, which also means there is no transcript to go back to.",
+  },
+  {
+    key: "openai",
+    label: "ChatGPT",
+    capability: "ai_model",
+    auth: "api_key",
+    flows: ["model_calls"],
+    state: "built",
+    purpose:
+      "The same seam with an OpenAI key instead, for a company that already pays for one.",
+    setup:
+      "An API key from your own OpenAI account. Prices and the default model are not held for this vendor, so set them in the connection settings if you want a spend ceiling, because a ceiling built on an unknown price is a setting that does nothing.",
+    limitation:
+      "A call this product cannot price is refused while a ceiling is set, rather than running and recording nothing, and runs recording a null cost when no ceiling is set. Never a zero: zero is a claim the call was free.",
+  },
+  {
+    key: "google",
+    label: "Gemini",
+    capability: "ai_model",
+    auth: "api_key",
+    flows: ["model_calls"],
+    state: "built",
+    purpose:
+      "The same seam with a Google key. The adapter sends it as a header rather than in the URL, because a URL is logged by every proxy between your box and the vendor.",
+    setup:
+      "An API key from your own Google AI account, plus prices and a default model in the connection settings if you want a ceiling, for the same reason as OpenAI.",
+    limitation:
+      "Gemini issues no id for a tool call, so when a model asks for the same tool twice in one turn the two are told apart by order rather than by identity. Everything else lines up with the other two.",
   },
 
   /* ------------------------------------------------------------ payments in */

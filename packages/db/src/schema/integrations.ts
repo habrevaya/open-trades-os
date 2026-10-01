@@ -354,6 +354,21 @@ export const leadSourceConnector = pgTable("lead_source_connector", {
    * asked for one.
    */
   webhookToken: text("webhook_token"),
+  /**
+   * WHERE TO FIND EACH FIELD IN WHATEVER SHAPE THIS SENDER USES.
+   *
+   * Configuration rather than code, which `lead-webhook.ts` has argued since
+   * it was written: every sender calls the same five things something
+   * different, and a parser per sender is the same file eight times. What was
+   * missing was anywhere to put the mapping, so the adapter took a field map
+   * nothing ever supplied and fell back to its guesses on every lead.
+   *
+   * Keys are checked against the field list in `services/lead-connectors.ts`
+   * on write. A key nothing here can store is refused rather than saved and
+   * ignored, because saved and ignored is how an operator maps a phone number
+   * onto a name nobody reads and never finds out.
+   */
+  fieldMap: jsonb("field_map").$type<Record<string, string>>().notNull().default({}),
   /** What the source takes. Feeds true margin on marketplace work. */
   commissionRate: money("commission_rate"),
   leadFee: money("lead_fee"),
@@ -375,6 +390,19 @@ export const leadOffer = pgTable("lead_offer", {
 
   /** Raw offer as received, before we decide anything. */
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+  /**
+   * WHO TO RING, which lived only inside `payload` until now.
+   *
+   * Every other mapped field had a column and these three did not, so the one
+   * question an operator asks of an offer, who is this and how do I reach
+   * them, could only be answered by digging through raw jsonb that each
+   * sender shapes differently. The list of open offers returned rows with an
+   * address and no name on them.
+   */
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  notes: text("notes"),
   serviceRequested: text("service_requested"),
   addressLine1: text("address_line1"),
   city: text("city"),

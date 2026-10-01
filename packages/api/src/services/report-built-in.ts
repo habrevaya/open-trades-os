@@ -123,4 +123,75 @@ export const BUILT_IN: BuiltInReport[] = [
       measures: ["count"],
     },
   },
+  /**
+   * M15. The four questions an owner asks about which work makes money, and
+   * none of them is answerable from a revenue report.
+   *
+   * Each one is an ordinary definition over the `profitability` dataset, so
+   * "edit a copy of this" is the next step rather than a different feature,
+   * and each one is filtered to settled work, because a job still accruing
+   * labour has a margin that is not finished being wrong. The in-progress
+   * report below is the deliberate exception and says so in its question.
+   */
+  {
+    slug: "margin-by-job-type",
+    name: "Margin by job type",
+    question: "Which kind of work actually makes money?",
+    definition: {
+      dataset: "profitability",
+      dimensions: ["job_type"],
+      measures: ["revenue", "material_cost", "labour_cost", "gross_margin", "count"],
+      filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
+      orderBy: "gross_margin",
+      limit: 25,
+    },
+  },
+  {
+    slug: "margin-by-weekday",
+    name: "Margin by day of the week",
+    question: "Is there a day of the week we lose money on?",
+    definition: {
+      dataset: "profitability",
+      dimensions: ["weekday"],
+      measures: ["revenue", "gross_margin", "hours_over", "count"],
+      filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
+      /**
+       * No `orderBy`, which means the weekday's own prefix order. Sorted by
+       * margin this is seven numbers with the week taken out of them, and the
+       * week is the entire question.
+       */
+    },
+  },
+  {
+    slug: "margin-by-technician",
+    name: "Margin by technician",
+    question: "Whose work earns, once their hours are costed?",
+    definition: {
+      dataset: "profitability",
+      dimensions: ["technician"],
+      measures: ["revenue", "labour_cost", "gross_margin", "hours_over", "labour_not_recorded"],
+      filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
+      orderBy: "gross_margin",
+      limit: 25,
+    },
+  },
+  {
+    slug: "jobs-running-over",
+    name: "Jobs running over plan",
+    question: "What is taking longer than we scheduled, while we can still act on it?",
+    definition: {
+      dataset: "profitability",
+      dimensions: ["job"],
+      /**
+       * DELIBERATELY NOT filtered to settled work. This is the one report
+       * whose value is entirely in the unfinished jobs: a job nine hours into
+       * a four hour plan is the most actionable row this product produces,
+       * and waiting for it to be invoiced tells somebody on Friday what they
+       * needed on Tuesday.
+       */
+      measures: ["hours_over", "scheduled_hours", "actual_hours", "unbilled_cost"],
+      orderBy: "hours_over",
+      limit: 25,
+    },
+  },
 ];

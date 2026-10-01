@@ -1,5 +1,30 @@
 {
   "extends": "../config/tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "types": ["node"] },
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    /*
+      DECLARATION EMIT IS OFF HERE, AND IT IS NOT A WORKAROUND.
+
+      The shared base turns `declaration` on, which makes `tsc` enforce that
+      every exported type can be written down by a portable path, even when
+      `noEmit` means no declaration file is ever produced. Every package in
+      this workspace is consumed as SOURCE: `exports` on each one points at
+      `./src/index.ts`, nothing builds a `.d.ts`, and none exists anywhere in
+      the tree. So the constraint has no consumer here.
+
+      What it does have is a cost. The route registry is one object naming
+      several hundred handlers, so its inferred type touches a type from
+      nearly every service, and any one of them mentioning a type from deep
+      inside another package fails the whole registry with TS2742: an error in
+      a file nobody edited, naming a path nobody wrote.
+
+      If this package ever ships compiled declarations, turn this back on and
+      fix the leaks properly: the fix is an explicit return or parameter type
+      at each boundary, which `services/labor.ts` already does in two places
+      and says why.
+    */
+    "declaration": false
+  },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

@@ -1,10 +1,10 @@
 import { and, asc, desc, eq, isNull, isNotNull } from "drizzle-orm";
-import { schema, type Database } from "@opentradesos/db";
+import { schema } from "@opentradesos/db";
 import { labor, money as m } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
+  guardedRead, guardedWrite, audit, ConflictError, NotFoundError, timezoneOf,
+  type ServiceContext,
 } from "./context";
-import { audit } from "./customers";
 
 /**
  * DECLARING WHAT PEOPLE ARE PAID, WHICH NOTHING COULD DO

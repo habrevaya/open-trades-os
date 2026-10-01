@@ -61,12 +61,27 @@ describe("permissions", () => {
 
     expect(open).toEqual([
       "GET /v1/portal/estimate",
+      /**
+       * An invoice a customer opens from the link in the email, and the pay
+       * action on the same page. Grant reachable rather than public: the
+       * token IS the authority, which is the whole point of the mechanism,
+       * and a customer settling a bill has no account and never will.
+       *
+       * Two things make this safe to have on the list. The invoice id comes
+       * from the grant rather than from the request, so there is no id to
+       * tamper with, and the pay action reads the amount from the invoice
+       * balance rather than from anything the browser sent. Still no payment
+       * is created here: a signed processor webhook remains the only thing
+       * that can say money moved.
+       */
+      "GET /v1/portal/invoice",
       "GET /v1/portal/job",
       "GET /v1/portal/session",
       "GET /v1/public/availability",
       "GET /v1/public/services",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
+      "POST /v1/portal/invoice/pay",
       "POST /v1/public/bookings",
       /**
        * A lead form on a company's own website, filled in by a homeowner

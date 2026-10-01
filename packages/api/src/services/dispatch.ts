@@ -3,10 +3,10 @@ import { schema, type Database } from "@opentradesos/db";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf,
+  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit
 } from "./context";
+import { renderWithin } from "./message-templates";
 import { time } from "@opentradesos/core";
-import { audit } from "./customers";
 import { sendTransactional } from "./comms-send";
 import type {
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot,
@@ -344,7 +344,7 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
           address,
           customerId: job.customerId,
           sentByUserId: ctx.actor.userId,
-          body: noticeBody({
+          body: await arrivalBody(tx, ctx.actor.organizationId, {
             company: await companyName(tx, ctx.actor.organizationId),
             etaMinutes: input.etaMinutes ?? null,
             trackingUrl,
@@ -457,6 +457,38 @@ async function companyName(tx: Database, organizationId: string): Promise<string
  * guessed when the phone did not supply one: "about null minutes" has shipped
  * in this industry more than once.
  */
+/**
+ * THE COMPANY'S OWN WORDING IF THEY HAVE WRITTEN ONE, otherwise ours.
+ *
+ * `noticeBody` below is the wording this product ships with, and it was the
+ * only wording there was: a string literal in a service, which meant a
+ * company that calls their people engineers rather than technicians, or whose
+ * notice runs a line too long for a lock screen, needed a pull request to
+ * change the one message their customers read most often.
+ *
+ * The fallback is not a convenience, it is the reason this is safe to add.
+ * Every company already using this has no template, gets exactly the sentence
+ * they got yesterday, and nothing about their Tuesday changes.
+ *
+ * A template that renders with gaps STILL SENDS. The person waiting on this
+ * is a technician in a driveway, and refusing to tell a customer the van is
+ * coming because a template references something this particular job has
+ * nothing for is a worse outcome than a sentence with a gap in it.
+ */
+async function arrivalBody(
+  tx: Database,
+  organizationId: string,
+  input: { company: string; etaMinutes: number | null; trackingUrl: string | null },
+): Promise<string> {
+  const rendered = await renderWithin(tx, organizationId, "arrival_notice", {
+    company: input.company,
+    eta: input.etaMinutes === null ? "on the way" : `about ${input.etaMinutes} minutes away`,
+    etaMinutes: input.etaMinutes,
+    trackingUrl: input.trackingUrl,
+  });
+  return rendered?.body.trim() ? rendered.body : noticeBody(input);
+}
+
 function noticeBody(input: {
   company: string; etaMinutes: number | null; trackingUrl: string | null;
 }): string {
