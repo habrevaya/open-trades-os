@@ -5,7 +5,7 @@ import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
-  fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
+  fieldOps, fieldDevices, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
   messageTemplates, messagingRegistration, leadConnectors,
@@ -137,6 +137,10 @@ export const handlers = {
 
   // The field. The phone carries field:sync; the board is office side.
   registerDevice: fieldOps.register,
+  signInDevice: fieldDevices.signIn,
+  listDevices: fieldDevices.list,
+  signOutDevice: fieldDevices.signOut,
+  revokeDevice: fieldDevices.revoke,
   syncOperations: fieldOps.sync,
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,

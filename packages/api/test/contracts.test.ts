@@ -87,6 +87,16 @@ describe("permissions", () => {
       "GET /v1/portal/visit-change",
       "GET /v1/public/availability",
       "GET /v1/public/services",
+      /**
+       * The phone app signing in. Open because nobody is signed in yet, and
+       * it is the one entry on this list that is not customer facing, so the
+       * reason is worth stating: it is the sign in form in another shape. It
+       * runs the form's own password check and lockout, and hands out nothing
+       * but a session for somebody who is a technician. Like the forms, it
+       * has no rate limit by address in this product; the per account lockout
+       * is what stops guessing.
+       */
+      "POST /v1/field/sign-in",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/portal/invoice/pay",
@@ -169,6 +179,11 @@ describe("money routes are idempotent", () => {
       "The response is a secret and only its hash is stored, so a replay has "
       + "nothing to return. A retry leaves a second token, visible in the list "
       + "by its label and revocable.",
+    "/v1/field/sign-in":
+      "The response is the phone's token and only its hash is stored, so a "
+      + "replay has nothing to return. A retry leaves a second token, and the "
+      + "phone registering with whichever one it received ends the other, so a "
+      + "handset never holds more than one that works.",
   };
 
   it("every POST is idempotent, because clients on bad connections retry", () => {

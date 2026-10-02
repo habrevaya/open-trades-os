@@ -118,7 +118,17 @@ export const VisitForField = z.object({
   sequence: z.number().int(),
   status: z.string(),
   summary: z.string(),
+  /** The job's longer description, when the office wrote one. */
+  description: z.string().nullable(),
   customerComplaint: z.string().nullable(),
+  /** What technicians have already written on this visit, oldest first. */
+  technicianNotes: z.string().nullable(),
+  /**
+   * When somebody said they had arrived. The visit stays `en_route` until work
+   * starts, because that is the state machine core reasons about, so this is
+   * the only way a phone can show "arrived" after a restart.
+   */
+  arrivedAt: z.string().datetime().nullable(),
   windowStart: z.string().datetime().nullable(),
   windowEnd: z.string().datetime().nullable(),
   routeOrder: z.number().int().nullable(),
@@ -382,7 +392,87 @@ export const resolveConflict = defineRoute({
   output: z.object({ ok: z.literal(true) }),
 });
 
+/**
+ * THE PHONE APP SIGNING IN
+ *
+ * Public, because nobody is signed in yet, and refused with a 401 in plain
+ * words for a wrong password, a locked account, or an account that is not a
+ * technician. The same password check and lockout as the sign in form.
+ */
+export const signInDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/sign-in",
+  summary: "Sign the phone app in",
+  description:
+    "Email and password in, a device token out, presented afterwards as `Authorization: Bearer otd_...`. The token is a session: it acts as the person, stops working when they are deactivated, and lasts ninety days. Only an account with a technician record and field:sync is let in. Register the device with the token next, which binds the token to it so revoking the device ends the sign in.",
+  module: "M11",
+  permissions: [],
+  authorization: "public",
+  input: z.object({
+    email: z.string().email().max(320),
+    password: z.string().min(1).max(500),
+  }),
+  output: z.object({
+    /** Shown once. Only its hash is kept. */
+    token: z.string(),
+    expiresAt: z.string().datetime(),
+    user: z.object({ id: Uuid, name: z.string().nullable(), email: z.string() }),
+    organization: z.object({ id: Uuid, name: z.string(), timezone: z.string() }),
+  }),
+});
+
+export const FieldDevice = z.object({
+  id: Uuid,
+  technicianId: Uuid,
+  technicianName: z.string(),
+  label: z.string().nullable(),
+  platform: z.string().nullable(),
+  appVersion: z.string().nullable(),
+  lastSeenAt: z.string().datetime().nullable(),
+  lastSyncedAt: z.string().datetime().nullable(),
+  /** A phone app token is live on it. A browser never has one. */
+  signedIn: z.boolean(),
+  revokedAt: z.string().datetime().nullable(),
+});
+
+export const listDevices = defineRoute({
+  method: "get",
+  path: "/v1/field/devices",
+  summary: "Every phone the technicians use",
+  module: "M11",
+  permissions: ["user:read"],
+  input: z.object({}),
+  output: z.object({ devices: z.array(FieldDevice) }),
+});
+
+export const signOutDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/devices/{id}/sign-out",
+  summary: "Sign the phone app out",
+  description:
+    "Ends the device's token. Only the caller's own device; another person's phone is the office's decision, which is the revoke route. The device keeps its sequence, so signing in again on the same handset carries on numbering.",
+  module: "M11",
+  permissions: ["field:sync"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ ok: z.literal(true) }),
+});
+
+export const revokeDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/devices/{id}/revoke",
+  summary: "Take a phone away",
+  description:
+    "For a lost or returned phone. The device can no longer sync and its token stops working on every route at once. It does not stop the person signing in again; deactivating them does that.",
+  module: "M11",
+  permissions: ["user:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ ok: z.literal(true), revokedAt: z.string().datetime() }),
+});
+
 export const fieldRoutes = {
+  signInDevice, listDevices, signOutDevice, revokeDevice,
   syncOperations, registerDevice, getFieldSnapshot,
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice,
   listConflicts, resolveConflict,

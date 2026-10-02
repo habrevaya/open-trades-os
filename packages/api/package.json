@@ -18,7 +18,8 @@
     "./calendar": "./src/calendar/index.ts",
     "./call-tracking": "./src/call-tracking/index.ts",
     "./services/calendar": "./src/services/calendar.ts",
-    "./services/call-tracking": "./src/services/call-tracking.ts"
+    "./services/call-tracking": "./src/services/call-tracking.ts",
+    "./services/passwords": "./src/services/passwords.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

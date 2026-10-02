@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
+import { bindToken } from "./field-devices";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
 } from "../contracts/field";
@@ -53,6 +54,10 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
         updatedAt: new Date(),
       }).where(eq(schema.device.id, existing.id));
 
+      if (ctx.deviceTokenHash) {
+        await bindToken(tx, existing.id, existing.sessionTokenHash, ctx.deviceTokenHash);
+      }
+
       return { deviceId: existing.id, lastSequence: existing.lastSequence };
     }
 
@@ -66,6 +71,12 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
       osVersion: input.osVersion ?? null,
       pushToken: input.pushToken ?? null,
       lastSeenAt: new Date(),
+      /**
+       * The phone app's token, when that is what registered it, so revoking
+       * this device ends the sign in too. A browser registers with a cookie
+       * and leaves this empty.
+       */
+      sessionTokenHash: ctx.deviceTokenHash ?? null,
     }).returning();
 
     await audit(tx, ctx, "device.registered", "device", created!.id, null,

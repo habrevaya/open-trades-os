@@ -1,15 +1,16 @@
 import type { Database } from "@opentradesos/db";
 import type { ServiceContext } from "../services/context";
 import { resolveToken, touch, hashToken } from "../services/apps";
-import { assertNotSuspended, type ResolvedSession } from "../services/session";
+import { assertNotSuspended, resolveSession, type ResolvedSession } from "../services/session";
 
 /**
  * WHO IS MAKING THIS REQUEST
  *
- * Two credentials reach the same routes: a session cookie held by a person,
- * and a bearer token held by a connected application. They produce the same
- * `Actor`, and everything downstream treats them identically, which is the
- * whole reason an app is not a parallel authorization system.
+ * Three credentials reach the same routes: a session cookie held by a person,
+ * the same kind of session held by the phone app as an `otd_` bearer token,
+ * and an `ots_` bearer token held by a connected application. They produce
+ * the same `Actor`, and everything downstream treats them identically, which
+ * is the whole reason an app is not a parallel authorization system.
  *
  * It lives here rather than in the web app for the reason the session mapping
  * moved here: code that only the framework can reach is code no test reaches
@@ -18,6 +19,13 @@ import { assertNotSuspended, type ResolvedSession } from "../services/session";
  */
 
 const BEARER = /^Bearer\s+(ots_[A-Za-z0-9_-]+)$/;
+
+/**
+ * The phone app's token. A session like a cookie, presented in a header
+ * because a phone has no cookie jar worth trusting, and prefixed so it is
+ * told apart from an app token without a lookup. See services/field-devices.
+ */
+const DEVICE_BEARER = /^Bearer\s+(otd_[A-Za-z0-9_-]+)$/;
 
 export interface AuthDeps {
   db: Database;
@@ -46,6 +54,22 @@ export async function authenticate(
   deps: AuthDeps,
 ): Promise<Authenticated | null> {
   const header = request.headers.get("authorization");
+  const device = header ? DEVICE_BEARER.exec(header) : null;
+
+  if (device) {
+    /**
+     * The same resolution a cookie gets, so the phone acts as exactly who the
+     * person is today. Refused rather than falling back to a cookie, for the
+     * reason an app token is: a revoked phone must not quietly become
+     * whoever is signed in on the same machine. A suspended company throws
+     * from inside, which is the 403 that says so.
+     */
+    const tokenHash = hashToken(device[1]!);
+    const session = await resolveSession(deps.db, tokenHash);
+    if (!session) return null;
+    return { ctx: { actor: session.actor, db: deps.db, deviceTokenHash: tokenHash } };
+  }
+
   const bearer = header ? BEARER.exec(header) : null;
 
   if (bearer) {
