@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
 } from "../services/index";
 
 /**
@@ -503,6 +503,7 @@ export const handlers = {
   mergeCustomers: customerLifecycle.handlers.mergeCustomers,
   getCustomerMergedInto: customerLifecycle.handlers.getCustomerMergedInto,
 
+  getCustomerStatement: statements.handlers.getCustomerStatement,
   createCreditNote: creditNotes.handlers.createCreditNote,
   issueCreditNote: creditNotes.handlers.issueCreditNote,
   applyCreditNote: creditNotes.handlers.applyCreditNote,

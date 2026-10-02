@@ -45,6 +45,7 @@ import { taskRoutes } from "./tasks";
 import { workflowRoutes } from "./workflows";
 import { inspectionRoutes } from "./inspections";
 import { creditNoteRoutes } from "./credit-notes";
+import { statementRoutes } from "./statements";
 import { pricingAuthorityRoutes } from "./pricing-authority";
 import { fieldAssetRoutes } from "./field-assets";
 import { campaignRoutes } from "./campaigns";
@@ -100,6 +101,7 @@ export * from "./apps";
 export * from "./pricing-authority";
 export * from "./field-assets";
 export * from "./credit-notes";
+export * from "./statements";
 
 /**
  * Every route in the product, and the only description of them.
@@ -126,6 +128,7 @@ export const routes = {
   ...priceBookRoutes,
   ...billingRoutes,
   ...creditNoteRoutes,
+  ...statementRoutes,
   ...estimateRoutes,
   ...portalRoutes,
   ...bookingRoutes,

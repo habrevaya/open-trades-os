@@ -597,4 +597,6 @@ export const ledgerEntry = pgTable("ledger_entry", {
   accountIdx: index("ledger_entry_account_idx").on(t.organizationId, t.accountCode, t.occurredAt),
   jobIdx: index("ledger_entry_job_idx").on(t.jobId),
   sourceIdx: index("ledger_entry_source_idx").on(t.sourceType, t.sourceId),
+  /** A customer's statement reads their receivable and what is held for them, in order. */
+  customerIdx: index("ledger_entry_customer_idx").on(t.organizationId, t.customerId, t.occurredAt),
 }));

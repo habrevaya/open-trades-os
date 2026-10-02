@@ -367,12 +367,18 @@ export default async function CustomerPage({
         <section aria-label="Invoices">
           <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-base font-semibold">Invoices</h2>
-            {can(user.actor, "invoice:write") && (
-              <a href={`/invoices/new?customer=${id}`}
+            <div className="flex gap-2">
+              <a href={`/customers/${id}/statement`}
                  className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
-                New invoice
+                Statement
               </a>
-            )}
+              {can(user.actor, "invoice:write") && (
+                <a href={`/invoices/new?customer=${id}`}
+                   className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                  New invoice
+                </a>
+              )}
+            </div>
           </div>
           {invoices.length === 0 ? (
             <p className="mt-2 text-sm text-ink-500">None yet.</p>

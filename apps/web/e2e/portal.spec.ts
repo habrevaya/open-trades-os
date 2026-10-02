@@ -125,6 +125,14 @@ test("a customer opens their invoice, their account and the seeded proposal and 
   await expect(stranger.getByRole("heading", { level: 1, name })).toBeVisible();
   await expect(stranger.getByText(`#${invoiceNumber}`).first()).toBeVisible();
 
+  // Their own statement, from the account: the invoice charged, and what is owed.
+  await stranger.getByRole("link", { name: "Your statement" }).click();
+  await expect(stranger).toHaveURL(/\/c\/[^/]+\/statement$/);
+  const theirs = stranger.getByRole("article", { name: "Statement" });
+  await expect(theirs.getByRole("heading", { level: 1 })).toHaveText(`Statement for ${name}`);
+  await expect(theirs.getByRole("region", { name: "Activity" })).toContainText(`Invoice ${invoiceNumber}`);
+  await expect(theirs.getByRole("region", { name: "Still open" })).toContainText("$149.00");
+
   // The two links the seed prints.
   const proposal = await stranger.goto(seed.proposal);
   expect(proposal?.status()).toBe(200);

@@ -5,6 +5,7 @@ import { ConflictError, InvalidGrantError, NotFoundError } from "./context";
 import * as payments from "./payments";
 import { consume, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
 import { payerContext, processorConnected, type PortalPaymentStart } from "./invoice-delivery";
+import { buildStatement } from "./statements";
 
 /**
  * THE TWO PORTAL LINKS THAT HAD NO PAGE
@@ -330,4 +331,19 @@ export async function startDepositPayment(
     amount: result.amount,
     currency: result.currency,
   };
+}
+
+/**
+ * The customer's statement, from their own account link.
+ *
+ * The same document the office prints, built by the same function, inside the
+ * grant's tenant boundary and for the customer the grant names only. A
+ * customer asking "what do I owe in total" can answer it themselves.
+ */
+export async function viewStatement(
+  db: Database, input: { token: string; from?: string | undefined; to?: string | undefined },
+) {
+  const grant = await peek(db, input.token);
+  const customerId = requireCustomer(grant);
+  return inGrant(db, grant, (tx) => buildStatement(tx, grant.organizationId, customerId, input));
 }

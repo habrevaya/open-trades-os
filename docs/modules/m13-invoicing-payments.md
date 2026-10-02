@@ -132,6 +132,17 @@ be credited for more than it charged, counting every earlier credit and draft, a
 goodwill needs a note. `/invoices/credit-notes` lists every one, with what is still
 unused.
 
+### Statements
+
+**Statement** on a customer's page shows what they owed at the start of a period,
+every invoice, payment, refund and credit in it with a running balance, what they
+owe at the end, and the open invoices aged by how late they are. It prints as a
+document. The customer sees the same statement from their account link, under
+**Your statement**. It is read from the ledger, so it agrees with the receivables
+report, and moving money already held onto an invoice is not a line because nothing
+the customer owes changed. On commercial work an invoice appears on the statement of
+whoever pays it, not the tenant's.
+
 ### Deposits
 
 `POST /v1/deposits` asks for one, `POST /v1/deposits/{id}/apply` puts it against
@@ -165,6 +176,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/invoices/{invoiceId}/send` | `invoice:send` |
 | `POST /v1/invoices/{id}/void` | `invoice:void` |
 | `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
+| `GET /v1/customers/{id}/statement` | `invoice:read` |
 | `GET /v1/credit-notes` | `invoice:read` |
 | `POST /v1/credit-notes` | `invoice:credit` |
 | `POST /v1/credit-notes/{id}/issue` | `invoice:credit` |
@@ -210,8 +222,7 @@ invoice, or a refund is recorded against a payment. A credit note that has been 
 cannot be voided; the invoice it settled has to be dealt with on its own.
 Credit notes do not reach QuickBooks or Xero yet, so a company syncing its books
 raises the matching credit memo there by hand.
-There is no customer statement across invoices, so a customer asking "what do I
-owe in total" is answered from the balance on their account page rather than from
-a document. Tipping is not built. Tax rate determination is deliberately not
+A statement is printed or opened from the customer's link; it is not yet emailed on
+its own or on a schedule. Tipping is not built. Tax rate determination is deliberately not
 built: the rate is on the line it was charged on, and BUILD.md says why. Automatic
 dunning is a workflow somebody builds in M29.
