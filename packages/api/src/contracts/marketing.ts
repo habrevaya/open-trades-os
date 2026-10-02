@@ -23,7 +23,7 @@ import { Uuid, MoneyString, RateString } from "./common";
  * owner conclude their brand carries them.
  */
 
-export const TouchBasis = z.enum(["utm", "click_id", "tracked_number", "referrer", "none"]);
+export const TouchBasis = z.enum(["utm", "click_id", "tracked_number", "referrer", "declared", "none"]);
 
 export const AttributionModel = z.enum([
   "first_touch", "last_touch", "last_non_direct", "linear", "position_based",
@@ -89,7 +89,24 @@ export const getJobAttribution = defineRoute({
   }),
   output: z.object({
     jobId: Uuid,
+    /** The company's own model, which the job's lead source was filled from. */
+    companyModel: AttributionModel,
     touchCount: z.number().int(),
+    /** Every touch credited to this job, oldest first, with its channel and campaign. */
+    touches: z.array(z.object({
+      id: Uuid,
+      occurredAt: z.string().datetime(),
+      source: z.string(),
+      sourceLabel: z.string(),
+      basis: TouchBasis,
+      /** A person chose it on a form, as against a marketplace or a tag. */
+      enteredByPerson: z.boolean(),
+      channelName: z.string().nullable(),
+      campaignName: z.string().nullable(),
+      trackedNumberE164: z.string().nullable(),
+      callId: Uuid.nullable(),
+      utmCampaign: z.string().nullable(),
+    })),
     /** False when the models name different channels, which is when to read all of them. */
     agree: z.boolean(),
     models: z.array(z.object({
@@ -108,8 +125,13 @@ export const getJobAttribution = defineRoute({
 });
 
 export const SpendRow = z.object({
-  source: z.string(),
+  /** A catalogue key. Optional when a channel or a tracking campaign is named. */
+  source: z.string().optional(),
   campaign: z.string().max(200).nullable().optional(),
+  /** The company's channel this money went to. */
+  channelId: Uuid.nullable().optional(),
+  /** The tracking campaign this money went to, which implies its channel. */
+  campaignId: Uuid.nullable().optional(),
   spentOn: z.string().date(),
   amount: MoneyString,
   impressions: z.number().int().min(0).nullable().optional(),
@@ -131,6 +153,8 @@ export const recordSpend = defineRoute({
     id: Uuid,
     source: z.string(),
     campaign: z.string().nullable(),
+    channelId: Uuid.nullable(),
+    campaignId: Uuid.nullable(),
     spentOn: z.string(),
     amount: MoneyString,
     origin: z.string(),

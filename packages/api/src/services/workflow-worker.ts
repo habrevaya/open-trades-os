@@ -8,6 +8,7 @@ import { sweep } from "./workflow-dwell";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { deliverDue } from "./delivery-schedules";
 import { renewalsPass } from "./agreements";
+import { sendDue } from "./campaigns";
 
 /**
  * THE WORKER
@@ -243,10 +244,10 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * reads it and goes out on the same pass rather than the next.
    */
   /**
-   * Companies whose scheduled reports or statements went into the outbox on
-   * this pass. They may have had no events, and the hook below only runs for
-   * companies that did, so without this a Monday report would sit queued
-   * until that company next did something.
+   * Companies whose scheduled reports, statements or campaign batches went into
+   * the outbox on this pass. None of those writes an event, so a company whose
+   * only activity was one of them has nothing in the drain results, and without
+   * this its messages would sit queued until it next did something else.
    */
   const delivered = new Set<string>();
 
@@ -267,6 +268,14 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
        * this pass.
        */
       await renewalsPass(options.db, stop ? { shouldStop: stop } : {});
+      /**
+       * And the campaign sends that are due: a scheduled one whose time has
+       * come, or a staged one with a new day of its carrier's cap. Before the
+       * drain, like the schedules, so the texts it queues leave on this pass.
+       */
+      for (const due of await sendDue(options.db, stop ? { shouldStop: stop } : {})) {
+        if (due.action === "sent") delivered.add(due.organizationId);
+      }
     } catch (error) {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.

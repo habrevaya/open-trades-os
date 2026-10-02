@@ -28,6 +28,8 @@ export const LeadFieldTarget = z.object({
 export const LeadConnector = z.object({
   id: Uuid,
   source: z.string(),
+  /** The channel every lead from this sender is credited to. */
+  channelId: Uuid.nullable(),
   displayName: z.string(),
   active: z.boolean(),
   /** Append to this deployment's own public address to get the URL to hand over. */
@@ -65,14 +67,23 @@ export const createLeadConnector = defineRoute({
   permissions: ["integration:write"],
   idempotent: true,
   input: z.object({
-    /** Lowercase, and the string every report groups this channel by. */
+    /** The sender's own name, lowercase: "angi", "thumbtack", "our_website". */
     source: z.string().min(1).max(64),
+    /**
+     * The channel its leads are credited to. Left out, it is found from the
+     * source: a channel of that name, else the catalogue's alias list (angi is
+     * a marketplace), else the marketplace channel, and `channelGuessed` says
+     * when it was the last.
+     */
+    channelId: Uuid.optional(),
     displayName: z.string().min(1).max(200),
     fieldMap: FieldMap.optional(),
     commissionRate: MoneyString.nullable().optional(),
     leadFee: MoneyString.nullable().optional(),
   }),
   output: LeadConnector.extend({
+    /** True when nothing placed the source and its leads default to the marketplace channel. */
+    channelGuessed: z.boolean(),
     /** Shown once. Put it in your secret store under `secretRef` and give it to the sender. */
     secret: z.string(),
     /** A worked example, because integrators get the concatenation order wrong about half the time. */
@@ -102,6 +113,7 @@ export const updateLeadConnector = defineRoute({
   input: z.object({
     id: Uuid,
     displayName: z.string().min(1).max(200).optional(),
+    channelId: Uuid.optional(),
     fieldMap: FieldMap.optional(),
     active: z.boolean().optional(),
     commissionRate: MoneyString.nullable().optional(),

@@ -3,6 +3,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, NotFoundError,
+  acquisition, marketing,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -23,6 +24,7 @@ import { addVisit } from "../actions";
 import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus } from "./actions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
+import { Origin } from "./Origin";
 
 export const dynamic = "force-dynamic";
 
@@ -49,12 +51,17 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     ? await profitability.statement(ctx, { jobId: id })
     : null;
 
-  const [parties, authorization, entitlement, customer] = await Promise.all([
+  const [parties, authorization, entitlement, customer, sources] = await Promise.all([
     commercial.parties(ctx, { jobId: id }),
     commercial.authorizationFor(ctx, { jobId: id }),
     entitlements.forJob(ctx, { jobId: id }),
     customers.get(ctx, { id: job.customerId }),
+    acquisition.channelOptions(ctx),
   ]);
+  /** The evidence behind the source, for whoever reads the marketing figures. */
+  const attribution = can(user.actor, "adspend:read")
+    ? await marketing.handlers.getJobAttribution(ctx, { jobId: id })
+    : null;
 
   /**
    * What a technician photographed, and what is still on their phone.
@@ -131,6 +138,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       </Facts>
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
+
+      <Origin jobId={id} job={job} sources={sources} attribution={attribution} writes={writes}
+              timezone={user.organizationTimezone} />
 
       {/*
         WHO IS INVOLVED, WHO IS PAYING, AND WHAT THEY AUTHORISED.

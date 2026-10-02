@@ -85,15 +85,29 @@ describe("campaigns", () => {
   it("puts a carrier's daily cap in days, not in batches", () => {
     /**
      * An owner reading "3 batches" does not know whether that is three minutes or
-     * three days. Under a 10DLC daily cap it is days, and each day is another
-     * press because there is no scheduler.
+     * three days. Under a 10DLC daily cap it is days. It used to say each day
+     * was another press because there was no scheduler; the worker sends the
+     * rest a day's worth at a time now, and the screen says that instead.
      */
     const html = renderToStaticMarkup(<Audience preview={preview({
       count: 3000, pace: { firstBatch: 1000, days: 3, secondsBetween: 0.1, staged: true },
     })} />);
     expect(html).toContain("over 3 days");
     expect(html).toContain("1,000 a day");
-    expect(html).toContain("no scheduler");
+    expect(html).toContain("goes out a day");
+    expect(html).not.toContain("no scheduler");
+  });
+
+  it("shows the message as the first person on the list will read it", () => {
+    /**
+     * "Hi {{ customer.firstName }}" is a template; "Hi Maria" is what somebody
+     * checks before four thousand go out, and it shows a field that came out empty.
+     */
+    const html = renderToStaticMarkup(<Audience preview={preview({
+      rendered: { for: "Maria Lopez", body: "Hi Maria, Comfort Co here.", subject: null },
+    })} />);
+    expect(html).toContain("As Maria Lopez will read it");
+    expect(html).toContain("Hi Maria, Comfort Co here.");
   });
 
   it("calls a cap of zero a registration problem rather than an audience one", () => {

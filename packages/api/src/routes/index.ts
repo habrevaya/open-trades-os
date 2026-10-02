@@ -15,6 +15,7 @@ import {
   dispatchMap, geocoding,
   reports, deliverySchedules, statementDelivery,
   agreements, visitChanges,
+  acquisition, marketingReport, phoneNumbers,
 } from "../services/index";
 
 /**
@@ -203,6 +204,8 @@ export const handlers = {
   disconnectConnector: leadIntake.handlers.disconnectConnector,
   importSpendFile: leadIntake.handlers.importSpendFile,
   listLeadOffers: leadIntake.handlers.listLeadOffers,
+  acceptLeadOffer: leadIntake.handlers.acceptLeadOffer,
+  declineLeadOffer: leadIntake.handlers.declineLeadOffer,
 
   // Marketing. The touch is kept whole, and no model is the house model.
   listTouches: marketing.handlers.listTouches,
@@ -211,6 +214,32 @@ export const handlers = {
   importSpend: marketing.handlers.importSpend,
   getPerformance: marketing.handlers.getPerformance,
   listUnplacedSources: marketing.handlers.listUnplacedSources,
+  listSpend: marketing.handlers.listSpend,
+  removeSpend: marketing.handlers.removeSpend,
+
+  // Channel > tracking campaign > tracking number, and the funnel across them.
+  listChannels: (ctx: ServiceContext, input: { include?: "live" | "all" | undefined }) =>
+    acquisition.handlers.listChannels(ctx, { includeArchived: input.include === "all" }),
+  listChannelOptions: acquisition.handlers.listChannelOptions,
+  createChannel: acquisition.handlers.createChannel,
+  updateChannel: acquisition.handlers.updateChannel,
+  listTrackingCampaigns: (ctx: ServiceContext, input: {
+    channelId?: string | undefined; include?: "live" | "all" | undefined;
+  }) => acquisition.handlers.listTrackingCampaigns(ctx, {
+    ...(input.channelId ? { channelId: input.channelId } : {}),
+    includeArchived: input.include === "all",
+  }),
+  getTrackingCampaign: acquisition.handlers.getTrackingCampaign,
+  createTrackingCampaign: acquisition.handlers.createTrackingCampaign,
+  updateTrackingCampaign: acquisition.handlers.updateTrackingCampaign,
+  getMarketingSettings: acquisition.handlers.getMarketingSettings,
+  setMarketingSettings: acquisition.handlers.setMarketingSettings,
+  getMarketingFunnel: marketingReport.handlers.getMarketingFunnel,
+  drillMarketingFunnel: marketingReport.handlers.drillMarketingFunnel,
+  listMarketingCalls: marketingReport.handlers.listMarketingCalls,
+  getMarketingCall: marketingReport.handlers.getMarketingCall,
+  listTrackingNumbers: async (ctx: ServiceContext) => ({ numbers: await phoneNumbers.trackingUsage(ctx) }),
+  assignTrackingNumber: phoneNumbers.handlers.assignTrackingNumber,
 
   // Files. Content addressed, so a phone retrying over a metered connection
   // lands on the key it already occupies.

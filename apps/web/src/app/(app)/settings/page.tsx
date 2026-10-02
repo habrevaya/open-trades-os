@@ -2,10 +2,10 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
-  telephony as telephonyService, phoneNumbers as numberService,
+  telephony as telephonyService, phoneNumbers as numberService, acquisition,
   people as peopleService,
 } from "@opentradesos/api/services";
-import { can, ROLE_PRESETS, marketing as mk } from "@opentradesos/core";
+import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq, isNull } from "drizzle-orm";
 import { Chip, Phone } from "@opentradesos/ui";
@@ -43,6 +43,8 @@ export default async function SettingsPage() {
    * and age, and the page was reading three columns and showing none of it.
    */
   const numbers = await numberService.list(ctx, {});
+  /** The channels and their tracking campaigns, for what a tracking number is credited to. */
+  const credits = writes ? await acquisition.channelOptions(ctx) : [];
 
   const data = await inTenant(ctx, async (tx) => ({
     numbers: await tx.select().from(schema.phoneNumber)
@@ -108,7 +110,7 @@ export default async function SettingsPage() {
         {writes ? (
           <Numbers
             numbers={numbers}
-            sources={mk.LEAD_SOURCES.map((source) => ({ key: source.key, label: source.label }))}
+            credits={credits}
           />
         ) : numbers.length === 0 ? (
           <Empty title="No numbers connected">

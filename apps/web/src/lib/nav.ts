@@ -236,15 +236,29 @@ export const NAV: NavGroup[] = [
       {
         href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
         children: [
-          { href: "/marketing", label: "What it cost" },
+          /**
+           * The funnel first: what each channel, campaign and number cost and
+           * what came back, every figure opening into its rows. Then the
+           * worklists behind it (the calls and the marketplace offers), then
+           * what is set up once (channels, tracking campaigns, spend), then
+           * what goes back out to the ad accounts.
+           */
+          { href: "/marketing", label: "Funnel" },
+          { href: "/marketing/calls", label: "Calls" },
+          { href: "/marketing/leads", label: "Lead offers" },
+          { href: "/marketing/tracking", label: "Tracking campaigns" },
+          { href: "/marketing/channels", label: "Channels" },
+          { href: "/marketing/spend", label: "Spend" },
+          { href: "/marketing/conversions", label: "Conversions" },
           /**
            * The other half of marketing: what you send to the list you already
            * own. Under Marketing rather than beside it, and it inherits
            * `adspend:read` to be SHOWN while the page itself needs
            * `campaign:read`, which is the same arrangement as Take a copy under
-           * Settings and for the same reason.
+           * Settings and for the same reason. Called "Texts and emails" so it
+           * cannot be mistaken for the tracking campaigns two lines up.
            */
-          { href: "/marketing/campaigns", label: "Campaigns" },
+          { href: "/marketing/campaigns", label: "Texts and emails" },
           { href: "/marketing/connectors", label: "Connectors" },
         ],
       },

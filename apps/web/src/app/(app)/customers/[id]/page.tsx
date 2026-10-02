@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, creditNotes, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { billing, creditNotes, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, acquisition, NotFoundError } from "@opentradesos/api/services";
+import { can, marketing as mk } from "@opentradesos/core";
+import { LeadSourceSelect } from "@/components/LeadSourceSelect";
+import { sourceValue } from "@/lib/lead-source";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -15,7 +17,7 @@ import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { applyHeld, refund } from "../../payments/actions";
-import { accountLink, removeCustomer, mergeCustomer } from "./actions";
+import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
 import { formatDay, todayIn } from "@/lib/dates";
 import { CREDIT_STATUS, CREDIT_TONE } from "../../invoices/credit-notes/labels";
@@ -45,6 +47,9 @@ export default async function CustomerPage({
 
   const work = await jobs.list(ctx, { limit: 20, customerId: id });
   const seesMoney = can(user.actor, "customer.financials:read");
+  const sources = await acquisition.channelOptions(ctx);
+  const sourceChannel = sources.find((c) => c.id === customer.channelId);
+  const sourceCampaign = sourceChannel?.campaigns.find((k) => k.id === customer.acquisitionCampaignId);
 
   /**
    * Whether this number may be texted about offers, asked of the same
@@ -144,7 +149,18 @@ export default async function CustomerPage({
             ? "Due on receipt"
             : `Net ${customer.paymentTermsDays}`}
         </Fact>
-        <Fact label="Lead source">{customer.leadSource}</Fact>
+        <Fact label="Lead source">
+          {/*
+            The company's channel name when there is one, the catalogue's label
+            otherwise, and whether somebody chose it or the touches implied it:
+            "Google Ads" the CSR typed and "Google Ads" the tracking number said
+            are different evidence.
+          */}
+          {customer.leadSource
+            ? `${[sourceChannel?.name ?? mk.leadSourceLabel(customer.leadSource), sourceCampaign?.name].filter(Boolean).join(", ")}`
+              + (customer.leadSourceOrigin === "derived" ? " (worked out from what they did)" : "")
+            : null}
+        </Fact>
         {/*
           The discount rate is stripped by the service for anyone without
           customer.financials:read, so this check is not the guard: it is what
@@ -167,6 +183,15 @@ export default async function CustomerPage({
           ? <Fact label="Balance"><Money value={customer.balance} /></Fact>
           : null}
       </Facts>
+
+      {can(user.actor, "customer:write") ? (
+        <ActionForm action={setCustomerSource} submit="Save where they came from" tone="quiet"
+                    hidden={{ customerId: id }} className="mt-4 flex max-w-xl flex-wrap items-end gap-3">
+          <div className="min-w-64 flex-1">
+            <LeadSourceSelect options={sources} label="Where they came from" defaultValue={sourceValue(customer)} />
+          </div>
+        </ActionForm>
+      ) : null}
 
       {addresses.length > 0 && (
         <div className="mt-10">

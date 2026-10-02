@@ -9,6 +9,8 @@ import {
 import { enforceWithin } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { customerScopeFilter } from "./scope";
+import * as acquisition from "./acquisition";
+import * as marketing from "./marketing";
 import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
 
 type ListInput = z.infer<typeof listCustomers.input>;
@@ -153,6 +155,18 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     );
     await assertUnclaimed(tx, "customer", input.externalRef);
 
+    /**
+     * WHERE THEY CAME FROM, checked against the channel list. A key, a
+     * channel or a tracking campaign are each enough; a word nothing can
+     * place is refused, which is the whole reason this stopped being a text
+     * box three people type differently. A customer arriving from another
+     * system keeps whatever its old system said.
+     */
+    const imported = input.externalRef !== undefined;
+    const { declared, verbatim } = await acquisition.declaredOrVerbatim(tx, ctx.actor.organizationId, {
+      leadSource: input.leadSource, channelId: input.channelId, campaignId: input.campaignId,
+    }, imported);
+
     const [customer] = await tx.insert(schema.customer).values({
       organizationId: ctx.actor.organizationId,
       type: input.type,
@@ -165,7 +179,10 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       billingState: input.billingAddress?.state ?? null,
       billingPostalCode: input.billingAddress?.postalCode ?? null,
       billingCountry: input.billingAddress?.country ?? "US",
-      leadSource: input.leadSource ?? null,
+      leadSource: declared?.sourceKey ?? verbatim,
+      leadSourceOrigin: declared ? (imported ? "imported" : "manual") : verbatim ? "imported" : null,
+      channelId: declared?.channelId ?? null,
+      acquisitionCampaignId: declared?.campaignId ?? null,
       paymentTermsDays: String(input.paymentTermsDays),
       taxExempt: input.taxExempt,
       tags: input.tags,
@@ -200,6 +217,29 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       });
     }
 
+    /**
+     * The calls they made before anybody knew who they were become theirs,
+     * matched on the number normalised to E.164. Then the source: theirs
+     * when somebody chose one, as a declared touch the reports can weigh;
+     * otherwise derived from what was just stitched, and marked so.
+     */
+    await marketing.identifyCaller(tx, ctx.actor.organizationId, {
+      phone: customer!.phone, customerId: customer!.id,
+    });
+    if (declared && !imported) {
+      await marketing.declareSource(tx, ctx.actor.organizationId, {
+        declared, customerId: customer!.id, userId: ctx.actor.userId,
+      });
+    }
+    const derived = declared || verbatim
+      ? null
+      : await marketing.deriveCustomerSource(tx, ctx.actor.organizationId, customer!.id);
+    if (!derived) {
+      await acquisition.assertLeadSourceGiven(
+        tx, ctx.actor.organizationId, declared, "customer", imported,
+      );
+    }
+
     if (ctx.idempotencyKey) {
       await tx.insert(schema.integrationEvent).values({
         organizationId: ctx.actor.organizationId,
@@ -213,8 +253,9 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       });
     }
 
-    await audit(tx, ctx, "customer.created", "customer", customer!.id, null, customer!);
-    return asCustomer(clean(ctx, "customer", customer!));
+    const [saved] = await tx.select().from(schema.customer).where(eq(schema.customer.id, customer!.id)).limit(1);
+    await audit(tx, ctx, "customer.created", "customer", customer!.id, null, saved!);
+    return asCustomer(clean(ctx, "customer", saved!));
   });
 }
 
@@ -275,12 +316,32 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
       );
     }
 
+    /**
+     * A lead source changed by hand is checked against the channel list and
+     * written as `manual`, and recorded as a declared touch so the change
+     * reaches the reports rather than only the page. Clearing it (null)
+     * clears the columns and records nothing: a blank is not evidence.
+     */
+    const changingSource = input.leadSource !== undefined || input.channelId !== undefined
+      || input.campaignId !== undefined;
+    const declared = changingSource
+      ? await acquisition.resolveDeclared(tx, ctx.actor.organizationId, {
+        leadSource: input.leadSource, channelId: input.channelId, campaignId: input.campaignId,
+      })
+      : null;
+    const sourceColumns = !changingSource ? {} : declared
+      ? {
+        leadSource: declared.sourceKey, leadSourceOrigin: "manual",
+        channelId: declared.channelId, acquisitionCampaignId: declared.campaignId,
+      }
+      : { leadSource: null, leadSourceOrigin: null, channelId: null, acquisitionCampaignId: null };
+
     const [after] = await tx.update(schema.customer).set({
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.email !== undefined ? { email: input.email } : {}),
       ...(input.phone !== undefined ? { phone: input.phone } : {}),
       ...(input.type !== undefined ? { type: input.type } : {}),
-      ...(input.leadSource !== undefined ? { leadSource: input.leadSource } : {}),
+      ...sourceColumns,
       ...(input.taxExempt !== undefined ? { taxExempt: input.taxExempt } : {}),
       ...(input.tags !== undefined ? { tags: input.tags } : {}),
       /** Stored as text, because net terms arrive from imports as "30 days". */
@@ -307,6 +368,16 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
       ...(input.discountRate !== undefined ? { discountRate: input.discountRate } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.customer.id, input.id)).returning();
+
+    if (declared) {
+      await marketing.declareSource(tx, ctx.actor.organizationId, {
+        declared, customerId: input.id, userId: ctx.actor.userId,
+      });
+    }
+    /** A new phone number claims the calls already made from it. */
+    if (input.phone !== undefined && input.phone !== before.phone) {
+      await marketing.identifyCaller(tx, ctx.actor.organizationId, { phone: input.phone, customerId: input.id });
+    }
 
     await audit(tx, ctx, "customer.updated", "customer", input.id, before, after!);
     return asCustomer(clean(ctx, "customer", after!));

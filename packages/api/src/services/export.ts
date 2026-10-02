@@ -100,6 +100,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     address_key: "The same normalised address as on a property, for a branch or yard. Nothing "
       + "secret in it.",
   },
+  marketing_channel: {
+    source_key: "Which lead source in the catalogue the channel is, such as google_ads. A word "
+      + "from a public list, not a credential, and the export is unreadable as marketing without it.",
+  },
   integration_connection: {
     credential_ref: "The NAME of a secret in the deployment's own store, never the secret. A "
       + "company moving away needs it to know which secrets to go and find.",

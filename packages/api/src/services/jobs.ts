@@ -16,6 +16,8 @@ import { emit } from "./events";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
 import { gate as qualificationGate } from "./qualification";
+import * as acquisition from "./acquisition";
+import * as marketing from "./marketing";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -340,6 +342,17 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       tx, ctx.actor.organizationId, "job", input.customFields,
     );
 
+    /**
+     * The lead source somebody chose, checked against the channel list the
+     * same way a customer's is. A job loaded from another system keeps what
+     * its old system said, and is not credited to any touch: its marketing
+     * happened in somebody else's software.
+     */
+    const imported = input.externalRef !== undefined;
+    const { declared, verbatim } = await acquisition.declaredOrVerbatim(tx, ctx.actor.organizationId, {
+      leadSource: input.leadSource, channelId: input.channelId, campaignId: input.campaignId,
+    }, imported);
+
     const [job] = await tx.insert(schema.job).values({
       organizationId: ctx.actor.organizationId,
       number,
@@ -350,7 +363,10 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       description: input.description ?? null,
       customerComplaint: input.customerComplaint ?? null,
       equipmentId: input.equipmentId ?? null,
-      leadSource: input.leadSource ?? null,
+      leadSource: declared?.sourceKey ?? verbatim,
+      leadSourceOrigin: declared ? (imported ? "imported" : "manual") : verbatim ? "imported" : null,
+      channelId: declared?.channelId ?? null,
+      acquisitionCampaignId: declared?.campaignId ?? null,
       purchaseOrderNumber: input.purchaseOrderNumber ?? null,
       costCode: input.costCode ?? null,
       priority: input.priority ?? 0,
@@ -425,6 +441,44 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       }
     }
 
+    /**
+     * CREDITED, like every other path that creates work. A job a CSR types in
+     * after a call on the Google Ads number is the commonest way work arrives
+     * in this trade, and until this line it was the one way that was never
+     * credited to anything. History from another system is the exception:
+     * stitching today's touches onto a job from 2019 would credit this
+     * month's ads with last decade's work.
+     */
+    if (!imported) {
+      const credit = await marketing.creditWork(tx, ctx.actor.organizationId, {
+        jobId: job!.id,
+        declared,
+        callId: input.callId ?? null,
+        userId: ctx.actor.userId,
+      });
+      if (!credit.credited) {
+        /**
+         * Nothing new to credit: a repeat customer ringing the office number
+         * they have had for years. The job carries the customer's own source,
+         * marked derived, rather than being refused or left blank, and only a
+         * customer with no source anywhere trips the company's requirement.
+         */
+        const [owner] = await tx.select({
+          leadSource: schema.customer.leadSource,
+          channelId: schema.customer.channelId,
+          campaignId: schema.customer.acquisitionCampaignId,
+        }).from(schema.customer).where(eq(schema.customer.id, input.customerId)).limit(1);
+        if (owner?.leadSource) {
+          await tx.update(schema.job).set({
+            leadSource: owner.leadSource, leadSourceOrigin: "derived",
+            channelId: owner.channelId, acquisitionCampaignId: owner.campaignId,
+          }).where(eq(schema.job.id, job!.id));
+        } else {
+          await acquisition.assertLeadSourceGiven(tx, ctx.actor.organizationId, declared, "job", false);
+        }
+      }
+    }
+
     if (ctx.idempotencyKey) {
       await tx.insert(schema.integrationEvent).values({
         organizationId: ctx.actor.organizationId,
@@ -446,13 +500,15 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       payload: { job: job! },
     });
 
-    await audit(tx, ctx, "job.created", "job", job!.id, null, job!);
+    /** Read back, so the response carries what crediting wrote onto it. */
+    const [saved] = await tx.select().from(schema.job).where(eq(schema.job.id, job!.id)).limit(1);
+    await audit(tx, ctx, "job.created", "job", job!.id, null, saved!);
     /**
      * With its visits, as the contract has always said. The created job came
      * back without them, so a caller that booked a visit inline had to read
      * the job again to learn the visit's id.
      */
-    return { ...clean(ctx, "job", job!), visits: await visitsOf(tx, job!.id) };
+    return { ...clean(ctx, "job", saved!), visits: await visitsOf(tx, job!.id) };
   });
 }
 
@@ -553,12 +609,36 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       );
     }
 
+    /**
+     * A lead source corrected on the job: checked, written as `manual`, and
+     * recorded as a declared touch on this job so the change reaches the
+     * reports. Null clears the columns and records nothing.
+     */
+    const changingSource = input.leadSource !== undefined || input.channelId !== undefined
+      || input.campaignId !== undefined;
+    const declared = changingSource
+      ? await acquisition.resolveDeclared(tx, ctx.actor.organizationId, {
+        leadSource: input.leadSource, channelId: input.channelId, campaignId: input.campaignId,
+      })
+      : null;
+    const sourceColumns = !changingSource ? {} : declared
+      ? {
+        leadSource: declared.sourceKey, leadSourceOrigin: "manual",
+        channelId: declared.channelId, acquisitionCampaignId: declared.campaignId,
+      }
+      : { leadSource: null, leadSourceOrigin: null, channelId: null, acquisitionCampaignId: null };
+    if (declared) {
+      await marketing.declareSource(tx, ctx.actor.organizationId, {
+        declared, customerId: before.customerId, jobId: input.id, userId: ctx.actor.userId,
+      });
+    }
+
     const [after] = await tx.update(schema.job).set({
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.customerComplaint !== undefined ? { customerComplaint: input.customerComplaint } : {}),
       ...(input.jobTypeId !== undefined ? { jobTypeId: input.jobTypeId } : {}),
-      ...(input.leadSource !== undefined ? { leadSource: input.leadSource } : {}),
+      ...sourceColumns,
       ...(input.purchaseOrderNumber !== undefined ? { purchaseOrderNumber: input.purchaseOrderNumber } : {}),
       ...(input.costCode !== undefined ? { costCode: input.costCode } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),

@@ -15,6 +15,7 @@ import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
 import { memberPricingWithin } from "./agreements";
 import { emit } from "./events";
+import * as marketing from "./marketing";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
@@ -651,14 +652,6 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
     if (input.createJob && !jobId) {
       const number = await nextNumber(tx, ctx.actor.organizationId, "job");
 
-      /**
-       * Read here rather than carried on the estimate, because a lead source
-       * belongs to the customer and this is the moment a job needs one.
-       */
-      const [customer] = await tx.select({ leadSource: schema.customer.leadSource })
-        .from(schema.customer)
-        .where(eq(schema.customer.id, current.customerId as string)).limit(1);
-
       const [job] = await tx.insert(schema.job).values({
         organizationId: ctx.actor.organizationId,
         number,
@@ -667,22 +660,19 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
         jobTypeId: input.jobTypeId ?? null,
         status: "scheduled",
         summary: (current.title as string | null) ?? `${option["name"]}`,
-        /**
-         * The CUSTOMER'S source, carried forward, not the word "estimate".
-         *
-         * An estimate is not a lead source, it is a stage. Writing it here
-         * meant every job converted from a proposal reported its own
-         * paperwork as where the work came from, so the Google ad that
-         * produced the lead got no credit for the job it turned into, and a
-         * cost per booked job computed from these rows was wrong by however
-         * much of the book converts through an estimate.
-         *
-         * Null when the customer has none, which is honest: this job's
-         * source is whatever brought the customer, and if nobody recorded
-         * that then nobody knows.
-         */
-        leadSource: customer?.leadSource ?? null,
       }).returning({ id: schema.job.id });
+
+      /**
+       * CREDITED like any other new work, and the lead source is not copied
+       * from the paperwork. An estimate is a stage, not a source: this used
+       * to write the word "estimate" and then the customer's own source, and
+       * either way the touches behind the job were never tagged, so the
+       * Google ad that produced the lead got no credit in any report for the
+       * job it turned into. `creditWork` tags the customer's touches with
+       * this job and fills the source from them, marked `derived`; with
+       * nothing recorded it stays blank, which is honest.
+       */
+      await marketing.creditWork(tx, ctx.actor.organizationId, { jobId: job!.id });
       jobId = job!.id;
     }
 

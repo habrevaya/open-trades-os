@@ -146,8 +146,35 @@ export async function addNumber(_previous: unknown, form: FormData) {
       e164: String(form.get("e164") ?? ""),
       purpose: String(form.get("purpose") ?? "main") as "main",
       label: String(form.get("label") ?? "") || null,
-      attributionSource: String(form.get("attributionSource") ?? "") || null,
+      ...creditFrom(form),
       smsRegistered: form.get("smsRegistered") === "yes",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true };
+}
+
+/**
+ * What a tracking number's calls are credited to, off the form's one select:
+ * `campaign:<id>` or `channel:<id>`. The service makes the campaign, the
+ * channel and the source key agree.
+ */
+function creditFrom(form: FormData): { campaignId?: string; channelId?: string } {
+  const [kind, id] = String(form.get("credit") ?? "").split(":");
+  if (!id) return {};
+  return kind === "campaign" ? { campaignId: id } : kind === "channel" ? { channelId: id } : {};
+}
+
+/** Move a tracking number to another campaign. Calls already taken keep theirs. */
+export async function assignNumber(_previous: unknown, form: FormData) {
+  try {
+    const credit = creditFrom(form);
+    await phoneNumbers.update(await ctx(), {
+      id: String(form.get("id") ?? ""),
+      ...(credit.campaignId ? { campaignId: credit.campaignId } : { channelId: credit.channelId ?? null }),
     });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);

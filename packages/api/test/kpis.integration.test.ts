@@ -613,6 +613,29 @@ run("the numbers it computes", () => {
     expect(attach.value).toBe("100.0");
   });
 
+  it("counts a subscription from a referred customer under the key the catalogue uses", async () => {
+    /**
+     * The filter used to name three keys the catalogue never had, so a company
+     * recording referrals correctly read nought per cent. `referral_customer`
+     * is the one a CSR picking "Referred by a customer" writes.
+     */
+    const [referred] = await raw<{ id: string }[]>`
+      insert into public.customer (organization_id, type, name, payment_terms_days, lead_source)
+      values (${ORG}, 'residential', 'Referred', 0, 'referral_customer') returning id`;
+    const [builder] = await raw<{ id: string }[]>`
+      insert into public.customer (organization_id, type, name, payment_terms_days, lead_source)
+      values (${ORG}, 'residential', 'Via a builder', 0, 'referral_trade') returning id`;
+    await agreement("2026-06-05", 0, referred!.id);
+    await agreement("2026-06-06", 0, builder!.id);
+    /** The trade whose pack declares this KPI. */
+    await raw`update public.organization set primary_trade = 'trash-bin-cleaning' where id = ${ORG}`;
+
+    const card = await kpis.scorecard(owner(), WINDOW);
+    const share = card.computed.find((row) => row.key === "referral_share")!;
+    expect(share.numerator).toBe("1");
+    expect(share.denominator).toBe("2");
+  });
+
   it("says nothing rather than zero when there is nothing to measure", async () => {
     /**
      * Nought per cent close rate says every estimate lost. No estimates presented

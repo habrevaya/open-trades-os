@@ -52,6 +52,8 @@ export * as telephony from "./telephony";
 export * as obligations from "./obligations";
 export * as files from "./files";
 export * as marketing from "./marketing";
+export * as acquisition from "./acquisition";
+export * as marketingReport from "./marketing-report";
 export * as leadIntake from "./lead-intake";
 export * as forms from "./forms";
 export * as reviews from "./reviews";

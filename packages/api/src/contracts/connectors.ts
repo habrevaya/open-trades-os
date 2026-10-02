@@ -97,8 +97,19 @@ export const importSpendFile = defineRoute({
   input: z.object({
     /** Which adapter parses it. `spend_csv` today. */
     provider: z.string().min(1).max(50).default("spend_csv"),
-    /** The lead source key every row in this file belongs to. */
-    source: z.string().min(1).max(50),
+    /**
+     * The lead source key every row in this file belongs to. Optional when a
+     * channel or a tracking campaign is named, which imply it.
+     */
+    source: z.string().min(1).max(50).optional(),
+    /** The company's channel every row belongs to. */
+    channelId: Uuid.optional(),
+    /**
+     * The tracking campaign every row belongs to. Left out, a row whose
+     * campaign column is the name or utm tag of a tracking campaign is linked
+     * to it anyway.
+     */
+    campaignId: Uuid.optional(),
     text: z.string().min(1).max(8 * 1024 * 1024),
   }),
   output: z.object({
@@ -117,6 +128,12 @@ export const importSpendFile = defineRoute({
 export const LeadOffer = z.object({
   id: Uuid,
   connector: z.string(),
+  status: z.string(),
+  /** Who to ring. Parsed by the adapter and, until now, never written down. */
+  contactName: z.string().nullable(),
+  contactPhone: z.string().nullable(),
+  contactEmail: z.string().nullable(),
+  notes: z.string().nullable(),
   serviceRequested: z.string().nullable(),
   addressLine1: z.string().nullable(),
   city: z.string().nullable(),
@@ -127,6 +144,10 @@ export const LeadOffer = z.object({
   /** Computed against the clock, never read from the status. */
   expired: z.boolean(),
   secondsLeft: z.number().int().nullable(),
+  customerId: Uuid.nullable(),
+  jobId: Uuid.nullable(),
+  decidedAt: z.string().datetime().nullable(),
+  declineReason: z.string().nullable(),
 });
 
 export const listLeadOffers = defineRoute({
@@ -137,11 +158,49 @@ export const listLeadOffers = defineRoute({
     "An offer is not a job. It costs money to accept, it expires in minutes, and a contractor at capacity has to be able to decline without that being a cancelled job on their own board.",
   module: "M25",
   permissions: ["job:read"],
-  input: z.object({}),
+  input: z.object({
+    /** `open` (the default) for what is still on the table, `all` for what was decided too. */
+    include: z.enum(["open", "all"]).optional(),
+  }),
   output: z.object({ offers: z.array(LeadOffer) }),
+});
+
+export const acceptLeadOffer = defineRoute({
+  method: "post",
+  path: "/v1/lead-offers/{id}/accept",
+  summary: "Take the lead: a customer, a property and a job, credited to the channel that sold it",
+  description:
+    "Accepting is what materialises work, in one transaction: the customer named, else one already holding this phone number or email, else a new one; the property named, else the offer's address, else the customer's primary property; and a job, credited by the same function every other path that creates work uses, so the marketplace that sold the lead gets the job in every report. An expired offer is refused, because the marketplace has most likely given it to somebody else. Accepting twice returns the first acceptance.",
+  module: "M19",
+  permissions: ["job:write", "customer:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    customerId: Uuid.optional(),
+    propertyId: Uuid.optional(),
+    summary: z.string().min(1).max(300).optional(),
+  }),
+  output: z.object({ offerId: Uuid, customerId: Uuid, propertyId: Uuid, jobId: Uuid }),
+});
+
+export const declineLeadOffer = defineRoute({
+  method: "post",
+  path: "/v1/lead-offers/{id}/decline",
+  summary: "Turn the lead down, with the reason",
+  description:
+    "The reason is one of a list because the point of recording it is to count it: outside the area forty times is a map problem and no capacity forty times is a hiring problem. The touch the lead made stays, because a declined lead still cost something and still says the channel is producing work this company cannot take.",
+  module: "M19",
+  permissions: ["job:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    reason: z.enum(["no_capacity", "outside_area", "not_our_work", "too_small", "duplicate", "bad_lead", "other"]),
+    note: z.string().max(500).optional(),
+  }),
+  output: z.object({ offerId: Uuid, status: z.literal("declined") }),
 });
 
 export const connectorRoutes = {
   listConnectors, connectConnector, disconnectConnector,
-  importSpendFile, listLeadOffers,
+  importSpendFile, listLeadOffers, acceptLeadOffer, declineLeadOffer,
 } as const;

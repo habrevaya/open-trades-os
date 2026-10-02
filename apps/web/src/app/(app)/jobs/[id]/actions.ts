@@ -8,6 +8,7 @@ import type { coverage } from "@opentradesos/core";
 import { partiesFromForm } from "@/lib/job-parties";
 import { completeVisit } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
+import { sourceFrom } from "@/lib/lead-source";
 import { PART_ROWS } from "./parts";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -183,5 +184,24 @@ export async function declineVisitChange(_previous: FormState, form: FormData): 
   });
   revalidatePath("/tasks");
   revalidatePath("/jobs");
+  return result;
+}
+
+/**
+ * The office corrects where a job came from. Recorded as a declared touch on
+ * the job and written to its columns as chosen; choosing nothing clears it.
+ */
+export async function setJobSource(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const picked = sourceFrom(form);
+  const result = await attempt(form, async () => {
+    await jobs.update(await ctx(), {
+      id: jobId,
+      ...(picked.campaignId ? { campaignId: picked.campaignId }
+        : picked.channelId ? { channelId: picked.channelId }
+          : { leadSource: null, channelId: null, campaignId: null }),
+    });
+  });
+  revalidatePath(`/jobs/${jobId}`);
   return result;
 }

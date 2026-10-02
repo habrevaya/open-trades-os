@@ -509,6 +509,116 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
 };
 
 /**
+ * WHERE THE WORK CAME FROM, as dimensions on any dataset with a job behind it.
+ *
+ * Read from the job's own columns, which `marketing.creditWork` writes when
+ * the job is created from the company's chosen attribution model, or which a
+ * person set by hand. These are the job's ONE answer; the funnel report at
+ * `/marketing` weighs every touch under a model the reader picks, and the two
+ * agree whenever the model is the company's own.
+ *
+ * Written as functions of the job's alias, so the invoices dataset can reach
+ * them through `invoice.job_id` without a second copy of the SQL.
+ */
+const sourceDimensions = (jobId: string, prefix = ""): reporting.Dimension[] => [
+  {
+    key: `${prefix}channel`, label: "Channel", type: "text",
+    sql: `coalesce((select ch.name from public.job j join public.marketing_channel ch on ch.id = j.channel_id
+      where j.id = ${jobId}), 'Not attributed')`,
+  },
+  {
+    key: `${prefix}tracking_campaign`, label: "Tracking campaign", type: "text",
+    sql: `coalesce((select k.name from public.job j join public.acquisition_campaign k on k.id = j.acquisition_campaign_id
+      where j.id = ${jobId}), 'No campaign')`,
+  },
+  {
+    key: `${prefix}lead_source`, label: "Lead source", type: "text",
+    /**
+     * The catalogue key as its label would read, done in SQL so the group is
+     * one row per source. A value nothing in the catalogue knows (a migration
+     * keeps what its old system said) is shown as written rather than hidden.
+     */
+    sql: `coalesce((select initcap(replace(j.lead_source, '_', ' ')) from public.job j where j.id = ${jobId}), 'Not recorded')`,
+  },
+];
+
+/**
+ * THE CALLS, as a dataset, so "calls by campaign by week" is a report a
+ * company can build rather than one it has to ask for.
+ *
+ * Inbound only. An outbound call is the company ringing out and has no
+ * campaign. The channel and campaign are the ones the number belonged to AT
+ * THE TIME, which the call row keeps for exactly this.
+ */
+export const CALLS_DATASET: reporting.Dataset = {
+  key: "calls",
+  label: "Calls",
+  description: "Inbound calls by tracking number, campaign and channel, answered or missed, first time or not.",
+  from: "public.call",
+  permission: "adspend:read",
+  scope: "job",
+  dateColumn: "coalesce(call.started_at, call.created_at)",
+  /**
+   * One call, opened on the call log's own page, which is where the recording
+   * policy, the disposition and "create customer and job from this call" live.
+   */
+  records: {
+    noun: "call", plural: "calls",
+    id: "call.id",
+    label: "coalesce(call.from_e164, 'Unknown caller')",
+    href: "/marketing/calls/{id}",
+    orderBy: "coalesce(call.started_at, call.created_at)",
+    columns: [
+      customerColumn("call"),
+      { key: "status", label: "Status", type: "status", sql: "call.status::text" },
+      { key: "day", label: "Day", type: "date", sql: localDate("call", "coalesce(call.started_at, call.created_at)") },
+    ],
+  },
+  dimensions: [
+    {
+      key: "day", label: "Day", type: "date",
+      sql: "to_char(coalesce(call.started_at, call.created_at), 'YYYY-MM-DD')",
+    },
+    {
+      key: "month", label: "Month", type: "date",
+      sql: "to_char(date_trunc('month', coalesce(call.started_at, call.created_at)), 'YYYY-MM')",
+    },
+    {
+      key: "channel", label: "Channel", type: "text",
+      sql: "coalesce((select ch.name from public.marketing_channel ch where ch.id = call.channel_id), 'Not attributed')",
+    },
+    {
+      key: "tracking_campaign", label: "Tracking campaign", type: "text",
+      sql: "coalesce((select k.name from public.acquisition_campaign k where k.id = call.acquisition_campaign_id), 'No campaign')",
+    },
+    {
+      key: "number", label: "Number dialled", type: "text",
+      sql: "coalesce(call.received_on_e164, call.to_e164)",
+    },
+    { key: "status", label: "Status", sql: "call.status::text", type: "status" },
+    {
+      key: "first_time", label: "Caller", type: "text",
+      sql: "case when call.first_time_caller then 'First time' when call.first_time_caller = false then 'Called before' else 'Not known' end",
+    },
+  ],
+  measures: [
+    { key: "count", label: "Calls", kind: "count", type: "number" },
+    {
+      key: "answered", label: "Answered", kind: "sum", type: "number",
+      sql: "case when call.status = 'completed' then 1 else 0 end",
+    },
+    {
+      key: "first_time", label: "First time callers", kind: "sum", type: "number",
+      sql: "case when call.first_time_caller then 1 else 0 end",
+    },
+    {
+      key: "booked", label: "Turned into a job", kind: "sum", type: "number",
+      sql: "case when call.job_id is not null then 1 else 0 end",
+    },
+  ],
+};
+
+/**
  * THE CATALOGUE
  *
  * Every fragment of SQL a report can contain, written herestimate. Nothing a caller
@@ -570,6 +680,7 @@ export const CATALOGUE: reporting.Dataset[] = [
         key: "job_type", label: "Job type", type: "text",
         sql: "coalesce((select t.name from public.job_type t where t.id = job.job_type_id), 'None')",
       },
+      ...sourceDimensions("job.id"),
     ],
     measures: [
       { key: "count", label: "Jobs", kind: "count", type: "number" },
@@ -632,6 +743,7 @@ export const CATALOGUE: reporting.Dataset[] = [
           else '5 Over 90 days'
         end`,
       },
+      ...sourceDimensions("invoice.job_id"),
     ],
     measures: [
       { key: "count", label: "Invoices", kind: "count", type: "number" },
@@ -795,4 +907,5 @@ export const CATALOGUE: reporting.Dataset[] = [
     ],
   },
   PROFITABILITY_DATASET,
+  CALLS_DATASET,
 ];

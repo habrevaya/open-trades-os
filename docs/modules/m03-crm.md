@@ -76,6 +76,21 @@ that is current.
 linked to another customer afterwards with
 `POST /v1/properties/{id}/customers`.
 
+### Say where they came from
+
+The new customer form has a lead source picker: the company's own channels
+(M19), each with its live tracking campaigns. `POST /v1/customers` takes
+`leadSource` (a catalogue key, or anything the catalogue's alias list places),
+`channelId` or `campaignId`, and a word nothing can place is refused rather than
+stored, because three spellings of one channel are three rows on every report.
+Left blank, the source is worked out from the calls and visits the person made
+before they were a customer, which their phone number claims the moment the
+customer is created, and the record says `leadSourceOrigin: derived` so a guess
+is never read as somebody's answer. The account page lets the office change it,
+which is recorded as a declared touch so the change reaches the marketing
+reports. A customer arriving from another system (`externalRef`) keeps what its
+old system said, marked `imported`.
+
 ### Find somebody
 
 `GET /v1/customers` takes `q` and searches name, phone and email together.

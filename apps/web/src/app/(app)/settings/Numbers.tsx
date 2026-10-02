@@ -3,7 +3,7 @@
 import { useKeptAction } from "@/lib/use-kept-action";
 import { useState } from "react";
 import { Chip, Phone } from "@opentradesos/ui";
-import { addNumber, releaseNumber } from "./actions";
+import { addNumber, releaseNumber, assignNumber } from "./actions";
 
 const BUTTON =
   "inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm hover:bg-steel-100 disabled:opacity-60";
@@ -15,8 +15,39 @@ export interface NumberRow {
   label: string | null;
   purpose: string;
   attributionSource: string | null;
+  channelId: string | null;
+  campaignId: string | null;
   smsRegistered: boolean;
   isSender: boolean;
+  /** Inbound calls in the last ninety days, on a tracking number. */
+  calls90: number | null;
+}
+
+/** The company's channels and their tracking campaigns, for "calls to it are credited to". */
+export interface CreditOption {
+  id: string;
+  name: string;
+  campaigns: { id: string; name: string }[];
+}
+
+/**
+ * The campaigns grouped under their channels, each channel also choosable on
+ * its own for a number that belongs to a channel and no campaign in
+ * particular. The value says which (`campaign:` or `channel:`).
+ */
+function CreditChoices({ options }: { options: CreditOption[] }) {
+  return (
+    <>
+      {options.map((channel) => (
+        <optgroup key={channel.id} label={channel.name}>
+          {channel.campaigns.map((campaign) => (
+            <option key={campaign.id} value={`campaign:${campaign.id}`}>{channel.name}: {campaign.name}</option>
+          ))}
+          <option value={`channel:${channel.id}`}>{channel.name}, no campaign</option>
+        </optgroup>
+      ))}
+    </>
+  );
 }
 
 /**
@@ -36,17 +67,26 @@ export interface NumberRow {
  * up. The service refuses that state, so it cannot be reached from here.
  */
 export function Numbers({
-  numbers, sources,
+  numbers, credits,
 }: {
   numbers: NumberRow[];
-  sources: { key: string; label: string }[];
+  credits: CreditOption[];
 }) {
   const [addState, addForm, adding] = useKeptAction(addNumber, null);
   const [releaseState, releaseForm, releasing] = useKeptAction(releaseNumber, null);
+  const [assignState, assignForm, assigning] = useKeptAction(assignNumber, null);
+  const nameOf = (number: NumberRow) => {
+    for (const channel of credits) {
+      const campaign = channel.campaigns.find((c) => c.id === number.campaignId);
+      if (campaign) return `${channel.name}: ${campaign.name}`;
+      if (channel.id === number.channelId) return channel.name;
+    }
+    return number.attributionSource?.replace(/_/g, " ") ?? null;
+  };
   const [open, setOpen] = useState(false);
   const [purpose, setPurpose] = useState("main");
 
-  const error = [addState, releaseState]
+  const error = [addState, releaseState, assignState]
     .map((state) => (state && "error" in state ? state.error : null))
     .find(Boolean);
   const lost = releaseState && "nowSendingFrom" in releaseState
@@ -72,8 +112,32 @@ export function Numbers({
               <span className="font-medium"><Phone value={number.e164} /></span>
               {number.label && <span className="text-sm text-ink-500">{number.label}</span>}
               <Chip tone="neutral">{number.purpose}</Chip>
-              {number.attributionSource && (
-                <Chip tone="info">attributes to {number.attributionSource.replace(/_/g, " ")}</Chip>
+              {number.purpose === "tracking" && nameOf(number) && (
+                <Chip tone="info">credited to {nameOf(number)}</Chip>
+              )}
+              {/*
+                A tracking number nobody has rung in a quarter is still being
+                paid for. Said on the row, where somebody decides whether to keep
+                it, rather than on a report they would have to go and find.
+              */}
+              {number.calls90 !== null && (
+                <Chip tone={number.calls90 === 0 ? "warning" : "neutral"}>
+                  {number.calls90 === 1 ? "1 call" : `${number.calls90} calls`} in 90 days
+                </Chip>
+              )}
+              {number.purpose === "tracking" && (
+                <form {...assignForm} className="flex items-center gap-1">
+                  <input type="hidden" name="id" value={number.id} />
+                  <select name="credit" aria-label={`Campaign for ${number.e164}`}
+                          defaultValue={number.campaignId ? `campaign:${number.campaignId}` : number.channelId ? `channel:${number.channelId}` : ""}
+                          className={FIELD}>
+                    <option value="" disabled>Choose a campaign</option>
+                    <CreditChoices options={credits} />
+                  </select>
+                  <button type="submit" disabled={assigning} className={BUTTON}>
+                    {assigning ? "Saving" : "Save"}
+                  </button>
+                </form>
               )}
               <Chip tone={number.smsRegistered ? "success" : "warning"}>
                 {number.smsRegistered ? "Registered" : "Not registered"}
@@ -137,12 +201,10 @@ export function Numbers({
           {purpose === "tracking" && (
             <div>
               <label htmlFor="n-source" className="block text-xs text-ink-500">
-                Calls to it count as
+                Calls to it are credited to
               </label>
-              <select id="n-source" name="attributionSource" required className={`mt-1 ${FIELD}`}>
-                {sources.map((source) => (
-                  <option key={source.key} value={source.key}>{source.label}</option>
-                ))}
+              <select id="n-source" name="credit" required className={`mt-1 ${FIELD}`}>
+                <CreditChoices options={credits} />
               </select>
             </div>
           )}

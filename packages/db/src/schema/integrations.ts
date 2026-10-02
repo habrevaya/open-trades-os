@@ -4,6 +4,7 @@ import { pk, timestamps, money } from "./_shared";
 import { organization, user, technician } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
+import { marketingChannel } from "./acquisition";
 
 /**
  * INTEGRATIONS
@@ -349,6 +350,13 @@ export const leadSourceConnector = pgTable("lead_source_connector", {
   connectionId: uuid("connection_id").references(() => integrationConnection.id, { onDelete: "set null" }),
   /** "angi", "thumbtack", "neighbrium", "ahs", "carrier-dealer". */
   source: text("source").notNull(),
+  /**
+   * The channel every lead from this sender is credited to. `source` above
+   * is the sender's own name and is free text, because the senders are not a
+   * closed set; this is what the reports group by, chosen from the company's
+   * channel list when the connector is set up.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
   displayName: text("display_name").notNull(),
   /** Decline automatically when accepting would breach capacity. */
   autoAcceptEnabled: boolean("auto_accept_enabled").notNull().default(false),

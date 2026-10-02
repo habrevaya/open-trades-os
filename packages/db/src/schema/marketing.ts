@@ -4,6 +4,8 @@ import { pk, timestamps, money } from "./_shared";
 import { organization } from "./tenancy";
 import { customer } from "./crm";
 import { job } from "./work";
+import { call } from "./comms";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
  * MARKETING, AND THE ONE THING THAT MAKES IT POSSIBLE
@@ -62,6 +64,33 @@ export const marketingTouch = pgTable("marketing_touch", {
   basis: touchBasis("basis").notNull(),
 
   /**
+   * The company's channel and tracking campaign, resolved when the touch is
+   * written: from the number dialled, then from the utm_campaign, then from
+   * the channel the source key maps to. Resolved once and kept, because a
+   * campaign renamed or a number moved next spring must not rewrite which
+   * campaign last spring's call belonged to.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
+  /** The call this touch is, when it is one. */
+  callId: uuid("call_id").references(() => call.id, { onDelete: "set null" }),
+  /**
+   * The number that rang, in E.164. The anonymous thread for a caller in the
+   * way `visitor_id` is for a browser: when a customer is created with this
+   * phone, or a customer's phone is changed to it, every call they made
+   * before anybody knew who they were becomes theirs.
+   */
+  callerE164: text("caller_e164"),
+  /**
+   * Set when a PERSON declared the source (a CSR choosing "Google Ads" on the
+   * new job form), as against a marketplace declaring it over a signed
+   * webhook. Both are `declared`; only one of them is somebody's memory of
+   * what a customer said on the phone.
+   */
+  enteredByUserId: uuid("entered_by_user_id"),
+
+  /**
    * Stored as five columns rather than one blob, because every one of them
    * is something an owner groups a report by, and a jsonb key nobody can
    * index is a dimension nobody uses.
@@ -105,6 +134,9 @@ export const marketingTouch = pgTable("marketing_touch", {
     .on(t.organizationId, t.occurredAt)
     .where(sql`${t.unrecognised} is not null`),
   sourceIdx: index("marketing_touch_source_idx").on(t.organizationId, t.source, t.occurredAt),
+  callerIdx: index("marketing_touch_caller_idx").on(t.organizationId, t.callerE164)
+    .where(sql`${t.callerE164} is not null`),
+  jobIdx: index("marketing_touch_job_idx").on(t.organizationId, t.jobId),
 }));
 
 /**
@@ -133,6 +165,14 @@ export const adSpend = pgTable("ad_spend", {
   source: text("source").notNull(),
   /** Free text, matching what the platform calls it. A label, never a dimension. */
   campaign: text("campaign"),
+  /**
+   * The company's channel and tracking campaign this money went to, which
+   * ARE dimensions. `source` stays the catalogue key so the roll up keeps
+   * working for a row that names neither.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   spentOn: date("spent_on").notNull(),
   amount: money("amount").notNull(),
   impressions: integer("impressions"),
