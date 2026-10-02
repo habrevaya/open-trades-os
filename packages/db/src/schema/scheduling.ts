@@ -239,6 +239,42 @@ export const rental = pgTable("rental", {
   /** Disposal weight tickets, which is how junk and dumpster work actually bills. */
   weightTons: money("weight_tons"),
   disposalFee: money("disposal_fee"),
+  /**
+   * The rental this one replaced in a swap, when it is one.
+   *
+   * A swap is one stop that takes the full can and leaves an empty one at the
+   * same address, and the dumpster pack's `avg_rental_duration` KPI says in so
+   * many words that it "counts a swap inside the parent rental rather than as a
+   * rental of its own". A swap has to close one row and open another, because
+   * `asset_id` is a single column and the can physically changed, so without
+   * this link a four week construction hire with three swaps reads as four
+   * unrelated week long rentals and the average duration comes out at a
+   * quarter of the truth.
+   *
+   * The chain is backwards rather than forwards because that is the direction
+   * the write goes: the swap knows what it replaced, and nothing has to be
+   * updated on the row that is being closed.
+   */
+  previousRentalId: uuid("previous_rental_id"),
+  /**
+   * The scale ticket's own number and where the load went.
+   *
+   * Written here rather than only as a reading on the visit, because this is
+   * the support behind the largest line on the invoice and the largest line in
+   * the cost of goods, and the pack's retention rule keeps a disposal ticket
+   * for three years from the haul. A number that lives only in a visit's
+   * readings blob cannot be totalled, reconciled against the facility's
+   * account, or found when a customer questions a tonnage charge.
+   */
+  disposalTicketNumber: text("disposal_ticket_number"),
+  disposalFacility: text("disposal_facility"),
+  /** One of the pack's material options. Free text because facilities differ. */
+  materialType: text("material_type"),
+  /** Diverted to recycling, for the diversion report a jurisdiction collects. */
+  divertedTons: money("diverted_tons"),
+  /** What the quoted price covers, so the two meters have something to measure against. */
+  includedTons: money("included_tons"),
+  perTonRate: money("per_ton_rate"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({

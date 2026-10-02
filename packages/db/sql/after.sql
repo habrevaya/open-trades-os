@@ -1286,3 +1286,28 @@ exception
   when duplicate_object then null;
   when duplicate_table then null;
 end $$;
+
+-- ---- The rental a swap replaced ------------------------------------------
+-- A swap closes one rental and opens another at the same address, and
+-- `previous_rental_id` is the link that lets a four week hire with three swaps
+-- read as one placement rather than four unrelated week long rentals. The
+-- dumpster pack's own average-duration KPI depends on it.
+--
+-- Added here rather than in the drizzle schema because a self reference needs
+-- a lazily typed callback there, which the two existing self references in this
+-- schema (`equipment.parent_equipment_id` and `job.parent_job_id`) avoided by
+-- carrying no constraint at all. Those two are left as they are; this one gets
+-- the constraint, because a dangling previous-rental id does not merely lose a
+-- link, it silently shortens a reported rental duration.
+--
+-- SET NULL rather than CASCADE: deleting the first rental in a chain must not
+-- delete the hires that followed it.
+do $$ begin
+  alter table public.rental
+    add constraint rental_previous_rental_id_rental_id_fk
+    foreign key (previous_rental_id) references public.rental(id)
+    on delete set null;
+exception
+  when duplicate_object then null;
+  when duplicate_table then null;
+end $$;

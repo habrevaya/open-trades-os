@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe,
+  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals,
 } from "../services/index";
 
 /**
@@ -524,6 +524,20 @@ export const handlers = {
   campaignResults: campaigns.handlers.campaignResults,
   describeUnsubscribe: unsubscribe.handlers.describeUnsubscribe,
   confirmUnsubscribe: unsubscribe.handlers.confirmUnsubscribe,
+
+  // Rentals (M22): the asset_rental capacity model the dumpster pack declares
+  addRentableAsset: rentals.handlers.addRentableAsset,
+  listRentableAssets: rentals.handlers.listRentableAssets,
+  tagAssetOutOfService: rentals.handlers.tagAssetOutOfService,
+  returnAssetToService: rentals.handlers.returnAssetToService,
+  retireRentableAsset: rentals.handlers.retireRentableAsset,
+  deliverRental: rentals.handlers.deliverRental,
+  pickUpRental: rentals.handlers.pickUpRental,
+  swapRental: rentals.handlers.swapRental,
+  getRental: rentals.handlers.getRental,
+  listRentals: rentals.handlers.listRentals,
+  getRentalOverage: rentals.handlers.getRentalOverage,
+  getFleetReport: rentals.handlers.getFleetReport,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

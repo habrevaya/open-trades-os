@@ -86,3 +86,4 @@ export * as visitAssets from "./visit-assets";
 export * as deliveries from "./deliveries";
 export * as campaigns from "./campaigns";
 export * as unsubscribe from "./unsubscribe";
+export * as rentals from "./rentals";
