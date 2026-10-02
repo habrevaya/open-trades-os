@@ -26,6 +26,23 @@ API, not one anybody can reach. With no token, every path below
 `/api/v1/operator` answers the same 404 an unknown route does, so a
 deployment that never turned it on does not reveal that it exists.
 
+## A deployment with more than one company MUST keep their secrets apart
+
+Turning this API on means the deployment serves several companies, and two
+settings stop being a choice:
+
+| Variable | Must be |
+|---|---|
+| `SECRET_STORE` | `database`, with `SECRETS_MASTER_KEY` set (`openssl rand -base64 32`). Each company pastes its own provider secrets, encrypted for that company only. The default environment store is for one company whose admin is the server's operator: on a shared server a company has no way to put its own Stripe key in the operator's environment |
+| `ALLOW_PROVIDER_BASE_URL` | Unset. With it set, any company admin who can connect an integration can send the provider credential the server holds to a host of their choosing |
+
+Neither is enforced by turning the operator API on, because a deployment can
+run several companies without it. Both are checked in
+[provider secrets](./secrets.md), which also covers rotating the master key.
+Versions before this setting existed let a company admin read the server's
+own environment variables through a connection's credential name; see
+[SECURITY.md](../../SECURITY.md).
+
 ## What it accepts, and what it does not
 
 `Authorization: Bearer <OPERATOR_TOKEN>`, and nothing else. It is a separate

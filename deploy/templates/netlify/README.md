@@ -56,9 +56,17 @@ noted.
 | `PUBLIC_URL` | The site's address. Webhook signatures are computed over it |
 | `AUTH_URL`, `AUTH_SECRET` | As in `.env.example` |
 | `OPERATOR_TOKEN` | Only if a control plane will call [the operator API](../../../docs/self-hosting/operator-api.md) |
+| `SECRET_STORE`, `SECRETS_MASTER_KEY` | `database` and `openssl rand -base64 32`, on any site that serves more than one company: required, not optional. Each company then pastes its own Stripe, Twilio or QuickBooks secret on Settings → Integrations. See [provider secrets](../../../docs/self-hosting/secrets.md) |
 
-Everything else (Stripe, Twilio, Resend, SMTP, storage) is the same as any
-other deployment and is listed in `.env.example`.
+Never set `ALLOW_PROVIDER_BASE_URL` on a site. It exists for the test suites,
+and with it any company admin can send the server's copy of a provider
+credential to an address they choose.
+
+Storage is the same as any other deployment and is listed in `.env.example`.
+A company's provider secrets are not site variables: with one company and the
+default store they are `OTS_SECRET__<company id>__<name>` variables, which
+Settings → Integrations names exactly; with several, they are pasted in the
+app.
 
 ## Migrations
 
