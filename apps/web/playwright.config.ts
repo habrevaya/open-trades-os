@@ -2,6 +2,7 @@ import { defineConfig, devices, chromium } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
+import { E2E_CALLRAIL_ENV } from "./e2e/callrail-env";
 
 /**
  * THE BROWSER SUITE
@@ -93,9 +94,11 @@ export default defineConfig({
      * nobody runs. The two Stripe variables are the ones .env.example names,
      * holding values that are not keys: the suite points the company's
      * Stripe connection at a local fake and signs its own webhook with the
-     * second (e2e/stripe.ts).
+     * second (e2e/stripe.ts). The CallRail pair is the same arrangement for
+     * call tracking (e2e/callrail-env.ts): names the spec points the
+     * connection at, holding values that are not keys.
      */
-    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV },
+    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },

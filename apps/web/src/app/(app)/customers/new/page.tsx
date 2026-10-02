@@ -1,4 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
+import { getDb } from "@/lib/db";
+import { acquisition } from "@opentradesos/api/services";
 import { assertCan } from "@opentradesos/core";
 import { NewCustomerForm } from "./Form";
 
@@ -15,6 +17,10 @@ export const dynamic = "force-dynamic";
 export default async function NewCustomerPage() {
   const user = await requireSetupUser();
   assertCan(user.actor, "customer:write");
+  const ctx = { actor: user.actor, db: getDb() };
+  const [sources, settings] = await Promise.all([
+    acquisition.channelOptions(ctx), acquisition.getSettings(ctx),
+  ]);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 lg:px-6">
@@ -23,7 +29,7 @@ export default async function NewCustomerPage() {
         The address is optional here and needed before you can book work, so
         most people fill it in now.
       </p>
-      <NewCustomerForm />
+      <NewCustomerForm sources={sources} sourceRequired={settings.requireLeadSource} />
     </div>
   );
 }

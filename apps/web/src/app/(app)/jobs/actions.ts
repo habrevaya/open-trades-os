@@ -8,6 +8,7 @@ import { jobs } from "@opentradesos/api/services";
 import { createJob, scheduleVisit } from "@opentradesos/api/contracts";
 import { attempt, field, fields, parsed, type FormState, refused } from "@/lib/actions";
 import { windowFrom } from "@/lib/visit-window";
+import { sourceFrom } from "@/lib/lead-source";
 
 /**
  * BOOKING A JOB, FROM THE OFFICE
@@ -35,6 +36,8 @@ export async function bookJob(_previous: FormState, form: FormData): Promise<For
       summary: field(form, "summary") ?? "",
       description: field(form, "description"),
       customerComplaint: field(form, "customerComplaint"),
+      ...sourceFrom(form),
+      callId: field(form, "callId"),
       ...(window.kind === "window"
         ? {
             visit: {

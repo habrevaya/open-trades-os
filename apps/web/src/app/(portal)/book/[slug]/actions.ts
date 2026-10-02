@@ -27,8 +27,40 @@ export async function loadSlots(input: {
   return slots;
 }
 
+/** How the visitor arrived, read by the page in their browser. Every part optional. */
+export type Arrival = {
+  landingQuery?: string | undefined;
+  referrer?: string | undefined;
+  sourceUrl?: string | undefined;
+  visitorId?: string | undefined;
+};
+
+/**
+ * The utm tags out of the landing query, for the `utm` field.
+ *
+ * The raw query goes as well and is what the touch is parsed from; this is
+ * kept for whatever reads the request's own `utm` column, which a widget
+ * sending an empty bag left blank on every booking.
+ */
+function utmOf(query: string | undefined): Record<string, string> {
+  const utm: Record<string, string> = {};
+  if (!query) return utm;
+  try {
+    for (const [key, value] of new URLSearchParams(query)) {
+      if (key.startsWith("utm_") && value && !(key in utm)) utm[key] = value.slice(0, 200);
+    }
+  } catch {
+    // A query that will not parse still goes through as `landingQuery`.
+  }
+  return utm;
+}
+
+const clip = (value: string | undefined, max: number) =>
+  value ? value.slice(0, max) : undefined;
+
 export async function submitBooking(input: {
   slug: string;
+  arrival?: Arrival;
   serviceId: string;
   date: string;
   arrivalWindowId: string;
@@ -59,7 +91,11 @@ export async function submitBooking(input: {
       postalCode: input.postalCode,
       ...(input.notes ? { notes: input.notes } : {}),
       intakeAnswers: {},
-      utm: {},
+      utm: utmOf(input.arrival?.landingQuery),
+      ...(clip(input.arrival?.landingQuery, 4000) ? { landingQuery: clip(input.arrival?.landingQuery, 4000)! } : {}),
+      ...(clip(input.arrival?.referrer, 2000) ? { referrer: clip(input.arrival?.referrer, 2000)! } : {}),
+      ...(clip(input.arrival?.sourceUrl, 2000) ? { sourceUrl: clip(input.arrival?.sourceUrl, 2000)! } : {}),
+      ...(clip(input.arrival?.visitorId, 200) ? { visitorId: clip(input.arrival?.visitorId, 200)! } : {}),
     });
     return { ok: true, trackingUrl: result.trackingUrl };
   } catch (error) {

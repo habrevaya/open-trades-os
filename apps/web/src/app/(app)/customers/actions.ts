@@ -1,6 +1,7 @@
 "use server";
 
-import { refused } from "@/lib/actions";
+import { refused, refusalOf } from "@/lib/actions";
+import { sourceFrom } from "@/lib/lead-source";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -25,6 +26,7 @@ export async function createCustomer(_previous: unknown, form: FormData) {
     name: String(form.get("name") ?? "").trim(),
     ...(form.get("email") ? { email: String(form.get("email")).trim() } : {}),
     ...(form.get("phone") ? { phone: String(form.get("phone")).trim() } : {}),
+    ...sourceFrom(form),
     // The address is optional, and skipped entirely when blank rather than
     // sent as a set of empty strings, which the schema would reject with a
     // message about a postal code the person never typed.
@@ -48,10 +50,18 @@ export async function createCustomer(_previous: unknown, form: FormData) {
     return refused(form, first ? `${first.path.join(".")}: ${first.message}` : "Check the form.");
   }
 
-  const created = await customers.create(
-    { actor: user.actor, db: getDb() },
-    { ...parsed.data, customerRole: "owner" } as Parameters<typeof customers.create>[1],
-  );
+  let created;
+  try {
+    created = await customers.create(
+      { actor: user.actor, db: getDb() },
+      { ...parsed.data, customerRole: "owner" } as Parameters<typeof customers.create>[1],
+    );
+  } catch (error) {
+    /** A source the company requires, or one that is not on the list, refused in words. */
+    const message = refusalOf(error);
+    if (message === null) throw error;
+    return refused(form, message);
+  }
 
   redirect(`/customers/${created.id}`);
 }
