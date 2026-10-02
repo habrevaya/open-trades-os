@@ -17,6 +17,31 @@ The highest-value contributions right now are not code:
 - **Docs.** Especially the operator's guide, which is business guidance rather
   than software documentation.
 
+## How a contribution gets in
+
+1. **Talk first for anything large.** Open an issue or a discussion before
+   writing a big change, so nobody spends a weekend on something that will not
+   be merged. Small fixes can go straight to a pull request.
+2. **Fork, branch, and open the pull request into `develop`.** `develop` is
+   where work lands first; `main` is what gets released. A pull request into
+   `main` will be retargeted.
+3. **CI runs on every pull request:** typecheck, lint, the unit and database
+   suites, the browser suite and a CodeQL security scan. A red check is the
+   contributor's to fix, and the pull request template lists what to run
+   locally first.
+4. **The maintainer reviews every pull request.** A review is requested
+   automatically when the pull request opens (`.github/CODEOWNERS`).
+   Expect questions about money, permissions and anything that crosses
+   companies: those are the parts where a mistake costs a contractor real
+   money or exposes their customers.
+5. **Merged into `develop`, then released.** Changes reach `main`, and the
+   hosted version, in the next release from `develop`.
+
+Security problems are the exception to all of this: never a public issue or
+pull request. See [SECURITY.md](SECURITY.md).
+
+By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Development
 
 ```bash
@@ -50,10 +75,9 @@ pnpm e2e
   your own machine, do that once, or let it find one you already have under
   `PLAYWRIGHT_BROWSERS_PATH`, or point `CHROMIUM_PATH` at any chromium binary.
 - No retries. A test that passes on its second go is a bug report.
-- Where a step has no screen yet (booking a job, raising an invoice, taking a
-  payment), the spec calls the HTTP API as the same signed in person and then
-  checks the screens. Texts are handed to a fake carrier through the outbox's
-  own seam, so nothing reaches a network.
+- Every step goes through a screen, the way a person would do it. Texts are
+  handed to a fake carrier through the outbox's own seam, and Stripe is faked
+  at its edges, so nothing reaches a network.
 - A failing run leaves a trace per test in `apps/web/test-results`; open one
   with `pnpm --filter @opentradesos/web exec playwright show-trace <file>`.
   CI uploads them as the `e2e-report` artifact.
