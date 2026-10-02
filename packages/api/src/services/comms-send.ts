@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import * as phoneNumbers from "./phone-numbers";
-import { comms } from "@opentradesos/core";
+import { comms, time } from "@opentradesos/core";
 
 /**
  * THE ONE WAY A MESSAGE LEAVES THIS SYSTEM
@@ -17,10 +17,14 @@ import { comms } from "@opentradesos/core";
  * So the check and the send are the same function, and a caller cannot have
  * the send without the check.
  *
- * TRANSACTIONAL ONLY. Everything here is `purpose: "transactional"`, which is
- * a claim about the message rather than a setting: a person is on their way to
- * a property, and that is not marketing. Anything that is marketing needs its
- * own consent and must not come through here.
+ * TWO PURPOSES, ONE GATE. `sendTransactional` is a claim about the message
+ * rather than a setting: a person is on their way to a property, and that is
+ * not marketing. `sendMarketing` is the other claim, and it lives in this file
+ * for the reason above rather than in the campaign service, because a second
+ * outbound path is a second place to forget the suppression check. What
+ * separates them is not the file, it is three things the marketing gate adds:
+ * a granted consent row with nothing implied, quiet hours, and a different
+ * number to send from.
  */
 
 /**
@@ -214,6 +218,192 @@ export async function sendTransactional(tx: Database, input: {
     direction: "outbound",
     channel: "sms",
     purpose: "transactional",
+    fromAddress: decision.from.e164,
+    toAddress: address,
+    body,
+    status: "queued",
+    sentByUserId: input.sentByUserId ?? null,
+  }).returning({ id: schema.message.id });
+
+  await tx.update(schema.conversation).set({
+    lastMessageAt: new Date(),
+    lastMessagePreview: body.slice(0, 200),
+    status: "open",
+    updatedAt: new Date(),
+  }).where(eq(schema.conversation.id, conversationId));
+
+  return { sent: true, messageId: message!.id, conversationId };
+}
+
+/* ------------------------------------------------------------- marketing */
+
+/**
+ * THE QUIET HOURS BRANCH THAT HAD NEVER FIRED
+ *
+ * `comms.canSend` has refused `quiet_hours` since it was written. It does so
+ * only when the caller passes both a window and a local hour, and no caller
+ * ever passed either: not this file, not the workflow executor, not the email
+ * queue, not the consent screen. `inQuietHours` is tested in core and was
+ * unreachable from the product, both `refusal` functions carry a sentence for
+ * a reason neither could ever be handed, and the one check in this system that
+ * exists specifically to stop a marketing text landing at eleven at night did
+ * nothing.
+ *
+ * The window is the company's, from `organization.settings.quietHours`, and
+ * the default below is not a guess at good manners. Calling or texting a
+ * consumer outside 8am to 9pm local time is what the TCPA prohibits, and a
+ * product whose default is "any time" makes that the operator's problem by
+ * omission.
+ *
+ * LOCAL TO THE COMPANY, not to the recipient, and that is a limitation worth
+ * naming rather than hiding. The right hour is the one where the phone is, and
+ * this product does not know that: a number's area code stopped predicting
+ * location when porting became free. The company's own zone is the closest
+ * honest answer, and it is right for the overwhelming majority of a trades
+ * company's list, because they drive to it.
+ */
+export const DEFAULT_QUIET_HOURS = { startHour: 21, endHour: 8 } as const;
+
+export interface QuietHours { startHour: number; endHour: number }
+
+/**
+ * The window this company will not send marketing in, and the recipient's
+ * local hour at the given instant.
+ *
+ * `null` for the window means the company has deliberately turned quiet hours
+ * off, which is a thing a B2B contractor texting facilities managers may
+ * legitimately want. It is not the same as the column being absent, which
+ * takes the default.
+ */
+export async function quietHoursFor(tx: Database, organizationId: string, at: Date): Promise<{
+  window: QuietHours | null;
+  localHour: number;
+  zone: string;
+}> {
+  const [row] = await tx.execute<{ timezone: string | null; settings: Record<string, unknown> | null }>(
+    sql`select timezone, settings from public.organization where id = ${organizationId} limit 1`,
+  );
+  const zone = row?.timezone && time.isZone(row.timezone) ? row.timezone : "America/Chicago";
+  const localHour = Math.floor(time.minutesInDay(at, zone) / 60);
+
+  const configured = (row?.settings ?? {})["quietHours"];
+  if (configured === null) return { window: null, localHour, zone };
+  if (configured && typeof configured === "object") {
+    const candidate = configured as { startHour?: unknown; endHour?: unknown };
+    const startHour = candidate.startHour;
+    const endHour = candidate.endHour;
+    if (Number.isInteger(startHour) && Number.isInteger(endHour)
+      && (startHour as number) >= 0 && (startHour as number) <= 23
+      && (endHour as number) >= 0 && (endHour as number) <= 23) {
+      return { window: { startHour: startHour as number, endHour: endHour as number }, localHour, zone };
+    }
+    /**
+     * A malformed window falls back to the legal default rather than to no
+     * window at all. The failure mode of the other choice is a typo in a
+     * settings blob quietly removing the only thing stopping a two in the
+     * morning send.
+     */
+  }
+  return { window: { ...DEFAULT_QUIET_HOURS }, localHour, zone };
+}
+
+/**
+ * Whether this address can be sent MARKETING right now, and what to send from.
+ *
+ * Separate from `sendability` rather than a flag on it, because every one of
+ * the three differences is a thing that must not be switchable by accident:
+ * the purpose the consent is checked against, the window, and the number.
+ */
+export async function marketability(tx: Database, organizationId: string, typed: string, at: Date) {
+  const address = comms.phoneAddress(typed);
+  const from = await phoneNumbers.senderFor(tx, organizationId, {
+    smsRequired: true, purpose: "marketing",
+  });
+  const quiet = await quietHoursFor(tx, organizationId, at);
+
+  const consents = await tx.select().from(schema.communicationConsent)
+    .where(and(
+      eq(schema.communicationConsent.organizationId, organizationId),
+      eq(schema.communicationConsent.address, address),
+      isNull(schema.communicationConsent.supersededAt),
+    ));
+
+  const suppressions = await tx.select().from(schema.suppression)
+    .where(and(
+      eq(schema.suppression.organizationId, organizationId),
+      eq(schema.suppression.address, address),
+      isNull(schema.suppression.liftedAt),
+    ));
+
+  const decision = comms.canSend({
+    channel: "sms",
+    purpose: "marketing",
+    consents: consents.map((c) => ({
+      channel: c.channel as comms.Channel,
+      purpose: c.purpose as comms.Purpose,
+      state: c.state as comms.ConsentState,
+      capturedAt: c.capturedAt,
+      supersededAt: c.supersededAt,
+    })),
+    suppressions: suppressions.map((s) => ({
+      channel: s.channel as comms.Channel,
+      purpose: s.purpose as comms.Purpose | null,
+      liftedAt: s.liftedAt,
+    })),
+    channelRegistered: Boolean(from?.smsRegistered),
+    ...(quiet.window ? { quietHours: quiet.window, localHour: quiet.localHour } : {}),
+  });
+
+  return { ...decision, from, quiet };
+}
+
+/**
+ * Queue one marketing text, or say why it cannot go.
+ *
+ * Returns a refusal rather than throwing, like its transactional sibling, and
+ * here the reason is the whole product rather than a convenience: a campaign
+ * sending to two thousand people will refuse some of them, and every refusal
+ * is a row on the campaign with a reason on it. Throwing would abandon the
+ * send at the first person who had replied STOP.
+ *
+ * ATTACHED TO A CONVERSATION, deliberately. A marketing text that a customer
+ * cannot reply to is a worse version of a letter. The replies are the point,
+ * and they have to land in the inbox somebody is watching rather than on a
+ * number nobody reads.
+ */
+export async function sendMarketing(tx: Database, input: {
+  organizationId: string;
+  address: string;
+  body: string;
+  customerId?: string | null;
+  sentByUserId?: string | null;
+  at?: Date;
+}): Promise<SendOutcome> {
+  const body = input.body.trim();
+  if (body === "") return { sent: false, reason: "empty", explanation: "Nothing to send." };
+
+  const address = comms.phoneAddress(input.address);
+  const decision = await marketability(tx, input.organizationId, address, input.at ?? new Date());
+  if (!decision.allowed || !decision.from) {
+    const reason: comms.SendRefusal = decision.allowed
+      ? "channel_not_registered"
+      : decision.reason;
+    return { sent: false, reason, explanation: refusal(reason) };
+  }
+
+  const conversationId = await threadFor(tx, {
+    organizationId: input.organizationId,
+    address,
+    phoneNumberId: decision.from.id,
+    customerId: input.customerId ?? null,
+  });
+
+  const [message] = await tx.insert(schema.message).values({
+    organizationId: input.organizationId,
+    conversationId,
+    direction: "outbound",
+    channel: "sms",
+    purpose: "marketing",
     fromAddress: decision.from.e164,
     toAddress: address,
     body,

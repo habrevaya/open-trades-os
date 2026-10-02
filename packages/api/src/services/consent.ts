@@ -64,9 +64,24 @@ export interface ConsentInput {
  * for a moment, and `canSend` takes the most recent unsuperseded row: a
  * concurrent send in that window reads whichever one the index returned.
  */
-async function record(
+export interface ConsentWriter {
+  organizationId: string;
+  /** Null for a caller with no user: the unsubscribe page has nobody signed in. */
+  capturedByUserId: string | null;
+}
+
+/**
+ * The supersede-then-insert, with no `ServiceContext` and no audit row.
+ *
+ * Split out for the one caller that has neither: the public unsubscribe page,
+ * which runs with no session at all and cannot be given a fake one. The
+ * alternative was a second copy of this dance over there, which is exactly
+ * what the comment above warns about, and a withdrawn consent is the worst
+ * place in this system for two writers to disagree about the order.
+ */
+export async function recordWithin(
   tx: Database,
-  ctx: ServiceContext,
+  writer: ConsentWriter,
   input: ConsentInput,
   state: "granted" | "revoked",
 ) {
@@ -78,13 +93,6 @@ async function record(
       `"${input.method}" is not a way consent can be captured. One of: ${METHODS.join(", ")}.`,
     );
   }
-  /**
-   * PROOF IS REQUIRED FOR A GRANT AND NOT FOR A REVOCATION, which is not an
-   * oversight. A grant is the thing somebody has to defend later, so it needs
-   * the wording or a reference to where it happened. A revocation needs no
-   * defending: if a customer says stop and the record is thin, the thin
-   * record is not the problem.
-   */
   if (state === "granted" && !input.proofText && !input.proofReference) {
     throw new ConflictError(
       "A grant needs the wording that was used or a reference to where it happened. "
@@ -92,13 +100,12 @@ async function record(
     );
   }
 
-  // E.164, so the decision at send time finds it. See comms.phoneAddress.
   const address = comms.phoneAddress(input.address);
 
   await tx.update(schema.communicationConsent)
     .set({ supersededAt: new Date(), updatedAt: new Date() })
     .where(and(
-      eq(schema.communicationConsent.organizationId, ctx.actor.organizationId),
+      eq(schema.communicationConsent.organizationId, writer.organizationId),
       eq(schema.communicationConsent.address, address),
       eq(schema.communicationConsent.channel, input.channel),
       eq(schema.communicationConsent.purpose, input.purpose),
@@ -106,7 +113,7 @@ async function record(
     ));
 
   const [row] = await tx.insert(schema.communicationConsent).values({
-    organizationId: ctx.actor.organizationId,
+    organizationId: writer.organizationId,
     customerId: input.customerId ?? null,
     contactId: input.contactId ?? null,
     address,
@@ -116,12 +123,34 @@ async function record(
     method: input.method,
     proofText: input.proofText ?? null,
     proofReference: input.proofReference ?? null,
-    capturedByUserId: ctx.actor.userId,
+    capturedByUserId: writer.capturedByUserId,
     ipAddress: input.ipAddress ?? null,
   }).returning();
 
-  await audit(tx, ctx, `consent.${state}`, "communication_consent", row!.id, null, row!);
   return row!;
+}
+
+async function record(
+  tx: Database,
+  ctx: ServiceContext,
+  input: ConsentInput,
+  state: "granted" | "revoked",
+) {
+  /**
+   * PROOF IS REQUIRED FOR A GRANT AND NOT FOR A REVOCATION, which is not an
+   * oversight and is checked in `recordWithin`. A grant is the thing somebody
+   * has to defend later, so it needs the wording or a reference to where it
+   * happened. A revocation needs no defending: if a customer says stop and the
+   * record is thin, the thin record is not the problem.
+   */
+  const row = await recordWithin(
+    tx,
+    { organizationId: ctx.actor.organizationId, capturedByUserId: ctx.actor.userId },
+    input,
+    state,
+  );
+  await audit(tx, ctx, `consent.${state}`, "communication_consent", row.id, null, row);
+  return row;
 }
 
 export function grant(ctx: ServiceContext, input: ConsentInput) {

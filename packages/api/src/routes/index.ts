@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, visitAssets, deliveries,
+  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe,
 } from "../services/index";
 
 /**
@@ -510,6 +510,20 @@ export const handlers = {
   recordDelivery: deliveries.handlers.recordDelivery,
   listDeliveries: deliveries.handlers.listDeliveries,
   getConsumption: deliveries.handlers.getConsumption,
+
+  // Campaigns (M19): the half of marketing that sends rather than measures
+  createCampaign: campaigns.handlers.createCampaign,
+  updateCampaign: campaigns.handlers.updateCampaign,
+  cancelCampaign: campaigns.handlers.cancelCampaign,
+  deleteCampaign: campaigns.handlers.deleteCampaign,
+  getCampaign: campaigns.handlers.getCampaign,
+  listCampaigns: campaigns.handlers.listCampaigns,
+  previewCampaign: campaigns.handlers.previewCampaign,
+  sendCampaign: campaigns.handlers.sendCampaign,
+  campaignRecipients: campaigns.handlers.campaignRecipients,
+  campaignResults: campaigns.handlers.campaignResults,
+  describeUnsubscribe: unsubscribe.handlers.describeUnsubscribe,
+  confirmUnsubscribe: unsubscribe.handlers.confirmUnsubscribe,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

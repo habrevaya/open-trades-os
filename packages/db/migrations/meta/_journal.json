@@ -414,6 +414,13 @@
       "when": 1790884259318,
       "tag": "0058_clever_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790908216110,
+      "tag": "0059_puzzling_multiple_man",
+      "breakpoints": true
     }
   ]
 }

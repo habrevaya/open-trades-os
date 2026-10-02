@@ -1265,3 +1265,24 @@ create or replace function app.organization_people()
 
 revoke all on function app.organization_people() from public;
 grant execute on function app.organization_people() to authenticated;
+
+-- ---- The campaign a job came from -----------------------------------------
+-- `job.campaign_id` has been on the job table since the first migration with
+-- no foreign key, written by nothing and read by nothing. M19's campaign
+-- sender now writes it, and a campaign that gets deleted must not leave jobs
+-- pointing at an id that resolves to nothing: an attribution report joining
+-- through a dangling id silently drops the revenue a campaign earned.
+--
+-- Added here rather than in the drizzle schema because `marketing.ts` already
+-- imports `job`, so declaring the reverse in `work.ts` would make the two
+-- schema modules import each other. ON DELETE SET NULL rather than CASCADE,
+-- because deleting a campaign must never delete the work it brought in.
+do $$ begin
+  alter table public.job
+    add constraint job_campaign_id_marketing_campaign_id_fk
+    foreign key (campaign_id) references public.marketing_campaign(id)
+    on delete set null;
+exception
+  when duplicate_object then null;
+  when duplicate_table then null;
+end $$;

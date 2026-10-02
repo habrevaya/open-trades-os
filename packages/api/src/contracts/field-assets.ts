@@ -17,6 +17,15 @@ import { Uuid, MoneyString } from "./common";
  * the table described it in enough detail to be unmistakable: a quantity off
  * a truck's meter, a tank percentage before and after, and a flag for the
  * trip where the tank would only take ninety gallons.
+ *
+ * TWO MODULES IN ONE FILE, which is unusual here and deliberate. The visit
+ * unit routes are M33, because a per-unit outcome on a programme visit is an
+ * inspection result. The delivery routes are M10: a metered drop is work, and
+ * filing a propane delivery under "Inspections and the Deficiency Backlog"
+ * because the table happens to live in `schema/inspection.ts` would put it
+ * under a heading on the docs index and the module pages that a fuel dealer
+ * would never look under. The schema file's grouping is not a claim about
+ * which module a feature belongs to.
  */
 
 const Quantity = z.string().regex(/^-?\d+(\.\d{1,4})?$/, "A quantity is a decimal string");
@@ -112,7 +121,7 @@ export const recordDelivery = defineRoute({
   summary: "Record what came off the truck",
   description:
     "The meter is the authority: given both readings, the quantity is their difference. Given both readings AND a written quantity that disagrees, this refuses rather than quietly preferring one, because the disagreement is the thing somebody needs to look at and the customer is charged from this number.",
-  module: "M33",
+  module: "M10",
   permissions: ["invoice:write"],
   idempotent: true,
   input: z.object({
@@ -141,7 +150,7 @@ export const listDeliveries = defineRoute({
   summary: "What has been delivered, and what it was worth",
   description:
     "The quantity total is a count of units and only means one thing when a product was asked for: gallons of oil plus pounds of chemical is not a quantity of anything.",
-  module: "M33",
+  module: "M10",
   permissions: ["invoice:read"],
   input: z.object({
     customerId: Uuid.optional(),
@@ -167,7 +176,7 @@ export const getConsumption = defineRoute({
   summary: "How fast this property gets through it",
   description:
     "The first delivery's quantity is excluded from the rate, and that is the one piece of arithmetic here that is expensive to get wrong: consumption is measured BETWEEN deliveries, so the first drop is what was burned over a period that started before any record exists. Including it divides a quantity spanning an unknown period by a known one, the answer is always too high, and the truck goes too early for every customer. The next-due figure is null below three deliveries, because one interval is not a rate and a cold fortnight would set the schedule for the year.",
-  module: "M33",
+  module: "M10",
   permissions: ["invoice:read"],
   input: z.object({ propertyId: Uuid, product: z.string().min(1).max(100) }),
   output: z.object({

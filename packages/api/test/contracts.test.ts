@@ -96,7 +96,30 @@ describe("permissions", () => {
        * in front of it, the same as for the booking endpoint.
        */
       "POST /v1/public/forms/{formSlug}",
-    ]);
+      /**
+       * UNSUBSCRIBE, AND IT HAS TO BE OPEN. A recipient pressing the
+       * unsubscribe control in Gmail has no account, and the mailbox provider
+       * making the RFC 8058 POST on their behalf is a server with no
+       * credential of any kind. A gate here would mean the one click
+       * unsubscribe both Gmail and Yahoo require from bulk senders does not
+       * work, which is how a sending domain stops being delivered.
+       *
+       * What makes it safe: the token is 32 random bytes and only its hash is
+       * stored, an unknown token gets the same answer as one that never
+       * existed so this cannot be used to test whether a token is live, the
+       * address comes back masked because the link can be forwarded, and the
+       * GET writes nothing. The last one is the important one: every link
+       * prefetcher and mail scanner follows URLs in inbound mail, so a GET
+       * that unsubscribed would opt a company's whole list out over a few
+       * months with no human having clicked anything.
+       *
+       * The worst a stranger with a stolen token can do is stop that one
+       * address getting marketing email, which is also what the address's
+       * owner wanted the link for.
+       */
+      "GET /v1/public/unsubscribe/{token}",
+      "POST /v1/public/unsubscribe/{token}",
+    ].sort());
   });
 });
 

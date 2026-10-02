@@ -42,6 +42,7 @@ import { serviceReportRoutes } from "./service-reports";
 import { appRoutes } from "./apps";
 import { pricingAuthorityRoutes } from "./pricing-authority";
 import { fieldAssetRoutes } from "./field-assets";
+import { campaignRoutes } from "./campaigns";
 
 export * from "./common";
 export * from "./customers";
@@ -152,6 +153,7 @@ export const routes = {
   ...appRoutes,
   ...pricingAuthorityRoutes,
   ...fieldAssetRoutes,
+  ...campaignRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

@@ -97,6 +97,15 @@ const SOFT_DELETE_NOT_OFFERED = [
   "property", "purchaseOrder", "rateCard", "recurringSchedule", "review",
   "reviewPlatform", "reviewPolicy", "reviewRequest", "serviceContract",
   "storedFile", "vendor", "wageScale", "webForm",
+  /**
+   * `campaignRecipient` and `unsubscribeLink` are deliberately NOT here, and
+   * that is worth saying because both carry the column. Neither is filtered on
+   * it anywhere: a recipient row is the record that this company sent this
+   * address this message on this day, and an unsubscribe link has to keep
+   * working for a mail somebody finds in three years. Both would have joined
+   * this list if their readers had kept the filter that every other reader in
+   * this codebase starts with, which is how a decorative filter gets in.
+   */
 ];
 
 

@@ -145,6 +145,13 @@ const ORDER = [
    */
   "form_submission", "web_form", "marketing_touch", "ad_spend",
   /**
+   * The campaign tables. A recipient points at a campaign and a customer, an
+   * unsubscribe link at a campaign, so both go before it. `job.campaign_id`
+   * references the campaign too, with ON DELETE SET NULL, and the job is
+   * already gone by here.
+   */
+  "campaign_recipient", "unsubscribe_link", "marketing_campaign",
+  /**
    * Reviews: a request points at a job and a customer, a review at both
    * plus a technician. The policy and the platform list point at nothing,
    * which is why a company can declare them before it has any reviews.

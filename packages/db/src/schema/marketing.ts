@@ -219,3 +219,171 @@ export const formSubmission = pgTable("form_submission", {
   formIdx: index("form_submission_form_idx").on(t.organizationId, t.formId, t.createdAt),
   stateIdx: index("form_submission_state_idx").on(t.organizationId, t.state, t.createdAt),
 }));
+
+/* ------------------------------------------------------------- campaigns */
+
+/**
+ * THE SEND, WHICH M19 HAD NO TABLE FOR
+ *
+ * Everything above this line measures what somebody else's channel sent us.
+ * A contractor's best list is the one they already own, and until these three
+ * tables there was nowhere to describe a send to it, nowhere to record who it
+ * went to, and no way for a job six weeks later to say which campaign brought
+ * it in. `job.campaign_id` has been on the job table from the beginning, with
+ * no foreign key, written by nothing and read by nothing, waiting for this.
+ */
+
+export const campaignChannel = pgEnum("campaign_channel", ["sms", "email"]);
+
+export const campaignState = pgEnum("campaign_state", [
+  "draft", "scheduled", "sending", "sent", "cancelled",
+]);
+
+export const campaignRecipientState = pgEnum("campaign_recipient_state", [
+  "pending", "queued", "skipped",
+]);
+
+/**
+ * One send to a selected part of the customer list.
+ *
+ * THE AUDIENCE IS STORED AS RULES, NOT AS A LIST OF PEOPLE, and the recipients
+ * are frozen when the send starts. Both halves matter. Rules are what an owner
+ * can read back and change; a stored list of four thousand ids is not
+ * reviewable by anybody. But once the send begins, who it went to is a fact,
+ * so `campaign_recipient` is written then and never recomputed: re-running the
+ * rules a month later would answer a different question and quietly rewrite
+ * history.
+ *
+ * NOTHING HERE COUNTS ANYTHING. Sent, skipped, replied, booked and revenue are
+ * all derived from the recipient rows and the work, for the same reason a
+ * stock level is derived: a stored total is a number somebody can edit into
+ * agreement with what they hoped for.
+ */
+export const marketingCampaign = pgTable("marketing_campaign", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  channel: campaignChannel("channel").notNull(),
+  state: campaignState("state").notNull().default("draft"),
+
+  /** Core's `AudienceRule[]`, validated by `checkAudience` on every write. */
+  audience: jsonb("audience").$type<Record<string, unknown>[]>().notNull().default([]),
+
+  /** Null on an SMS campaign, and refused if present: a text has no subject. */
+  subject: text("subject"),
+  body: text("body").notNull(),
+
+  /**
+   * What a touch arriving later will carry in `utm_campaign`, so a click from
+   * this send credits this send. Defaulted from the name rather than typed
+   * twice, because two fields that have to agree and nothing making them
+   * agree is how attribution reports end up with four spellings of one
+   * campaign.
+   */
+  utmCampaign: text("utm_campaign").notNull(),
+
+  /**
+   * The registered carrier campaign this sends under, on SMS. Its throughput
+   * and daily cap are what the sender paces against; before this, those two
+   * columns were written, displayed, and consulted by no sender.
+   */
+  messagingCampaignId: uuid("messaging_campaign_id"),
+
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancellationReason: text("cancellation_reason"),
+
+  createdByUserId: uuid("created_by_user_id"),
+  ...timestamps,
+}, (t) => ({
+  stateIdx: index("marketing_campaign_state_idx").on(t.organizationId, t.state, t.scheduledFor),
+  /**
+   * One live campaign per utm value, so two campaigns cannot both claim the
+   * credit for the same arriving touch. Cancelled and deleted ones are out of
+   * the way, because a name is worth reusing after a campaign is abandoned.
+   */
+  utmIdx: uniqueIndex("marketing_campaign_utm_idx")
+    .on(t.organizationId, t.utmCampaign)
+    .where(sql`${t.deletedAt} is null and ${t.cancelledAt} is null`),
+}));
+
+/**
+ * One person this campaign was sent to, or deliberately not sent to.
+ *
+ * A SKIPPED ROW IS WRITTEN, ALWAYS. The alternative, filtering the
+ * unreachable out before the list is stored, is how a company comes to
+ * believe it sent four thousand texts when it sent nine hundred: the gate
+ * refused the rest for consent, and the refusals existed only in a log
+ * nobody reads. Stored with its reason, the same list is the worklist for
+ * collecting the consent that would make the next campaign twice the size.
+ */
+export const campaignRecipient = pgTable("campaign_recipient", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  campaignId: uuid("campaign_id").notNull().references(() => marketingCampaign.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** E.164 or a lowercased email, whichever the channel is. */
+  address: text("address").notNull(),
+  state: campaignRecipientState("state").notNull().default("pending"),
+  /** A `comms.SendRefusal`, or one of this service's own. Never null on a skip. */
+  skipReason: text("skip_reason"),
+  /** The outbox row, when one was made. Delivery is the outbox's answer, not ours. */
+  messageId: uuid("message_id"),
+  queuedAt: timestamp("queued_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  /**
+   * One row per address per campaign. This is the only thing standing between
+   * a retried send and a customer getting the same text twice, and it is a
+   * database constraint rather than a check in the sender because the sender
+   * is exactly what will be running twice.
+   */
+  onceIdx: uniqueIndex("campaign_recipient_once_idx").on(t.campaignId, t.address),
+  pendingIdx: index("campaign_recipient_state_idx").on(t.campaignId, t.state),
+  customerIdx: index("campaign_recipient_customer_idx").on(t.organizationId, t.customerId),
+}));
+
+/**
+ * WHAT A ONE CLICK UNSUBSCRIBE RESOLVES TO
+ *
+ * `email.queue` has refused every marketing email without an unsubscribe URL
+ * since it was written, correctly, because CAN-SPAM requires one and Gmail and
+ * Yahoo both require one click unsubscribe from bulk senders. And this product
+ * served no unsubscribe page. The only way to satisfy that gate was to hand it
+ * a URL hosted somewhere else, so the header went out pointing at a page that
+ * either did not exist or could not write a suppression into this database.
+ * A live gate demanding something that does not exist is worse than no gate:
+ * it reads as solved.
+ *
+ * NOT `portal_grant`, which is the obvious reuse. Two reasons, and the first
+ * is decisive: `portal_grant.expires_at` is NOT NULL, and an unsubscribe link
+ * must never expire. "This link has expired" is the single worst page this
+ * product could serve to somebody trying to stop hearing from a company,
+ * because their next move is the complaint button, which costs the sending
+ * domain more than ten unsubscribes. The second is that the subject here is
+ * an address rather than a record.
+ *
+ * Only the hash is stored, as with every other token in this schema.
+ */
+export const unsubscribeLink = pgTable("unsubscribe_link", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** SHA-256 of the token. The token exists once, in the message that carried it. */
+  tokenHash: text("token_hash").notNull(),
+  address: text("address").notNull(),
+  /** Which campaign's link this was, so a complaint rate is per send. */
+  campaignId: uuid("campaign_id").references(() => marketingCampaign.id, { onDelete: "set null" }),
+  /**
+   * Set the first time it is used and never cleared. A second click is
+   * answered with the same page rather than an error: somebody clicking twice
+   * wants to be sure it worked.
+   */
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  usedIp: text("used_ip"),
+  ...timestamps,
+}, (t) => ({
+  hashIdx: uniqueIndex("unsubscribe_link_token_idx").on(t.tokenHash),
+  addressIdx: index("unsubscribe_link_address_idx").on(t.organizationId, t.address),
+}));

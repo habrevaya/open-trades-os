@@ -48,10 +48,32 @@ export type Purpose = (typeof PURPOSES)[number];
  */
 const SEND_ORDER: Purpose[] = ["main", "sending", "user"];
 
+/**
+ * What a MARKETING send comes from, best first, and the order is deliberately
+ * the other way round.
+ *
+ * A bulk send from the number on the truck is the fastest way to lose the
+ * number on the truck. Carriers score a sending number on complaint and opt
+ * out rate; a campaign to four thousand people moves that score in one
+ * afternoon, and when it moves far enough the filtering lands on every text
+ * that number sends, including the "we are on our way" that a customer is
+ * waiting for. A `sending` number is a number bought to absorb exactly that.
+ *
+ * `user` is absent rather than ranked last. A technician's own line as the
+ * return address on a promotion means the replies, including the angry ones,
+ * arrive on one person's phone, and that person did not choose to run a
+ * campaign.
+ *
+ * `main` stays in the list because a company with no sending pool should be
+ * able to run a campaign; it is second so that buying one number changes the
+ * default without anybody editing a setting.
+ */
+const MARKETING_ORDER: Purpose[] = ["sending", "main"];
+
 export async function senderFor(
   tx: Database,
   organizationId: string,
-  input: { smsRequired: boolean },
+  input: { smsRequired: boolean; purpose?: "conversation" | "marketing" | undefined },
 ) {
   const rows = await tx.select().from(schema.phoneNumber)
     .where(and(
@@ -66,9 +88,10 @@ export async function senderFor(
      */
     .orderBy(asc(schema.phoneNumber.createdAt));
 
-  const eligible = rows.filter((row) => SEND_ORDER.includes(row.purpose as Purpose));
+  const order = input.purpose === "marketing" ? MARKETING_ORDER : SEND_ORDER;
+  const eligible = rows.filter((row) => order.includes(row.purpose as Purpose));
   eligible.sort((a, b) =>
-    SEND_ORDER.indexOf(a.purpose as Purpose) - SEND_ORDER.indexOf(b.purpose as Purpose));
+    order.indexOf(a.purpose as Purpose) - order.indexOf(b.purpose as Purpose));
   return eligible[0];
 }
 

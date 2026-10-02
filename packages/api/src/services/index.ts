@@ -84,3 +84,5 @@ export * as ledgerReports from "./ledger";
 export * as serviceReports from "./service-reports";
 export * as visitAssets from "./visit-assets";
 export * as deliveries from "./deliveries";
+export * as campaigns from "./campaigns";
+export * as unsubscribe from "./unsubscribe";
