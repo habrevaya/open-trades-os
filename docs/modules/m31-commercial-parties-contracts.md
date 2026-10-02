@@ -38,6 +38,12 @@ has to pass.
 authorisation number are one concept: a maximum we may not bill past without a
 separate approval event.
 
+**The mirror.** A work order created in a facilities network, a warranty
+administrator's portal or a manufacturer's dealer system, mirrored here with
+their id as the key, their status verbatim, and a push queue for what they have
+not yet been told. The adapters that talk to those networks are NOT here; what
+is here is everything that does not depend on them.
+
 ## Key concepts
 
 **The invoice goes to whoever is being billed, not to whoever is on site.** An
@@ -97,10 +103,118 @@ authorisation, which supersedes the first and keeps its consumption.
 Invoicing checks both: the right party, and the ceiling. It consumes the
 ceiling once the invoice exists.
 
+## Working somebody else's queue
+
+In five segments the contractor is a vendor in somebody else's software: a
+facilities network dispatches to them, a warranty administrator assigns a
+claim, a manufacturer sends a dealer a warranty job, a marketplace sells a
+lead. The order arrives in that portal, it is accepted or declined there, the
+status is pushed back at every step, and the portal's view decides whether the
+invoice is paid.
+
+### Why this is not a few columns on `job`
+
+**An order can be rejected, and a rejected order must never become a job.**
+Half of what arrives on a facilities network is declined. Modelling it as a job
+with a status would put work nobody is doing on the dispatch board and in the
+margin report.
+
+**The ids are theirs.** `(source_system, external_id)` is the natural key and
+it is what an inbound sync is idempotent on. A job number is ours.
+
+**The status we owe them is not the status of our work.** `pending_push` is a
+queue, and a status changed and never pushed is a contractor whose scorecard
+says they never responded. That queue has no home on a job row.
+
+### The asymmetry
+
+What we may do is deliberately narrower than what they may do.
+
+`cancelled_by_client`, `reopened` and `closed` are refused from our side.
+Neither of the first two is ours to declare: a contractor who could mark an
+order cancelled by the client could make their own missed deadline look like
+the client's change of mind, and the portal would disagree the moment anybody
+looked.
+
+Inbound, nothing is validated. Their portal has states we have never seen,
+renames them between releases and skips ours. A status we cannot place is
+recorded verbatim in `external_status` with our state left where it was,
+because refusing an inbound update for being unfamiliar is the one failure this
+table exists to prevent: an integration that stops the day the client renames
+"Dispatched" to "Assigned" is a vendor whose statuses silently stop arriving.
+
+### Two flags that differ per network
+
+**`acceptance_is_irreversible`.** Some networks make acceptance final the
+moment it is sent. A product that lets a dispatcher un-accept on one of those
+has taught them a habit that costs a chargeback the first time it matters.
+
+**`accepts_via_invoice_only`.** Some have no accept call at all: they take a
+work order by receiving an invoice for it. An Accept button that posts nowhere
+is worse than none, because it tells a dispatcher the job is theirs when the
+client has not heard from us. `POST .../accept-via-invoice` is what accepting
+means there, and it is a separate operation because the two are different acts:
+one says we will do this, the other says we have done it and here is the bill.
+
+A network with no profile in `core/external-work` gets the cautious default of
+each: acceptance assumed final, because the cost of being wrong is asymmetric.
+Assuming it can be undone when it cannot produces a chargeback; assuming it
+cannot when it can produces one phone call.
+
+### A conflict is not a merge
+
+The external system is the system of record, and `POST .../remote` honours
+that including when it contradicts us.
+
+When we were still holding a change they have not seen, theirs replaces it and
+ours is **written down**: the audit line carries both states and a sentence
+saying what was lost. "We marked it complete on the 4th and their portal says it
+was still open on the 11th" is a dispute somebody has to be able to reconstruct,
+and it is the dispute that decides who pays for the trip.
+
+The test is not whether the states differ. A portal confirming the `completed`
+we pushed differs from nothing and loses nothing; reporting a conflict there
+would make every normal sync look like a dispute. What decides it is
+`pending_push`: if it is false, whatever we last said reached them and their
+answer is the next word in the conversation. If it is true, they are answering
+something older.
+
+### The push queue
+
+`GET /v1/external-work-pushes`, oldest first, because the oldest unsent status
+is the one costing the most. A failed push leaves the order IN the queue: a
+network that was down has to be told when it comes back, and an error that
+quietly removed it would turn a retryable outage into a status the client never
+hears.
+
+### What is not built
+
+**No adapter for any of these networks.** Not Corrigo, not ServiceChannel, not
+a warranty administrator's API. Each is a vendor approval and a contract rather
+than code, and one written against documentation without a sandbox looks
+finished and has never run. Everything above is reachable through the API, so
+an integration or a middleware can drive it today, and the day a sandbox exists
+the adapter has somewhere to write to.
+
+**No automatic job creation on accept.** Accepting takes a job id if the caller
+has one. Deciding what job an order becomes needs the client's trade, site and
+scope mapped to ours, and guessing it would put the wrong job type on the
+board.
+
+**No rate card.** A facilities network's schedule is the other half of "our
+price book is not the price authority", and the tables for it still have no
+reader.
+
 ## Permissions
 
 The cast and the ceiling are decisions about the job, so both need
 `job:write`. Reading either needs `job:read`.
+
+A mirrored work order needs `contract:write` to receive, move or sync, and
+`contract:read` to look at. It is the commercial arrangement rather than the
+job: accepting an order from a facilities network is agreeing to their terms
+for it, which is the same decision as signing the contract, and it is not the
+same decision as scheduling the visit.
 
 ## Not built
 
@@ -108,9 +222,6 @@ Rate cards, which are the other half of "our price book is not the price
 authority": a client contract, a warranty network schedule, a manufacturer
 labour allowance. The tables exist and nothing reads them, so a commercial job
 is still priced from our own book.
-
-External work orders, where the job is created in a facilities network and we
-mirror it, and the external system is the system of record.
 
 Obligations, which are SLA clocks, invoicing windows and claim deadlines as
 one primitive. Invoice delivery beyond email: a portal, a cXML or EDI

@@ -46,6 +46,7 @@ import { campaignRoutes } from "./campaigns";
 import { rentalRoutes } from "./rentals";
 import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
+import { externalWorkRoutes } from "./external-work";
 
 export * from "./common";
 export * from "./customers";
@@ -160,6 +161,7 @@ export const routes = {
   ...rentalRoutes,
   ...networkRoutes,
   ...exportRoutes,
+  ...externalWorkRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

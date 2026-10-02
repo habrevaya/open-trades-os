@@ -66,7 +66,6 @@ const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
    * for the day a manual journal is genuinely needed.
    */
   ["billing:manage", "The company's own subscription to this product. Not a module here."],
-  ["apikey:write", "M26 issues app tokens through connected apps, not bare API keys."],
   ["job:delete", "M10 cancels rather than deletes, deliberately."],
   ["ledger:post", "M14. Postings are a consequence of a guarded business action, never a bare entry. A manual journal has no surface."],
 ]);

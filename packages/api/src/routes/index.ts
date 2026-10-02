@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport,
+  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork,
 } from "../services/index";
 
 /**
@@ -549,6 +549,18 @@ export const handlers = {
   // Export (M30): the portability the comparison pages promise
   getExportManifest: dataExport.handlers.getExportManifest,
   getExportPage: dataExport.handlers.getExportPage,
+
+  // External work orders (M31): the last table nothing touched
+  receiveExternalWorkOrder: externalWork.handlers.receiveExternalWorkOrder,
+  moveExternalWorkOrder: externalWork.handlers.moveExternalWorkOrder,
+  acceptExternalWorkOrderViaInvoice: externalWork.handlers.acceptExternalWorkOrderViaInvoice,
+  applyExternalWorkOrderRemote: externalWork.handlers.applyExternalWorkOrderRemote,
+  listPendingExternalPushes: externalWork.handlers.listPendingExternalPushes,
+  markExternalWorkOrderPushed: externalWork.handlers.markExternalWorkOrderPushed,
+  markExternalWorkOrderPushFailed: externalWork.handlers.markExternalWorkOrderPushFailed,
+  getExternalWorkOrder: externalWork.handlers.getExternalWorkOrder,
+  listExternalWorkOrders: externalWork.handlers.listExternalWorkOrders,
+  listExternalWorkSources: externalWork.handlers.listExternalWorkSources,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

@@ -20871,6 +20871,1323 @@
         ]
       }
     },
+    "/v1/external-work-orders": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listExternalWorkOrders",
+        "summary": "Mirrored work orders, newest first",
+        "description": "Filterable by state, by network and by whether a push is owed.\n\nRequires a session holding: contract:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "sourceSystem",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "pendingPush",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mirrored work orders, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExternalWorkOrdersOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read"
+        ]
+      },
+      "post": {
+        "operationId": "receiveExternalWorkOrder",
+        "summary": "Mirror a work order from a client's system",
+        "description": "IDEMPOTENT ON THEIR OWN KEY, which the unique index on (organization, source system, external id) holds: a network that resends an order is the ordinary case rather than an error, since they retry, replay a queue after an outage, and send the same order to several vendors. A repeat updates their status and their payload and LEAVES OUR STATE ALONE, because an order we accepted and started does not go back to offered because their queue replayed. It always arrives as `offered`: a sync that could create one already accepted would let a middleware bug accept work on a contractor's behalf, and the first anybody would know is a missed appointment. Their status string is kept verbatim and never mapped on the way in.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveExternalWorkOrderInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Mirror a work order from a client's system",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiveExternalWorkOrderOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getExternalWorkOrder",
+        "summary": "One mirrored work order",
+        "description": "Carries what we may move it to, worked out from the state and the network's own flags rather than left to a screen to guess, so an Accept button is not drawn on a network that has no accept call.\n\nRequires a session holding: contract:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One mirrored work order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetExternalWorkOrderOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}/accept-via-invoice": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "acceptExternalWorkOrderViaInvoice",
+        "summary": "Take an order on a network that has no accept call",
+        "description": "A manufacturer's dealer network takes a warranty job by receiving the claim, not by accepting a dispatch. Its own operation rather than a flag, because the two are different acts: one says we will do this, the other says we have done it and here is the bill, and a network that only accepts the second is not one where a dispatcher should be clicking Accept. Refused on a network that does have an accept call, because invoicing for work the client was never told we accepted is how a payment gets held.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptExternalWorkOrderViaInvoiceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take an order on a network that has no accept call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptExternalWorkOrderViaInvoiceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}/move": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "moveExternalWorkOrder",
+        "summary": "Accept, decline or progress an order from our side",
+        "description": "What WE may do, which is deliberately narrower than what they may do. `cancelled_by_client` and `reopened` are refused from this side because neither is ours to declare: a contractor who could mark an order cancelled by the client could make their own missed deadline look like the client's change of mind, and the portal would disagree the moment anybody looked. Accepting is refused on a network that has no accept call, with the instruction to submit the invoice instead. Declining after acceptance is refused where the network makes acceptance final, because a product that lets a dispatcher un-accept has taught them a habit that costs a chargeback. A declined order never carries a job: half of what arrives on a facilities network is declined, and a job on the board nobody is doing is a dispatcher's problem and a margin report's. Every move except back to offered sets the push queue flag.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveExternalWorkOrderInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Accept, decline or progress an order from our side",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoveExternalWorkOrderOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}/push-failed": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "markExternalWorkOrderPushFailed",
+        "summary": "The push failed, and the order stays in the queue",
+        "description": "The queue flag is deliberately NOT cleared. A network that was down has to be told when it comes back, and an error that quietly removed the order from the queue would turn a retryable outage into a status the client never hears. A failure with no reason recorded is refused, because it is one nobody can act on while the order retries the same thing.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkExternalWorkOrderPushFailedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The push failed, and the order stays in the queue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkExternalWorkOrderPushFailedOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}/pushed": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "markExternalWorkOrderPushed",
+        "summary": "The client's system has been told",
+        "description": "Separate from the move itself, because they are different events with different failure modes: one is a dispatcher deciding something, the other is a network accepting it. Collapsing them would mean a push that failed left the order looking as though nobody had decided anything.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkExternalWorkOrderPushedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The client's system has been told",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkExternalWorkOrderPushedOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}/remote": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyExternalWorkOrderRemote",
+        "summary": "Record what the client's system says, which wins",
+        "description": "THE INVARIANT THE TABLE WAS WRITTEN FOR. A CONTRADICTION IS NOT A MERGE AND IS NOT SILENT: when we were still holding a change they have not seen, theirs replaces it and ours is written down, with a sentence saying what was lost. 'We marked it complete on the 4th and their portal says it was still open on the 11th' is a dispute somebody has to be able to reconstruct, and it is the dispute that decides who pays for the trip. NO STATE VALIDATION ON THE WAY IN, deliberately: their portal has states we have never seen, renames them between releases and skips ours, so a status we cannot place is recorded verbatim with our state left where it was. Refusing an inbound update because its status was unfamiliar is the one failure this table exists to prevent.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyExternalWorkOrderRemoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record what the client's system says, which wins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyExternalWorkOrderRemoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-pushes": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listPendingExternalPushes",
+        "summary": "What the clients' systems have not been told",
+        "description": "The reader the (organization, pending push) index was built for and which nothing used. A status changed and never pushed is a contractor whose scorecard says they never responded, and the scorecard decides the next dispatch rather than this one. Oldest first, because the oldest unsent status is the one costing the most.\n\nRequires a session holding: contract:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the clients' systems have not been told",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPendingExternalPushesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read"
+        ]
+      }
+    },
+    "/v1/external-work-sources": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listExternalWorkSources",
+        "summary": "The networks this is built for, and what to know about each",
+        "description": "A read with no rows behind it, which is the point: a contractor needs to know that a warranty administrator's acceptance is FINAL before they click it rather than after. The defaults each network gets are the ones applied when an order from it first arrives. The list is documentation rather than a gate, so a network this company works that has no profile here is reported separately with the cautious defaults it was given, because a regional warranty administrator nobody here has heard of is as real as Corrigo.\n\nRequires a session holding: contract:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The networks this is built for, and what to know about each",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExternalWorkSourcesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read"
+        ]
+      }
+    },
     "/v1/field/conflicts": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -50300,6 +51617,132 @@
           "allowed"
         ]
       },
+      "AcceptExternalWorkOrderViaInvoiceInput": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "invoiceId"
+        ]
+      },
+      "AcceptExternalWorkOrderViaInvoiceOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalIsSystemOfRecord": {
+            "type": "boolean"
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingPush": {
+            "type": "boolean"
+          },
+          "lastPushError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weMayMoveTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sourceSystem",
+          "sourceLabel",
+          "externalId",
+          "externalNumber",
+          "state",
+          "externalStatus",
+          "externalIsSystemOfRecord",
+          "acceptanceIsIrreversible",
+          "acceptsViaInvoiceOnly",
+          "jobId",
+          "payload",
+          "lastSyncedAt",
+          "pendingPush",
+          "lastPushError",
+          "weMayMoveTo"
+        ]
+      },
       "AddContractSiteInput": {
         "type": "object",
         "properties": {
@@ -51137,6 +52580,171 @@
         "required": [
           "deposit",
           "amountApplied"
+        ]
+      },
+      "ApplyExternalWorkOrderRemoteInput": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "ApplyExternalWorkOrderRemoteOutput": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "sourceSystem": {
+                "type": "string"
+              },
+              "sourceLabel": {
+                "type": "string"
+              },
+              "externalId": {
+                "type": "string"
+              },
+              "externalNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "offered",
+                  "accepted",
+                  "rejected",
+                  "in_progress",
+                  "completed",
+                  "cancelled_by_client",
+                  "reopened",
+                  "invoiced",
+                  "closed"
+                ]
+              },
+              "externalStatus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "externalIsSystemOfRecord": {
+                "type": "boolean"
+              },
+              "acceptanceIsIrreversible": {
+                "type": "boolean"
+              },
+              "acceptsViaInvoiceOnly": {
+                "type": "boolean"
+              },
+              "jobId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "payload": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "lastSyncedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pendingPush": {
+                "type": "boolean"
+              },
+              "lastPushError": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "weMayMoveTo": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "accepted",
+                    "rejected",
+                    "in_progress",
+                    "completed",
+                    "cancelled_by_client",
+                    "reopened",
+                    "invoiced",
+                    "closed"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "sourceSystem",
+              "sourceLabel",
+              "externalId",
+              "externalNumber",
+              "state",
+              "externalStatus",
+              "externalIsSystemOfRecord",
+              "acceptanceIsIrreversible",
+              "acceptsViaInvoiceOnly",
+              "jobId",
+              "payload",
+              "lastSyncedAt",
+              "pendingPush",
+              "lastPushError",
+              "weMayMoveTo"
+            ]
+          },
+          "conflict": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lost": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "lost",
+              "note"
+            ]
+          }
+        },
+        "required": [
+          "order",
+          "conflict"
         ]
       },
       "ApplyPaymentInput": {
@@ -64339,6 +65947,120 @@
           "redacted"
         ]
       },
+      "GetExternalWorkOrderOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalIsSystemOfRecord": {
+            "type": "boolean"
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingPush": {
+            "type": "boolean"
+          },
+          "lastPushError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weMayMoveTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sourceSystem",
+          "sourceLabel",
+          "externalId",
+          "externalNumber",
+          "state",
+          "externalStatus",
+          "externalIsSystemOfRecord",
+          "acceptanceIsIrreversible",
+          "acceptsViaInvoiceOnly",
+          "jobId",
+          "payload",
+          "lastSyncedAt",
+          "pendingPush",
+          "lastPushError",
+          "weMayMoveTo"
+        ]
+      },
       "GetFieldSnapshotOutput": {
         "type": "object",
         "properties": {
@@ -73565,6 +75287,208 @@
           "expiring"
         ]
       },
+      "ListExternalWorkOrdersOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "sourceSystem": {
+                  "type": "string"
+                },
+                "sourceLabel": {
+                  "type": "string"
+                },
+                "externalId": {
+                  "type": "string"
+                },
+                "externalNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "accepted",
+                    "rejected",
+                    "in_progress",
+                    "completed",
+                    "cancelled_by_client",
+                    "reopened",
+                    "invoiced",
+                    "closed"
+                  ]
+                },
+                "externalStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalIsSystemOfRecord": {
+                  "type": "boolean"
+                },
+                "acceptanceIsIrreversible": {
+                  "type": "boolean"
+                },
+                "acceptsViaInvoiceOnly": {
+                  "type": "boolean"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "lastSyncedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "pendingPush": {
+                  "type": "boolean"
+                },
+                "lastPushError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "weMayMoveTo": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "offered",
+                      "accepted",
+                      "rejected",
+                      "in_progress",
+                      "completed",
+                      "cancelled_by_client",
+                      "reopened",
+                      "invoiced",
+                      "closed"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "sourceSystem",
+                "sourceLabel",
+                "externalId",
+                "externalNumber",
+                "state",
+                "externalStatus",
+                "externalIsSystemOfRecord",
+                "acceptanceIsIrreversible",
+                "acceptsViaInvoiceOnly",
+                "jobId",
+                "payload",
+                "lastSyncedAt",
+                "pendingPush",
+                "lastPushError",
+                "weMayMoveTo"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ListExternalWorkSourcesOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "acceptanceIsIrreversible": {
+                  "type": "boolean"
+                },
+                "acceptsViaInvoiceOnly": {
+                  "type": "boolean"
+                },
+                "orders": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "note",
+                "acceptanceIsIrreversible",
+                "acceptsViaInvoiceOnly",
+                "orders"
+              ]
+            }
+          },
+          "unprofiled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "orders": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "orders"
+              ]
+            }
+          },
+          "cautiousDefaults": {
+            "type": "object",
+            "properties": {
+              "acceptanceIsIrreversible": {
+                "type": "boolean"
+              },
+              "acceptsViaInvoiceOnly": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "acceptanceIsIrreversible",
+              "acceptsViaInvoiceOnly"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "unprofiled",
+          "cautiousDefaults"
+        ]
+      },
       "ListFormsOutput": {
         "type": "object",
         "properties": {
@@ -75472,6 +77396,131 @@
         },
         "required": [
           "exports"
+        ]
+      },
+      "ListPendingExternalPushesOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "sourceSystem": {
+                  "type": "string"
+                },
+                "sourceLabel": {
+                  "type": "string"
+                },
+                "externalId": {
+                  "type": "string"
+                },
+                "externalNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "accepted",
+                    "rejected",
+                    "in_progress",
+                    "completed",
+                    "cancelled_by_client",
+                    "reopened",
+                    "invoiced",
+                    "closed"
+                  ]
+                },
+                "externalStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalIsSystemOfRecord": {
+                  "type": "boolean"
+                },
+                "acceptanceIsIrreversible": {
+                  "type": "boolean"
+                },
+                "acceptsViaInvoiceOnly": {
+                  "type": "boolean"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "lastSyncedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "pendingPush": {
+                  "type": "boolean"
+                },
+                "lastPushError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "weMayMoveTo": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "offered",
+                      "accepted",
+                      "rejected",
+                      "in_progress",
+                      "completed",
+                      "cancelled_by_client",
+                      "reopened",
+                      "invoiced",
+                      "closed"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "sourceSystem",
+                "sourceLabel",
+                "externalId",
+                "externalNumber",
+                "state",
+                "externalStatus",
+                "externalIsSystemOfRecord",
+                "acceptanceIsIrreversible",
+                "acceptsViaInvoiceOnly",
+                "jobId",
+                "payload",
+                "lastSyncedAt",
+                "pendingPush",
+                "lastPushError",
+                "weMayMoveTo"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "ListPendingUploadsOutput": {
@@ -78701,6 +80750,251 @@
           "ok"
         ]
       },
+      "MarkExternalWorkOrderPushFailedInput": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "MarkExternalWorkOrderPushFailedOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalIsSystemOfRecord": {
+            "type": "boolean"
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingPush": {
+            "type": "boolean"
+          },
+          "lastPushError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weMayMoveTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sourceSystem",
+          "sourceLabel",
+          "externalId",
+          "externalNumber",
+          "state",
+          "externalStatus",
+          "externalIsSystemOfRecord",
+          "acceptanceIsIrreversible",
+          "acceptsViaInvoiceOnly",
+          "jobId",
+          "payload",
+          "lastSyncedAt",
+          "pendingPush",
+          "lastPushError",
+          "weMayMoveTo"
+        ]
+      },
+      "MarkExternalWorkOrderPushedInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "MarkExternalWorkOrderPushedOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalIsSystemOfRecord": {
+            "type": "boolean"
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingPush": {
+            "type": "boolean"
+          },
+          "lastPushError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weMayMoveTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sourceSystem",
+          "sourceLabel",
+          "externalId",
+          "externalNumber",
+          "state",
+          "externalStatus",
+          "externalIsSystemOfRecord",
+          "acceptanceIsIrreversible",
+          "acceptsViaInvoiceOnly",
+          "jobId",
+          "payload",
+          "lastSyncedAt",
+          "pendingPush",
+          "lastPushError",
+          "weMayMoveTo"
+        ]
+      },
       "MarkRequestSentInput": {
         "type": "object",
         "properties": {
@@ -78945,6 +81239,153 @@
           "created",
           "alreadyThere",
           "notDue"
+        ]
+      },
+      "MoveExternalWorkOrderInput": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "to"
+        ]
+      },
+      "MoveExternalWorkOrderOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalIsSystemOfRecord": {
+            "type": "boolean"
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingPush": {
+            "type": "boolean"
+          },
+          "lastPushError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weMayMoveTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sourceSystem",
+          "sourceLabel",
+          "externalId",
+          "externalNumber",
+          "state",
+          "externalStatus",
+          "externalIsSystemOfRecord",
+          "acceptanceIsIrreversible",
+          "acceptsViaInvoiceOnly",
+          "jobId",
+          "payload",
+          "lastSyncedAt",
+          "pendingPush",
+          "lastPushError",
+          "weMayMoveTo"
         ]
       },
       "OpenPortalLinkOutput": {
@@ -80570,6 +83011,163 @@
         "required": [
           "rows",
           "nextBefore"
+        ]
+      },
+      "ReceiveExternalWorkOrderInput": {
+        "type": "object",
+        "properties": {
+          "sourceSystem": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sourceSystem",
+          "externalId"
+        ]
+      },
+      "ReceiveExternalWorkOrderOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalIsSystemOfRecord": {
+            "type": "boolean"
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingPush": {
+            "type": "boolean"
+          },
+          "lastPushError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weMayMoveTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sourceSystem",
+          "sourceLabel",
+          "externalId",
+          "externalNumber",
+          "state",
+          "externalStatus",
+          "externalIsSystemOfRecord",
+          "acceptanceIsIrreversible",
+          "acceptsViaInvoiceOnly",
+          "jobId",
+          "payload",
+          "lastSyncedAt",
+          "pendingPush",
+          "lastPushError",
+          "weMayMoveTo"
         ]
       },
       "ReceivePurchaseOrderInput": {

@@ -162,7 +162,27 @@ export const PERMISSIONS = {
   "settings:write": "Edit company settings",
   "integration:read": "View connected integrations",
   "integration:write": "Connect and disconnect integrations",
-  "apikey:write": "Create and revoke API keys",
+  /**
+   * THERE IS NO `apikey:write`, AND THERE WAS ONE.
+   *
+   * It read "Create and revoke API keys" and nothing checked it, because this
+   * product has no bare API keys to create. M26 issues a token to a CONNECTED
+   * APP: a named integration with its own permission list, its own audit
+   * attribution and its own revocation, so "who may call us" is answerable
+   * without anybody holding a string that is equivalent to a password and
+   * belongs to nobody in particular.
+   *
+   * That is not a feature waiting to be built, it is the feature instead of it.
+   * A permission here named for the thing we decided against is a claim that an
+   * owner can restrict something, and a custom role could be given it: the owner
+   * would believe they had applied a restriction on a surface that does not
+   * exist. `integration:write` is the real one: connecting an app, issuing it a
+   * token and revoking it are all guarded by it, which is right because they
+   * are the same decision.
+   *
+   * The guard test in `permissions-enforced.test.ts` carried this name on its
+   * excused list for exactly as long as the permission did.
+   */
   "audit:read": "View the audit log",
   "customfield:write": "Define custom fields and objects",
   /**

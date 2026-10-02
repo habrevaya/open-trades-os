@@ -20,6 +20,7 @@ export * as transcript from "./transcript/index.js";
 export * as marketing from "./marketing/index.js";
 export * as campaign from "./campaign/index.js";
 export * as rental from "./rental/index.js";
+export * as externalWork from "./external-work/index.js";
 export * as inventory from "./inventory/index.js";
 export * as inspection from "./inspection/index.js";
 export * as reviews from "./reviews/index.js";
