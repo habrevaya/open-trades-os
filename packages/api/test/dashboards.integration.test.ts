@@ -242,6 +242,20 @@ run("a dashboard somebody assembled", () => {
     await expect(dashboards.create(owner(), { name: "   " })).rejects.toThrow(ConflictError);
   });
 
+  it("refuses a second dashboard with the same name as a refusal, not a crash", async () => {
+    /**
+     * `dashboard_name_idx` enforced it and nothing turned Postgres's 23505 into a
+     * refusal, so Build one crashed the page on a name already taken. The same
+     * class as the saved report's name and the two asset registers, all fixed in
+     * one change; `services/duplicates.ts` holds the reason.
+     */
+    await dashboards.create(owner(), { name: "Morning board" });
+    await expect(dashboards.create(owner(), { name: "Morning board" }))
+      .rejects.toThrow(ConflictError);
+    await expect(dashboards.create(owner(), { name: "Morning board" }))
+      .rejects.toThrow(/already a dashboard called "Morning board"/);
+  });
+
   it("draws a tile pointing at a report that ships", async () => {
     const made = await fresh("From a built in");
     await dashboards.setTiles(owner(), {

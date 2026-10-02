@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 
 /**
  * A TRADE PACK THAT SHIPPED, AND THE THING IT RENTS
@@ -79,15 +80,27 @@ export function addAsset(ctx: ServiceContext, input: AssetInput) {
       if (!found) throw new NotFoundError("Location");
     }
 
-    const [row] = await tx.insert(schema.rentableAsset).values({
-      organizationId: ctx.actor.organizationId,
-      assetType,
-      identifier,
-      size: input.size?.trim() ?? null,
-      homeLocationId: input.homeLocationId ?? null,
-      purchaseCost: input.purchaseCost ?? null,
-      status: "available",
-    }).returning();
+    /**
+     * The duplicate number is a refusal, not a crash. `services/duplicates.ts`
+     * holds the reason and the class of bug it closes; a browser test found this
+     * one, and the integration test that was supposed to had asserted
+     * `rejects.toThrow()` with no message, which cannot tell the two apart.
+     */
+    const [row] = await refusingDuplicate(
+      "rentable_asset_identifier_idx",
+      `Container ${identifier} is already on the register. Two units with one number means a `
+      + `scale ticket cannot be tied to either, so the number has to be unique. If the old one is `
+      + `gone, retire it first.`,
+      () => tx.insert(schema.rentableAsset).values({
+        organizationId: ctx.actor.organizationId,
+        assetType,
+        identifier,
+        size: input.size?.trim() ?? null,
+        homeLocationId: input.homeLocationId ?? null,
+        purchaseCost: input.purchaseCost ?? null,
+        status: "available",
+      }).returning(),
+    );
 
     await audit(tx, ctx, "rentable_asset.create", "rentable_asset", row!.id, null, row);
     return assetView(row!);
@@ -141,22 +154,9 @@ export function listAssets(ctx: ServiceContext, input: {
      * join because the property set is small and the join duplicates every
      * asset column.
      */
-    const propertyIds = [...new Set(rows
+    const places = await addressesFor(tx, rows
       .map((row) => row.currentPropertyId)
-      .filter((id): id is string => id !== null))];
-    const places = new Map<string, string>();
-    if (propertyIds.length > 0) {
-      const found = await tx.select({
-        id: schema.property.id,
-        line1: schema.property.addressLine1,
-        city: schema.property.city,
-      })
-        .from(schema.property)
-        .where(inArray(schema.property.id, propertyIds));
-      for (const row of found) {
-        places.set(row.id, [row.line1, row.city].filter((part) => part).join(", "));
-      }
-    }
+      .filter((id): id is string => id !== null));
 
     return {
       data: rows.map((row) => ({
@@ -557,8 +557,39 @@ async function rentalWithin(tx: Database, ctx: ServiceContext, id: string) {
   return row;
 }
 
+/**
+ * Addresses for a set of properties, in one query.
+ *
+ * WHERE IT IS, not which uuid it is at. `listRentableAssets` already made this
+ * choice with a comment saying why: "on site" is not an answer to the question a
+ * dispatcher asks twenty times a day. A hire list that answered it with an
+ * identifier would make every caller, this product's own board included, do the
+ * join itself.
+ *
+ * Batched and passed in rather than looked up per row, because a board showing
+ * fifty open hires would otherwise make fifty round trips for fifty addresses,
+ * and most of them are the same handful of sites.
+ */
+async function addressesFor(tx: Database, propertyIds: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(propertyIds)];
+  const places = new Map<string, string>();
+  if (unique.length === 0) return places;
+  const found = await tx.select({
+    id: schema.property.id,
+    line1: schema.property.addressLine1,
+    city: schema.property.city,
+  })
+    .from(schema.property)
+    .where(inArray(schema.property.id, unique));
+  for (const row of found) {
+    places.set(row.id, [row.line1, row.city].filter((part) => part).join(", "));
+  }
+  return places;
+}
+
 async function rentalViewWithin(
   tx: Database, ctx: ServiceContext, row: typeof schema.rental.$inferSelect,
+  addresses?: Map<string, string>,
 ) {
   const zone = await timezoneOf(tx, ctx.actor.organizationId);
   const [asset] = await tx.select({
@@ -568,6 +599,8 @@ async function rentalViewWithin(
     .from(schema.rentableAsset)
     .where(eq(schema.rentableAsset.id, row.assetId))
     .limit(1);
+
+  const places = addresses ?? await addressesFor(tx, [row.propertyId]);
 
   const days = row.deliveredAt === null
     ? null
@@ -579,6 +612,7 @@ async function rentalViewWithin(
     assetIdentifier: asset?.identifier ?? null,
     assetSize: asset?.size ?? null,
     propertyId: row.propertyId,
+    propertyAddress: places.get(row.propertyId) ?? null,
     deliveredAt: row.deliveredAt?.toISOString() ?? null,
     pickedUpAt: row.pickedUpAt?.toISOString() ?? null,
     /** Open when it has not been collected, whatever the dates say. */
@@ -629,7 +663,10 @@ export function listRentals(ctx: ServiceContext, input: {
       .orderBy(desc(schema.rental.deliveredAt))
       .limit(input.limit);
 
-    return { data: await Promise.all(rows.map((row) => rentalViewWithin(tx, ctx, row))) };
+    const addresses = await addressesFor(tx, rows.map((row) => row.propertyId));
+    return {
+      data: await Promise.all(rows.map((row) => rentalViewWithin(tx, ctx, row, addresses))),
+    };
   });
 }
 

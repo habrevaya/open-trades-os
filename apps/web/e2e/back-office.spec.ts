@@ -325,3 +325,109 @@ test("Group: a company in no network is told so rather than shown an error", asy
   await expect(owner.getByText("This company is not in a group")).toBeVisible();
   await expect(owner.getByText("Joining is done from the operator API")).toBeVisible();
 });
+
+test("Containers: a can is registered, sent out, swapped, collected with a ticket and priced", async ({ owner }) => {
+  /**
+   * The whole hire lifecycle through the forms, because a render test cannot
+   * prove that the date box a driver fills in reaches the service as an instant
+   * on the right calendar day. That is the one mistake that costs a day on every
+   * short rental, and it is invisible until an invoice is queried.
+   */
+  const street = `${run.slice(-5)} Kiln Rd`;
+  await newCustomer(owner, {
+    name: `Ridge Build ${run}`,
+    address: { street, city: "Austin", state: "TX", zip: "78702" },
+  });
+
+  await owner.goto("/fleet/containers");
+  await expect(owner.getByRole("heading", { level: 1, name: "Containers" })).toBeVisible();
+
+  const register = owner.getByRole("table", { name: "The register" });
+  const board = owner.getByRole("table", { name: "Out on hire" });
+  const addForm = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add" }) });
+
+  // Two cans: one to go out, one to swap in.
+  const first = `${run.slice(-5)}1`;
+  const second = `${run.slice(-5)}2`;
+  for (const number of [first, second]) {
+    await addForm.getByPlaceholder("4012").fill(number);
+    await addForm.getByPlaceholder("20 yard").fill("20 yard");
+    await addForm.getByRole("button", { name: "Add" }).click();
+    await expect(register.getByRole("row").filter({ hasText: number })).toBeVisible();
+  }
+
+  // A second can on the same number is refused, in the service's own words.
+  await addForm.getByPlaceholder("4012").fill(first);
+  await addForm.getByRole("button", { name: "Add" }).click();
+  await expect(addForm.getByRole("alert")).toContainText(/already|number/i);
+
+  /**
+   * Out to the site, with both meters' terms on the delivery.
+   *
+   * The fields are filled and then the button is pressed once. These row forms
+   * are always open rather than revealed by their button, which the first version
+   * of this test got wrong: it clicked Deliver to "open" the form and that
+   * submitted it empty, so the can went out before any terms were typed and the
+   * row it was looking for had already gone.
+   */
+  const yardRow = register.getByRole("row").filter({ hasText: first });
+  await yardRow.getByLabel("Site").selectOption({ label: `${street}, Austin` });
+  await yardRow.getByLabel("Delivered on").fill("2026-06-01");
+  await yardRow.getByPlaceholder("Days incl.").fill("7");
+  await yardRow.getByPlaceholder("Over/day").fill("12");
+  await yardRow.getByPlaceholder("Tons incl.").fill("2");
+  await yardRow.getByPlaceholder("Per ton").fill("60");
+  await yardRow.getByRole("button", { name: "Deliver" }).click();
+
+  await expect(register.getByRole("row").filter({ hasText: first })).toContainText("On a site");
+  const hire = board.getByRole("row").filter({ hasText: first });
+  await expect(hire).toContainText(street);
+  await expect(hire).toContainText("2026-06-01");
+
+  /**
+   * A swap: one stop that takes the full can and leaves an empty one. Two rows
+   * linked, because `rental.asset_id` is one column and the can physically
+   * changed, so a swap cannot be an update.
+   */
+  await hire.getByLabel("Empty can").selectOption({ label: second });
+  await hire.getByLabel("Swapped on").fill("2026-06-05");
+  await hire.getByLabel("Net tons on the full can").fill("2.4");
+  await hire.getByLabel("Ticket for the swap").fill(`T${run.slice(-5)}A`);
+  await hire.getByRole("button", { name: "Swap" }).click();
+
+  // The outgoing can is back in the yard and the incoming one is on the site.
+  await expect(register.getByRole("row").filter({ hasText: first })).toContainText("In the yard");
+  await expect(register.getByRole("row").filter({ hasText: second })).toContainText("On a site");
+  // And the new hire says it is a swap, so a chain of them is not four rentals.
+  const swapped = board.getByRole("row").filter({ hasText: second });
+  await expect(swapped).toContainText("Swap");
+
+  // Collected, with the scale ticket that is the support behind the invoice line.
+  await swapped.getByLabel("Collected on").fill("2026-06-14");
+  await swapped.getByLabel("Net tons collected").fill("3.1");
+  await swapped.getByLabel("Ticket for the collection").fill(`T${run.slice(-5)}B`);
+  await swapped.getByRole("button", { name: "Collect" }).click();
+  await expect(register.getByRole("row").filter({ hasText: second })).toContainText("In the yard");
+
+  /**
+   * And what it is owed, on two separate meters.
+   *
+   * The swap carried the first hire's terms forward rather than asking again, so
+   * this one is seven days included at twelve over and two tons included at sixty
+   * over. Out 5 June to 14 June is TEN container days, counting any part of a
+   * calendar day in the company's zone, so three days over at twelve is $36, and
+   * 3.1 tons against two included is 1.1 over at sixty, which is $66.
+   *
+   * Both halves separately, because one is a scheduling argument and the other is
+   * a scale ticket, and a single total shows neither.
+   */
+  await board.getByRole("row").filter({ hasText: second })
+    .getByRole("link", { name: "What it is owed" }).click();
+  const owed = owner.locator("section").filter({ hasText: "What this hire is owed" });
+  await expect(owed).toContainText("10 container days");
+  await expect(owed).toContainText("Extra days");
+  await expect(owed).toContainText("Extra tonnage");
+  await expect(owed).toContainText("$36.00");
+  await expect(owed).toContainText("$66.00");
+  await expect(owed).toContainText("$102.00");
+});

@@ -221,9 +221,50 @@ unit ever ran still resolves to its number, which is the difference between an
 answerable tonnage query and an unanswerable one. Refused while it is on a
 site.
 
+## The container screen
+
+`Fleet > Containers`. A child of Fleet rather than a filter on it, because the
+two registers answer two different questions: a chipper is checked out to a
+person, a container is hired to an address, bills on two meters and has a
+utilisation rate.
+
+**The four figures are at the top, above the board.** This is the one trade whose
+daily question is a ratio rather than a list: a roll off company with sixty cans
+at forty per cent utilisation is losing money on twenty steel boxes, and nothing
+on a list of hires says so. Each figure carries what it is made of ("412 rented
+days of 600 available"), for the same reason the trade scorecard does. A null
+reads "Nothing to measure", never zero, because an empty fleet is not nought per
+cent utilised.
+
+Three details on the board that are the screen rather than decoration:
+
+- **The days column is headed "Days so far".** On an open hire the figure is
+  counted to today and moves at midnight. A column headed "Days" with a number
+  that moves is the one somebody copies onto an invoice.
+- **A hire past its included period is marked.** Unbilled days are the leak this
+  trade is known for, and today an operator finds them by reading two columns and
+  doing the subtraction.
+- **A swap says it is one.** Without the link a four week hire with three swaps
+  reads as four unrelated week long rentals.
+
+A collected hire with no scale ticket is called out rather than left blank,
+because the ticket is the support behind the largest line on the invoice and the
+largest line in the cost of goods.
+
+**Dates posted at midday UTC, not midnight.** A date box gives a calendar day and
+the service wants an instant. Sent as `T00:00:00Z` it lands on the previous
+evening anywhere west of Greenwich and starts the hire a day early, which is
+exactly the off-by-one a container day is defined to avoid.
+
+The hire list carries the site's street and city rather than a property id, which
+this release added. The asset list already answered "where is it" that way with a
+comment saying why; a hire list that did not would make every caller do the join,
+this product's own board first.
+
 ## What is not built
 
-- **No screens.** The fleet and the hires are API only.
+- **No scheduler for a collection.** A hire that is due back shows as over its
+  included period; nothing puts it on tomorrow's route.
 - **No scale ticket ingestion.** The ticket number, facility, material and
   tonnage are recorded; nothing reads a file the facility sends or a
   photograph of the ticket.

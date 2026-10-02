@@ -8,10 +8,24 @@ import { cn } from "@opentradesos/ui";
  * every screen in this product shows a few hundred rows at most, and the
  * abstraction costs more to read than the five list pages it replaces.
  */
-export function Table({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
+export function Table({
+  head, children, label,
+}: {
+  head: React.ReactNode;
+  children: React.ReactNode;
+  /**
+   * An accessible name, for a screen that shows more than one table.
+   *
+   * Without it a reader arriving at the second table on a page is told only
+   * "table", and so is a test: two tables with no names are two locators that
+   * cannot be told apart, which is how a browser test ends up asserting against
+   * whichever one happens to be first.
+   */
+  label?: string | undefined;
+}) {
   return (
     <div className="mt-6 overflow-x-auto rounded-md border border-steel-200">
-      <table className="w-full min-w-[40rem] text-sm">
+      <table className="w-full min-w-[40rem] text-sm" aria-label={label}>
         <thead className="border-b border-steel-200 bg-steel-100 text-left">
           <tr>{head}</tr>
         </thead>

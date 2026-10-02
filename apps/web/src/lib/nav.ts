@@ -107,7 +107,20 @@ export const NAV: NavGroup[] = [
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
       { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
-      { href: "/fleet", label: "Fleet", permission: "asset:read", icon: "fleet" },
+      {
+        href: "/fleet", label: "Fleet", permission: "asset:read", icon: "fleet",
+        children: [
+          { href: "/fleet", label: "Vans and tools" },
+          /**
+           * The container fleet, which is a different question from the van
+           * register rather than a filter on it: a chipper is checked out to a
+           * person, a container is hired to an address, bills on two meters and
+           * has a utilisation rate. Two tables in the schema for that reason, and
+           * two screens here for the same one.
+           */
+          { href: "/fleet/containers", label: "Containers" },
+        ],
+      },
       { href: "/timesheets", label: "Timesheets", permission: "timesheet:read", icon: "timesheets" },
       /**
        * Beside timesheets, because it is what the hours become: a closed

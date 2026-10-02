@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 
 /**
  * FLEET, TOOLS AND COMPANY ASSETS
@@ -247,19 +248,30 @@ export async function registerAsset(ctx: ServiceContext, input: AssetInput) {
       );
     }
 
-    const [row] = await tx.insert(schema.companyAsset).values({
-      organizationId: ctx.actor.organizationId,
-      kind: input.kind,
-      label,
-      requirementCode: normaliseCode(input.requirementCode),
-      identifier: input.identifier?.trim() || null,
-      meterUnit,
-      meterMaxPerDay: input.meterMaxPerDay ?? null,
-      quantity,
-      acquiredOn: input.acquiredOn ?? null,
-      retiredOn: null,
-      notes: input.notes ?? null,
-    }).returning();
+    /**
+     * A plate, a serial or a VIN is a thing a person types, so a collision is a
+     * refusal rather than a crash. `services/duplicates.ts` has the reason.
+     */
+    const identifier = input.identifier?.trim() || null;
+    const [row] = await refusingDuplicate(
+      "company_asset_identifier_idx",
+      `${identifier} is already on the register against another asset. A plate, serial or VIN `
+      + `identifies one thing, and two records sharing one means a service record cannot be tied `
+      + `to either.`,
+      () => tx.insert(schema.companyAsset).values({
+        organizationId: ctx.actor.organizationId,
+        kind: input.kind,
+        label,
+        requirementCode: normaliseCode(input.requirementCode),
+        identifier,
+        meterUnit,
+        meterMaxPerDay: input.meterMaxPerDay ?? null,
+        quantity,
+        acquiredOn: input.acquiredOn ?? null,
+        retiredOn: null,
+        notes: input.notes ?? null,
+      }).returning(),
+    );
 
     await audit(tx, ctx, "asset.registered", "company_asset", row!.id, null, row!);
     return row!;

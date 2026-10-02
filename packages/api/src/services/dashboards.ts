@@ -4,6 +4,7 @@ import { permissionsFor, dashboard, type reporting } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 import { CATALOGUE } from "./report-catalogue";
 import { BUILT_IN } from "./report-built-in";
 import { BUILT_IN_DASHBOARDS, type BuiltInDashboard } from "./dashboard-built-in";
@@ -199,16 +200,21 @@ export async function create(
   if (name === "") throw new ConflictError("A dashboard needs a name");
 
   return guardedWrite(ctx, "report:build", async (tx) => {
-    const [created] = await tx.insert(schema.dashboard).values({
-      organizationId: ctx.actor.organizationId,
-      name,
-      description: input.description?.trim() || null,
-      // Empty, and it opens on an empty state telling you to add something.
-      // A dashboard that arrived pre-filled would be somebody else's idea of
-      // what this one is for.
-      tiles: [],
-      createdByUserId: ctx.actor.userId,
-    }).returning();
+    /** The same collision as a report's name, refused the same way. */
+    const [created] = await refusingDuplicate(
+      "dashboard_name_idx",
+      `There is already a dashboard called "${name}".`,
+      () => tx.insert(schema.dashboard).values({
+        organizationId: ctx.actor.organizationId,
+        name,
+        description: input.description?.trim() || null,
+        // Empty, and it opens on an empty state telling you to add something.
+        // A dashboard that arrived pre-filled would be somebody else's idea of
+        // what this one is for.
+        tiles: [],
+        createdByUserId: ctx.actor.userId,
+      }).returning(),
+    );
 
     await audit(tx, ctx, "dashboard.created", "dashboard", created!.id, null, created);
     return created!;

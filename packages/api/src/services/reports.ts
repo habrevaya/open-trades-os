@@ -4,6 +4,7 @@ import { permissionsFor, reporting } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, scopeOf, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 import { CATALOGUE } from "./report-catalogue";
 import { jobScopeFilter, invoiceScopeFilter, estimateScopeFilter } from "./scope";
 import { BUILT_IN } from "./report-built-in";
@@ -326,24 +327,39 @@ export async function save(
         .where(and(eq(schema.report.id, input.id), isNull(schema.report.deletedAt))).limit(1);
       if (!before) throw new NotFoundError("Report");
 
-      const [after] = await tx.update(schema.report).set({
-        name,
-        description: input.description ?? null,
-        definition: input.definition as unknown as Record<string, unknown>,
-        updatedAt: new Date(),
-      }).where(eq(schema.report.id, input.id)).returning();
+      /** A rename collides the same way a create does, and refuses the same way. */
+      const [after] = await refusingDuplicate(
+        "report_name_idx",
+        `There is already a report called "${name}".`,
+        () => tx.update(schema.report).set({
+          name,
+          description: input.description ?? null,
+          definition: input.definition as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        }).where(eq(schema.report.id, input.id!)).returning(),
+      );
 
       await audit(tx, ctx, "report.updated", "report", input.id, before, after);
       return after!;
     }
 
-    const [created] = await tx.insert(schema.report).values({
-      organizationId: ctx.actor.organizationId,
-      name,
-      description: input.description ?? null,
-      definition: input.definition as unknown as Record<string, unknown>,
-      createdByUserId: ctx.actor.userId,
-    }).returning();
+    /**
+     * The name is unique per company, and a name is a thing a person types.
+     * Two people saving "Monthly revenue" is the ordinary case, not a bug, so it
+     * is a sentence rather than a crashed screen. `services/duplicates.ts`.
+     */
+    const [created] = await refusingDuplicate(
+      "report_name_idx",
+      `There is already a report called "${name}". Open that one, or give this one a name that `
+      + `says how it differs, because a list of two reports with one name is a list nobody trusts.`,
+      () => tx.insert(schema.report).values({
+        organizationId: ctx.actor.organizationId,
+        name,
+        description: input.description ?? null,
+        definition: input.definition as unknown as Record<string, unknown>,
+        createdByUserId: ctx.actor.userId,
+      }).returning(),
+    );
 
     await audit(tx, ctx, "report.created", "report", created!.id, null, created);
     return created!;

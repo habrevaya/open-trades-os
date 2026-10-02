@@ -62909,6 +62909,12 @@
             "type": "string",
             "format": "uuid"
           },
+          "propertyAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "deliveredAt": {
             "type": [
               "string",
@@ -63017,6 +63023,7 @@
           "assetIdentifier",
           "assetSize",
           "propertyId",
+          "propertyAddress",
           "deliveredAt",
           "pickedUpAt",
           "open",
@@ -69788,6 +69795,12 @@
             "type": "string",
             "format": "uuid"
           },
+          "propertyAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "deliveredAt": {
             "type": [
               "string",
@@ -69896,6 +69909,7 @@
           "assetIdentifier",
           "assetSize",
           "propertyId",
+          "propertyAddress",
           "deliveredAt",
           "pickedUpAt",
           "open",
@@ -79334,6 +79348,12 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "propertyAddress": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "deliveredAt": {
                   "type": [
                     "string",
@@ -79442,6 +79462,7 @@
                 "assetIdentifier",
                 "assetSize",
                 "propertyId",
+                "propertyAddress",
                 "deliveredAt",
                 "pickedUpAt",
                 "open",
@@ -82513,6 +82534,12 @@
             "type": "string",
             "format": "uuid"
           },
+          "propertyAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "deliveredAt": {
             "type": [
               "string",
@@ -82621,6 +82648,7 @@
           "assetIdentifier",
           "assetSize",
           "propertyId",
+          "propertyAddress",
           "deliveredAt",
           "pickedUpAt",
           "open",
@@ -91915,6 +91943,12 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "propertyAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "deliveredAt": {
                 "type": [
                   "string",
@@ -92023,6 +92057,7 @@
               "assetIdentifier",
               "assetSize",
               "propertyId",
+              "propertyAddress",
               "deliveredAt",
               "pickedUpAt",
               "open",
@@ -92068,6 +92103,12 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "propertyAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "deliveredAt": {
                 "type": [
                   "string",
@@ -92176,6 +92217,7 @@
               "assetIdentifier",
               "assetSize",
               "propertyId",
+              "propertyAddress",
               "deliveredAt",
               "pickedUpAt",
               "open",

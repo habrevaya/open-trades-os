@@ -34,6 +34,12 @@ const RentalView = z.object({
   assetIdentifier: z.string().nullable(),
   assetSize: z.string().nullable(),
   propertyId: Uuid,
+  /**
+   * The street and city, not a second uuid. The asset list already answered
+   * "where is it" this way; a hire list that did not would make every caller do
+   * the join, this product's own board first.
+   */
+  propertyAddress: z.string().nullable(),
   deliveredAt: z.string().nullable(),
   pickedUpAt: z.string().nullable(),
   open: z.boolean(),

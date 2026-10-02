@@ -4,7 +4,7 @@ import { type Actor, assets as core, time } from "@opentradesos/core";
 import * as assets from "../src/services/assets";
 import * as crews from "../src/services/crews";
 import { assetRoutes } from "../src/contracts/assets";
-import { type ServiceContext } from "../src/services/context";
+import { ConflictError, type ServiceContext } from "../src/services/context";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -245,6 +245,38 @@ run("putting something on the register", () => {
     })).rejects.toThrow(/has no meter/);
   });
 
+  it("refuses a second asset on one plate as a refusal, not as a crash", async () => {
+    /**
+     * `company_asset_identifier_idx` enforced this and nothing turned Postgres's
+     * 23505 into a refusal, so the Fleet screen's own Add form crashed the page
+     * when somebody typed a plate already on the register.
+     *
+     * THE TEST THIS REPLACES ASSERTED THE CRASH. It required the message to match
+     * `/company_asset_identifier_idx|duplicate key/`, which is the raw database
+     * error, so the defect was not merely untested: it was written down as the
+     * expected behaviour. The container register had the other version of the
+     * same mistake, a bare `rejects.toThrow()` that cannot tell a refusal from a
+     * crash, and a browser test is what finally found it.
+     *
+     * So this asserts the class AND the words a person reads.
+     * `services/duplicates.ts` holds the reason it is a catch and not a check.
+     */
+    await assets.registerAsset(owner(), {
+      kind: "vehicle", label: "Van 21", identifier: "PLATE-21",
+    });
+    const again = assets.registerAsset(owner(), {
+      kind: "vehicle", label: "Van 22", identifier: "PLATE-21",
+    });
+    await expect(again).rejects.toThrow(ConflictError);
+    await expect(assets.registerAsset(owner(), {
+      kind: "vehicle", label: "Van 23", identifier: "PLATE-21",
+    })).rejects.toThrow(/already on the register/);
+
+    /** And an asset with no identifier at all is unaffected: the index is partial. */
+    await assets.registerAsset(owner(), { kind: "hand_tool", label: "Loppers" });
+    await assets.registerAsset(owner(), { kind: "hand_tool", label: "More loppers" });
+  });
+
   it("takes a trailer with no meter at all", async () => {
     const trailer = await assets.registerAsset(owner(), { kind: "trailer", label: "Chip trailer" });
     expect(trailer.meterUnit).toBeNull();
@@ -281,11 +313,7 @@ run("putting something on the register", () => {
     await expect(chipper({ meterMaxPerDay: 0 })).rejects.toThrow(/ceiling of zero/);
   });
 
-  it("refuses two rows for one serial number", async () => {
-    await chipper();
-    await expect(chipper({ label: "Chipper 2 again" }))
-      .rejects.toThrow(/company_asset_identifier_idx|duplicate key/);
-  });
+
 });
 
 run("correcting the register", () => {

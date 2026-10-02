@@ -99,6 +99,26 @@ reconstruct it, because the information never existed.
 The 1099-NEC threshold moved. Anything that hardcoded the old number is now
 wrong and will be wrong again.
 
+**A duplicate somebody typed is a refusal, not a crash.** A unique index on a
+value a person enters (a container number, a plate, a report's name) decides
+correctly and raises `23505`, which is not a refusal class, so it reaches the
+caller as a server error and a screen shows a stack trace instead of a sentence.
+`services/duplicates.ts` turns a NAMED index's violation into a `ConflictError`.
+Named, never any `23505`: catching every unique violation inside a write turns an
+unrelated collision, an idempotency key or a generated document number, into a
+sentence blaming the wrong field, and those are bugs that have to keep looking
+like bugs.
+
+Caught rather than pre-checked. Several services select first and refuse if they
+find a row, which produces the right sentence and is a race: two people saving
+the same name both find nothing and the second crashes anyway.
+
+**A test that asserts a bare throw asserts nothing.** `rejects.toThrow()` with no
+argument passes on a refusal and on a crash alike, and one of these tests went
+further and required the raw message `/duplicate key/`, which wrote the defect
+down as the expected behaviour. A refusal is asserted on its class and on the
+words a person reads.
+
 ## Boundaries
 
 **`packages/core` never imports from `packages/api` or any app.** Domain logic

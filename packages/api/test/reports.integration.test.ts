@@ -5,7 +5,7 @@ import * as reports from "../src/services/reports";
 import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
 import * as jobs from "../src/services/jobs";
-import type { ServiceContext } from "../src/services/context";
+import { ConflictError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -382,8 +382,33 @@ run("saving one", () => {
       .rejects.toThrow(/report.financial:read/);
   });
 
-  it("refuses a second report with the same name", async () => {
+  it("refuses a second report with the same name as a refusal, not a crash", async () => {
+    /**
+     * This test was `rejects.toThrow()` with no message, which passed while the
+     * service relied on `report_name_idx` alone. Postgres raised 23505, nothing
+     * turned it into a refusal, and the Build a report screen crashed the page
+     * when two people saved "Monthly revenue". A bare throw cannot tell a
+     * refusal from a crash, so it asserted nothing worth having.
+     *
+     * `services/duplicates.ts` holds why this is caught rather than pre-checked:
+     * a select-then-insert is a race, and two people saving at once is the case.
+     */
     await reports.save(owner(), { name: "Open work", definition });
-    await expect(reports.save(owner(), { name: "Open work", definition })).rejects.toThrow();
+    await expect(reports.save(owner(), { name: "Open work", definition }))
+      .rejects.toThrow(ConflictError);
+    await expect(reports.save(owner(), { name: "Open work", definition }))
+      .rejects.toThrow(/already a report called "Open work"/);
+  });
+
+  it("refuses renaming a report onto another report's name", async () => {
+    /**
+     * A rename collides exactly as a create does, and the first fix only covered
+     * the create. The screen that does this is "Edit a copy", which opens with
+     * the original's name already in the box.
+     */
+    await reports.save(owner(), { name: "Won estimates", definition });
+    const other = await reports.save(owner(), { name: "Lost estimates", definition });
+    await expect(reports.save(owner(), { id: other.id, name: "Won estimates", definition }))
+      .rejects.toThrow(/already a report called "Won estimates"/);
   });
 });

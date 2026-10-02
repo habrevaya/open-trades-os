@@ -182,9 +182,23 @@ run("the fleet", () => {
       .rejects.toThrow(/needs its number/);
   });
 
-  it("will not take the same number twice", async () => {
+  it("refuses the same number twice as a refusal, not as a crash", async () => {
+    /**
+     * This test used to be `rejects.toThrow()` with no message, and that is how
+     * the defect shipped. A bare throw cannot tell a refusal from a crash: the
+     * unique index was doing the work, Postgres was raising 23505, and the
+     * screen that handed it a number already on a can got a server-side
+     * exception rather than a sentence. A browser test found it.
+     *
+     * So the assertion is on the class AND the words, because both are what a
+     * caller depends on: the class decides whether it is shown or thrown, and
+     * the sentence is what the person reads.
+     */
     await can("3001");
-    await expect(can("3001")).rejects.toThrow();
+    await expect(can("3001")).rejects.toThrow(ConflictError);
+    await expect(can("3001")).rejects.toThrow(/already on the register/);
+    /** And it names the number, because a yard has sixty of them. */
+    await expect(can("3001")).rejects.toThrow(/3001/);
   });
 
   it("says where each unit is, by address rather than by id", async () => {
@@ -201,6 +215,32 @@ run("the fleet", () => {
     expect(byNumber.get("4001")!.currentAddress).toBe("14 Elm, Austin");
     expect(byNumber.get("4001")!.status).toBe("on_site");
     expect(byNumber.get("4002")!.currentAddress).toBeNull();
+  });
+
+  it("says where a hire is, in the hire rather than only in the fleet", async () => {
+    /**
+     * The same question, asked of the other list. A board of open hires that
+     * answered "where" with a uuid would make its reader do the join, and the
+     * reader is this product's own screen: the first thing a dispatcher needs is
+     * the address, not the identifier of the address.
+     *
+     * Two hires at two sites in one call, because the lookup is batched and a
+     * batch that returned the first row's address for every row would pass a
+     * single-rental test.
+     */
+    const here = await can("4101");
+    const there = await can("4102");
+    await rentals.deliver(owner(), { assetId: here, propertyId });
+    await rentals.deliver(owner(), { assetId: there, propertyId: otherPropertyId });
+
+    const { data } = await rentals.listRentals(owner(), { limit: 50 });
+    const byCan = new Map(data.map((row) => [row.assetIdentifier, row]));
+    expect(byCan.get("4101")!.propertyAddress).toBe("14 Elm, Austin");
+    expect(byCan.get("4102")!.propertyAddress).toBe("9 Oak, Austin");
+
+    /** And one read on its own resolves it too, without the batch. */
+    const one = await rentals.getRental(owner(), { id: byCan.get("4101")!.id });
+    expect(one.propertyAddress).toBe("14 Elm, Austin");
   });
 
   it("will not send out a container that is already on a site", async () => {
