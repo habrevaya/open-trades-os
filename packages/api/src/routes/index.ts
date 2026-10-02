@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals, network,
+  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport,
 } from "../services/index";
 
 /**
@@ -545,6 +545,10 @@ export const handlers = {
   stopSharingWithNetwork: network.handlers.stopSharingWithNetwork,
   listNetworkMembers: network.handlers.listNetworkMembers,
   getNetworkRollup: network.handlers.getNetworkRollup,
+
+  // Export (M30): the portability the comparison pages promise
+  getExportManifest: dataExport.handlers.getExportManifest,
+  getExportPage: dataExport.handlers.getExportPage,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

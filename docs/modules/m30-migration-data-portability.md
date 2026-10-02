@@ -27,7 +27,18 @@ does to records typed in by hand, and the same toolkit works against any
 deployment. What lives here is what the API has to accept for a load to be
 faithful.
 
-A whole-company export (`data:export`) is not built.
+Going the other way is the second half, and it is now built. A whole company
+export (`data:export`) hands back every row in every table that carries an
+`organization_id`, driven off the database catalogue rather than off a list,
+with a row count per table so the result is checkable and with every held back
+column named.
+
+**It leaves because it can.** That is the argument this project makes against
+the incumbents, and the comparison pages make it in detail, naming the things
+their export APIs leave behind. "It is your Postgres instance" was the previous
+answer and it is only true for somebody self hosting; a company on a hosted
+deployment, which the operator API exists to make possible, had no way out at
+all.
 
 ## Key concepts
 
@@ -133,9 +144,14 @@ with their `externalRef` on `GET /v1/jobs/{id}`.
 
 | Role | Access |
 |---|---|
-| owner | Everything here, including `data:import` |
-| admin | Everything except `data:import`, which is deliberately left out, as `data:export` is |
+| owner | Everything here, including `data:import` and `data:export` |
+| admin | Everything except `data:import` and `data:export`, both deliberately left out |
 | others | Ordinary creates, and dates up to a week back; never history |
+
+Both are owner only, and for the same reason read from two directions.
+`data:import` is the power to make the books say anything happened.
+`data:export` is the power to walk out with the customer list, which for a
+trades company is most of what the business is worth.
 
 A migration app token needs, at most: `customer:read`, `customer:write`,
 `property:read`, `property:write`, `pricebook:read`, `pricebook:write`,
@@ -154,6 +170,77 @@ Not yet accepted, and reported by the toolkit as gaps: an estimate's historical
 status (sent, approved, converted) with its date, customer notes, partial
 billing addresses, property coordinates, a price book item without a code, and
 a person who never had a login.
+
+## Taking a copy
+
+### The manifest
+
+`GET /v1/export` lists every exportable table with a row count, the primary key
+columns, and whatever is held back.
+
+**Read off the catalogue, not off a list.** The same mechanism the row level
+security sweep uses, and for the same reason: a hand maintained list is how a
+product ends up with one table missing from its export and nobody finding out
+for eighteen months. A table added tomorrow is exportable tomorrow and nobody
+has to remember.
+
+**The row counts are what make it checkable.** Somebody who pulls 14,812
+customers and had 14,900 has a problem they can see. Without the count they
+have a file and a hope.
+
+### The pages
+
+`GET /v1/export/{table}` returns up to a thousand rows, a cursor, and whether
+there is more. Pass the cursor back as `after`. Stop on `more: false` rather
+than on an empty page.
+
+**Keyset pagination on the primary key, never an offset.** A company exports
+while its office is still working, so rows arrive during the walk. An offset
+shifts every remaining row by one and the export quietly loses one. The cursor
+is the previous page's last key, compared as a row with typed parameters, so a
+composite key works without the endpoint knowing which tables have one, and an
+integer key would still sort correctly.
+
+### What does not leave
+
+| Table | Column | Why |
+|---|---|---|
+| `lead_source_connector` | `webhook_token` | A live secret, not a hash. Whoever holds it can post leads in as the partner. |
+| `app_token` | `token_hash` | The hash of a live token. Reissue it. |
+| `portal_grant` | `token_hash` | Customer links are capabilities and cannot be reconstructed. |
+| `calendar_feed` | `token_hash` | Reissue it; the technician's phone needs a new URL anyway. |
+| `unsubscribe_link` | `token_hash` | The address and whether it was used are exported; the link is not. |
+| `device` | `push_token` | A live push credential, reissued by the app on first run. |
+
+An export carrying live tokens is a breach in a file. An export that silently
+drops them is a claim of completeness that is false. So each one is named, with
+the reason, in the manifest and on every page.
+
+What is NOT redacted, deliberately: `integration_connection.credential_ref` and
+`webhook_endpoint.secret_ref` are the NAMES of secrets in the deployment's own
+store, by design, and a company moving away needs them to know which secrets to
+go and find. `storage_key` on a file is the pointer to the bytes, without which
+an export cannot be matched to the attachments.
+
+### What is outside the tenant
+
+`user`, `credential`, `session`, `setup_token`, `organization` and `network`
+carry no `organization_id`, so row level security does not scope them and this
+export cannot reach them.
+
+The one worth stating plainly is `credential`. Password hashes are unreachable
+from here, which is why no part of this export has to be trusted not to include
+them. The people who work here are exported through `membership`, with their
+name and address.
+
+### The audit trail
+
+Every page writes an audit line with the table, the row count and whether it
+was a resumption. "When did somebody take a copy of our entire customer list,
+and how much of it" is the question an export has to be able to answer, and it
+is the single most sensitive read in this product. Per page rather than per
+export, because an export is a sequence of calls and there is no moment it
+finishes.
 
 ## Common questions
 

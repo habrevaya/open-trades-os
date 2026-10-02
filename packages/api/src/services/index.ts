@@ -88,3 +88,4 @@ export * as campaigns from "./campaigns";
 export * as unsubscribe from "./unsubscribe";
 export * as rentals from "./rentals";
 export * as network from "./network";
+export * as dataExport from "./export";

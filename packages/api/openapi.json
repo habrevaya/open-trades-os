@@ -117,6 +117,10 @@
       "description": "Custom Fields, Objects and Workflow Builder"
     },
     {
+      "name": "M30",
+      "description": "Migration and Data Portability"
+    },
+    {
       "name": "M31",
       "description": "Commercial Parties, Contracts and Third-Party Billing"
     },
@@ -20612,6 +20616,258 @@
         "x-permissions": [
           "estimate:send",
           "portal:grant"
+        ]
+      }
+    },
+    "/v1/export": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getExportManifest",
+        "summary": "Everything this company can take away, and what it cannot",
+        "description": "READ OFF THE DATABASE CATALOGUE, not off a list somebody maintains: every table carrying an organization is exportable, so a table added tomorrow is exportable tomorrow and nobody has to remember. The same mechanism the row level security sweep uses, because a hand maintained list is how a product ends up with one table missing from its export and nobody finding out for eighteen months. A row count per table is what makes an export CHECKABLE: somebody who pulls 14,812 customers and had 14,900 has a problem they can see. Every redacted column is named with the reason, and so is every table that sits outside the tenant, so the file's one hole is a statement rather than an omission a reader has to notice.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Everything this company can take away, and what it cannot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetExportManifestOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
+        ]
+      }
+    },
+    "/v1/export/{table}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getExportPage",
+        "summary": "One page of one table",
+        "description": "KEYSET PAGINATION ON THE PRIMARY KEY, never an offset. An offset over a table somebody is still working in repeats and skips rows, and an export that silently does either is worse than no export: the company finds out when a customer is missing from the new system. The cursor is the previous page's last key, compared as a row with typed parameters, so a composite key works without this endpoint knowing which tables have one. Stop on `more: false` rather than on an empty page. Credentials do not leave: a live webhook token or a push token in an export is a breach in a file, and a hash of a short token is a cracking target. The columns held back are named on every page as well as in the manifest. Every page writes an audit line with the table and the row count, because 'when did somebody take a copy of our customer list' is the question an export has to be able to answer.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "maxItems": 8
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of one table",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetExportPageOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
         ]
       }
     },
@@ -63957,6 +64213,130 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "GetExportManifestOutput": {
+        "type": "object",
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generatedAt": {
+            "type": "string"
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "table": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": "integer"
+                },
+                "key": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "redacted": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "column": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "column",
+                      "reason"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "table",
+                "rows",
+                "key",
+                "redacted"
+              ]
+            }
+          },
+          "totalRows": {
+            "type": "integer"
+          },
+          "outsideTheTenant": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "table": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "table",
+                "reason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "organizationId",
+          "generatedAt",
+          "tables",
+          "totalRows",
+          "outsideTheTenant"
+        ]
+      },
+      "GetExportPageOutput": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "cursor": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "redacted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "table",
+          "rows",
+          "cursor",
+          "more",
+          "redacted"
         ]
       },
       "GetFieldSnapshotOutput": {

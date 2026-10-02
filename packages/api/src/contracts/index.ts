@@ -45,6 +45,7 @@ import { fieldAssetRoutes } from "./field-assets";
 import { campaignRoutes } from "./campaigns";
 import { rentalRoutes } from "./rentals";
 import { networkRoutes } from "./network";
+import { exportRoutes } from "./export";
 
 export * from "./common";
 export * from "./customers";
@@ -158,6 +159,7 @@ export const routes = {
   ...campaignRoutes,
   ...rentalRoutes,
   ...networkRoutes,
+  ...exportRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;
