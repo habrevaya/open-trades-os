@@ -287,3 +287,16 @@ load it.
 **I ran the migration twice. Did it duplicate everything?** Not anything it
 sent an `externalRef` for: the second create is a 409 naming the record that
 already exists.
+
+## What is not built
+
+Nothing in this repository imports from Jobber, Housecall Pro or ServiceTitan.
+The importer is the separate migration toolkit, which loads through `/api/v1`
+with a connected app's token, and what is here is the half that has to be right:
+an API that takes history faithfully and refuses what it should.
+
+An estimate's historical status is not accepted, so a migration brings estimates
+in as current rather than as won or lost. The export writes one newline delimited
+JSON stream and nothing else: no per table CSV, no archive, and no object storage
+path, so a company exporting a large instance streams it to their own disk.
+Nothing imports an export back, which is the obvious symmetry and is not built.

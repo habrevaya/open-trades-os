@@ -38,10 +38,17 @@ import {
  * consent row, and an explicit revocation or a suppression still stops them.
  *
  * THE UNSUBSCRIBE. A marketing email is refused without an unsubscribe URL,
- * and the header goes on for real. This product does NOT host the page that
- * URL points at: the caller supplies it. That is a real gap rather than a
- * design, and it is named here so nobody reads `List-Unsubscribe` going out
- * and concludes the loop is closed.
+ * and the header goes on for real. The URL is still the caller's to supply,
+ * and `services/unsubscribe.ts` is now what serves one: a token addressed page
+ * where GET describes and POST acts, so a link prefetcher, a corporate mail
+ * scanner or a chat client rendering a preview cannot opt somebody out. This
+ * paragraph used to say the product hosted no such page, which it did not when
+ * the gate was written and does now.
+ *
+ * What is NOT closed, and the reason this note still exists: nothing checks
+ * that the URL handed in points at that page. A caller can satisfy the gate
+ * with any string, including a 404, so a company can still look compliant,
+ * pass its own check and keep emailing people who asked it to stop.
  *
  * THE SUPPRESSION LIST is the existing `suppression` table, not a new one. It
  * already keys on address plus channel plus purpose, already has the partial

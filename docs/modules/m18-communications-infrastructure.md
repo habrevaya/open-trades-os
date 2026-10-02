@@ -3,7 +3,7 @@ title: Communications Infrastructure
 module: M18
 domain: Grow
 phase: 6
-status: stub
+status: partial
 ---
 
 # Communications Infrastructure
@@ -12,33 +12,193 @@ status: stub
 
 ## What it does
 
-<!-- One paragraph a contractor would recognize. No feature list yet. -->
+Sends and receives texts and email, logs calls, keeps a thread per customer, and
+enforces consent, suppression and quiet hours on every send.
+
+## The problem
+
+Two failures, and the second one is the expensive one.
+
+A product with two outbound paths has one suppression check, and the second path
+written is always the one that forgets. That is not hypothetical here: the inbox
+had a consent decision in front of every send and the on my way notice had none,
+because the notice did not send anything at all. It wrote a row saying a text had
+gone out and returned ok, while the technician's button read "Text the customer I
+am on my way". A dispatcher reading that row stops phoning the customer, which is
+the worst shape a defect can take: the record actively argues against anybody
+noticing it.
+
+The other failure is a consent table nothing writes. `communication_consent` was
+read in three places and inserted by nothing, so every marketing message was
+refused with no consent, permanently. Transactional messages went out, because
+those are implied by the work itself, which is why nobody noticed: the on my way
+text arrived and the campaign silently did not.
 
 ## Key concepts
 
-<!-- The two or three ideas someone has to hold to use this module.
-     If a concept differs from how ServiceTitan or Jobber models it,
-     say so here and say why. -->
+**The check and the send are one function, so a caller cannot have the send
+without the check.** Two purposes through one gate: transactional is a claim
+about the message (a person is on their way to a property, and that is not
+marketing), marketing is the other claim. What separates them is not the file,
+it is three things the marketing gate adds: a granted consent row with nothing
+implied, quiet hours, and a different number to send from.
+
+**A blast goes out from a sending number, never from the one on the truck and
+never from a tracking number.**
+
+**A consent row is evidence, and evidence is not edited.** Granting or revoking
+stamps the previous row as superseded and inserts a new one, so the history reads
+as what was true when, which is the only form in which it answers the question
+anybody asks of it: were you allowed to send that, on that day.
+
+**Superseding happens before inserting.** The other order leaves two current rows
+for a moment, and the gate takes the most recent unsuperseded row, so a
+concurrent send in that window reads whichever one the index returned.
+
+**A revocation is a consent row too.** "Stop texting me about my appointments"
+said on the phone to a dispatcher had nowhere to go: the STOP keyword writes a
+suppression, which is carrier level and channel wide, but a verbal withdrawal was
+unrecordable, so the system would keep texting and its own audit trail would say
+nothing was ever withdrawn.
+
+**Email requires a granted consent row for marketing, which is stricter than US
+law.** CAN-SPAM needs no prior opt in: it needs a working unsubscribe, a postal
+address and honest headers. This product requires the opt in anyway, for three
+reasons. Canada and the EU require it and a self hosted product cannot know which
+regime its operator is under. Gmail and Yahoo's bulk sender rules effectively
+enforce it through complaint rate whatever the statute says. And the alternative
+is two consent models in one codebase where the SMS one is strict and the email
+one is loose, and every future feature has to remember which channel it is on.
+
+**Email registration is a weaker claim than SMS registration, and the difference
+is stated rather than papered over.** For SMS, carrier approval is a fact the
+carrier asserts and the product stores. Email has no such fact readable without
+calling the provider, so the check answers two things only: is there a connected
+provider with a From address, and if the operator declared which domains they
+verified, is the From one of them. It does not prove SPF, DKIM or DMARC. An
+operator who gets those wrong finds out from their bounce rate.
+
+**One email provider per company wins deterministically.** A company with two
+would be a company whose customers hear from two different From addresses at
+random, so the oldest connected one wins.
+
+**The outbox claims a row before calling the carrier.** The claim is a conditional
+update, which is atomic, so two workers cannot both claim the same message and a
+worker that dies after claiming leaves a row visibly stuck rather than one that
+quietly goes out again. A naive read, send, mark sent loop sends the same
+reminder three times the first time a process dies in the middle.
+
+**The unsubscribe page is served here, and GET describes while POST acts.** One
+click unsubscribe is a POST sent by the mailbox provider. A human clicking the
+link in the body arrives with a GET, and so does every link prefetcher, corporate
+mail scanner, security product that follows URLs in inbound mail, and chat client
+rendering a preview. If GET unsubscribed, a company's whole list would be opted
+out by software over a few months with no human having clicked anything. The
+unsubscribe suppresses email marketing only and leaves transactional mail alone.
+
+**The worker's authority is named rather than assumed.** The email sender's worker
+holds exactly two permissions and every path goes through a guard, so removing
+`message:send` from that list stops the sender, which is what an operator reading
+it would expect it to mean.
 
 ## Setup
 
-<!-- What an admin configures, in order, with the permissions required. -->
+`/settings/integrations` connects Twilio or JustCall for SMS and voice, and
+Resend or any SMTP server for email, by the names of the secrets rather than by
+pasting secrets. `/settings` holds the phone numbers and the call recording
+policy. A2P 10DLC brand and campaign registration is recorded through
+`POST /v1/messaging/brands` and `POST /v1/messaging/campaigns`, and the setup
+wizard flags it as needing somebody else's review queue.
+`docs/self-hosting/messaging.md` is the operator's side of this.
 
 ## Using it
 
-<!-- Task-oriented. One heading per job to be done. -->
+### The inbox
+
+`/inbox` is threads by customer, and the same thread is on the customer's page.
+`GET /v1/conversations`, `GET /v1/conversations/{id}`,
+`POST /v1/conversations` to text somebody first, and
+`POST /v1/conversations/{id}/messages` to reply.
+
+### Consent
+
+`GET /v1/consent` is what a number has agreed to, shown beside the conversation.
+`POST /v1/consent` grants and `POST /v1/consent/revoke` withdraws. Both need
+`message:send`, because deciding what may be sent to somebody is part of sending.
+
+### Email
+
+`POST /v1/email/messages` queues one and `POST /v1/email/send-queued` hands it to
+the provider. `GET /v1/email/suppressions` is the list,
+`POST /v1/email/suppressions` adds an address and
+`DELETE /v1/email/suppressions/{address}` lifts one.
+
+### Calls
+
+`GET /v1/calls` and `GET /v1/calls/{id}` read the history,
+`POST /v1/calls` logs one, and the recording has its own three calls:
+`POST /v1/calls/{id}/recording-decision`,
+`POST /v1/calls/{id}/recording` and
+`DELETE /v1/calls/{id}/recording`. Recording policy per jurisdiction is set with
+`POST /v1/recording-policies` and read with `GET /v1/recording-policies`.
+
+### Templates
+
+`GET /v1/message-templates`, `POST /v1/message-templates` and
+`POST /v1/message-templates/preview`. These are settings permissions, because a
+template is a standing decision about what the company says.
 
 ## Permissions
 
 | Role | Access |
 |---|---|
-<!-- owner / admin / manager / dispatcher / csr / technician / accountant -->
+| Owner, administrator | Everything |
+| Office manager | Reads and sends, manages consent and suppression |
+| Dispatcher | Reads and sends, so they can text a customer about the day |
+| CSR | Reads and sends |
+| Technician | Reads and sends, scoped to their own conversations |
+| Accountant | Neither |
+
+A conversation is scoped separately from a customer, deliberately: it contains
+what somebody said, which is more sensitive than their address, and a technician
+holds `message:send` because they text from the field. Without that scope,
+`message:read` was the whole company's inbox.
 
 ## API
 
-<!-- Link to the generated reference, plus the two or three calls that
-     cover most real integrations. -->
+| Call | Needs |
+|---|---|
+| `GET /v1/conversations` | `message:read` |
+| `POST /v1/conversations` | `message:send` |
+| `GET /v1/consent` | `message:read` |
+| `POST /v1/consent/revoke` | `message:send` |
+| `POST /v1/email/messages` | `message:send` |
+| `GET /v1/email/suppressions` | `message:read` |
+| `GET /v1/calls` | `message:read` |
+| `GET /v1/public/unsubscribe/{token}` | nothing: the token is the authority |
+| `POST /v1/public/unsubscribe/{token}` | nothing |
 
 ## Common questions
 
-<!-- Answer what support would otherwise answer twice a week. -->
+**Does a STOP text stop appointment reminders too?** A carrier level suppression
+is channel wide, so yes. A revocation recorded for the marketing purpose only
+stops marketing.
+
+**Why do quiet hours apply to email?** Not because of the law: email is outside
+the TCPA. A marketing email arriving at two in the morning lands at the top of an
+inbox read at seven with eleven hours of other mail on top of it, or wakes a
+phone. The window is the company's own, so a company that wants to send overnight
+turns it off once.
+
+**Can a technician's on my way text bypass a STOP?** No. It goes through the same
+gate as everything else.
+
+## What is not built
+
+Nothing checks that the unsubscribe URL handed to the email sender points at the
+page this product serves, so a caller can satisfy the gate with any string,
+including a 404. Campaigns supply the real one; another caller might not. There is
+no voice agent and no call deflection. Inbound email parsing into a conversation
+thread is one way: a reply to a transactional email does not land in the inbox.
+MMS is not handled. The messaging registration records a carrier's decision and
+does not submit the application.

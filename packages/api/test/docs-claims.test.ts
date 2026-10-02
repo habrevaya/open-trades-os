@@ -255,6 +255,25 @@ describe("every module doc", () => {
     expect(wrong, "docs whose module number does not match their filename").toEqual([]);
   });
 
+  it("says what it does not do", () => {
+    /**
+     * THE HONESTY SECTION, MADE COMPULSORY.
+     *
+     * Every one of these documents has one, and it is the section that makes the
+     * rest of the page trustworthy: a reader who finds the gaps named is a reader
+     * who believes the capabilities. A doc written without one reads as a
+     * brochure, and the direction of that failure is the bad one.
+     *
+     * Two spellings are accepted because two were already in use before this was
+     * a rule, and renaming a section in thirty four files to satisfy a test is
+     * the test deciding the prose.
+     */
+    const silent = written
+      .filter(({ text }) => !/^## (What is not built|Not built)$/m.test(text))
+      .map(({ file }) => file);
+    expect(silent, "docs that never say what they cannot do").toEqual([]);
+  });
+
   it("does not call a finished doc a stub", () => {
     /**
      * ONE DIRECTION, and the asymmetry is the point.

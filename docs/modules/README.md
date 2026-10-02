@@ -3,6 +3,13 @@
 One page per module. The full functional specification each page expands on
 lives in the planning repo; these are the user-facing docs.
 
+Every page ends with what that module does NOT do, and that section is not
+optional: `packages/api/test/docs-claims.test.ts` fails on a page without one,
+and the same test checks every permission name against the catalogue, every API
+path against the contract registry and every screen path against what the app
+serves. A page here is checked against the code rather than trusted, because
+somebody reads one precisely because they do not yet know what is true.
+
 | Module | Domain | Phase | Page |
 |---|---|---|---|
 | M01 Core, Tenancy and Access | Foundation | 0 | [Core, Tenancy and Access](m01-core-tenancy-access.md) |

@@ -244,3 +244,16 @@ the first moment of the next one.
 that way on purpose: "Over 90" lands between "1 to 30" and "31 to 60"
 alphabetically. The catalogue marks the column, and the screen takes the
 prefix off.
+
+## What is not built
+
+Twenty eight of the forty seven declared KPIs cannot be computed, and each one
+names the single missing datum rather than saying not built, because most of
+these definitions turn on an exclusion and a KPI computed without its exclusions
+looks like the definition.
+
+No drill through: an aggregate row does not open the rows behind it, so somebody
+who wants the detail opens the jobs. No scheduled delivery, so a report is run by
+a person rather than arriving in an inbox on Monday morning, and there is no
+workflow step that runs one. No charts: every report is a table. No cross company
+report other than the four network aggregates, which are `docs/concepts/networks.md`.
