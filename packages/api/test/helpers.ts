@@ -66,6 +66,11 @@ const ORDER = [
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.
+  /**
+   * A delivery points at its schedule, a schedule at a saved report, and a
+   * statement delivery at the customer and the message it went as.
+   */
+  "statement_delivery", "report_delivery", "delivery_schedule",
   "dashboard", "report",
   // The company's own logo and favicon, which are bytes rather than a key.
   "brand_asset",
@@ -75,7 +80,7 @@ const ORDER = [
   // Communications, in dependency order: a message points at a conversation
   // and a consent row, a call points at a number, a number points at a
   // campaign, a campaign points at a brand.
-  "message", "call", "conversation",
+  "message_attachment", "message", "call", "conversation",
   "suppression", "communication_consent", "message_template",
   // Nothing points at a recording policy: it is matched by jurisdiction
   // string, never by id, which is why a party's jurisdiction can name a

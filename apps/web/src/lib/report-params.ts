@@ -124,3 +124,17 @@ export function definitionFromForm(form: FormData): reporting.ReportDefinition |
   }
   return definitionFrom(params);
 }
+
+/**
+ * Just the date range, as `?from=...&to=...`, or nothing.
+ *
+ * For a link back to a built-in or saved report, whose definition is stored
+ * and whose dates are the only thing the URL carries.
+ */
+export function rangeQuery(definition: Pick<reporting.ReportDefinition, "from" | "to">): string {
+  const query = new URLSearchParams();
+  if (definition.from) query.set("from", definition.from);
+  if (definition.to) query.set("to", definition.to);
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}

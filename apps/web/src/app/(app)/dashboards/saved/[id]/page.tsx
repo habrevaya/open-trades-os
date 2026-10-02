@@ -72,7 +72,7 @@ export default async function SavedDashboardPage({ params }: { params: Promise<{
         <div className="mt-5 grid grid-cols-12 items-start gap-4">
           {tiles.map((tile, index) => (
             <div key={tile.key} className={`col-span-12 ${tileSpan(tile.width)}`}>
-              <DashboardTile tile={tile} />
+              <DashboardTile tile={tile} back={`/dashboards/saved/${id}`} />
               {edits && (
                 <div className="mt-1 flex justify-end">
                   <TileControls

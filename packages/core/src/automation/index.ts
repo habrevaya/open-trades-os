@@ -256,6 +256,14 @@ export const STEP_PERMISSIONS: Record<string, Permission[]> = {
    */
   create_task: ["task:write"],
   call_webhook: ["settings:write"],
+  /**
+   * Run a report and email it. The report itself is run as whoever published
+   * the version, re-checked against what they hold on the day it runs, so the
+   * two permissions here are only the step's own: may it read reports at all,
+   * and may it put an email in the outbox. A run that could email a report its
+   * publisher can no longer see would be a way to keep access after losing it.
+   */
+  email_report: ["report:read", "message:send"],
   wait: [],
   branch: [],
 };

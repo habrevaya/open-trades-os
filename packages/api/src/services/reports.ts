@@ -96,6 +96,67 @@ export function scopeFilterFor(ctx: ServiceContext, dataset: reporting.Dataset):
   return filter ? filter(ctx) : sql`false`;
 }
 
+/**
+ * WHICH RECORDS A DEFINITION IS ABOUT
+ *
+ * Scope, soft deletes, the date range and the filters, as one list of
+ * conditions. Shared by the aggregate and by the drill, because the whole
+ * promise of a drill is that it opens exactly the records the aggregate
+ * counted, and two copies of this list would be two definitions of "the records
+ * behind this number" that could come apart the day somebody fixed one.
+ */
+function conditionsFor(
+  ctx: ServiceContext,
+  dataset: reporting.Dataset,
+  definition: reporting.ReportDefinition,
+): SQL[] {
+  const conditions: SQL[] = [];
+  const scoped = scopeFilterFor(ctx, dataset);
+  if (scoped) conditions.push(scoped);
+
+  /**
+   * Soft deletes, when the table has them. A report that counts deleted
+   * records disagrees with every list screen in the product, and the person
+   * reading it has no way to know which is right.
+   */
+  if (["jobs", "invoices", "estimates", "visits", "profitability"].includes(dataset.key)) {
+    /**
+     * The table is its own alias, deliberately. The scope filters are
+     * written against the drizzle schema and render as `"job"."column"`,
+     * so a short alias in the FROM clause makes every one of them an
+     * invalid reference. A test caught it; a short alias reads nicer and
+     * would have silently broken scope on every report.
+     */
+    const table = dataset.from.replace("public.", "");
+    conditions.push(sql.raw(`"${table}".deleted_at is null`));
+  }
+
+  if (definition.from) {
+    conditions.push(sql`${sql.raw(dataset.dateColumn)} >= ${definition.from}::date`);
+  }
+  if (definition.to) {
+    // Exclusive, so a range of one month does not silently include the
+    // first moment of the next one.
+    conditions.push(sql`${sql.raw(dataset.dateColumn)} < ${definition.to}::date`);
+  }
+
+  for (const filter of definition.filters ?? []) {
+    const dimension = dataset.dimensions.find((d) => d.key === filter.dimension)!;
+    const expression = sql.raw(`(${dimension.sql})`);
+    if (filter.op === "in" && Array.isArray(filter.value)) {
+      // Bound as one array parameter. Joining the values into the string is
+      // how a report builder becomes a SQL console.
+      conditions.push(sql`${expression} = any(${sql.param(filter.value)}::text[])`);
+    } else if (filter.op === "neq") {
+      conditions.push(sql`${expression} <> ${String(filter.value)}`);
+    } else {
+      conditions.push(sql`${expression} = ${String(filter.value)}`);
+    }
+  }
+
+  return conditions;
+}
+
 export async function run(
   ctx: ServiceContext,
   definition: reporting.ReportDefinition,
@@ -136,49 +197,7 @@ export async function run(
       selects.push(sql`${sql.raw(wrapped)} as ${sql.raw(`"${m.key}"`)}`);
     }
 
-    const conditions: SQL[] = [];
-    const scoped = scopeFilterFor(ctx, dataset);
-    if (scoped) conditions.push(scoped);
-
-    /**
-     * Soft deletes, when the table has them. A report that counts deleted
-     * records disagrees with every list screen in the product, and the person
-     * reading it has no way to know which is right.
-     */
-    if (["jobs", "invoices", "estimates", "visits", "profitability"].includes(dataset.key)) {
-      /**
-       * The table is its own alias, deliberately. The scope filters are
-       * written against the drizzle schema and render as `"job"."column"`,
-       * so a short alias in the FROM clause makes every one of them an
-       * invalid reference. A test caught it; a short alias reads nicer and
-       * would have silently broken scope on every report.
-       */
-      const table = dataset.from.replace("public.", "");
-      conditions.push(sql.raw(`"${table}".deleted_at is null`));
-    }
-
-    if (definition.from) {
-      conditions.push(sql`${sql.raw(dataset.dateColumn)} >= ${definition.from}::date`);
-    }
-    if (definition.to) {
-      // Exclusive, so a range of one month does not silently include the
-      // first moment of the next one.
-      conditions.push(sql`${sql.raw(dataset.dateColumn)} < ${definition.to}::date`);
-    }
-
-    for (const filter of definition.filters ?? []) {
-      const dimension = dataset.dimensions.find((d) => d.key === filter.dimension)!;
-      const expression = sql.raw(`(${dimension.sql})`);
-      if (filter.op === "in" && Array.isArray(filter.value)) {
-        // Bound as one array parameter. Joining the values into the string is
-        // how a report builder becomes a SQL console.
-        conditions.push(sql`${expression} = any(${sql.param(filter.value)}::text[])`);
-      } else if (filter.op === "neq") {
-        conditions.push(sql`${expression} <> ${String(filter.value)}`);
-      } else {
-        conditions.push(sql`${expression} = ${String(filter.value)}`);
-      }
-    }
+    const conditions = conditionsFor(ctx, dataset, definition);
 
     const groupBy = dimensions.length > 0
       ? sql` group by ${sql.raw(dimensions.map((_, i) => String(i + 1)).join(", "))}`
@@ -255,6 +274,181 @@ export async function run(
         ...measures.map((m) => ({ key: m.key, label: m.label, type: m.type, role: "measure" as const })),
       ],
       rows: ordered as ReportResult["rows"],
+      truncated,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Drill through
+// ---------------------------------------------------------------------------
+
+export interface DrillColumn {
+  key: string;
+  label: string;
+  type: string;
+  /**
+   * `record` describes the record; `measure` is what this record added to the
+   * number that was clicked. The screen right aligns one and not the other,
+   * and puts a total under the second.
+   */
+  role: "record" | "measure";
+}
+
+export interface DrillRow {
+  id: string;
+  label: string;
+  /** Where this record opens. */
+  href: string;
+  values: Record<string, string | number | null>;
+  /** Where a value that names another record opens, by column. */
+  links: Record<string, string>;
+}
+
+export interface DrillResult {
+  noun: string;
+  plural: string;
+  /** What was pinned, in the words and order of the report's own columns. */
+  pinned: { key: string; label: string; type: string; value: string | null; sortPrefix?: boolean }[];
+  columns: DrillColumn[];
+  rows: DrillRow[];
+  /**
+   * Each measure over EVERY record behind the number, not only the ones shown,
+   * so a list cut off at a thousand still totals to what was clicked.
+   */
+  totals: Record<string, string | null>;
+  /** How many records there are, which can be more than `rows` holds. */
+  count: number;
+  truncated: boolean;
+}
+
+/** A thousand, for the same reason a report stops there. */
+const MAX_DRILL_ROWS = 1_000;
+
+/**
+ * THE RECORDS BEHIND ONE ROW OF A REPORT.
+ *
+ * The report's own definition, run through the same `conditionsFor` the
+ * aggregate used, with each grouped dimension pinned to the value on the row
+ * that was clicked and the grouping taken off. Nothing about which records
+ * count is decided here a second time, which is why the totals at the bottom
+ * agree with the number on the report: the same scope, the same soft deletes,
+ * the same date range, the same filters, and the same SQL fragment for every
+ * measure, evaluated one record at a time instead of summed.
+ *
+ * A pin is compared with `is not distinct from`, so a group that came back as
+ * null ("Not set" on the screen) opens the records with nothing in that field
+ * rather than none at all.
+ */
+export async function drill(
+  ctx: ServiceContext,
+  request: reporting.DrillRequest,
+): Promise<DrillResult> {
+  const held = permissionsFor(ctx.actor);
+  const decision = reporting.resolveDrill(request, CATALOGUE, held);
+  if (!decision.ok) throw new ConflictError(reporting.explainRefusal(decision));
+
+  const { dataset, pinned, measures, record } = decision;
+
+  return guardedRead(ctx, dataset.permission, async (tx) => {
+    const conditions = conditionsFor(ctx, dataset, request.definition);
+    for (const pin of pinned) {
+      // Bound as a parameter, like a filter value: it came off a URL.
+      conditions.push(sql`(${sql.raw(pin.dimension.sql)})::text is not distinct from ${pin.value}::text`);
+    }
+
+    /**
+     * Inside, every value is selected in its own type, so the window totals
+     * below are numeric arithmetic and not string concatenation. Outside, the
+     * money and the hours come back as TEXT, for the same reason the report
+     * selects money as text: a float would lose the cents the totals are
+     * meant to agree to.
+     */
+    const inner: SQL[] = [
+      sql.raw(`(${record.id})::text as "__id"`),
+      sql.raw(`(${record.linkId ?? record.id})::text as "__link"`),
+      sql.raw(`(${record.label})::text as "__label"`),
+      sql.raw(`(${record.orderBy}) as "__sort"`),
+    ];
+    for (const column of record.columns) {
+      inner.push(sql.raw(`(${column.sql}) as "c_${column.key}"`));
+      if (column.link) inner.push(sql.raw(`(${column.link.id})::text as "l_${column.key}"`));
+    }
+    for (const measure of measures) {
+      const value = measure.kind === "count" ? "1::numeric" : `(${measure.sql})::numeric`;
+      inner.push(sql.raw(`${value} as "m_${measure.key}"`));
+    }
+
+    const outer: string[] = [`"__id"`, `"__link"`, `"__label"`, `count(*) over () as "__count"`];
+    for (const column of record.columns) {
+      outer.push(`"c_${column.key}"`);
+      if (column.link) outer.push(`"l_${column.key}"`);
+    }
+    for (const measure of measures) {
+      outer.push(`"m_${measure.key}"::text as "m_${measure.key}"`);
+      const over = measure.kind === "count"
+        ? `count(*) over ()`
+        : measure.kind === "sum"
+          ? `coalesce(sum("m_${measure.key}") over (), 0)`
+          : `${measure.kind}("m_${measure.key}") over ()`;
+      outer.push(`(${over})::text as "t_${measure.key}"`);
+    }
+
+    const rows = await tx.execute<Record<string, string | number | null>>(sql`
+      with drilled as (
+        select ${sql.join(inner, sql.raw(", "))}
+        from ${sql.raw(dataset.from)}
+        ${conditions.length > 0 ? sql` where ${and(...conditions)!}` : sql``}
+      )
+      select ${sql.raw(outer.join(", "))}
+      from drilled
+      order by "__sort" desc nulls last, "__id"
+      limit ${MAX_DRILL_ROWS + 1}
+    `);
+
+    const truncated = rows.length > MAX_DRILL_ROWS;
+    const kept = truncated ? rows.slice(0, MAX_DRILL_ROWS) : rows;
+    const first = rows[0];
+
+    const href = (pattern: string, id: string | number | null | undefined) =>
+      pattern.includes("{id}") ? pattern.replace("{id}", String(id ?? "")) : pattern;
+
+    return {
+      noun: record.noun,
+      plural: record.plural,
+      pinned: pinned.map((pin) => ({
+        key: pin.dimension.key,
+        label: pin.dimension.label,
+        type: pin.dimension.type,
+        value: pin.value,
+        ...(pin.dimension.sortPrefix ? { sortPrefix: true } : {}),
+      })),
+      columns: [
+        ...record.columns.map((c) => ({ key: c.key, label: c.label, type: c.type, role: "record" as const })),
+        ...measures.map((m) => ({ key: m.key, label: m.label, type: m.type, role: "measure" as const })),
+      ],
+      rows: kept.map((row) => {
+        const values: DrillRow["values"] = {};
+        const links: DrillRow["links"] = {};
+        for (const column of record.columns) {
+          values[column.key] = row[`c_${column.key}`] ?? null;
+          const linked = column.link ? row[`l_${column.key}`] : null;
+          if (column.link && linked) links[column.key] = href(column.link.href, linked);
+        }
+        for (const measure of measures) values[measure.key] = row[`m_${measure.key}`] ?? null;
+        return {
+          id: String(row["__id"]),
+          label: String(row["__label"] ?? ""),
+          href: href(record.href, row["__link"]),
+          values,
+          links,
+        };
+      }),
+      totals: Object.fromEntries(measures.map((m) => [
+        m.key,
+        first ? (first[`t_${m.key}`] as string | null) ?? null : m.kind === "count" || m.kind === "sum" ? "0" : null,
+      ])),
+      count: first ? Number(first["__count"]) : 0,
       truncated,
     };
   });
@@ -395,3 +589,38 @@ export async function runSaved(ctx: ServiceContext, input: { id: string }) {
   return { report: saved, result: await run(ctx, definition) };
 }
 
+
+/* --------------------------------------------------------------- handlers */
+
+/**
+ * A definition off the wire, with nothing an optional field could carry as
+ * `undefined` that the definition type does not allow.
+ */
+function definitionFromWire(input: {
+  dataset: string;
+  dimensions: string[];
+  measures: string[];
+  filters?: { dimension: string; op: "eq" | "neq" | "in"; value: string | string[] }[] | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+  orderBy?: string | undefined;
+  limit?: number | undefined;
+}): reporting.ReportDefinition {
+  return {
+    dataset: input.dataset,
+    dimensions: input.dimensions,
+    measures: input.measures,
+    ...(input.filters ? { filters: input.filters } : {}),
+    ...(input.from ? { from: input.from } : {}),
+    ...(input.to ? { to: input.to } : {}),
+    ...(input.orderBy ? { orderBy: input.orderBy } : {}),
+    ...(input.limit ? { limit: input.limit } : {}),
+  };
+}
+
+export const handlers = {
+  drillReport: (ctx: ServiceContext, input: {
+    definition: Parameters<typeof definitionFromWire>[0];
+    match: Record<string, string | null>;
+  }): Promise<DrillResult> => drill(ctx, { definition: definitionFromWire(input.definition), match: input.match }),
+} as const;

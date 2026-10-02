@@ -3,7 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { automation, comms, type Actor, type Permission, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
-import { sendMessage, createTask, waitStep, branchStep, type StepResult } from "./workflow-steps";
+import { sendMessage, createTask, waitStep, branchStep, emailReport, type StepResult } from "./workflow-steps";
 
 /**
  * THE RUNNER
@@ -325,7 +325,9 @@ async function advance(
 
     let result: StepResult;
     try {
-      result = await perform(tx, { ...ctx, actor }, step, event, runId, now, steps.length - index - 1);
+      result = await perform(tx, { ...ctx, actor }, step, event, runId, now, steps.length - index - 1, {
+        index, publishedByUserId: version.publishedByUserId,
+      });
     } catch (error) {
       result = { ok: false, reason: (error as Error).message };
     }
@@ -422,6 +424,12 @@ async function perform(
   now: Date,
   /** How many steps come after this one. Only a branch needs it. */
   following: number,
+  /**
+   * Where this step sits and who published it. Only the report step needs
+   * them: the first is what makes it once per run, the second is whose
+   * authority the report is read under.
+   */
+  position: { index: number; publishedByUserId: string | null },
 ): Promise<StepResult> {
   /**
    * The permission is checked here, against the actor the run was given,
@@ -448,6 +456,8 @@ async function perform(
       return waitStep(step.config ?? {}, now);
     case "branch":
       return branchStep(step.config ?? {}, event, following);
+    case "email_report":
+      return emailReport(tx, ctx, step.config ?? {}, runId, { ...position, now });
     default:
       return { ok: false, reason: `step kind not implemented: ${step.kind}` };
   }

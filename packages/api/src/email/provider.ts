@@ -55,11 +55,23 @@ export interface OutboundEmail {
    */
   headers?: Record<string, string> | undefined;
   /**
+   * Files that go with it: a delivered report's CSV. The bytes travel with
+   * the message rather than as a link, because the person reading it may be an
+   * accountant with no login to fetch a link with.
+   */
+  attachments?: EmailAttachment[] | undefined;
+  /**
    * Our message id, handed to the provider so a delivery callback can be
    * matched back without a lookup table. Providers that cannot carry it are
    * matched on their own id instead, which is why both are stored.
    */
   reference: string;
+}
+
+export interface EmailAttachment {
+  filename: string;
+  contentType: string;
+  content: Buffer;
 }
 
 export type SendResult =

@@ -13,6 +13,7 @@ import {
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
   apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
   dispatchMap, geocoding,
+  reports, deliverySchedules, statementDelivery,
 } from "../services/index";
 
 /**
@@ -505,6 +506,10 @@ export const handlers = {
   getCustomerMergedInto: customerLifecycle.handlers.getCustomerMergedInto,
 
   getCustomerStatement: statements.handlers.getCustomerStatement,
+  emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
+  listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
+  getStatementSchedule: deliverySchedules.handlers.getStatementSchedule,
+  setStatementSchedule: deliverySchedules.handlers.setStatementSchedule,
   createCreditNote: creditNotes.handlers.createCreditNote,
   issueCreditNote: creditNotes.handlers.issueCreditNote,
   applyCreditNote: creditNotes.handlers.applyCreditNote,
@@ -627,6 +632,14 @@ export const handlers = {
   pinLocation: geocoding.handlers.pinLocation,
   unpinLocation: geocoding.handlers.unpinLocation,
   getGeocodingStatus: geocoding.handlers.getGeocodingStatus,
+  // Reports (M21): the records behind a number, and reports on a schedule
+  drillReport: reports.handlers.drillReport,
+  listReportSchedules: deliverySchedules.handlers.listReportSchedules,
+  createReportSchedule: deliverySchedules.handlers.createReportSchedule,
+  updateReportSchedule: deliverySchedules.handlers.updateReportSchedule,
+  setReportSchedulePaused: deliverySchedules.handlers.setReportSchedulePaused,
+  deleteReportSchedule: deliverySchedules.handlers.deleteReportSchedule,
+  listReportDeliveries: deliverySchedules.handlers.listReportDeliveries,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

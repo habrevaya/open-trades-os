@@ -5,7 +5,12 @@ import { deliver } from "./webhooks";
 import { inTenant } from "./context";
 import { ProviderNotConfiguredError } from "../comms/provider";
 import * as accounting from "./accounting";
+import * as email from "./email";
 import { AccountingNotConfiguredError } from "../accounting/provider";
+import { EmailProviderNotConfiguredError } from "../email/provider";
+// The email adapters, registered the same way, so the worker can find the
+// company's mail provider by name.
+import "../email";
 // Registers the carrier adapters. Drop this import and the worker still runs;
 // the outbox simply finds no provider and leaves messages queued.
 import "../comms";
@@ -56,6 +61,27 @@ async function sendQueued(db: Database, readSecret: SecretReader, organizationId
 
   await recoverStuck(db, organizationId);
   await flush(db, organizationId, { provider });
+}
+
+/**
+ * Hand this tenant's queued email to its mail provider.
+ *
+ * The SMS outbox has been drained here from the start and email was not:
+ * `POST /v1/email/send-queued` was the only thing that sent it, which is a
+ * button somebody has to press. That was survivable while every email was
+ * one a person had just asked for, and it is not once a report or a monthly
+ * statement is queued at seven in the morning by the worker itself.
+ *
+ * Same shape as the texts: no provider connected is an ordinary state and the
+ * mail stays queued until one is.
+ */
+async function sendQueuedEmail(db: Database, readSecret: SecretReader, organizationId: string): Promise<void> {
+  const provider = await email.providerFor(db, organizationId, readSecret).catch((error: unknown) => {
+    if (error instanceof EmailProviderNotConfiguredError) return null;
+    throw error;
+  });
+  if (!provider) return;
+  await email.flush(db, organizationId, { provider });
 }
 
 /**
@@ -135,6 +161,7 @@ export function backgroundHooks(
 ): (organizationId: string) => Promise<void> {
   const steps = [
     { name: "sendQueued", run: (org: string) => sendQueued(db, readSecret, org) },
+    { name: "sendQueuedEmail", run: (org: string) => sendQueuedEmail(db, readSecret, org) },
     { name: "sendWebhooks", run: (org: string) => sendWebhooks(db, org) },
     { name: "syncAccounting", run: (org: string) => syncAccounting(db, org) },
   ];

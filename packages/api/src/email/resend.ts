@@ -265,6 +265,20 @@ export function createResendProvider(
             ? { headers: message.headers }
             : {}),
           /**
+           * Base64 in the JSON body, which is how Resend's API takes a file.
+           * Its other form is a URL it fetches, and the file here exists only
+           * in this database.
+           */
+          ...(message.attachments && message.attachments.length > 0
+            ? {
+                attachments: message.attachments.map((file) => ({
+                  filename: file.filename,
+                  content: file.content.toString("base64"),
+                  content_type: file.contentType,
+                })),
+              }
+            : {}),
+          /**
            * Our id, carried back on the delivery callback.
            *
            * Best effort, and the service does not depend on it: a callback

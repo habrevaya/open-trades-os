@@ -39,6 +39,7 @@ import { callTrackingRoutes } from "./call-tracking";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
+import { reportRoutes } from "./reports";
 import { appRoutes } from "./apps";
 import { equipmentRoutes } from "./equipment";
 import { taskRoutes } from "./tasks";
@@ -98,6 +99,7 @@ export * from "./call-tracking";
 export * from "./company";
 export * from "./readbacks";
 export * from "./service-reports";
+export * from "./reports";
 export * from "./apps";
 export * from "./pricing-authority";
 export * from "./field-assets";
@@ -181,6 +183,7 @@ export const routes = {
   ...externalWorkRoutes,
   ...kpiRoutes,
   ...dispatchMapRoutes,
+  ...reportRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

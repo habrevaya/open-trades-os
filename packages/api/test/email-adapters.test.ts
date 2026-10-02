@@ -161,6 +161,20 @@ describe("the Resend adapter", () => {
       .toBe(message.reference);
   });
 
+  it("sends an attachment as base64 with its type, which is how Resend takes a file", async () => {
+    // A delivered report's spreadsheet. Resend's other form is a URL it
+    // fetches, and the file here exists only in this product's database.
+    const calls = stubFetch(200, { id: "re_2" });
+    await createResendProvider({}, "re_key").send({
+      ...message,
+      attachments: [{ filename: "ar-aging.csv", contentType: "text/csv", content: Buffer.from("Age,Owed\r\n") }],
+    });
+    const body = JSON.parse(String(calls[0]!.init.body)) as Record<string, unknown>;
+    expect(body["attachments"]).toEqual([{
+      filename: "ar-aging.csv", content: Buffer.from("Age,Owed\r\n").toString("base64"), content_type: "text/csv",
+    }]);
+  });
+
   it("treats a rate limit as retryable and a rejected address as permanent", async () => {
     stubFetch(429, { name: "rate_limit_exceeded", message: "slow down" });
     expect(await createResendProvider({}, "k").send(message))
@@ -310,6 +324,17 @@ describe("the generic SMTP adapter", () => {
       to: message.to, subject: message.subject,
       text: "Attached.", html: "<p>Attached.</p>",
       replyTo: "dispatch@example-trades.com",
+    });
+  });
+
+  it("hands an attachment to the transport, which builds the multipart body", async () => {
+    const fake = transport();
+    const content = Buffer.from("Age,Owed\r\n");
+    await createSmtpProvider({ host: "smtp.test", port: 587 }, "pw", fake).send({
+      ...message, attachments: [{ filename: "ar-aging.csv", contentType: "text/csv", content }],
+    });
+    expect(fake.calls[0]).toMatchObject({
+      attachments: [{ filename: "ar-aging.csv", contentType: "text/csv", content }],
     });
   });
 

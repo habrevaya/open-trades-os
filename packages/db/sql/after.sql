@@ -999,6 +999,35 @@ returns table (organization_id uuid, entity text, entity_id uuid)
 
 revoke all on function app.addresses_to_geocode(int) from public;
 grant execute on function app.addresses_to_geocode(int) to background;
+-- REPORTS AND STATEMENTS THAT ARRIVE ON THEIR OWN
+--
+-- The same shape as the three above: which schedules are due, across every
+-- tenant, as ids and nothing else. Paused ones and suspended companies are
+-- left out here rather than in the caller, so forgetting to check is not a
+-- way for a paused report to go out.
+-- =========================================================================
+
+create or replace function app.due_deliveries(p_limit int default 100)
+returns table (organization_id uuid, schedule_id uuid, kind text, next_run_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id, s.id, s.kind::text, s.next_run_at
+    from public.delivery_schedule s
+    where s.paused_at is null
+      and s.next_run_at is not null
+      and s.next_run_at <= now()
+      and not exists (
+        select 1 from public.organization o
+         where o.id = s.organization_id and o.suspended_at is not null
+      )
+    -- Longest overdue first, so a backlog after an outage goes out in the
+    -- order it was owed.
+    order by s.next_run_at
+    limit p_limit
+  $$;
+
+revoke all on function app.due_deliveries(int) from public;
+grant execute on function app.due_deliveries(int) to background;
 
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN

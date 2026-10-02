@@ -70,6 +70,8 @@ export default async function NewReportPage({
                 action="/reports/new"
                 timezone={user.organizationTimezone}
                 hideRange
+                title="The report you are building"
+                back={`/reports/new?${queryFor(definition)}`}
               />
               <SaveReport query={queryFor(definition)} />
             </>

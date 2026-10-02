@@ -5,6 +5,8 @@ import { renderWithin } from "./message-templates";
 import { automation, comms } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import { raise } from "./tasks";
+import { timezoneOf } from "./context";
+import { deliverReport, readReportStep } from "./report-delivery";
 
 /**
  * WHAT A WORKFLOW STEP ACTUALLY DOES
@@ -426,6 +428,63 @@ export function branchStep(
       thenCount: read.shape.thenCount,
       elseCount: read.shape.elseCount,
       conditions: read.shape.conditions as unknown as Record<string, unknown>,
+    },
+  };
+}
+
+
+/* ------------------------------------------------------------- reports */
+
+/**
+ * Run a report and email it.
+ *
+ * The same `deliverReport` a schedule calls, so a report emailed by an
+ * automation is run, addressed, recorded and made once exactly as a scheduled
+ * one is. What differs is the occurrence: a schedule's is a day on the clock,
+ * and a step's is this step of this run, so a run resumed after a wait does
+ * not send the report a second time.
+ *
+ * It runs as the person who PUBLISHED the version, as they are today. The
+ * run's own actor holds only the step's two permissions and no scope, and a
+ * report run under no scope is a report of nothing; running it as the company
+ * would hand anybody who can publish an automation the owner's view of the
+ * books.
+ *
+ * A report that went to nobody (every address suppressed, nobody allowed to
+ * see it) is a successful step that says so, the same way a suppressed text
+ * is: the automation did what it should and checked. A report that could not
+ * run at all is a failed step.
+ */
+export async function emailReport(
+  tx: Database,
+  ctx: ServiceContext,
+  config: Record<string, unknown>,
+  runId: string,
+  step: { index: number; publishedByUserId: string | null; now: Date },
+): Promise<StepResult> {
+  const read = readReportStep(config);
+  if (!read.source) return { ok: false, reason: "step names no report" };
+
+  const result = await deliverReport(tx, {
+    organizationId: ctx.actor.organizationId,
+    ownerUserId: step.publishedByUserId,
+    source: read.source,
+    recipients: { userIds: read.userIds, addresses: read.addresses },
+    period: read.period,
+    at: step.now,
+    timezone: await timezoneOf(tx, ctx.actor.organizationId),
+    key: `run:${runId}:${step.index}`,
+    workflowRunId: runId,
+  });
+
+  if (result.status === "failed") return { ok: false, reason: result.error ?? "the report did not run" };
+  return {
+    ok: true,
+    output: {
+      deliveryId: result.deliveryId,
+      status: result.status,
+      queued: result.recipients.filter((r) => r.messageId).length,
+      refused: result.recipients.filter((r) => r.refused).map((r) => `${r.address || "somebody"}: ${r.refused}`),
     },
   };
 }

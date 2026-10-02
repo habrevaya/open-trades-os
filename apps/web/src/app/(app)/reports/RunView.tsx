@@ -1,6 +1,7 @@
 import { reports, ConflictError, type ServiceContext } from "@opentradesos/api/services";
 import type { reporting } from "@opentradesos/core";
 import { ReportTable } from "@/components/ReportTable";
+import { drillHref } from "@/lib/drill";
 
 /**
  * Run a definition and show what came back, or say why it did not.
@@ -11,7 +12,7 @@ import { ReportTable } from "@/components/ReportTable";
  * and the job here is to put them on the screen rather than to rephrase them.
  */
 export async function RunView({
-  ctx, definition, action, timezone, hideRange,
+  ctx, definition, action, timezone, hideRange, title, back,
 }: {
   ctx: ServiceContext;
   definition: reporting.ReportDefinition;
@@ -19,6 +20,10 @@ export async function RunView({
   action: string;
   timezone: string;
   hideRange?: boolean;
+  /** The report's name, which the records behind a number are headed with. */
+  title: string;
+  /** This page with its dates, which the records behind a number link back to. */
+  back: string;
 }) {
   let result: reports.ReportResult | null = null;
   let refusal: string | null = null;
@@ -73,7 +78,10 @@ export async function RunView({
           {refusal}
         </p>
       ) : (
-        <ReportTable result={result!} timezone={timezone} />
+        <ReportTable
+          result={result!} timezone={timezone}
+          drill={(row) => drillHref(definition, row, { title, back })}
+        />
       )}
     </div>
   );

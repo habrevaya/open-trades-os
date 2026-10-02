@@ -456,6 +456,13 @@
       "when": 1790970485922,
       "tag": "0064_sloppy_sumo",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1790975386156,
+      "tag": "0065_chubby_roulette",
+      "breakpoints": true
     }
   ]
 }

@@ -88,4 +88,106 @@ export const getCustomerStatement = defineRoute({
   output: CustomerStatement,
 });
 
-export const statementRoutes = { getCustomerStatement } as const;
+export const emailCustomerStatement = defineRoute({
+  method: "post",
+  path: "/v1/customers/{id}/statement/email",
+  summary: "Email a customer their statement",
+  description:
+    "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.",
+  module: "M13",
+  permissions: ["invoice:send"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    email: z.string().optional(),
+    from: z.string().date().optional(),
+    to: z.string().date().optional(),
+  }),
+  output: z.object({
+    deliveryId: Uuid,
+    customerId: Uuid,
+    destination: z.string().nullable(),
+    state: z.enum(["queued", "refused"]),
+    explanation: z.string().nullable(),
+    /** The link that went. Empty on a replay: the token exists once, when minted. */
+    portalUrl: z.string(),
+  }),
+});
+
+export const StatementDelivery = z.object({
+  id: Uuid,
+  customerId: Uuid,
+  customerName: z.string(),
+  /** `2026-09` on the monthly run, null on one sent by hand. */
+  period: z.string().nullable(),
+  periodFrom: z.string().date(),
+  periodTo: z.string().date(),
+  destination: z.string().nullable(),
+  closingBalance: MoneyString.nullable(),
+  /** The outbox's word for the message. Null when nothing was queued. */
+  messageStatus: z.string().nullable(),
+  error: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const listStatementDeliveries = defineRoute({
+  method: "get",
+  path: "/v1/statement-deliveries",
+  summary: "Statements emailed, by hand or by the monthly run",
+  description:
+    "Newest first, for one customer or everybody: the period, where it went, what the customer owed when it went, and the message's status, or why it was not sent.",
+  module: "M13",
+  permissions: ["invoice:read"],
+  input: z.object({
+    customerId: Uuid.optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: z.object({ deliveries: z.array(StatementDelivery) }),
+});
+
+export const StatementSchedule = z.object({
+  enabled: z.boolean(),
+  dayOfMonth: z.number().int().min(1).max(28),
+  /** `HH:MM` in the company's timezone. */
+  time: z.string(),
+  /** A customer owing this much or less is not sent one. */
+  minimumBalance: MoneyString,
+  nextRunAt: z.string().datetime().nullable(),
+  lastRunAt: z.string().datetime().nullable(),
+  lastError: z.string().nullable(),
+});
+
+export const getStatementSchedule = defineRoute({
+  method: "get",
+  path: "/v1/statement-schedule",
+  summary: "Whether customers with a balance get a statement every month",
+  description: "Off until somebody turns it on. When on: the day of the month, the time, and the smallest balance worth a statement.",
+  module: "M13",
+  permissions: ["invoice:read"],
+  input: z.object({}),
+  output: StatementSchedule,
+});
+
+export const setStatementSchedule = defineRoute({
+  method: "post",
+  path: "/v1/statement-schedule",
+  summary: "Turn monthly statements on or off",
+  description:
+    "On a day from 1 to 28 at a time in the company's timezone, every customer owing more than `minimumBalance` on open invoices (counted by whoever pays them) is emailed a link to their statement for the month before. Each customer is sent at most one per month, whatever the worker does. Off is a pause: the history stays.",
+  module: "M13",
+  permissions: ["invoice:send"],
+  /** Setting a state: the same request twice leaves the same state. */
+  idempotent: true,
+  input: z.object({
+    enabled: z.boolean(),
+    dayOfMonth: z.number().int().min(1).max(28).optional(),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+    minimumBalance: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+  }),
+  output: StatementSchedule,
+});
+
+export const statementRoutes = {
+  getCustomerStatement, emailCustomerStatement, listStatementDeliveries,
+  getStatementSchedule, setStatementSchedule,
+} as const;

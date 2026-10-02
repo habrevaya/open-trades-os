@@ -67,6 +67,7 @@ const REFUSED: Record<string, Refused> = {
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
   report_name_idx: { file: "reports.ts", how: "catch" },
+  delivery_schedule_statements_idx: { file: "delivery-schedules.ts", how: "catch" },
   dashboard_name_idx: { file: "dashboards.ts", how: "catch" },
   agreement_plan_code_idx: { file: "agreements.ts", how: "catch" },
   vendor_name_idx: { file: "inventory.ts", how: "catch" },
@@ -129,6 +130,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   /* --- idempotency keys, where a collision is the point --- */
   ai_usage_idempotency_idx: "An idempotency key: a repeat is meant to collide and be ignored.",
   workflow_run_idem_idx: "An idempotency key for a workflow run.",
+  report_delivery_key_idx:
+    "The occurrence a report delivery was for. A second attempt colliding is the once-per-period guarantee, inserted with on conflict do nothing.",
+  statement_delivery_period_idx:
+    "One customer's statement for one month. The monthly run inserts with on conflict do nothing, so a repeat sends nothing.",
   field_operation_client_idx: "The client's own operation id, which makes a retry safe.",
   field_upload_client_idx: "The client's own upload id, which makes a retry safe.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",

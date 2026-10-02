@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, customType } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, sourceRef } from "./_shared";
 import { organization, businessUnit, user } from "./tenancy";
@@ -398,6 +398,35 @@ export const message = pgTable("message", {
 }, (t) => ({
   threadIdx: index("message_thread_idx").on(t.conversationId, t.createdAt),
   providerIdx: index("message_provider_idx").on(t.organizationId, t.providerMessageId),
+}));
+
+/**
+ * A FILE THAT GOES WITH AN EMAIL.
+ *
+ * `message.media` is attachments by reference, a URL the provider fetches,
+ * which is the MMS shape and assumes an object store this product does not
+ * have. A delivered report's CSV is a few kilobytes made at the moment it is
+ * sent, so it is kept here as bytes beside the message it belongs to and
+ * handed to the provider with it, and the outbox's retry sends the same file
+ * the first attempt would have.
+ *
+ * Bytes in Postgres, for the reason `stored_file` gives: a contractor self
+ * hosting this should be able to email a spreadsheet without standing up a
+ * bucket first.
+ */
+export const messageAttachment = pgTable("message_attachment", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  messageId: uuid("message_id").notNull().references(() => message.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  content: customType<{ data: Buffer; driverData: Buffer }>({
+    dataType: () => "bytea",
+  })("content").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  messageIdx: index("message_attachment_message_idx").on(t.organizationId, t.messageId),
 }));
 
 /* ---------------------------------------------------------------- voice */

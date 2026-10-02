@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { SHAPES } from "./workflow-dwell";
+import { checkReportStep } from "./report-delivery";
 
 /**
  * AUTOMATIONS, AS SOMETHING A PERSON CAN SEE AND TURN OFF
@@ -343,6 +344,22 @@ function check(
 }
 
 /**
+ * The settings a step can only be checked against the database: a report step
+ * names a report and people, and both have to exist and be allowed. Checked
+ * after the shape, so the first problem somebody sees is the cheapest one.
+ */
+async function checkStepSettings(
+  tx: Database, ctx: ServiceContext, steps: WorkflowInput["steps"],
+): Promise<string | null> {
+  for (const [index, step] of steps.entries()) {
+    if (step.kind !== "email_report") continue;
+    const problem = await checkReportStep(tx, ctx, step.config ?? {});
+    if (problem) return `Step ${index + 1}: ${problem}`;
+  }
+  return null;
+}
+
+/**
  * Event names this company's log already holds.
  *
  * Read inside the transaction that is about to validate, so a workflow
@@ -365,7 +382,8 @@ async function seenEventNames(tx: Database, organizationId: string): Promise<Set
  */
 export async function create(ctx: ServiceContext, input: WorkflowInput) {
   return guardedWrite(ctx, "workflow:write", async (tx) => {
-    const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId));
+    const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId))
+      ?? await checkStepSettings(tx, ctx, input.steps);
     if (refusal) throw new ConflictError(refusal);
 
     const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
@@ -422,7 +440,8 @@ export async function publish(ctx: ServiceContext, input: { id: string } & Workf
       .where(and(eq(schema.workflow.id, input.id), isNull(schema.workflow.deletedAt))).limit(1);
     if (!before) throw new NotFoundError("Workflow");
 
-    const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId));
+    const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId))
+      ?? await checkStepSettings(tx, ctx, input.steps);
     if (refusal) throw new ConflictError(refusal);
     const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
     if (!required.ok) throw new ConflictError("This definition cannot be published.");
@@ -580,6 +599,13 @@ const IMPLEMENTED = [
     kind: "wait",
     label: "Wait",
     description: "Pauses the run. The wait is stored, so it survives a restart.",
+  },
+  {
+    kind: "email_report",
+    label: "Run and email a report",
+    description:
+      "Runs a report as whoever publishes this automation and emails it, with a spreadsheet of every row, "
+      + "to the people picked.",
   },
   {
     kind: "branch",
