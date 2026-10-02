@@ -85,14 +85,19 @@ export const listPeople = defineRoute({
   path: "/v1/people",
   summary: "Everybody who works here",
   description:
-    "Memberships and the technician profile attached to each, which is the list an office manager maintains. No email addresses: a user row is visible to that user alone under row level security, so a roster that joined the user table would return one address, the caller's own. No certifications either, because a licence number against a named person is a compliance record and this is guarded by user:read. No technician.skills either: that column exists and nothing in this product has ever written one, so returning it would put an empty array on every person and teach whoever read it that nobody is qualified for anything.",
+    "Memberships and the technician profile attached to each, which is the list an office manager maintains, with each person's name and email, so a technician in another system can be matched to the technician id a visit names. The name and email come through a function that answers for this company's members only, because a user row is visible to that user alone under row level security and a join to it returned the caller's own address and nobody else's. No certifications, because a licence number against a named person is a compliance record and this is guarded by user:read. No technician.skills either: that column exists and nothing in this product has ever written one, so returning it would put an empty array on every person and teach whoever read it that nobody is qualified for anything.",
   module: "M24",
   permissions: ["user:read"],
-  input: z.object({}),
+  input: z.object({
+    /** Exact, case insensitive. For matching a person from another system. */
+    email: z.string().max(320).optional(),
+  }),
   output: z.object({
     people: z.array(z.object({
       membershipId: Uuid,
       userId: Uuid,
+      name: z.string().nullable(),
+      email: z.string(),
       role: z.string(),
       active: z.boolean(),
       technicianId: Uuid.nullable(),

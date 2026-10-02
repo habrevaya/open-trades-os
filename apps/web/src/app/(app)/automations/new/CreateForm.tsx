@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { createAutomation } from "../actions";
 import { Builder, type StepOption, type DwellShape } from "../Builder";
 
@@ -11,10 +11,10 @@ export function CreateForm({
   steps: StepOption[];
   shapes: DwellShape[];
 }) {
-  const [state, submit, pending] = useActionState(createAutomation, null);
+  const [state, submitForm, pending] = useKeptAction(createAutomation, null);
 
   return (
-    <form action={submit} className="mt-6">
+    <form {...submitForm} className="mt-6">
       <Builder events={events} steps={steps} shapes={shapes} />
 
       {state && "error" in state && state.error ? (

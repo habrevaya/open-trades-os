@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { Chip, Phone } from "@opentradesos/ui";
 import { addContact, removeContact, makePrimary } from "./actions";
 
@@ -42,9 +43,9 @@ export function Contacts({
   contacts: ContactRow[];
   properties: { id: string; label: string }[];
 }) {
-  const [addState, add, adding] = useActionState(addContact, null);
-  const [removeState, remove, removing] = useActionState(removeContact, null);
-  const [primaryState, primary, promoting] = useActionState(makePrimary, null);
+  const [addState, addForm, adding] = useKeptAction(addContact, null);
+  const [removeState, removeForm, removing] = useKeptAction(removeContact, null);
+  const [primaryState, primaryForm, promoting] = useKeptAction(makePrimary, null);
   const [open, setOpen] = useState(false);
 
   const error = [addState, removeState, primaryState]
@@ -88,7 +89,7 @@ export function Contacts({
 
               <span className="ml-auto flex gap-2">
                 {!contact.isPrimary && (
-                  <form action={primary}>
+                  <form {...primaryForm}>
                     <input type="hidden" name="customerId" value={customerId} />
                     <input type="hidden" name="id" value={contact.id} />
                     <button type="submit" disabled={promoting} className={BUTTON}>
@@ -96,7 +97,7 @@ export function Contacts({
                     </button>
                   </form>
                 )}
-                <form action={remove}>
+                <form {...removeForm}>
                   <input type="hidden" name="customerId" value={customerId} />
                   <input type="hidden" name="id" value={contact.id} />
                   <button type="submit" disabled={removing} className={BUTTON}>
@@ -110,7 +111,7 @@ export function Contacts({
       )}
 
       {open && (
-        <form action={add} className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3">
+        <form {...addForm} className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3">
           <input type="hidden" name="customerId" value={customerId} />
           <div>
             <label htmlFor="c-name" className="block text-xs text-ink-500">Name</label>

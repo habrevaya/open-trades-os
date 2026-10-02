@@ -4,7 +4,7 @@ import type { Actor } from "@opentradesos/core";
 import { estimate as est, money as m } from "@opentradesos/core";
 import * as priceBook from "../src/services/pricebook";
 import * as estimates from "../src/services/estimates";
-import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
+import { NotFoundError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**

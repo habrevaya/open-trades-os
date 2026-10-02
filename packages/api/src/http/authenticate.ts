@@ -1,7 +1,7 @@
 import type { Database } from "@opentradesos/db";
 import type { ServiceContext } from "../services/context";
-import { resolveToken, touch } from "../services/apps";
-import type { ResolvedSession } from "../services/session";
+import { resolveToken, touch, hashToken } from "../services/apps";
+import { assertNotSuspended, type ResolvedSession } from "../services/session";
 
 /**
  * WHO IS MAKING THIS REQUEST
@@ -55,7 +55,16 @@ export async function authenticate(
      * cookie. Falling through would turn a revoked app's request into one
      * made as the operator who happened to be signed in on the same machine.
      */
-    if (!app) return null;
+    if (!app) {
+      /**
+       * Still a refusal. The only thing that changes is what it says: a token
+       * for a suspended company gets a 403 that names the reason, because a
+       * partner's integration logging "unauthorized" sends somebody to rotate
+       * a credential that is perfectly good.
+       */
+      await assertNotSuspended(deps.db, hashToken(bearer[1]!));
+      return null;
+    }
 
     // Best effort, and deliberately not awaited into the critical path:
     // "when did this app last read anything" is what an operator checks

@@ -8,5 +8,10 @@ import { resolve } from "node:path";
  */
 export default defineConfig({
   resolve: { alias: { "@": resolve(__dirname, "src") } },
-  test: { include: ["test/**/*.test.ts"] },
+  /**
+   * Next compiles JSX itself and tsconfig says `preserve`, which esbuild
+   * would pass through untouched. Render tests need it compiled.
+   */
+  esbuild: { jsx: "automatic" },
+  test: { include: ["test/**/*.test.ts", "test/**/*.test.tsx"] },
 });

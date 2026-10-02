@@ -8,6 +8,8 @@ import * as jobs from "../src/services/jobs";
 import * as booking from "../src/services/booking";
 import * as properties from "../src/services/properties";
 import { authenticate, attributingApp } from "../src/http/authenticate";
+import { dispatch } from "../src/http/dispatch";
+import { routes } from "../src/contracts";
 import type { ResolvedSession } from "../src/services/session";
 import type { ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
@@ -496,5 +498,72 @@ run("a partner sending work, end to end", () => {
     const [row] = await raw<{ connected_app_id: string | null }[]>`
       select connected_app_id from public.booking_request where id = ${request.id}`;
     expect(row!.connected_app_id).toBeNull();
+  });
+});
+
+/* ================================================== asking what it may do */
+
+run("an app asking what its token may do", () => {
+  /**
+   * The migration loader found out whether it held `data:import` by posting
+   * a deliberately invalid back-dated invoice and reading 403 against 422: a
+   * write probe against a live company's books. This is the read it uses
+   * instead, served through the same dispatcher and credential as every
+   * other route.
+   */
+  const ask = async (headers: Record<string, string>, session: ServiceContext | null = null) => {
+    const response = await dispatch(
+      new Request("http://localhost/api/v1/apps/me", { headers }),
+      {
+        db: db(),
+        basePath: "/api",
+        resolveSession: async (req) => {
+          const authenticated = await authenticate(req, {
+            db: db(), session: async () => session as unknown as ResolvedSession | null,
+          });
+          return authenticated?.ctx ?? null;
+        },
+      },
+    );
+    return { status: response.status, body: await response.json() as Record<string, unknown> };
+  };
+
+  it("names the app, its permissions and the scope it holds on every resource", async () => {
+    const app = await apps.install(owner(), {
+      name: "Migrator", publisher: "Migrator Ltd",
+      permissions: ["customer:read", "data:import", "job:read"],
+      scopes: { customer: "all" },
+    });
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+
+    const { status, body } = await ask({ authorization: `Bearer ${token}` });
+    expect(status).toBe(200);
+    expect(routes.getAppSelf.output.safeParse(body).success).toBe(true);
+    expect(body).toMatchObject({
+      appId: app.id, name: "Migrator", publisher: "Migrator Ltd", organizationId: ORG,
+      permissions: ["customer:read", "data:import", "job:read"],
+    });
+    /** Stated where the install stated it, and `own` (matching nothing) everywhere else. */
+    expect(body.scopes).toMatchObject({ customer: "all", job: "own", invoice: "own" });
+  });
+
+  it("lets the loader see it lacks data:import without writing anything", async () => {
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+    const { body } = await ask({ authorization: `Bearer ${token}` });
+    expect(body.permissions).not.toContain("data:import");
+  });
+
+  it("answers a person with a 404, because no app is behind a session", async () => {
+    const { status } = await ask({}, owner());
+    expect(status).toBe(404);
+  });
+
+  it("refuses a revoked token like any other route", async () => {
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id });
+    await apps.revoke(owner(), { id: app.id });
+    const { status } = await ask({ authorization: `Bearer ${token}` });
+    expect(status).toBe(401);
   });
 });

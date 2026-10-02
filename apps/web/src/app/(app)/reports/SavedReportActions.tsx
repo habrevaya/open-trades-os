@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { deleteReport } from "./actions";
 
 /**
@@ -12,11 +12,11 @@ import { deleteReport } from "./actions";
  * are about to take away.
  */
 export function SavedReportActions({ id, name }: { id: string; name: string }) {
-  const [state, remove, removing] = useActionState(deleteReport, null);
+  const [state, removeForm, removing] = useKeptAction(deleteReport, null);
 
   return (
     <form
-      action={remove}
+      {...removeForm}
       onSubmit={(event) => {
         if (!confirm(`Delete "${name}"? Everybody loses it.`)) event.preventDefault();
       }}

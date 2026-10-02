@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  canSend, currentConsent, activeSuppression, inQuietHours, inboundIntent,
+  canSend, currentConsent, activeSuppression, inQuietHours, inboundIntent, phoneAddress,
   type ConsentRecord, type SendRequest,
 } from "../src/comms/index";
 
@@ -241,5 +241,24 @@ describe("finding a suppression", () => {
 
   it("does not match a different channel", () => {
     expect(activeSuppression([{ channel: "email" }], "sms", "marketing")).toBeNull();
+  });
+});
+
+describe("the address a phone number is known by", () => {
+  it("writes a typed North American number the way a carrier does", () => {
+    expect(phoneAddress("(512) 555-0192")).toBe("+15125550192");
+    expect(phoneAddress("512-555-0192")).toBe("+15125550192");
+    expect(phoneAddress("512.555.0192")).toBe("+15125550192");
+    expect(phoneAddress("1 512 555 0192")).toBe("+15125550192");
+    expect(phoneAddress(" +1 (512) 555-0192 ")).toBe("+15125550192");
+  });
+
+  it("leaves an international number international", () => {
+    expect(phoneAddress("+44 20 7946 0958")).toBe("+442079460958");
+  });
+
+  it("leaves what is not a phone number alone", () => {
+    expect(phoneAddress(" dana.w@example.com ")).toBe("dana.w@example.com");
+    expect(phoneAddress("555-0192")).toBe("555-0192");
   });
 });

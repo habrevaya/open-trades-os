@@ -16,9 +16,10 @@
     "db:generate": "pnpm --filter @opentradesos/db generate",
     "db:migrate": "pnpm --filter @opentradesos/db migrate",
     "db:test": "pnpm --filter @opentradesos/db test",
-    "db:seed": "pnpm --filter @opentradesos/db seed",
+    "db:seed": "pnpm --filter @opentradesos/api seed",
     "lint:fix": "eslint . --fix",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "e2e": "pnpm --filter @opentradesos/web e2e"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.9",

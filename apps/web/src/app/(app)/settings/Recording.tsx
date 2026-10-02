@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { setRecordingPolicy, removeRecordingPolicy } from "./actions";
 
 export interface DeclaredPolicy {
@@ -31,14 +31,12 @@ export interface DeclaredPolicy {
  * the other one is a recording that should not exist.
  */
 export function Recording({ policies }: { policies: readonly DeclaredPolicy[] }) {
-  const [state, action, pending] = useActionState<
-    { done?: boolean; note?: string; error?: string },
-    FormData
+  const [state, actionForm, pending] = useKeptAction<
+    { done?: boolean; note?: string; error?: string }
   >(setRecordingPolicy, {});
 
-  const [removeState, remove] = useActionState<
-    { done?: boolean; note?: string; error?: string },
-    FormData
+  const [removeState, removeForm] = useKeptAction<
+    { done?: boolean; note?: string; error?: string }
   >(removeRecordingPolicy, {});
 
   return (
@@ -68,7 +66,7 @@ export function Recording({ policies }: { policies: readonly DeclaredPolicy[] })
                 {policy.announcementRequired ? ", announce first" : ""}
               </span>
               <span className="min-w-48 flex-1 text-sm text-ink-500">{policy.note}</span>
-              <form action={remove}>
+              <form {...removeForm}>
                 <input type="hidden" name="jurisdiction" value={policy.jurisdiction} />
                 <button
                   type="submit"
@@ -82,7 +80,7 @@ export function Recording({ policies }: { policies: readonly DeclaredPolicy[] })
         </ul>
       )}
 
-      <form action={action} className="mt-4 flex flex-wrap items-end gap-3">
+      <form {...actionForm} className="mt-4 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium text-ink-700">Place</span>
           <input

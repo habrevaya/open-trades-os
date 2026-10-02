@@ -7,12 +7,13 @@ import { ConflictError, NotFoundError, inTenant, type ServiceContext } from "../
 import {
   AccountingNotConfiguredError, createProvider, registeredProviders,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
-  type ExternalAccount, type ExternalChange, type ExternalRef,
+  type ExternalAccount, type ExternalChange, type ExternalRef, type ExternalRefund, type ExternalCredit,
   type HttpResponse, type PushResult, type ReadResult,
 } from "../src/accounting/provider";
 import {
   AmountNotRepresentableError, createQuickBooksProvider, toProviderAmount,
 } from "../src/accounting/quickbooks";
+import { createXeroProvider } from "../src/accounting/xero";
 import "../src/accounting";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
@@ -100,12 +101,17 @@ interface Fake extends AccountingProvider {
   /** Every create it was asked to make, in order. Length is the whole point. */
   creates: { kind: AccountingEntityKind; key: string }[];
   lookups: { kind: AccountingEntityKind; key: string }[];
+  /** Every refund it was handed, as handed. */
+  refunds: ExternalRefund[];
+  credits: ExternalCredit[];
   options: FakeOptions;
 }
 
 function fakeProvider(options: FakeOptions = {}): Fake {
   const creates: { kind: AccountingEntityKind; key: string }[] = [];
   const lookups: { kind: AccountingEntityKind; key: string }[] = [];
+  const refunds: ExternalRefund[] = [];
+  const credits: ExternalCredit[] = [];
   let next = 1;
   let readsLeft = options.readsAllowed ?? Number.MAX_SAFE_INTEGER;
   const affordable = () => {
@@ -142,7 +148,11 @@ function fakeProvider(options: FakeOptions = {}): Fake {
     async pushCustomer(c) { return push("customer", c.idempotencyKey); },
     async pushInvoice(i) { return push("invoice", i.idempotencyKey); },
     async pushPayment(p) { return push("payment", p.idempotencyKey); },
-    async pushCredit(c) { return push("credit_memo", c.idempotencyKey); },
+    async pushCredit(c) { credits.push(c); return push("credit_memo", c.idempotencyKey); },
+    async pushRefund(r) { refunds.push(r); return push("refund", r.idempotencyKey); },
+    heldMoneyReachesBooks: true,
+    refunds,
+    credits,
     async findPushed(kind, key) {
       if (!affordable()) return blocked<ExternalRef | null>();
       lookups.push({ kind, key });
@@ -769,6 +779,302 @@ run("one sync pass", () => {
 });
 
 /* ------------------------------------------------- the idempotency rule */
+
+/* -------------------------------------- a refunded payment, into each book */
+
+/**
+ * A refund recorded against a payment reopens what it paid as a NEGATIVE
+ * allocation beside the original rather than an edit to it. The sync nets a
+ * payment's allocations per invoice before pushing, so neither book is ever
+ * sent a negative application or one for an invoice the payment no longer
+ * pays. That netting had no test of its own; these drive it through each
+ * real adapter and read the request that would have gone over the wire.
+ *
+ * Only `pushPayment` is the real adapter. Everything else is the fake books,
+ * so the customer and invoice links exist for the payment to point at.
+ */
+function throughReal(real: AccountingProvider): Fake {
+  const fake = fakeProvider();
+  return { ...fake, pushPayment: (payment) => real.pushPayment(payment) };
+}
+
+async function refundedPayment(): Promise<void> {
+  await mapEverything();
+  const first = await anInvoice("400.00");
+  const second = await anInvoice("100.00");
+  const payment = await billing.pay(owner(), {
+    customerId, method: "check", amount: "400.00", tipAmount: "0",
+    allocations: [{ invoiceId: first, amount: "400.00" }],
+  });
+  await billing.pay(owner(), {
+    customerId, method: "check", amount: "100.00", tipAmount: "0",
+    allocations: [{ invoiceId: second, amount: "100.00" }],
+  });
+  await billing.recordRefund(owner(), {
+    id: payment.id as string, amount: "150.00", method: "check", reason: "Part of the job undone",
+  });
+  const allocations = await raw<{ amount: string }[]>`
+    select a.amount::text from public.payment_allocation a where a.payment_id = ${payment.id}
+    order by a.amount`;
+  /** The history really does hold a negative row, or this test proves nothing. */
+  expect(allocations.map((a) => a.amount)).toEqual(["-150.0000", "400.0000"]);
+}
+
+run("a refunded payment, into each book", () => {
+  it("sends QuickBooks what the payment still pays, never a negative line", async () => {
+    await refundedPayment();
+    const calls: Call[] = [];
+    const real = createQuickBooksProvider(
+      { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+      transportFor([(call) => (call.url.startsWith("https://token.test")
+        ? tokenOk
+        : { status: 200, body: { Payment: { Id: `p-${calls.length}`, SyncToken: "0" } } })], calls),
+    );
+
+    await accounting.sync(owner(), { provider: throughReal(real) });
+
+    const bodies = calls.filter((c) => c.url.includes("/payment"))
+      .map((c) => JSON.parse(c.body!) as { TotalAmt: number; Line: { Amount: number }[] });
+    expect(bodies).toHaveLength(2);
+    /**
+     * What the company kept, on the receipt and on the line. A receipt of
+     * 400 with 250 applied would leave a 150 customer credit in QuickBooks
+     * that was in fact paid back.
+     */
+    const refunded = bodies.find((b) => b.TotalAmt === 250)!;
+    expect(refunded.Line.map((l) => l.Amount)).toEqual([250]);
+    expect(bodies.map((b) => b.TotalAmt).sort()).toEqual([100, 250]);
+    for (const body of bodies) {
+      expect(body.Line.every((l) => l.Amount > 0)).toBe(true);
+    }
+  });
+
+  it("sends Xero what the payment still pays, never a negative payment", async () => {
+    await refundedPayment();
+    const calls: Call[] = [];
+    const real = createXeroProvider(
+      { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+      transportFor([(call) => (call.url.startsWith("https://token.test")
+        ? tokenOk
+        : { status: 200, body: { BatchPayments: [{ BatchPaymentID: `bp-${calls.length}` }] } })], calls),
+    );
+
+    await accounting.sync(owner(), { provider: throughReal(real) });
+
+    const bodies = calls.filter((c) => c.url.includes("/BatchPayments"))
+      .map((c) => JSON.parse(c.body!) as {
+        BatchPayments: { Payments: { Amount: number }[] }[];
+      });
+    expect(bodies).toHaveLength(2);
+    const amounts = bodies.map((b) => b.BatchPayments[0]!.Payments.map((p) => p.Amount));
+    expect(amounts).toContainEqual([250]);
+    expect(amounts).toContainEqual([100]);
+    expect(amounts.flat().every((a) => a > 0)).toBe(true);
+  });
+});
+
+/* ------------------------------ a refund after the payment is in the books */
+
+/**
+ * A refund made after its payment had already reached QuickBooks or Xero was
+ * sent nowhere: the payment was linked, so it was never offered again, and
+ * nothing else looked at refunds. The books kept the cash the company had
+ * given back.
+ */
+async function mapForRefunds(): Promise<void> {
+  await mapEverything();
+  for (const [code, name, kind] of [
+    [ledger.ACCOUNTS.AR, "Accounts Receivable", "Account"],
+    [ledger.ACCOUNTS.CUSTOMER_DEPOSITS, "Customer Deposits", "Account"],
+  ] as const) {
+    await accounting.setMapping(owner(), {
+      accountCode: code, externalId: `qbo-${code}`, externalName: name, externalKind: kind,
+    });
+  }
+}
+
+async function paidInvoice(amount = "400.00", paid = amount): Promise<{ invoiceId: string; paymentId: string }> {
+  const invoiceId = await anInvoice(amount);
+  const payment = await billing.pay(owner(), {
+    customerId, method: "card", amount: paid, tipAmount: "0",
+    allocations: [{ invoiceId, amount }],
+  });
+  return { invoiceId, paymentId: payment.id as string };
+}
+
+const refund = (paymentId: string, amount: string) => billing.recordRefund(owner(), {
+  id: paymentId, amount, method: "card", reason: "Part of the job undone",
+});
+
+run("a refund after the payment reached the books", () => {
+  it("is sent once, as money back against the customer, dated when it went", async () => {
+    await mapForRefunds();
+    const { paymentId } = await paidInvoice("400.00");
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    expect(provider.creates.map((c) => c.kind)).toEqual(["customer", "invoice", "payment"]);
+
+    await refund(paymentId, "150.00");
+    await accounting.sync(owner(), { provider });
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.refunds).toHaveLength(1);
+    const sent = provider.refunds[0]!;
+    expect(sent.amount.amount).toBe("150.0000");
+    expect(sent.appliedAmount.amount).toBe("150.0000");
+    expect(sent.heldAmount.amount).toBe("0.0000");
+    expect(sent.paymentExternalId).toMatch(/^payment-/);
+    expect(sent.bankAccountExternalId).toBe(`qbo-${ledger.ACCOUNTS.CASH}`);
+    expect(sent.receivableAccountExternalId).toBe(`qbo-${ledger.ACCOUNTS.AR}`);
+    expect(sent.refundedOn).toBe(new Date().toISOString().slice(0, 10));
+    const links = (await linkRows()).filter((l) => l.kind === "refund");
+    expect(links).toHaveLength(1);
+    expect(links[0]!.state).toBe("linked");
+    expect(links[0]!.external_id).toMatch(/^refund-/);
+  });
+
+  it("nets a refund made before the push into the payment and never sends it again", async () => {
+    await mapForRefunds();
+    const { paymentId } = await paidInvoice("400.00");
+    await refund(paymentId, "100.00");
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    expect(provider.refunds).toHaveLength(0);
+
+    await refund(paymentId, "50.00");
+    await accounting.sync(owner(), { provider });
+    expect(provider.refunds.map((r) => r.amount.amount)).toEqual(["50.0000"]);
+  });
+
+  it("settles a payment pushed before refunds were synced from the time it was pushed", async () => {
+    await mapForRefunds();
+    const { paymentId } = await paidInvoice("400.00");
+    await refund(paymentId, "100.00");
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+
+    /** As an install upgraded from before: no netting recorded, pushed after the first refund. */
+    await raw`delete from public.accounting_entity_link
+              where organization_id = ${ORG} and kind = 'refund'`;
+    await raw`update public.accounting_entity_link
+              set refunds_netted_at = null, pushed_at = now()
+              where organization_id = ${ORG} and kind = 'payment'`;
+    await refund(paymentId, "25.00");
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.refunds.map((r) => r.amount.amount)).toEqual(["25.0000"]);
+  });
+
+  it("waits for its payment rather than sending a refund of money the books never saw", async () => {
+    await mapForRefunds();
+    const { paymentId } = await paidInvoice("400.00");
+    // The invoice will not go, so neither will the payment.
+    const provider = fakeProvider({
+      failKind: "invoice",
+      pushFailure: { code: "6000", message: "line item is invalid", retryable: false, duplicate: false },
+    });
+    await refund(paymentId, "50.00");
+    await accounting.sync(owner(), { provider });
+    expect(provider.refunds).toHaveLength(0);
+  });
+
+  it("goes to QuickBooks as an expense from the bank categorised to Accounts Receivable", async () => {
+    await mapForRefunds();
+    const { paymentId } = await paidInvoice("400.00");
+    const calls: Call[] = [];
+    const real = createQuickBooksProvider(
+      { realmId: "9", baseUrl: "https://qbo.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+      transportFor([(call) => (call.url.startsWith("https://token.test")
+        ? tokenOk
+        : { status: 200, body: { Purchase: { Id: "77", SyncToken: "0" } } })], calls),
+    );
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    await refund(paymentId, "150.00");
+    await accounting.sync(owner(), {
+      provider: { ...provider, pushRefund: (r) => real.pushRefund(r), heldMoneyReachesBooks: real.heldMoneyReachesBooks },
+    });
+
+    const purchases = calls.filter((c) => c.url.includes("/purchase"));
+    expect(purchases).toHaveLength(1);
+    expect(purchases[0]!.method).toBe("POST");
+    const body = JSON.parse(purchases[0]!.body!) as Record<string, unknown> & {
+      Line: { Amount: number; DetailType: string; AccountBasedExpenseLineDetail: { AccountRef: { value: string } } }[];
+    };
+    expect(body["AccountRef"]).toEqual({ value: `qbo-${ledger.ACCOUNTS.CASH}` });
+    expect(body["EntityRef"]).toMatchObject({ type: "Customer" });
+    expect(body["DocNumber"]).toMatch(/^OR[0-9a-f]{16}$/);
+    expect(body["TxnDate"]).toBe(new Date().toISOString().slice(0, 10));
+    expect(body.Line).toHaveLength(1);
+    expect(body.Line[0]!.Amount).toBe(150);
+    expect(body.Line[0]!.DetailType).toBe("AccountBasedExpenseLineDetail");
+    expect(body.Line[0]!.AccountBasedExpenseLineDetail.AccountRef).toEqual({ value: `qbo-${ledger.ACCOUNTS.AR}` });
+    /** Not a RefundReceipt: that is a negative sale, and our ledger books this against the receivable. */
+    expect(calls.some((c) => c.url.toLowerCase().includes("refundreceipt"))).toBe(false);
+  });
+
+  it("goes to Xero as an invoice that puts it back on what is owed and a payment out of the bank", async () => {
+    await mapForRefunds();
+    const { paymentId } = await paidInvoice("400.00");
+    const calls: Call[] = [];
+    const real = createXeroProvider(
+      { tenantId: "t-1", baseUrl: "https://xero.test", tokenUrl: "https://token.test" }, CREDENTIAL, {},
+      transportFor([(call) => (call.url.startsWith("https://token.test")
+        ? tokenOk
+        : call.url.includes("/Invoices")
+          ? { status: 200, body: { Invoices: [{ InvoiceID: "inv-r" }] } }
+          : { status: 200, body: { BankTransactions: [{ BankTransactionID: "bt-1" }] } })], calls),
+    );
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    await refund(paymentId, "150.00");
+    await accounting.sync(owner(), {
+      provider: { ...provider, pushRefund: (r) => real.pushRefund(r), heldMoneyReachesBooks: real.heldMoneyReachesBooks },
+    });
+
+    const sent = calls.filter((c) => !c.url.startsWith("https://token.test"));
+    expect(sent.map((c) => new URL(c.url).pathname)).toEqual(["/Invoices", "/BankTransactions"]);
+    const invoice = (JSON.parse(sent[0]!.body!) as { Invoices: Record<string, unknown>[] }).Invoices[0]!;
+    expect(invoice["Type"]).toBe("ACCREC");
+    expect(invoice["LineItems"]).toEqual([expect.objectContaining({
+      UnitAmount: 150, AccountID: `qbo-${ledger.ACCOUNTS.CUSTOMER_DEPOSITS}`,
+    })]);
+    const spend = (JSON.parse(sent[1]!.body!) as { BankTransactions: Record<string, unknown>[] }).BankTransactions[0]!;
+    expect(spend["Type"]).toBe("SPEND");
+    expect(spend["BankAccount"]).toEqual({ AccountID: `qbo-${ledger.ACCOUNTS.CASH}` });
+    expect(spend["Reference"]).toBe(invoice["InvoiceNumber"]);
+    expect(spend["LineItems"]).toEqual([expect.objectContaining({
+      UnitAmount: 150, AccountID: `qbo-${ledger.ACCOUNTS.CUSTOMER_DEPOSITS}`,
+    })]);
+    /** Each with its own idempotency key, so a retry lands on the same two documents. */
+    const keys = sent.map((c) => c.headers["Idempotency-Key"] ?? c.headers["idempotency-key"]);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it("sends Xero nothing for money a payment only ever held, because Xero never had it", async () => {
+    await mapForRefunds();
+    const { paymentId } = await paidInvoice("400.00", "450.00");
+    const xeroLike = { ...fakeProvider(), heldMoneyReachesBooks: false };
+    await accounting.sync(owner(), { provider: xeroLike });
+    await refund(paymentId, "50.00");
+    await accounting.sync(owner(), { provider: xeroLike });
+    expect(xeroLike.refunds).toHaveLength(0);
+    expect((await linkRows()).filter((l) => l.kind === "refund").map((l) => l.state)).toEqual(["linked"]);
+  });
+
+  it("credits a written-off invoice by what was still owed, not by its total", async () => {
+    await mapForRefunds();
+    const { invoiceId, paymentId } = await paidInvoice("400.00");
+    const provider = fakeProvider();
+    await accounting.sync(owner(), { provider });
+    await refund(paymentId, "150.00");
+    await billing.writeOff(owner(), { id: invoiceId, reason: "Settled the dispute" });
+    await accounting.sync(owner(), { provider });
+
+    expect(provider.refunds.map((r) => r.amount.amount)).toEqual(["150.0000"]);
+    expect(provider.credits.map((c) => c.amount.amount)).toEqual(["150.0000"]);
+  });
+});
 
 run("the same document, twice", () => {
   it("does not create a second invoice when the sync runs again", async () => {

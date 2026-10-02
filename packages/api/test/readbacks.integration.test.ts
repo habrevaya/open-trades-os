@@ -512,6 +512,27 @@ run("what came in", () => {
     expect(unpaid.totals.gross).toBe("0.0000");
   });
 
+  it("answers a date range rather than failing the request", async () => {
+    /**
+     * `from` and `to` were interpolated into raw SQL as Date objects, which
+     * the driver cannot encode, so any request naming a window was a 500.
+     */
+    const invoiceId = await invoiced("100.0000");
+    await billing.pay(owner(), {
+      customerId, method: "cash", amount: "40.0000", tipAmount: "0",
+      receivedAt: "2026-02-01T15:00:00.000Z", allocations: [{ invoiceId, amount: "40.0000" }],
+    });
+    await billing.pay(owner(), {
+      customerId, method: "cash", amount: "60.0000", tipAmount: "0",
+      receivedAt: "2026-03-01T15:00:00.000Z", allocations: [{ invoiceId, amount: "60.0000" }],
+    });
+    const march = await billing.listPayments(owner(), {
+      from: "2026-02-15T00:00:00.000Z", to: "2026-03-31T00:00:00.000Z",
+    });
+    expect(march.payments.map((p) => p.amount)).toEqual(["60.0000"]);
+    expect(march.totals.gross).toBe("60.0000");
+  });
+
   it("refuses somebody who may take a payment but not read the takings", async () => {
     /**
      * `payment:collect` and `payment:read` are different permissions, and a

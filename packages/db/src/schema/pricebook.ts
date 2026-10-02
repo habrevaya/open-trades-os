@@ -1,5 +1,5 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, money, rate } from "./_shared";
+import { pk, timestamps, sourceRef, sourceRefIndex, money, rate } from "./_shared";
 import { organization } from "./tenancy";
 
 /**
@@ -39,6 +39,7 @@ export const priceBookItem = pgTable("price_book_item", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("price_book_item_source_ref_idx", t),
   codeIdx: uniqueIndex("price_book_item_code_idx").on(t.organizationId, t.code),
 }));
 

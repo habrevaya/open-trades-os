@@ -7,7 +7,7 @@ import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
 import * as jobs from "../src/services/jobs";
 import * as billing from "../src/services/billing";
-import { inTenant, ConflictError, type ServiceContext } from "../src/services/context";
+import { ConflictError, type ServiceContext } from "../src/services/context";
 import { seedOrg, fixtureId, testDb } from "./helpers";
 
 /**

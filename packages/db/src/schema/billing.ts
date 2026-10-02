@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, money, currency, rate } from "./_shared";
+import { pk, timestamps, sourceRef, sourceRefIndex, money, currency, rate } from "./_shared";
 import { organization, businessUnit } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
@@ -36,6 +36,13 @@ export const estimate = pgTable("estimate", {
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
   status: estimateStatus("status").notNull().default("draft"),
   title: text("title"),
+  /**
+   * The day it was written, in the company's calendar. Separate from
+   * `created_at`, which is when this row was inserted: for an estimate
+   * migrated from another system those are years apart, and close rate by
+   * month is computed from this one.
+   */
+  issuedOn: date("issued_on"),
   expiresOn: date("expires_on"),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   viewedAt: timestamp("viewed_at", { withTimezone: true }),
@@ -49,6 +56,7 @@ export const estimate = pgTable("estimate", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("estimate_source_ref_idx", t),
   /** UNIQUE for the same reason as job_number_idx: see services/jobs.ts. */
   numberIdx: uniqueIndex("estimate_number_idx").on(t.organizationId, t.number),
   orgIdx: index("estimate_org_idx").on(t.organizationId, t.status),
@@ -298,6 +306,7 @@ export const invoice = pgTable("invoice", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("invoice_source_ref_idx", t),
   /** AR aging: open invoices by due date. The report every owner opens first. */
   /** UNIQUE for the same reason as job_number_idx: see services/jobs.ts. */
   numberIdx: uniqueIndex("invoice_number_idx").on(t.organizationId, t.number),
@@ -381,6 +390,7 @@ export const payment = pgTable("payment", {
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
+  sourceRefIdx: sourceRefIndex("payment_source_ref_idx", t),
   orgIdx: index("payment_org_idx").on(t.organizationId, t.receivedAt),
   idemIdx: index("payment_idempotency_idx").on(t.organizationId, t.idempotencyKey),
   processorIdx: index("payment_processor_idx").on(t.processor, t.processorPaymentId),

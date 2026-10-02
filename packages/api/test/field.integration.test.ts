@@ -1172,3 +1172,38 @@ run("a service report that reaches the database", () => {
     expect(rows).toHaveLength(1);
   });
 });
+
+run("clocking in from the technician's own screen", () => {
+  /**
+   * "My day" sends a punch with no payload, because the phone already knows
+   * whose it is. The service read the technician from the payload only, so
+   * the insert carried a null, the sync threw, and nobody could clock in.
+   */
+  it("puts the punch on the device's technician when the phone names nobody", async () => {
+    const device = await freshDevice();
+    const startedAt = new Date("2026-05-04T13:02:00Z");
+    const result = await fieldOps.sync(tech(), { deviceId: device, operations: [
+      { clientId: uuid(), sequence: 1, kind: "timeclock.punch_in", occurredAt: startedAt.toISOString(), payload: {} },
+      { clientId: uuid(), sequence: 2, kind: "timeclock.punch_out",
+        occurredAt: new Date(startedAt.getTime() + 4 * 3600_000).toISOString(), payload: {} },
+    ] as Parameters<typeof fieldOps.sync>[1]["operations"] });
+    expect(result.results.map((r) => r.status)).toEqual(["applied", "applied"]);
+
+    const [entry] = await raw`select technician_id, minutes from public.timeclock_entry
+      where organization_id = ${ORG} and started_at = ${startedAt}`;
+    expect(entry!.technician_id).toBe(technicianId);
+    expect(entry!.minutes).toBe(240);
+  });
+
+  it("does not let a phone put hours on somebody else's timesheet by naming them", async () => {
+    const device = await freshDevice();
+    const startedAt = new Date("2026-05-05T13:02:00Z");
+    await fieldOps.sync(tech(), { deviceId: device, operations: [
+      { clientId: uuid(), sequence: 1, kind: "timeclock.punch_in", occurredAt: startedAt.toISOString(),
+        payload: { technicianId: uuid() } },
+    ] as Parameters<typeof fieldOps.sync>[1]["operations"] });
+    const [entry] = await raw`select technician_id from public.timeclock_entry
+      where organization_id = ${ORG} and started_at = ${startedAt}`;
+    expect(entry!.technician_id).toBe(technicianId);
+  });
+});

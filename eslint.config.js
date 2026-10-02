@@ -98,7 +98,7 @@ export default tseslint.config(
    * aimed at stray debugging would make the output worse for no gain.
    */
   {
-    files: ["packages/db/src/seed/**/*.ts", "packages/db/src/migrate.ts"],
+    files: ["packages/api/src/seed/**/*.ts", "packages/db/src/migrate.ts"],
     rules: { "no-console": "off" },
   },
 

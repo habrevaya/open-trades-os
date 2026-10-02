@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -13,7 +14,7 @@ export async function claimTask(_previous: unknown, form: FormData) {
   } catch (error) {
     // "Somebody else has that one" is the expected outcome of two people
     // opening the queue at the same moment, not an error to throw at them.
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/tasks");
@@ -29,7 +30,7 @@ export async function closeTask(_previous: unknown, form: FormData) {
       ...(outcome ? { outcome } : {}),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/tasks");
@@ -55,7 +56,7 @@ export async function satisfyObligation(_previous: unknown, form: FormData) {
       satisfiedByEvent: String(form.get("satisfiedByEvent") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/tasks");
@@ -69,7 +70,7 @@ export async function waiveObligation(_previous: unknown, form: FormData) {
       reason: String(form.get("reason") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/tasks");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { claimTask, closeTask } from "./actions";
 
 /**
@@ -13,8 +13,8 @@ import { claimTask, closeTask } from "./actions";
 export function TaskActions({
   id, claimable, closable,
 }: { id: string; claimable: boolean; closable: boolean }) {
-  const [claimState, claim, claiming] = useActionState(claimTask, null);
-  const [closeState, close, closing] = useActionState(closeTask, null);
+  const [claimState, claimForm, claiming] = useKeptAction(claimTask, null);
+  const [closeState, closeForm, closing] = useKeptAction(closeTask, null);
   const error = (claimState && "error" in claimState && claimState.error)
     || (closeState && "error" in closeState && closeState.error);
 
@@ -28,7 +28,7 @@ export function TaskActions({
 
       <div className="flex flex-wrap items-center gap-2">
         {claimable && (
-          <form action={claim}>
+          <form {...claimForm}>
             <input type="hidden" name="id" value={id} />
             <button type="submit" disabled={claiming}
                     className="inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100 disabled:opacity-60">
@@ -38,7 +38,7 @@ export function TaskActions({
         )}
 
         {closable && (
-          <form action={close} className="flex flex-wrap items-center gap-2">
+          <form {...closeForm} className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="id" value={id} />
             <input
               name="outcome" placeholder="What happened"

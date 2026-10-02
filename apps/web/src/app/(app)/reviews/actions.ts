@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -20,7 +21,7 @@ export async function respondToReview(_previous: unknown, form: FormData) {
      * posted under another review. Both come back as the service's own
      * sentence rather than a generic failure.
      */
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/reviews");
@@ -31,9 +32,9 @@ export async function markCalled(_previous: unknown, form: FormData) {
   try {
     await reviews.markRecovered(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     if (error instanceof NotFoundError) {
-      return { error: "That call is already recorded." };
+      return refused(form, "That call is already recorded.");
     }
     throw error;
   }

@@ -26,7 +26,6 @@ import type { WebhookRequest } from "../src/comms/provider";
  * test below that looks paranoid is there because of that one fact.
  */
 
-const KEY = "ea39089c40790e9dc7a080ec95e849b8fa0fa5fb";
 const SECRET = "ea39089c40790e9dc7a080ec95e849b8fa0fa5fb";
 const CREDENTIAL = `api-key-half:${SECRET}`;
 const HOOK = "https://app.example.com/api/webhooks/justcall";

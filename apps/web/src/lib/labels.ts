@@ -147,6 +147,26 @@ export const INVOICE_TONE: Record<string, Tone> = {
   written_off: "danger",
 };
 
+export const ESTIMATE_STATUS: Record<string, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  viewed: "Viewed",
+  approved: "Approved",
+  declined: "Declined",
+  expired: "Expired",
+  converted: "Converted to a job",
+};
+
+export const ESTIMATE_TONE: Record<string, Tone> = {
+  draft: "neutral",
+  sent: "info",
+  viewed: "info",
+  approved: "success",
+  declined: "danger",
+  expired: "neutral",
+  converted: "success",
+};
+
 export const tone = (map: Record<string, Tone>, value: string): Tone =>
   map[value] ?? "neutral";
 

@@ -609,3 +609,4 @@ export function checkCatalogue(entries: readonly ConnectorSpec[] = CONNECTORS): 
   }
   return { ok: true };
 }
+export * from "./settings.js";

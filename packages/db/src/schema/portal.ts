@@ -37,6 +37,12 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
    * is exactly when they want it most.
    */
   "booking",
+  /**
+   * Pay one deposit. The link an approved estimate hands back when the
+   * company asks for money before the work, which used to be the deposit's
+   * bare id in a URL with no page behind it.
+   */
+  "deposit",
 ]);
 
 /**

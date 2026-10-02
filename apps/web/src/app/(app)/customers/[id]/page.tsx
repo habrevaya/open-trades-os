@@ -1,16 +1,23 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, NotFoundError } from "@opentradesos/api/services";
+import { billing, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
-import { JOB_STATUS, label } from "@/lib/labels";
+import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { Money } from "@opentradesos/ui";
 import { Consent } from "./Consent";
 import { Contacts } from "./Contacts";
 import { Lifecycle } from "./Lifecycle";
+import { TextCustomer } from "./Messages";
+import { ThreadList } from "../../inbox/ThreadList";
+import { Payments } from "./Payments";
+import { applyHeld, refund } from "../../payments/actions";
+import { accountLink } from "./actions";
+import { ActionForm } from "@/components/ActionForm";
+import { formatDay, todayIn } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +74,30 @@ export default async function CustomerPage({
     ? (await customers.list(ctx, { limit: 50, includeInactive: false })).data.filter((row) => row.id !== id)
     : [];
 
+  /**
+   * Everything said to and from them, here rather than only in the inbox,
+   * which is the first place somebody looks when the customer rings.
+   */
+  const conversations = can(user.actor, "message:read")
+    ? (await comms.threads(ctx, { limit: 5, customerId: id })).data
+    : null;
+
   const people = await contactService.list(ctx, { customerId: id });
+  const invoices = can(user.actor, "invoice:read")
+    ? (await billing.list(ctx, { limit: 50, customerId: id })).data
+    : null;
+  const quotes = can(user.actor, "estimate:read")
+    ? (await estimateService.list(ctx, { limit: 50, customerId: id })).data
+    : null;
+  const paid = can(user.actor, "payment:read")
+    ? (await billing.pagePayments(ctx, { limit: 50, customerId: id, unappliedOnly: false })).data
+    : null;
+  const numberOf = new Map((invoices ?? []).map((inv) => [inv.id, inv.number]));
+  const owing = (invoices ?? [])
+    .filter((inv) => inv.status === "open" || inv.status === "partially_paid")
+    .map((inv) => ({ id: inv.id, number: inv.number, balance: inv.balance ?? "0" }));
+  const dayOf = (at: string | Date) =>
+    formatDay(todayIn(user.organizationTimezone, new Date(at)), user.organizationTimezone);
   const addresses = can(user.actor, "property:read")
     ? (await propertyService.list(ctx, { limit: 50, customerId: id })).data
     : [];
@@ -172,7 +202,36 @@ export default async function CustomerPage({
         />
       ) : null}
 
-      <h2 className="mt-10 text-base font-semibold">Work</h2>
+      {conversations && (
+        <div className="mt-10">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Messages</h2>
+            {conversations.length > 0 && (
+              <a href={`/inbox?customer=${id}`} className="text-sm text-ink-700 underline underline-offset-4">All of them</a>
+            )}
+          </div>
+          {conversations.length > 0 ? (
+            <div className="mt-3"><ThreadList threads={conversations} timezone={user.organizationTimezone} /></div>
+          ) : (
+            <p className="mt-2 text-sm text-ink-500">No texts with them yet.</p>
+          )}
+          {can(user.actor, "message:send") && (
+            customer.phone
+              ? <TextCustomer customerId={id} />
+              : <p className="mt-2 text-sm text-ink-500">Add a phone number to text them.</p>
+          )}
+        </div>
+      )}
+
+      <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="text-base font-semibold">Work</h2>
+        {can(user.actor, "job:write") && addresses.length > 0 && (
+          <a href={`/jobs/new?customer=${id}`}
+             className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+            Book a job
+          </a>
+        )}
+      </div>
       {work.data.length === 0 ? (
         <Empty title="No jobs for this customer yet" />
       ) : (
@@ -189,6 +248,90 @@ export default async function CustomerPage({
             </tr>
           ))}
         </Table>
+      )}
+
+      {can(user.actor, "portal:grant") && (
+        <section aria-label="Their link" className="mt-10">
+          <h2 className="text-base font-semibold">Their link</h2>
+          <ActionForm action={accountLink} submit="Get their account link" tone="quiet"
+                      hidden={{ customerId: id }} className="mt-2 space-y-2" />
+        </section>
+      )}
+
+      {quotes && (
+        <section aria-label="Estimates">
+          <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Estimates</h2>
+            {can(user.actor, "estimate:write") && addresses.length > 0 && (
+              <a href={`/estimates/new?customer=${id}`}
+                 className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                New estimate
+              </a>
+            )}
+          </div>
+          {quotes.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">None yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm">
+              {quotes.map((q) => (
+                <li key={q.id as string} className="flex flex-wrap items-center gap-3">
+                  <a href={`/estimates/${q.id as string}`} className="hover:underline">
+                    <span className="font-mono tabular-nums">{q.number as number}</span> {(q.title as string | null) ?? "Estimate"}
+                  </a>
+                  <Money value={q.total as string} />
+                  <Chip tone={tone(ESTIMATE_TONE, q.status as string)}>{label(ESTIMATE_STATUS, q.status as string)}</Chip>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {paid && (
+        <Payments
+          customerId={id}
+          payments={paid.map((p) => ({
+            id: p.id, method: p.method, amount: p.amount ?? "0", refundedAmount: p.refundedAmount ?? "0",
+            unappliedAmount: p.unappliedAmount, receivedOn: dayOf(p.receivedAt),
+            checkNumber: p.checkNumber ?? null, processorPaymentId: p.processorPaymentId ?? null,
+            allocations: p.allocations.map((a) => ({ invoiceNumber: numberOf.get(a.invoiceId) ?? null, amount: a.amount })),
+          }))}
+          open={owing}
+          apply={applyHeld}
+          refund={refund}
+          canCollect={can(user.actor, "payment:collect")}
+          canRefund={can(user.actor, "payment:refund")}
+        />
+      )}
+
+      {invoices && (
+        <section aria-label="Invoices">
+          <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Invoices</h2>
+            {can(user.actor, "invoice:write") && (
+              <a href={`/invoices/new?customer=${id}`}
+                 className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                New invoice
+              </a>
+            )}
+          </div>
+          {invoices.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">None yet.</p>
+          ) : (
+            <Table head={<><Th className="w-20">Number</Th><Th>Status</Th><Th className="text-right">Total</Th><Th className="text-right">Balance</Th></>}>
+              {invoices.map((inv) => (
+                <tr key={inv.id} className="hover:bg-steel-100">
+                  <Td className="font-mono tabular-nums">
+                    <a href={`/invoices/${inv.id}`} className="hover:underline">{inv.number}</a>
+                  </Td>
+                  <Td><Chip tone={tone(INVOICE_TONE, inv.status)}>{label(INVOICE_STATUS, inv.status)}</Chip></Td>
+                  <Td className="text-right"><Money value={inv.total} /></Td>
+                  <Td className="text-right"><Money value={inv.balance} muted={Number(inv.balance) === 0} /></Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </section>
       )}
     </div>
   );

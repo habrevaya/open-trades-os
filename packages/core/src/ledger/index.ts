@@ -177,7 +177,37 @@ export interface InvoiceLineInput {
   discountAmount?: Money | undefined;
   taxable: boolean;
   taxRate: string;
+  /**
+   * The tax another system already charged on this line, for a document
+   * being recorded rather than raised. See `computeInvoice` for what is
+   * accepted; it is never simply believed.
+   */
+  taxAmount?: Money | undefined;
 }
+
+/**
+ * A line whose stated tax is not what its own rate produces.
+ *
+ * Carries the line's index and both figures, because the caller is usually a
+ * migration that has to say which line of which source invoice disagreed,
+ * and "tax does not match" on a forty line invoice is a morning's work.
+ */
+export class TaxAsAppliedError extends Error {
+  constructor(
+    public readonly line: number,
+    public readonly expected: Money,
+    public readonly given: Money,
+  ) {
+    super(
+      `Line ${line + 1} states tax of ${toString(given)}, and its rate on its taxable amount `
+      + `is ${toString(expected)}. A stated tax may differ from that by rounding, never by more.`,
+    );
+    this.name = "TaxAsAppliedError";
+  }
+}
+
+/** One cent, the most a stated tax may differ from its rate by. */
+const ONE_CENT = (currency: string): Money => money("0.01", currency);
 
 export interface ComputedLine {
   lineSubtotal: Money;
@@ -199,16 +229,17 @@ export interface ComputedLine {
 export function computeInvoice(lines: InvoiceLineInput[]): { lines: ComputedLine[]; totals: InvoiceTotals } {
   const currency = lines[0]?.unitPrice.currency ?? "USD";
 
-  const computed = lines.map((line) => {
+  const computed = lines.map((line, index) => {
     const gross = multiply(line.unitPrice, line.quantity);
     const discount = line.discountAmount ?? zero(currency);
     const net = subtract(gross, discount);
+    // Held at full precision here; the document rounds once below.
+    const owed = line.taxable ? multiply(net, line.taxRate) : zero(currency);
     return {
       lineSubtotal: gross,
       discountAmount: discount,
       taxableBase: line.taxable ? net : zero(currency),
-      // Held at full precision here; the document rounds once below.
-      taxAmount: line.taxable ? multiply(net, line.taxRate) : zero(currency),
+      taxAmount: line.taxAmount === undefined ? owed : statedTax(index, line, owed),
       lineTotal: net,
     };
   });
@@ -222,6 +253,63 @@ export function computeInvoice(lines: InvoiceLineInput[]): { lines: ComputedLine
     lines: computed.map((l) => ({ ...l, taxAmount: round(l.taxAmount, 2), lineTotal: round(l.lineTotal, 2) })),
     totals: { subtotal, discountTotal, taxTotal, total },
   };
+}
+
+/**
+ * TAX AS ANOTHER SYSTEM CHARGED IT.
+ *
+ * A historical invoice charged what it charged, and the system it came from
+ * rounded per line, or per jurisdiction, or by a rule nobody can now
+ * recover. Recomputing it here would produce a document that disagrees with
+ * the customer's copy by a cent on a third of invoices, which is exactly the
+ * phone call the round-once rule above exists to prevent.
+ *
+ * So a stated tax is accepted, and only within rounding of what its own rate
+ * gives: strictly less than a cent away from the exact product. That admits
+ * every rounding rule anybody uses and refuses a number somebody made up. A
+ * line that is not taxable may not carry tax at all, because a stated tax on
+ * an exempt line is not rounding, it is a different document.
+ */
+function statedTax(index: number, line: InvoiceLineInput, owed: Money): Money {
+  const given = line.taxAmount!;
+  if (!line.taxable) {
+    if (!isZero(given)) throw new TaxAsAppliedError(index, owed, given);
+    return given;
+  }
+  const gap = subtract(given, owed);
+  const distance = isNegative(gap) ? subtract(owed, given) : gap;
+  if (compare(distance, ONE_CENT(given.currency)) >= 0) {
+    throw new TaxAsAppliedError(index, owed, given);
+  }
+  return given;
+}
+
+/**
+ * Where a caller's own totals disagree with the ones computed here.
+ *
+ * A cross check, never an input. The totals on a document are computed from
+ * its lines by the code above and nothing else, and a caller that sends its
+ * own is telling us what it expects so that a disagreement is refused rather
+ * than stored. For a migration that is the whole point: an invoice that
+ * loads at a different total from the one the customer was sent is worse
+ * than one that does not load, because nobody notices it.
+ *
+ * Compared to the cent. Each field is optional, so a caller who only knows
+ * the source's grand total can still check it.
+ */
+export function totalsMismatch(
+  computed: InvoiceTotals,
+  expected: Partial<Record<keyof InvoiceTotals, Money>>,
+): Array<{ field: keyof InvoiceTotals; expected: string; computed: string }> {
+  const out: Array<{ field: keyof InvoiceTotals; expected: string; computed: string }> = [];
+  for (const field of ["subtotal", "discountTotal", "taxTotal", "total"] as const) {
+    const want = expected[field];
+    if (want === undefined) continue;
+    if (compare(round(want, 2), computed[field]) !== 0) {
+      out.push({ field, expected: toString(round(want, 2)), computed: toString(computed[field]) });
+    }
+  }
+  return out;
 }
 
 /**
@@ -279,18 +367,35 @@ export function postPayment(input: {
   occurredAt: Date;
   /** Applied against invoices. Excludes tip and surcharge. */
   appliedAmount: Money;
+  /**
+   * Received and applied to nothing: a deposit on work not started, or a
+   * customer paying ahead. See below for where it goes.
+   */
+  unappliedAmount?: Money | undefined;
   tipAmount?: Money | undefined;
   surchargeAmount?: Money | undefined;
   processingFee?: Money | undefined;
   customerId?: string | undefined;
 }): Posting {
   const currency = input.appliedAmount.currency;
+  const unapplied = input.unappliedAmount ?? zero(currency);
   const tip = input.tipAmount ?? zero(currency);
   const surcharge = input.surchargeAmount ?? zero(currency);
   const fee = input.processingFee ?? zero(currency);
   const tag = { customerId: input.customerId };
 
-  const grossReceived = add(add(input.appliedAmount, tip), surcharge);
+  /**
+   * MONEY APPLIED TO NOTHING IS STILL MONEY.
+   *
+   * This posting used to debit cash with the applied amount alone, so a
+   * payment of a hundred with sixty allocated put sixty in the bank and the
+   * other forty nowhere: the payment row said a hundred, the ledger said
+   * sixty, and the difference was not a liability, an asset or anything
+   * else. The unapplied part is now held the way a deposit is held, as a
+   * liability to the customer, because that is what it is until it is
+   * applied to an invoice or given back.
+   */
+  const grossReceived = add(add(add(input.appliedAmount, unapplied), tip), surcharge);
   const cashNet = subtract(grossReceived, fee);
 
   return assertBalanced({
@@ -301,6 +406,7 @@ export function postPayment(input: {
       dr(ACCOUNTS.CASH, cashNet, "Payment received", tag),
       dr(ACCOUNTS.PROCESSING_FEES, fee, "Processing fee", tag),
       cr(ACCOUNTS.AR, input.appliedAmount, "Applied to receivable", tag),
+      cr(ACCOUNTS.CUSTOMER_DEPOSITS, unapplied, "Unapplied payment held", tag),
       cr(ACCOUNTS.TIPS_PAYABLE, tip, "Tip held for technician", tag),
       cr(ACCOUNTS.REVENUE, surcharge, "Surcharge", tag),
     ]),
@@ -433,21 +539,58 @@ export function postDepositForfeiture(input: {
 /**
  * A refund is not a negative payment. It is its own posting with its own
  * entries, so both appear in the register and a reversal can be audited.
+ *
+ * Money given back comes out of one of two places. The part of a payment that
+ * was applied to invoices puts the receivable back: the customer owes it
+ * again until the invoice is voided, written off or paid another way. The
+ * part that was never applied, `heldAmount`, comes out of the liability it
+ * was held in, because returning a credit nobody had used reverses nothing
+ * that was ever owed.
  */
 export function postRefund(input: {
   refundId: string;
+  occurredAt: Date;
+  amount: Money;
+  /** How much of `amount` was unapplied money held for the customer. */
+  heldAmount?: Money | undefined;
+  customerId?: string | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  const held = input.heldAmount ?? zero(input.amount.currency);
+  return assertBalanced({
+    sourceType: "refund",
+    sourceId: input.refundId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, held, "Unapplied credit returned", tag),
+      dr(ACCOUNTS.AR, subtract(input.amount, held), "Refund issued", tag),
+      cr(ACCOUNTS.CASH, input.amount, "Refund paid out", tag),
+    ]),
+  });
+}
+
+/**
+ * Applying money a customer paid earlier and nobody applied.
+ *
+ * The same shape as applying a deposit, for the same reason: the cash
+ * arrived when the payment did and revenue was recognised when the invoice
+ * was, so all that moves now is the liability, discharged against the
+ * receivable. No cash moves.
+ */
+export function postCreditApplication(input: {
+  paymentId: string;
   occurredAt: Date;
   amount: Money;
   customerId?: string | undefined;
 }): Posting {
   const tag = { customerId: input.customerId };
   return assertBalanced({
-    sourceType: "refund",
-    sourceId: input.refundId,
+    sourceType: "credit_application",
+    sourceId: input.paymentId,
     occurredAt: input.occurredAt,
     entries: compact([
-      dr(ACCOUNTS.AR, input.amount, "Refund issued", tag),
-      cr(ACCOUNTS.CASH, input.amount, "Refund paid out", tag),
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Unapplied payment applied", tag),
+      cr(ACCOUNTS.AR, input.amount, "Applied to receivable", tag),
     ]),
   });
 }

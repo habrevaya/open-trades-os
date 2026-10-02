@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -27,7 +28,7 @@ export async function setBrandColor(_previous: unknown, form: FormData) {
       ? { done: true, note: `Links and headings use ${result.text}, a darker shade of ${result.color}, because ${result.color} cannot be read as text on a white page.` }
       : { done: true };
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
 }
@@ -36,7 +37,7 @@ export async function setBrandAsset(_previous: unknown, form: FormData) {
   const kind = String(form.get("kind") ?? "") as brand.BrandAssetKind;
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return { error: "Pick a file first." };
+    return refused(form, "Pick a file first.");
   }
 
   try {
@@ -47,7 +48,7 @@ export async function setBrandAsset(_previous: unknown, form: FormData) {
       bytes: new Uint8Array(await file.arrayBuffer()),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   refresh();
@@ -60,7 +61,7 @@ export async function clearBrandAsset(_previous: unknown, form: FormData) {
       kind: String(form.get("kind") ?? "") as brand.BrandAssetKind,
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   refresh();
@@ -91,7 +92,7 @@ export async function setTimezone(_previous: unknown, form: FormData) {
       ? { done: true, note: `Now ${result.timezone}, was ${result.previous}. Published arrival windows move with it.` }
       : { done: true };
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
 }
@@ -120,7 +121,7 @@ export async function setRecordingPolicy(_previous: unknown, form: FormData) {
     revalidatePath("/settings");
     return { done: true, note: `${policy.jurisdiction} is declared ${policy.rule.replace("_", " ")}.` };
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
 }
@@ -134,7 +135,7 @@ export async function removeRecordingPolicy(_previous: unknown, form: FormData) 
       note: "Withdrawn. Calls with a party there now resolve to unknown, which needs everybody's agreement and an announcement.",
     };
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
 }
@@ -149,7 +150,7 @@ export async function addNumber(_previous: unknown, form: FormData) {
       smsRegistered: form.get("smsRegistered") === "yes",
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/settings");
@@ -170,7 +171,7 @@ export async function releaseNumber(_previous: unknown, form: FormData) {
   try {
     result = await phoneNumbers.release(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/settings");

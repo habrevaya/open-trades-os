@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { ledger, money as m } from "@opentradesos/core";
 import { guardedRead, type ServiceContext } from "./context";
+import { assertPeriodOpen } from "./history";
 
 /**
  * Writing a posting.
@@ -20,6 +21,13 @@ import { guardedRead, type ServiceContext } from "./context";
 export async function writePosting(
   tx: Database, ctx: ServiceContext, posting: ledger.Posting,
 ): Promise<string> {
+  /**
+   * Here, at the one door every posting goes through, rather than in each
+   * service that dates something. A date check in eleven places is eleven
+   * places to forget it, and the twelfth posting kind would not have it.
+   */
+  await assertPeriodOpen(tx, ctx.actor.organizationId, posting.occurredAt);
+
   const transactionId = randomUUID();
 
   await tx.insert(schema.ledgerEntry).values(

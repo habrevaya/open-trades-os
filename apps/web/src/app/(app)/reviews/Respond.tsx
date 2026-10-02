@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { respondToReview, markCalled } from "./actions";
 
 /**
@@ -11,8 +11,8 @@ import { respondToReview, markCalled } from "./actions";
  * good public reply close out a call that never happened.
  */
 export function Respond({ id, callOwed }: { id: string; callOwed: boolean }) {
-  const [replyState, reply, replying] = useActionState(respondToReview, null);
-  const [callState, call, calling] = useActionState(markCalled, null);
+  const [replyState, replyForm, replying] = useKeptAction(respondToReview, null);
+  const [callState, callForm, calling] = useKeptAction(markCalled, null);
   const error = (replyState && "error" in replyState && replyState.error)
     || (callState && "error" in callState && callState.error);
 
@@ -20,7 +20,7 @@ export function Respond({ id, callOwed }: { id: string; callOwed: boolean }) {
     <div className="mt-3">
       {error ? <p role="alert" className="mb-2 text-sm text-red-600">{error}</p> : null}
 
-      <form action={reply} className="flex flex-wrap items-end gap-2">
+      <form {...replyForm} className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="id" value={id} />
         <textarea
           name="body"
@@ -38,7 +38,7 @@ export function Respond({ id, callOwed }: { id: string; callOwed: boolean }) {
       </form>
 
       {callOwed && (
-        <form action={call} className="mt-2">
+        <form {...callForm} className="mt-2">
           <input type="hidden" name="id" value={id} />
           <button
             type="submit"

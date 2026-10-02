@@ -134,6 +134,24 @@ export const BUILT_IN: BuiltInReport[] = [
    * report below is the deliberate exception and says so in its question.
    */
   {
+    slug: "job-costing",
+    name: "Job costing",
+    question: "What did each finished job cost us against what it brought in?",
+    definition: {
+      dataset: "profitability",
+      dimensions: ["job"],
+      measures: ["revenue", "material_cost", "labour_cost", "processing_fees", "gross_margin"],
+      filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
+      /**
+       * By revenue, so the jobs that matter most are at the top with their
+       * margin beside them. A ranking by margin would put a hundred small
+       * service calls above the one install that lost money.
+       */
+      orderBy: "revenue",
+      limit: 100,
+    },
+  },
+  {
     slug: "margin-by-job-type",
     name: "Margin by job type",
     question: "Which kind of work actually makes money?",

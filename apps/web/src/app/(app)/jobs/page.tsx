@@ -2,6 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { jobs } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
+import { can } from "@opentradesos/core";
 import { JOB_STATUS, JOB_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 
@@ -14,7 +15,15 @@ export default async function JobsPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
-      <PageHeader title="Jobs" count={page.data.length} />
+      <PageHeader
+        title="Jobs" count={page.data.length}
+        action={can(user.actor, "job:write") ? (
+          <a href="/jobs/new"
+             className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+            Book a job
+          </a>
+        ) : undefined}
+      />
 
       {page.data.length === 0 ? (
         <Empty title="No jobs yet">

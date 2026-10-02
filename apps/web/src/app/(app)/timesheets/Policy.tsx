@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { declarePolicy } from "./actions";
 
 const BUTTON =
@@ -32,7 +33,7 @@ const PRESETS: Record<string, { label: string; weekly: number | ""; daily: numbe
 };
 
 export function Policy({ current }: { current: string | null }) {
-  const [state, declare, saving] = useActionState(declarePolicy, null);
+  const [state, declareForm, saving] = useKeptAction(declarePolicy, null);
   const [preset, setPreset] = useState<keyof typeof PRESETS>("federal");
   const [open, setOpen] = useState(current === null);
 
@@ -56,7 +57,7 @@ export function Policy({ current }: { current: string | null }) {
   }
 
   return (
-    <form action={declare} className="mt-6 max-w-2xl rounded-md border border-steel-200 p-4">
+    <form {...declareForm} className="mt-6 max-w-2xl rounded-md border border-steel-200 p-4">
       <h2 className="text-base font-semibold">Declare the overtime policy</h2>
       <p className="mt-1 text-sm text-ink-700">
         There is no default here, because every default is a position on what

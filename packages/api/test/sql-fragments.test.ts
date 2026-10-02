@@ -76,7 +76,7 @@ function scan(): Fragment[] {
     const relative = path.slice(API_SRC.length + 1);
 
     const visit = (node: ts.Node, inSelectList: boolean) => {
-      let selectList = inSelectList;
+      const selectList = inSelectList;
 
       /** The object literal argument of a `.select(...)` call, and nothing else. */
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)

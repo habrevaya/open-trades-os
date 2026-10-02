@@ -7,7 +7,7 @@ import {
 import { claim } from "./comms-outbox";
 import {
   createEmailProvider, EmailProviderNotConfiguredError,
-  type EmailEvent, type EmailProvider, type WebhookRequest,
+  type EmailEvent, type EmailProvider, type ProviderSecrets, type WebhookRequest,
 } from "../email/provider";
 
 /**
@@ -998,6 +998,56 @@ const envSecret: ReadSecret = async (ref) => {
   return value;
 };
 
+const warnedLegacy = new Set<string>();
+
+/**
+ * The secrets a provider needs beyond its main credential.
+ *
+ * Each is named by a `...Ref` setting and read through the same reader as
+ * `credentialRef`. A name whose secret cannot be read leaves that secret
+ * out, so a missing webhook secret turns delivery reporting off rather than
+ * stopping mail: sending does not need it.
+ *
+ * ONE LEGACY PATH. An earlier version stored Resend's webhook signing secret
+ * itself in `settings.webhookSecret`. Dropping it on upgrade would silently
+ * stop every bounce and complaint from being heard, and suppression is the
+ * thing that keeps a sender's reputation, so a stored value is still used
+ * when no name is set, with a warning in the log and a notice on the
+ * integrations screen telling the operator where to move it. Setting the
+ * name deletes the stored value, and nothing can write a new one.
+ */
+export async function secretsFor(
+  connectionId: string,
+  settings: Record<string, unknown>,
+  readSecret: ReadSecret,
+): Promise<ProviderSecrets> {
+  const ref = settings["webhookSecretRef"];
+  if (typeof ref === "string" && ref !== "") {
+    try {
+      return { webhookSecret: await readSecret(ref) };
+    } catch (error) {
+      console.warn(
+        `[email] The webhook signing secret named "${ref}" could not be read, so delivery `
+        + `callbacks for connection ${connectionId} cannot be verified: ${(error as Error).message}`,
+      );
+      return {};
+    }
+  }
+  const legacy = settings["webhookSecret"];
+  if (typeof legacy === "string" && legacy !== "") {
+    if (!warnedLegacy.has(connectionId)) {
+      warnedLegacy.add(connectionId);
+      console.warn(
+        `[email] DEPRECATED: connection ${connectionId} has its webhook signing secret stored in `
+        + `the database (settings.webhookSecret). Put it in your secret store and set its name as `
+        + `the webhook signing secret on Settings → Integrations; the stored copy is then deleted.`,
+      );
+    }
+    return { webhookSecret: legacy };
+  }
+  return {};
+}
+
 /**
  * The connection a webhook token names, and the tenant it belongs to.
  *
@@ -1030,7 +1080,10 @@ export async function resolveWebhook(
   return {
     connectionId: row.connection_id,
     organizationId: row.organization_id,
-    provider: createEmailProvider(row.provider, row.settings, secret),
+    provider: createEmailProvider(
+      row.provider, row.settings, secret,
+      await secretsFor(row.connection_id, row.settings, readSecret),
+    ),
   };
 }
 
@@ -1110,7 +1163,10 @@ export async function providerFor(
 
   if (!resolved) throw new EmailProviderNotConfiguredError(CHANNEL);
   const secret = resolved.credentialRef ? await readSecret(resolved.credentialRef) : "";
-  return createEmailProvider(resolved.provider, resolved.settings, secret);
+  return createEmailProvider(
+    resolved.provider, resolved.settings, secret,
+    await secretsFor(resolved.connectionId, resolved.settings, readSecret),
+  );
 }
 
 /* --------------------------------------------------------------- handlers */

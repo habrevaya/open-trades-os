@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FieldQueue, WebStorage } from "@opentradesos/field-client";
 import type { dispatch } from "@opentradesos/api/services";
 import { sync, onMyWay } from "./actions";
+import { punchNotice } from "@/lib/punch-notice";
 
 type Snapshot = Awaited<ReturnType<typeof dispatch.snapshot>>;
 type Visit = Snapshot["visits"][number];
@@ -38,6 +39,15 @@ export function Day({
   const [queued, setQueued] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** Why the punch beside the clock did not take, in the server's words. */
+  const [punchProblem, setPunchProblem] = useState<string | null>(null);
+  /**
+   * The server answered the last send and refused it as a whole. Not set
+   * when there was no answer at all, which is lost signal, not a refusal.
+   */
+  const refusalRef = useRef<string | null>(null);
+  /** The sequence of the punch pressed on this screen, which the clock reports on. */
+  const punchRef = useRef<number | null>(null);
   const [storageBroken, setStorageBroken] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -59,25 +69,34 @@ export function Day({
 
     const queue = new FieldQueue({ storage: new WebStorage("otos:"), deviceId });
     queueRef.current = queue;
-    void queue.adoptSequence(lastSequence).then(() => refresh(queue));
+    /*
+      And send whatever is still on the phone from before the page was
+      opened, rather than leaving it for the half minute timer: a punch kept
+      from a refused or signal-less attempt should go the moment the day is
+      opened again.
+    */
+    void queue.adoptSequence(lastSequence).then(() => refresh(queue)).then(() => flush());
   }, [deviceId, lastSequence]);
 
   async function refresh(queue: FieldQueue) {
     const pending = await queue.pending();
     setQueued(pending.length);
     const problems = await queue.problems();
-    setProblem(problems[0]?.conflict ?? problems[0]?.lastError ?? null);
+    setProblem(problems[0]?.conflict ?? problems[0]?.lastError ?? refusalRef.current);
+    setPunchProblem(punchNotice(pending, punchRef.current, refusalRef.current));
   }
 
   async function record(kind: Parameters<FieldQueue["enqueue"]>[0]["kind"], visitId?: string, payload?: Record<string, unknown>) {
     const queue = queueRef.current;
     if (!queue) return;
 
-    await queue.enqueue({
+    const queued = await queue.enqueue({
       kind,
       ...(visitId ? { subjectId: visitId } : {}),
       ...(payload ? { payload } : {}),
     });
+
+    if (kind === "timeclock.punch_in" || kind === "timeclock.punch_out") punchRef.current = queued.sequence;
 
     if (visitId) {
       const next =
@@ -100,13 +119,25 @@ export function Day({
     try {
       await queue.flush({
         async send(input) {
-          const result = await sync({
-            deviceId: input.deviceId,
-            operations: input.operations as never,
-          });
+          let result: Awaited<ReturnType<typeof sync>>;
+          try {
+            result = await sync({
+              deviceId: input.deviceId,
+              operations: input.operations as never,
+            });
+          } catch (error) {
+            // No answer: no signal. The queue keeps it and nothing is refused.
+            refusalRef.current = null;
+            throw error;
+          }
           // A server error is thrown so the queue keeps the operations. It
-          // must not treat a failed request as a rejection.
-          if (!result.ok) throw new Error(result.message);
+          // must not treat a failed request as a rejection. It IS said,
+          // straight away, because the server answered and said why.
+          if (!result.ok) {
+            refusalRef.current = result.message;
+            throw new Error(result.message);
+          }
+          refusalRef.current = null;
           return { results: result.results as never, awaiting: [], snapshotRevision: 0 };
         },
       });
@@ -176,7 +207,8 @@ export function Day({
       )}
 
       <div className="px-4 py-4">
-        <TimeClock openEntry={openTimeEntry} zone={timezone} onPunch={(kind) => void record(kind)} />
+        <TimeClock openEntry={openTimeEntry} zone={timezone} onPunch={(kind) => void record(kind)}
+                   problem={punchProblem} />
       </div>
 
       {ordered.length === 0 ? (
@@ -203,11 +235,13 @@ export function Day({
 }
 
 function TimeClock({
-  openEntry, onPunch, zone,
+  openEntry, onPunch, zone, problem,
 }: {
   openEntry: Snapshot["openTimeEntry"];
   onPunch: (kind: "timeclock.punch_in" | "timeclock.punch_out") => void;
   zone: string;
+  /** Why the last punch did not take, said under the button that made it. */
+  problem: string | null;
 }) {
   const since = openEntry
     ? new Date(openEntry.startedAt).toLocaleTimeString("en-US", {
@@ -217,24 +251,31 @@ function TimeClock({
     : null;
 
   return (
-    <div className="flex items-center gap-3 rounded-md border border-steel-200 p-3">
-      <div className="flex-1">
-        <p className="text-sm font-medium">
-          {openEntry ? "On the clock" : "Not clocked in"}
-        </p>
-        {since && <p className="text-sm text-ink-500">Since {since}</p>}
+    <div className="rounded-md border border-steel-200 p-3">
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <p className="text-sm font-medium">
+            {openEntry ? "On the clock" : "Not clocked in"}
+          </p>
+          {since && <p className="text-sm text-ink-500">Since {since}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={() => onPunch(openEntry ? "timeclock.punch_out" : "timeclock.punch_in")}
+          className={`h-12 rounded px-5 text-base font-medium ${
+            openEntry
+              ? "border border-steel-300 bg-canvas text-ink-900"
+              : "bg-ink-900 text-white"
+          }`}
+        >
+          {openEntry ? "Clock out" : "Clock in"}
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={() => onPunch(openEntry ? "timeclock.punch_out" : "timeclock.punch_in")}
-        className={`h-12 rounded px-5 text-base font-medium ${
-          openEntry
-            ? "border border-steel-300 bg-canvas text-ink-900"
-            : "bg-ink-900 text-white"
-        }`}
-      >
-        {openEntry ? "Clock out" : "Clock in"}
-      </button>
+      {problem && (
+        <p role="alert" className="mt-2 rounded bg-red-tint px-3 py-2 text-base text-red-600">
+          {problem}
+        </p>
+      )}
     </div>
   );
 }

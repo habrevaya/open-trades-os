@@ -13,7 +13,7 @@
     "migrate": "tsx src/migrate.ts",
     "push": "drizzle-kit push",
     "studio": "drizzle-kit studio",
-    "seed": "tsx src/seed/index.ts",
+    "seed": "pnpm --filter @opentradesos/api seed",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

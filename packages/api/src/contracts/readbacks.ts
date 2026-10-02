@@ -165,54 +165,13 @@ export const listJournal = defineRoute({
 
 /* --------------------------------------------------------------- payments */
 
-export const listPayments = defineRoute({
-  method: "get",
-  path: "/v1/payments",
-  summary: "What came in, and what the company actually kept",
-  description:
-    "Totalled per method, because cash and cheque sit in a drawer until somebody banks them and card settles net of a fee two days later. Totals cover one currency and leave the rest out rather than adding them in: a sum across currencies is not money in any of them.",
-  module: "M13",
-  permissions: ["payment:read"],
-  input: z.object({
-    customerId: Uuid.optional(),
-    invoiceId: Uuid.optional(),
-    method: z.string().max(40).optional(),
-    status: z.string().max(40).optional(),
-    from: z.string().datetime().optional(),
-    to: z.string().datetime().optional(),
-    limit: z.number().int().min(1).max(500).optional(),
-  }),
-  output: z.object({
-    payments: z.array(z.object({
-      id: Uuid,
-      customerId: Uuid,
-      method: z.string(),
-      status: z.string(),
-      currency: z.string(),
-      amount: MoneyString,
-      feeAmount: MoneyString,
-      tipAmount: MoneyString,
-      surchargeAmount: MoneyString,
-      refundedAmount: MoneyString,
-      net: MoneyString,
-      processor: z.string(),
-      processorPaymentId: z.string().nullable(),
-      checkNumber: z.string().nullable(),
-      receivedAt: z.string(),
-      allocations: z.array(z.object({
-        invoiceId: Uuid,
-        invoiceNumber: z.number().nullable(),
-        amount: MoneyString,
-      })),
-    })),
-    totals: z.object({
-      gross: MoneyString, fees: MoneyString, refunded: MoneyString, net: MoneyString,
-    }),
-    byMethod: z.array(z.object({
-      method: z.string(), count: z.number(), gross: MoneyString, net: MoneyString,
-    })),
-  }),
-});
+/**
+ * Payments are listed by `listPayments` in `./billing`, which carries the
+ * per-method totals this file first declared alongside the paging, the
+ * `externalRef` lookup and the held-money filter a migration reads back with.
+ * Two routes on `GET /v1/payments` arrived from two branches at once, and one
+ * path can only answer one way.
+ */
 
 /* --------------------------------------------------------------- deposits */
 
@@ -258,6 +217,5 @@ export const readbackRoutes = {
   getRecordHistory,
   getTrialBalance,
   listJournal,
-  listPayments,
   listDeposits,
 } as const;

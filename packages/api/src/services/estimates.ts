@@ -1,18 +1,23 @@
 import { and, eq, desc, lt, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { permissionsFor, estimate as est, money as m } from "@opentradesos/core";
+import { permissionsFor, estimate as est, money as m, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean,
+  decodeCursor, paginate, NotFoundError, ConflictError,
+  scopeOf, timezoneOf,
 } from "./context";
+import { admitDate } from "./history";
 import { estimateScopeFilter } from "./scope";
+import { claimNumber, nextNumber } from "./jobs";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
-import { nextNumber } from "./jobs";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
 } from "../contracts/estimates";
+import { portalBase } from "../lib/portal-base";
 
 const usd = (v: string) => m.money(v, "USD");
 
@@ -74,7 +79,17 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       : [];
     const byItem = new Map(versions.map((v) => [v.itemId, v]));
 
-    const number = await nextNumber(tx, ctx.actor.organizationId, "estimate");
+    /**
+     * The day it was written. A migrated estimate from 2021 written on the
+     * day of the cutover makes close rate by month meaningless for every
+     * month before it.
+     */
+    const issuedOn = input.issuedOn
+      ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+    if (input.issuedOn) await admitDate(tx, ctx, input.issuedOn, "issuedOn");
+
+    await assertUnclaimed(tx, "estimate", input.externalRef);
+    const number = await claimNumber(tx, ctx, "estimate", input.number);
 
     const [row] = await tx.insert(schema.estimate).values({
       organizationId: ctx.actor.organizationId,
@@ -83,8 +98,10 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       propertyId: input.propertyId,
       jobId: input.jobId ?? null,
       title: input.title ?? null,
+      issuedOn,
       expiresOn: input.expiresOn ?? null,
       status: "draft",
+      ...provenance(input.externalRef),
     }).returning({ id: schema.estimate.id });
 
     const estimateId = row!.id;
@@ -101,7 +118,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
           unitCost: version?.cost ?? line.unitCost ?? null,
           discountAmount: line.discountAmount,
           taxable: version?.taxable ?? line.taxable,
-          taxRate: (version?.taxable ?? line.taxable) ? input.taxRate : "0",
+          taxRate: (version?.taxable ?? line.taxable) ? (line.taxRate ?? input.taxRate) : "0",
           isOptional: line.isOptional,
           isSelected: line.isSelected,
           costCode: line.costCode ?? null,
@@ -197,6 +214,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
       propertyId: schema.estimate.propertyId,
       jobId: schema.estimate.jobId,
       title: schema.estimate.title,
+      issuedOn: schema.estimate.issuedOn,
       expiresOn: schema.estimate.expiresOn,
       sentAt: schema.estimate.sentAt,
       viewedAt: schema.estimate.viewedAt,
@@ -205,6 +223,8 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
       selectedOptionId: schema.estimate.selectedOptionId,
       signerName: schema.estimate.signerName,
       currency: schema.estimate.currency,
+      sourceSystem: schema.estimate.sourceSystem,
+      sourceId: schema.estimate.sourceId,
       createdAt: schema.estimate.createdAt,
       updatedAt: schema.estimate.updatedAt,
     })
@@ -216,6 +236,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         input.status ? inArray(schema.estimate.status, input.status) : undefined,
         input.customerId ? eq(schema.estimate.customerId, input.customerId) : undefined,
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,
+        byExternal(schema.estimate, input),
         after ? lt(schema.estimate.id, after) : undefined,
       ))
       .orderBy(desc(schema.estimate.id))
@@ -765,8 +786,7 @@ function hashDocument(input: Record<string, unknown>): string {
   return createHash("sha256").update(JSON.stringify(input, Object.keys(input).sort())).digest("hex");
 }
 
-const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
-const approvalUrl = (token: string) => `${PORTAL_BASE}/e/${token}`;
+const approvalUrl = (token: string) => `${portalBase()}/e/${token}`;
 
 async function seenBefore(tx: Database, key: string, entityType: string): Promise<string | null> {
   const [row] = await tx.select({ entityId: schema.integrationEvent.entityId })

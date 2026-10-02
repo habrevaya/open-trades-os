@@ -180,12 +180,26 @@ export class EmailProviderNotConfiguredError extends Error {
  * SMTP adapter drags nodemailer in, and a deployment sending through Resend
  * has no reason to load it.
  */
-const registry = new Map<string, (settings: Record<string, unknown>, secret: string) => EmailProvider>();
+/**
+ * Secrets beyond the main credential, already read from the secret store.
+ *
+ * A provider that needs a second secret (Resend's webhook signing secret is
+ * a different credential from its API key) declares a `...Ref` setting naming
+ * it, the service reads it through the same reader as `credentialRef`, and
+ * the adapter gets the value here. The adapter never reads a secret out of
+ * `settings`, because `settings` is a database column.
+ */
+export interface ProviderSecrets {
+  webhookSecret?: string;
+}
 
-export function registerEmailProvider(
-  name: string,
-  factory: (settings: Record<string, unknown>, secret: string) => EmailProvider,
-): void {
+type EmailFactory = (
+  settings: Record<string, unknown>, secret: string, secrets: ProviderSecrets,
+) => EmailProvider;
+
+const registry = new Map<string, EmailFactory>();
+
+export function registerEmailProvider(name: string, factory: EmailFactory): void {
   registry.set(name, factory);
 }
 
@@ -193,10 +207,11 @@ export function createEmailProvider(
   name: string,
   settings: Record<string, unknown>,
   secret: string,
+  secrets: ProviderSecrets = {},
 ): EmailProvider {
   const factory = registry.get(name);
   if (!factory) throw new EmailProviderNotConfiguredError(name);
-  return factory(settings, secret);
+  return factory(settings, secret, secrets);
 }
 
 export const registeredEmailProviders = (): string[] => [...registry.keys()];

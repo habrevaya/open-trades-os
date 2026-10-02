@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 
 export const EstimateStatus = z.enum([
   "draft", "sent", "viewed", "approved", "declined", "expired", "converted",
@@ -55,6 +55,8 @@ export const Estimate = z.object({
   propertyId: Uuid,
   jobId: Uuid.nullable(),
   title: z.string().nullable(),
+  /** The day it was written, in the company's calendar. */
+  issuedOn: z.string().date().nullable(),
   expiresOn: z.string().date().nullable(),
   sentAt: z.string().datetime().nullable(),
   viewedAt: z.string().datetime().nullable(),
@@ -65,6 +67,7 @@ export const Estimate = z.object({
   currency: z.string().length(3),
   /** Presented most expensive first, with any recommended option pulled up. */
   options: z.array(EstimateOption),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 const LineInput = z.object({
@@ -76,6 +79,12 @@ const LineInput = z.object({
   unitCost: MoneyString.optional(),
   discountAmount: MoneyString.default("0"),
   taxable: z.boolean().default(true),
+  /**
+   * This line's own rate, where it differs from the estimate's `taxRate`: a
+   * part taxed and labour not, or an estimate recorded from a system that
+   * taxed per line. Omit to use the estimate's.
+   */
+  taxRate: RateString.optional(),
   isOptional: z.boolean().default(false),
   isSelected: z.boolean().default(false),
   costCode: z.string().max(50).optional(),
@@ -92,10 +101,23 @@ export const createEstimate = defineRoute({
   permissions: ["estimate:write"],
   idempotent: true,
   input: z.object({
+    /**
+     * The source document's own number, kept for history. Needs
+     * `data:import`. Refused if taken; the next number this company is given
+     * is always past the highest one in use, imported or not.
+     */
+    number: z.number().int().min(1).max(2_000_000_000).optional(),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
     customerId: Uuid,
     propertyId: Uuid,
     jobId: Uuid.optional(),
     title: z.string().max(200).optional(),
+    /**
+     * The day it was written. Omit for today. Earlier than a week back is
+     * history and needs `data:import`; never in the future.
+     */
+    issuedOn: z.string().date().optional(),
     expiresOn: z.string().date().optional(),
     taxRate: RateString.default("0"),
     options: z.array(z.object({
@@ -130,6 +152,8 @@ export const listEstimates = defineRoute({
     jobId: Uuid.optional(),
     /** Ages out the pipeline: everything sent and undecided before this date. */
     sentBefore: z.string().date().optional(),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(Estimate.omit({ options: true }).extend({
     customerName: z.string(),

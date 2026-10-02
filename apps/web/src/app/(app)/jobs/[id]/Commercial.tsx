@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { authorizeJob, setCoverage } from "./actions";
 
 /**
@@ -18,10 +18,10 @@ export function Authorize({
   jobId: string;
   current: { amount: string | null; grantedByName: string | null; externalReference: string | null } | null;
 }) {
-  const [state, submit, pending] = useActionState(authorizeJob, null);
+  const [state, submitForm, pending] = useKeptAction(authorizeJob, null);
 
   return (
-    <form action={submit} className="mt-3 flex flex-wrap items-end gap-3">
+    <form {...submitForm} className="mt-3 flex flex-wrap items-end gap-3">
       <input type="hidden" name="jobId" value={jobId} />
       <label className="text-sm">
         <span className="block text-ink-700">Authorised up to</span>
@@ -73,10 +73,10 @@ export function Coverage({
   sources: { key: string; label: string; description: string }[];
   current: { source: string; externalReference: string | null } | null;
 }) {
-  const [state, submit, pending] = useActionState(setCoverage, null);
+  const [state, submitForm, pending] = useKeptAction(setCoverage, null);
 
   return (
-    <form action={submit} className="mt-3 flex flex-wrap items-end gap-3">
+    <form {...submitForm} className="mt-3 flex flex-wrap items-end gap-3">
       <input type="hidden" name="jobId" value={jobId} />
       <label className="text-sm">
         <span className="block text-ink-700">Who is paying</span>

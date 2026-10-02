@@ -4,7 +4,9 @@ import { money as m, time, marketing, SYSTEM_USER_ID } from "@opentradesos/core"
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
-  audit, type RequestMeta, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError,
+  audit, type RequestMeta,
+  type ServiceContext, guardedRead, guardedWrite, clean,
+  decodeCursor, paginate, NotFoundError, ConflictError, OrganizationSuspendedError,
 } from "./context";
 import { emit } from "./events";
 import { nextNumber } from "./jobs";
@@ -15,8 +17,8 @@ import type {
   configureBookableService,
   createBookableService, setArrivalWindows, setBusinessHours,
 } from "../contracts/booking";
+import { portalBase } from "../lib/portal-base";
 
-const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
 
 /**
  * How long a resubmission counts as the same submission.
@@ -48,9 +50,17 @@ async function resolveOrg(db: Database, slug: string) {
     // Carried because every date on this screen is a calendar day, and a
     // calendar day is only a pair of instants once you know the zone.
     timezone: schema.organization.timezone,
+    suspendedAt: schema.organization.suspendedAt,
   }).from(schema.organization).where(eq(schema.organization.slug, slug)).limit(1);
   if (!org) throw new NotFoundError("Company");
-  return org;
+  /**
+   * A suspended company takes no bookings. Every public read and the write
+   * come through here, which is why the check is here once rather than in
+   * each of them, and a booking request accepted for a company nobody can
+   * sign in to read would be a customer waiting for a call that never comes.
+   */
+  if (org.suspendedAt) throw new OrganizationSuspendedError();
+  return { id: org.id, name: org.name, timezone: org.timezone };
 }
 
 export async function listServices(db: Database, input: z.infer<typeof listBookableServices.input>) {
@@ -319,7 +329,7 @@ export async function createRequest(
            */
           trackingUrl: await issueTrackingUrl(tx, org.id, prior.id),
           depositDue: priorDeposit,
-          paymentUrl: priorDeposit ? `${PORTAL_BASE}/pay/booking/${prior.id}` : null,
+          paymentUrl: null,
         };
       }
     }
@@ -439,7 +449,7 @@ export async function createRequest(
       query: input.landingQuery ?? utmAsQuery(input.utm),
       referrer: input.referrer ?? null,
       landingPath: pathOf(input.sourceUrl),
-      ownHosts: [new URL(PORTAL_BASE).host],
+      ownHosts: [new URL(portalBase()).host],
     });
 
     const deposit = depositDue(service, service.displayPrice);
@@ -451,7 +461,16 @@ export async function createRequest(
       // when a customer most wants to see that something happened.
       trackingUrl: await issueTrackingUrl(tx, org.id, row!.id),
       depositDue: deposit,
-      paymentUrl: deposit ? `${PORTAL_BASE}/pay/booking/${row!.id}` : null,
+      /**
+       * No link, rather than a link to nothing. This used to be
+       * `/pay/booking/{request id}`, which had no page behind it and was an
+       * id rather than a capability. A booking request has no customer yet,
+       * so there is nobody for a deposit to be held for: the deposit is
+       * requested once the office confirms the booking into a customer, and
+       * a `deposit` link issued for it (`POST /v1/portal/grants`) opens
+       * `/pay/{token}`.
+       */
+      paymentUrl: null,
     };
   });
 }
@@ -832,7 +851,7 @@ async function issueTrackingUrl(tx: Database, organizationId: string, requestId:
     tokenHash: createHash("sha256").update(token).digest("hex"),
     expiresAt: new Date(Date.now() + 90 * 864e5),
   });
-  return `${PORTAL_BASE}/b/${token}`;
+  return `${portalBase()}/b/${token}`;
 }
 
 function shapeRequest(r: typeof schema.bookingRequest.$inferSelect) {
@@ -1167,7 +1186,7 @@ function sourceOf(request: typeof schema.bookingRequest.$inferSelect): string {
      * to the booking page is one session, and counting it as a referral from
      * ourselves is how "our own website" becomes the top lead source.
      */
-    ownHosts: [new URL(PORTAL_BASE).host],
+    ownHosts: [new URL(portalBase()).host],
   });
 
   return touch.source;

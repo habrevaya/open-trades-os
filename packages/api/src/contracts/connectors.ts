@@ -33,6 +33,12 @@ export const Connector = z.object({
   connected: z.boolean(),
   connectionStatus: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** Where the provider sends webhooks for this connection, after this deployment's public address. */
+  webhookPath: z.string().nullable(),
+  /** The name of the secret holding the credential, never the value. */
+  credentialRef: z.string().nullable(),
+  /** Something to do that nothing else here says, such as a secret value left in the database by an earlier version. */
+  notice: z.string().nullable(),
 });
 
 export const listConnectors = defineRoute({
@@ -60,6 +66,11 @@ export const connectConnector = defineRoute({
     /** A reference into the secret store, never a secret. */
     credentialRef: z.string().max(200).optional(),
     settings: z.record(z.unknown()).default({}),
+    /**
+     * Change only what is sent and keep the rest of an existing connection.
+     * Without it the settings are replaced whole.
+     */
+    keepExisting: z.boolean().default(false),
   }),
   output: z.object({ id: Uuid, provider: z.string(), status: z.string() }),
 });

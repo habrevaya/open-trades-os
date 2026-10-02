@@ -160,11 +160,56 @@ milliseconds.
 If your orchestrator reports that the worker had to be killed, that is a bug
 worth reporting rather than something to tune the grace period around.
 
+## On a host with no long running processes
+
+Netlify, Vercel and their peers will call a URL on a schedule and will not keep
+a loop alive. For those, the worker runs one bounded run at a time over HTTP:
+
+```
+POST /api/internal/worker/tick
+Authorization: Bearer <WORKER_TICK_TOKEN>
+```
+
+| Variable | Default | What it is |
+|---|---|---|
+| `WORKER_TICK_TOKEN` | unset, which turns it off | The bearer token. At least 32 characters, or the endpoint stays off and the server logs why |
+| `WORKER_TICK_BUDGET_MS` | `20000` | How long one call may spend before it stops |
+| `WORKER_DATABASE_URL` | falls back to `DATABASE_URL` | The same as for the process, and for the same reason: see the database role below |
+
+Each call does what the process does on each turn of its loop, with a
+deadline instead of a signal: the clock, the drain, then the outbox, webhooks
+and accounting sync for every company that had events. It goes round again
+while the last pass found something, and stops when there is nothing left or
+the budget is spent. It is the same function the process calls (`runPass` in
+`packages/api/src/services/workflow-worker.ts`), not a copy of it.
+
+The budget is checked **between events, never inside one**, and the outbox
+after a drain is never skipped for time, because skipping it would leave a
+text a workflow just queued sitting there until that company produces another
+event. Twenty seconds leaves forty under a sixty second function limit for
+the event in flight and for the sends. Anything the budget did not reach is
+still due: the cursor only moves past events that were handled, and a
+schedule or a parked run keeps its due time until it is claimed.
+
+It answers with what it did:
+
+```json
+{ "passes": 2, "events": 14, "organizations": 3, "stoppedForBudget": false, "durationMs": 812, "budgetMs": 20000 }
+```
+
+With no token set, the path is the same 404 any unknown route gets. It is a
+separate token from the operator API's on purpose: the thing that wakes the
+worker every minute lives in a scheduler's configuration, and should not also
+be able to suspend a company.
+
+Overlapping calls, or a tick alongside a worker process, are safe for the
+reasons under "Running more than one" below. A scheduler that fires every
+minute means a workflow can wait up to a minute longer than it would with the
+process, which polls every five seconds. When that matters, or when a
+backlog regularly outlasts the budget, run the process in a container
+instead: `deploy/templates/netlify/README.md` says when.
+
 ## What it is not
 
 It is not a queue. The event log is already durable and already ordered, and a
 queue beside it would be a second source of truth about what happened.
-
-It does not poll for schedule triggers yet: a workflow that runs at 8am, or
-one that waits two days before its next step, needs a timer this does not have.
-Event triggers work; time does not.

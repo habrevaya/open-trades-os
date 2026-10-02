@@ -24,8 +24,8 @@ keyed on the customer's address.
 1. Add the number in the product, in E.164, and mark it registered once your
    A2P 10DLC campaign is approved. An unregistered send is not merely
    rejected: it counts against the sender.
-2. Create an `integration_connection` with capability `messaging`, provider
-   `twilio`, status `connected`, and `settings`:
+2. Connect Twilio on **Settings → Integrations** (or `POST /v1/connectors/twilio`
+   through the API) with the account SID and, optionally, a messaging service:
 
    ```json
    { "accountSid": "AC...", "messagingServiceSid": "MG..." }
@@ -33,11 +33,15 @@ keyed on the customer's address.
 
    `messagingServiceSid` is optional. Without it, sends go from the number on
    the message.
-3. Put the auth token where your deployment keeps secrets and set
-   `credentialRef` to its name. The token never goes in the database.
-4. Put a random token of at least 32 characters in `settings.webhookToken`.
-   Anything shorter is refused, so a weak one means no webhooks rather than an
-   open endpoint.
+3. Put the auth token where your deployment keeps secrets and give the
+   connection its name as the credential. The token never goes in the
+   database.
+4. A webhook token is minted for the connection the first time it is
+   connected, and the screen shows the webhook address it makes. It is never
+   replaced by an edit, because the carrier is already calling it. (A token
+   set by hand in `settings.webhookToken` must be at least 32 characters;
+   anything shorter is refused, so a weak one means no webhooks rather than an
+   open endpoint.)
 5. Set `PUBLIC_URL` to the address the carrier reaches you on. The signature is
    computed over it.
 6. Point Twilio's inbound and status callbacks at:
@@ -55,6 +59,27 @@ anyone aim a forged message at a tenant they picked. Not a header or a query
 parameter either, since both are things the caller chooses. The token is a
 secret the carrier must already hold, and it is inside the URL the signature
 covers, so it cannot be moved to a URL an attacker controls.
+
+## Secrets are names, for every provider
+
+Every secret a connection needs is a name in your deployment's secret store:
+the main credential is `credentialRef`, and a provider that needs a second one
+takes a second name in a setting ending in `Ref`. Resend's webhook signing
+secret is `webhookSecretRef`; Stripe's is `webhookSecretRef` too. The settings
+a provider may store are declared in `packages/core/src/connectors/settings.ts`,
+and a connect call carrying anything else is refused, as is a name that is
+plainly the secret itself (`whsec_...`, `sk_live_...`).
+
+An earlier version stored Resend's signing secret itself in
+`settings.webhookSecret`. An install that has one keeps verifying with it, logs
+a deprecation warning, and shows a notice on **Settings → Integrations**. Put
+the value in your secret store and enter its name there; the stored copy is
+deleted in the same write. Nothing can store a new one.
+
+The webhook token in the path is the one secret-looking value kept in
+`settings`, on purpose: it is looked up before the tenant is known, and it
+does not authenticate anything by itself, because every request is still
+checked against a signature made with a secret that is in the store.
 
 ## The webhook signature is not optional
 

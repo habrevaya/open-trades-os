@@ -1,20 +1,27 @@
-import { and, asc, eq, desc, lt, inArray, sql, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, lt, gte, lte, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { authorization as authz, coverage, ledger, money as m } from "@opentradesos/core";
+import { authorization as authz, coverage, history, ledger, money as m, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean,
+  decodeCursor, paginate, NotFoundError, ConflictError,
+  scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
+import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter } from "./scope";
 import { inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
 import * as contracts from "./contracts";
 import * as obligations from "./obligations";
-import { nextNumber } from "./jobs";
+import { claimNumber } from "./jobs";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
-import type { createInvoice, listInvoices, getInvoice, recordPayment, getArAging } from "../contracts/billing";
+import type {
+  createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_,
+  updateInvoice, issueInvoice, deleteInvoice,
+} from "../contracts/billing";
 
 const usd = (v: string) => m.money(v, "USD");
 
@@ -39,146 +46,25 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
     }
 
     /**
-     * Prices come from the price book VERSION, not from the request, whenever
-     * an item id is given. A client that can name its own price is a client
-     * that will, and the version reference is what keeps an old invoice saying
-     * what it said after a price rise.
+     * THE DAY IT WAS ISSUED, which used to be whatever day the request
+     * arrived. A migrated invoice from 2023 was issued on the day of the
+     * cutover, the aging report put all of them in "current", and ten years
+     * of revenue landed in one month. The date is admitted by the same rules
+     * as every other business date (see services/history.ts), and the
+     * posting below is dated by it.
      */
-    const itemIds = input.lines.map((l) => l.priceBookItemId).filter((x): x is string => Boolean(x));
-    const versions = itemIds.length
-      ? await tx.select({
-          itemId: schema.priceBookItemVersion.itemId,
-          versionId: schema.priceBookItemVersion.id,
-          name: schema.priceBookItemVersion.name,
-          price: schema.priceBookItemVersion.price,
-          cost: schema.priceBookItemVersion.cost,
-          taxable: schema.priceBookItemVersion.taxable,
-        })
-        .from(schema.priceBookItemVersion)
-        .where(and(
-          inArray(schema.priceBookItemVersion.itemId, itemIds),
-          /**
-           * The version IN FORCE, not the open ended one. `isNull(effectiveTo)`
-           * picks a revision dated ahead, so a price increase scheduled for
-           * next month applied today and the price actually in force became
-           * invisible. The reasoning is on `inForceAt`.
-           */
-          inForceAt(),
-        ))
-      : [];
-    const byItem = new Map(versions.map((v) => [v.itemId, v]));
-
-    /**
-     * WHOSE PRICE GOVERNS, PER LINE.
-     *
-     * Our price book is not the authority when the customer holds a
-     * contract with a rate card: the schema has said so since it was
-     * written, and until now nothing read it, so every commercial job
-     * invoiced at our list price and got rejected.
-     *
-     * Resolved per line rather than once per invoice, because a card covers
-     * some items and not others. A line the card prices takes the card's
-     * price; a line it does not is left at ours AND recorded, so the caller
-     * is told rather than finding out when the client rejects the invoice.
-     *
-     * COST IS NEVER TAKEN FROM THE CARD. The price is theirs and the cost is
-     * ours, which is the whole reason margin reporting still works on work
-     * we did not price.
-     */
-    const contracted = new Map<string, contracts.PriceResolution>();
-    const uncovered: string[] = [];
-    for (const itemId of new Set(itemIds)) {
-      const resolution = await contracts.priceFor(ctx, {
-        customerId: input.customerId,
-        priceBookItemId: itemId,
-      });
-      contracted.set(itemId, resolution);
-      if (!resolution.covered && resolution.cardApplies) {
-        uncovered.push(byItem.get(itemId)?.name ?? itemId);
-      }
+    if (input.draft && input.issuedOn) {
+      throw new UnprocessableError("A draft has not been issued", [{
+        path: "issuedOn", message: "Leave issuedOn off a draft, and send it when the draft is issued.",
+      }]);
     }
+    const now = new Date();
+    const admitted = input.issuedOn
+      ? await admitDate(tx, ctx, input.issuedOn, "issuedOn")
+      : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
+    const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
 
-    const resolved = input.lines.map((line) => {
-      const version = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
-      const contract = line.priceBookItemId ? contracted.get(line.priceBookItemId) : undefined;
-      const contractPrice = contract?.covered ? contract.price : undefined;
-      return {
-        name: version?.name ?? line.name,
-        description: line.description ?? null,
-        quantity: line.quantity,
-        unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
-        unitCost: version?.cost ? usd(version.cost) : null,
-        discountAmount: usd(line.discountAmount),
-        taxable: version?.taxable ?? line.taxable,
-        /** Resolved per jurisdiction in phase 5. Zero until then, honestly. */
-        taxRate: "0",
-        costCode: line.costCode ?? null,
-        versionId: version?.versionId ?? null,
-        coverageSource: line.coverageSource ?? null,
-      };
-    });
-
-    /**
-     * WORK THE CUSTOMER DOES NOT PAY FOR MUST NOT REACH THEM.
-     *
-     * A guard rather than a calculation. The sources this refuses on are the
-     * ones where billing the customer is not a pricing question but a
-     * mistake: we are back because of something we did, or we chose to
-     * absorb it. Rework billed to a customer is the complaint that ends a
-     * relationship, and it happens because the person invoicing was not the
-     * person who decided.
-     *
-     * A line's own `coverageSource` wins over the job's, because a job can
-     * be a callback with one chargeable extra on it.
-     */
-    const terms = input.jobId ? await entitlements.termsFor(tx, input.jobId) : null;
-    if (terms) {
-      /**
-       * Only the lines that INHERIT the job's coverage are tested. A line
-       * that names its own source was an explicit decision by whoever wrote
-       * it, including naming the customer: a callback can have one
-       * chargeable extra on it, and refusing that would make the guard
-       * something people work around rather than with.
-       */
-      const charges = resolved
-        .filter((r) => r.coverageSource == null)
-        .map((r) => ({
-          kind: chargeKindOf(r.name, r.costCode),
-          amount: m.multiply(r.unitPrice, r.quantity),
-        }));
-      const refusal = entitlements.refusalFor(terms, charges);
-      if (refusal) throw new ConflictError(refusal);
-    }
-
-    const computed = ledger.computeInvoice(resolved.map((r) => ({
-      quantity: r.quantity,
-      unitPrice: r.unitPrice,
-      discountAmount: r.discountAmount,
-      taxable: r.taxable,
-      taxRate: r.taxRate,
-    })));
-
-    /**
-     * THE INVOICE GOES TO WHOEVER IS BEING BILLED, NOT TO WHOEVER IS ON SITE.
-     *
-     * A property manager orders the work, a tenant is there, an owner pays.
-     * The product assumed one customer holding every role, and an invoice
-     * addressed to the tenant is a document the payer will not accept and
-     * the tenant should never have seen.
-     *
-     * Nobody named means the residential case, where the job's customer is
-     * all of them, and nothing about that gets harder.
-     */
-    if (input.jobId) {
-      const billTo = await commercial.billToFor(tx, input.jobId);
-      if (billTo?.customerId && billTo.customerId !== input.customerId) {
-        const [who] = await tx.select({ name: schema.customer.name })
-          .from(schema.customer).where(eq(schema.customer.id, billTo.customerId)).limit(1);
-        throw new ConflictError(
-          `This job is billed to ${who?.name ?? "another party"}, not to the customer on the invoice.`,
-        );
-      }
-    }
+    const { resolved, computed, uncovered } = await priceInvoice(tx, ctx, input);
 
     /**
      * AND IT MAY NOT GO OVER WHAT THEY AUTHORISED.
@@ -198,7 +84,8 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       if (!decision.ok) throw new ConflictError(decision.detail);
     }
 
-    const number = await nextNumber(tx, ctx.actor.organizationId, "invoice");
+    await assertUnclaimed(tx, "invoice", input.externalRef);
+    const number = await claimNumber(tx, ctx, "invoice", input.number);
 
     const [invoice] = await tx.insert(schema.invoice).values({
       organizationId: ctx.actor.organizationId,
@@ -223,8 +110,13 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
        * is a join.
        */
       authorizationId: ceiling?.id ?? null,
-      status: "open",
-      issuedOn: new Date().toISOString().slice(0, 10),
+      /**
+       * A draft is numbered (so it can be found and talked about) and is
+       * nothing else yet: no issue date, no posting, nothing owed. It
+       * becomes a receivable when it is issued.
+       */
+      status: input.draft ? "draft" : "open",
+      issuedOn: input.draft ? null : issuedOn,
       dueOn: input.dueOn ?? null,
       subtotal: m.toString(computed.totals.subtotal),
       discountTotal: m.toString(computed.totals.discountTotal),
@@ -232,6 +124,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       total: m.toString(computed.totals.total),
       balance: m.toString(computed.totals.total),
       memo: input.memo ?? null,
+      ...provenance(input.externalRef),
     }).returning();
 
     /**
@@ -263,65 +156,13 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       });
     }
 
-    /**
-     * The link the schema has always had a column for and nothing wrote.
-     * Without it, an invoice line that was free under a plan and one that
-     * was free because we got it wrong are the same row, and the API
-     * contract has promised a `coverageSource` on every line since it was
-     * written.
-     */
-    const entitlementId = input.jobId ? await entitlementIdFor(tx, input.jobId) : null;
+    await writeLines(tx, ctx, { invoiceId: invoice!.id, jobId: input.jobId ?? null, resolved, computed });
 
-    await tx.insert(schema.invoiceLine).values(resolved.map((r, i) => ({
-      organizationId: ctx.actor.organizationId,
-      invoiceId: invoice!.id,
-      /**
-       * A line that explicitly says the customer is paying does not carry
-       * the job's coverage, so the document does not later claim a
-       * chargeable extra was covered by a warranty.
-       */
-      entitlementId: r.coverageSource === "customer" ? null : entitlementId,
-      origin: "job" as const,
-      sortOrder: i,
-      name: r.name,
-      description: r.description,
-      quantity: r.quantity,
-      unitPrice: m.toString(r.unitPrice),
-      unitCost: r.unitCost ? m.toString(r.unitCost) : null,
-      discountAmount: m.toString(r.discountAmount),
-      taxable: r.taxable,
-      taxRate: r.taxRate,
-      taxAmount: m.toString(computed.lines[i]!.taxAmount),
-      lineTotal: m.toString(computed.lines[i]!.lineTotal),
-      costCode: r.costCode,
-      priceBookItemVersionId: r.versionId,
-    })));
-
-    await writePosting(tx, ctx, ledger.postInvoice({
-      invoiceId: invoice!.id,
-      occurredAt: new Date(),
-      totals: computed.totals,
-      customerId: input.customerId,
-      jobId: input.jobId,
-    }));
-
-    if (input.jobId) {
-      await tx.update(schema.job)
-        .set({ status: "invoiced", total: m.toString(computed.totals.total), updatedAt: new Date() })
-        .where(eq(schema.job.id, input.jobId));
-    }
-
-    /**
-     * Consumed once the invoice exists, so a second invoice on the same job
-     * knows what the first one used. An increment rather than a computed
-     * write, so two raised at the same moment cannot both read three hundred
-     * and both write six hundred.
-     */
-    if (ceiling) {
-      await commercial.consume(tx, {
-        authorizationId: ceiling.id,
-        terms: ceiling.terms,
-        amount: computed.totals.total,
+    if (!input.draft) {
+      await postIssue(tx, ctx, {
+        invoiceId: invoice!.id, customerId: input.customerId, jobId: input.jobId ?? null,
+        totals: computed.totals, issuedOn, timeZone: admitted.timeZone, now,
+        historical: admitted.historical, ceiling,
       });
     }
 
@@ -334,29 +175,573 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       });
     }
 
+    await audit(tx, ctx, input.draft ? "invoice.drafted" : "invoice.created", "invoice", invoice!.id, null,
+      admitted.historical ? { ...invoice!, historical: true } : invoice!);
+    return loadInvoice(tx, ctx, invoice!.id);
+  });
+}
+
+
+/**
+ * An invoice's lines, written, and the job lines they bill marked as billed.
+ *
+ * `job_line.invoice_line_id` exists so that "what is still to invoice" is a
+ * query, and nothing ever set it, so every part a technician recorded read
+ * as unbilled forever. A line that names the job line it bills now closes it.
+ */
+async function writeLines(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    invoiceId: string; jobId: string | null;
+    resolved: Awaited<ReturnType<typeof priceInvoice>>["resolved"];
+    computed: Awaited<ReturnType<typeof priceInvoice>>["computed"];
+  },
+): Promise<void> {
+  const { resolved, computed } = input;
+  /**
+   * The link the schema has always had a column for and nothing wrote.
+   * Without it, an invoice line that was free under a plan and one that
+   * was free because we got it wrong are the same row, and the API
+   * contract has promised a `coverageSource` on every line since it was
+   * written.
+   */
+  const entitlementId = input.jobId ? await entitlementIdFor(tx, input.jobId) : null;
+
+  const written = await tx.insert(schema.invoiceLine).values(resolved.map((r, i) => ({
+    organizationId: ctx.actor.organizationId,
+    invoiceId: input.invoiceId,
     /**
-     * BILLING EMITTED NOTHING, AT ALL.
-     *
-     * The workflow builder offered "when an invoice is paid" and "when an
-     * invoice is sent" and this module never emitted a domain event in its
-     * life. A company automating a thank-you text on payment got a workflow
-     * that saved, enabled, and never fired, and nothing logs a subscription
-     * that matches nothing because matching nothing is what a quiet week
-     * looks like.
+     * A line that explicitly says the customer is paying does not carry
+     * the job's coverage, so the document does not later claim a
+     * chargeable extra was covered by a warranty.
      */
+    entitlementId: r.coverageSource === "customer" || r.origin === "manual" ? null : entitlementId,
+    origin: r.origin,
+    sortOrder: i,
+    name: r.name,
+    description: r.description,
+    quantity: r.quantity,
+    unitPrice: m.toString(r.unitPrice),
+    unitCost: r.unitCost ? m.toString(r.unitCost) : null,
+    discountAmount: m.toString(r.discountAmount),
+    taxable: r.taxable,
+    taxRate: r.taxRate,
+    taxAmount: m.toString(computed.lines[i]!.taxAmount),
+    lineTotal: m.toString(computed.lines[i]!.lineTotal),
+    costCode: r.costCode,
+    priceBookItemVersionId: r.versionId,
+  }))).returning({ id: schema.invoiceLine.id, sortOrder: schema.invoiceLine.sortOrder });
+
+  for (const line of written) {
+    const jobLineId = resolved[line.sortOrder]?.jobLineId;
+    if (!jobLineId) continue;
+    await tx.update(schema.jobLine).set({ invoiceLineId: line.id, updatedAt: new Date() })
+      .where(eq(schema.jobLine.id, jobLineId));
+  }
+}
+
+/** A draft's job lines go back to unbilled, before its lines are replaced or it is deleted. */
+async function releaseJobLines(tx: Database, invoiceId: string): Promise<void> {
+  const ids = (await tx.select({ id: schema.invoiceLine.id }).from(schema.invoiceLine)
+    .where(eq(schema.invoiceLine.invoiceId, invoiceId))).map((r) => r.id);
+  if (ids.length === 0) return;
+  await tx.update(schema.jobLine).set({ invoiceLineId: null, updatedAt: new Date() })
+    .where(inArray(schema.jobLine.invoiceLineId, ids));
+}
+
+/**
+ * The job lines an invoice says it bills must be this job's, still unbilled,
+ * and billable. A line billed twice is the customer charged twice for one
+ * capacitor; a warranty part billed at all is the complaint that ends the
+ * relationship.
+ */
+async function assertJobLines(tx: Database, input: PricingInput, ownInvoiceId?: string): Promise<void> {
+  const ids = input.lines.map((l) => l.jobLineId).filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return;
+  if (new Set(ids).size !== ids.length) {
+    throw new ConflictError("The same job line is on this invoice twice.");
+  }
+  if (!input.jobId) {
+    throw new UnprocessableError("A job line belongs to a job", [{
+      path: "jobId", message: "Name the job the lines were used on.",
+    }]);
+  }
+  const rows = await tx.select().from(schema.jobLine).where(inArray(schema.jobLine.id, ids));
+  const mine = ownInvoiceId
+    ? new Set((await tx.select({ id: schema.invoiceLine.id }).from(schema.invoiceLine)
+      .where(eq(schema.invoiceLine.invoiceId, ownInvoiceId))).map((r) => r.id))
+    : new Set<string>();
+  for (const id of ids) {
+    const row = rows.find((r) => r.id === id);
+    if (!row || row.jobId !== input.jobId) throw new NotFoundError("Job line");
+    if (row.invoiceLineId && !mine.has(row.invoiceLineId)) {
+      throw new ConflictError(`"${row.name}" is already on another invoice.`);
+    }
+    if (row.nonBillableReason) {
+      throw new ConflictError(`"${row.name}" is not billable: ${row.nonBillableReason}.`);
+    }
+  }
+}
+
+/**
+ * Everything issuing an invoice does beyond writing it: the posting, the
+ * job moving to invoiced, the client's authorisation consumed, and the
+ * event a workflow waits for. Shared by an invoice raised as issued and a
+ * draft issued later, so the two cannot post differently.
+ */
+async function postIssue(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    invoiceId: string; customerId: string; jobId: string | null;
+    totals: ledger.InvoiceTotals; issuedOn: string; timeZone: string; now: Date;
+    historical: boolean;
+    ceiling: Awaited<ReturnType<typeof commercial.ceilingFor>>;
+  },
+): Promise<void> {
+  /**
+   * Dated by the issue date, and still an append: a back-dated posting is a
+   * new balanced pair on an earlier day, never an edit to anything already
+   * in the ledger. `writePosting` refuses it if that day is in a closed
+   * period.
+   */
+  await writePosting(tx, ctx, ledger.postInvoice({
+    invoiceId: input.invoiceId,
+    occurredAt: history.postingInstant(input.issuedOn, input.timeZone, input.now),
+    totals: input.totals,
+    customerId: input.customerId,
+    jobId: input.jobId ?? undefined,
+  }));
+
+  if (input.jobId) {
+    await tx.update(schema.job)
+      .set({ status: "invoiced", total: m.toString(input.totals.total), updatedAt: new Date() })
+      .where(eq(schema.job.id, input.jobId));
+  }
+
+  /**
+   * Consumed once the invoice exists, so a second invoice on the same job
+   * knows what the first one used. An increment rather than a computed
+   * write, so two raised at the same moment cannot both read three hundred
+   * and both write six hundred.
+   */
+  if (input.ceiling) {
+    await commercial.consume(tx, {
+      authorizationId: input.ceiling.id,
+      terms: input.ceiling.terms,
+      amount: input.totals.total,
+    });
+  }
+
+  /**
+   * BILLING EMITTED NOTHING, AT ALL.
+   *
+   * The workflow builder offered "when an invoice is paid" and "when an
+   * invoice is sent" and this module never emitted a domain event in its
+   * life. A company automating a thank-you text on payment got a workflow
+   * that saved, enabled, and never fired, and nothing logs a subscription
+   * that matches nothing because matching nothing is what a quiet week
+   * looks like.
+   *
+   * NOT FOR HISTORY. An invoice from 2019 being recorded is not an invoice
+   * being issued, and a workflow that sends "your invoice is ready" on this
+   * event would send ten years of them on the day of a migration. The
+   * audit line still records it, marked as history.
+   */
+  if (!input.historical) {
     await emit(tx, ctx, {
-      name: "invoice.issued", entityType: "invoice", entityId: invoice!.id,
+      name: "invoice.issued", entityType: "invoice", entityId: input.invoiceId,
       payload: {
-        invoiceId: invoice!.id,
-        customerId: invoice!.customerId,
-        total: computed.totals.total ? m.toString(computed.totals.total) : "0",
+        invoiceId: input.invoiceId,
+        customerId: input.customerId,
+        total: m.toString(input.totals.total),
         ...(input.jobId ? { jobId: input.jobId } : {}),
       },
     });
+  }
+}
 
-    await audit(tx, ctx, "invoice.created", "invoice", invoice!.id, null, invoice!);
-    return loadInvoice(tx, ctx, invoice!.id);
+/* ------------------------------------------------------------- drafts */
+
+/**
+ * A DRAFT IS EDITED, ISSUED OR THROWN AWAY.
+ *
+ * `invoice_status` has carried `draft` since the first migration, sending
+ * and voiding both refuse a draft by name ("issue it before sending it",
+ * "delete it rather than voiding it"), and converting an estimate writes
+ * one. Nothing could edit, issue or delete one, so an invoice converted
+ * from an approved estimate sat as a draft forever: it could not be sent,
+ * could not be paid, and could not be got rid of.
+ */
+async function loadDraft(tx: Database, id: string) {
+  const [invoice] = await tx.select().from(schema.invoice)
+    .where(and(eq(schema.invoice.id, id), isNull(schema.invoice.deletedAt))).limit(1);
+  if (!invoice) throw new NotFoundError("Invoice");
+  if (invoice.status !== "draft") {
+    throw new ConflictError(
+      `Invoice ${invoice.number} has been issued. An issued invoice is not edited: void it and raise another.`,
+    );
+  }
+  return invoice;
+}
+
+export async function updateDraft(ctx: ServiceContext, input: z.infer<typeof updateInvoice.input>) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const before = await loadDraft(tx, input.id);
+    if (input.lines?.some((l) => l.taxRate !== undefined || l.taxAmount !== undefined || l.priceAsGiven)) {
+      requireImport(ctx);
+    }
+
+    let totals: ledger.InvoiceTotals | null = null;
+    if (input.lines) {
+      const priced = await pricedForDraft(tx, ctx, before, input);
+      totals = priced.computed.totals;
+      await releaseJobLines(tx, before.id);
+      await tx.delete(schema.invoiceLine).where(eq(schema.invoiceLine.invoiceId, before.id));
+      await writeLines(tx, ctx, { invoiceId: before.id, jobId: before.jobId, ...priced });
+    }
+
+    const [after] = await tx.update(schema.invoice).set({
+      ...(totals ? {
+        subtotal: m.toString(totals.subtotal),
+        discountTotal: m.toString(totals.discountTotal),
+        taxTotal: m.toString(totals.taxTotal),
+        total: m.toString(totals.total),
+        balance: m.toString(totals.total),
+      } : {}),
+      ...(input.dueOn !== undefined ? { dueOn: input.dueOn } : {}),
+      ...(input.memo !== undefined ? { memo: input.memo } : {}),
+      ...(input.purchaseOrderNumber !== undefined ? { purchaseOrderNumber: input.purchaseOrderNumber } : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, before.id)).returning();
+
+    await audit(tx, ctx, "invoice.draft_updated", "invoice", before.id, before, after!);
+    return loadInvoice(tx, ctx, before.id);
   });
+}
+
+/** A draft's new lines, priced by the same rules as a new invoice's. */
+async function pricedForDraft(
+  tx: Database, ctx: ServiceContext,
+  draft: typeof schema.invoice.$inferSelect,
+  input: z.infer<typeof updateInvoice.input>,
+) {
+  const pricing: PricingInput = {
+    customerId: draft.customerId,
+    ...(draft.jobId ? { jobId: draft.jobId } : {}),
+    lines: input.lines!,
+    ...(input.adjustment ? { adjustment: input.adjustment } : {}),
+    ...(input.expectedTotals ? { expectedTotals: input.expectedTotals } : {}),
+  };
+  return priceInvoice(tx, ctx, pricing, draft.id);
+}
+
+export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvoice.input>) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const draft = await loadDraft(tx, input.id);
+    const now = new Date();
+    const admitted = input.issuedOn
+      ? await admitDate(tx, ctx, input.issuedOn, "issuedOn")
+      : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
+    const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
+
+    const totals: ledger.InvoiceTotals = {
+      subtotal: usd(draft.subtotal),
+      discountTotal: usd(draft.discountTotal),
+      taxTotal: usd(draft.taxTotal),
+      total: usd(draft.total),
+    };
+    if (!m.isPositive(totals.total) && !m.isZero(totals.total)) {
+      throw new ConflictError(`Invoice ${draft.number} totals less than nothing. A credit is not an invoice.`);
+    }
+
+    /** Checked again now: the authorisation may have been used since the draft was written. */
+    const ceiling = draft.jobId ? await commercial.ceilingFor(tx, draft.jobId) : null;
+    if (ceiling) {
+      const decision = authz.decide(ceiling.terms, totals.total);
+      if (!decision.ok) throw new ConflictError(decision.detail);
+    }
+
+    const [after] = await tx.update(schema.invoice).set({
+      status: "open",
+      issuedOn,
+      balance: m.toString(m.subtract(totals.total, usd(draft.amountPaid))),
+      authorizationId: ceiling?.id ?? draft.authorizationId,
+      updatedAt: now,
+    }).where(eq(schema.invoice.id, draft.id)).returning();
+
+    await postIssue(tx, ctx, {
+      invoiceId: draft.id, customerId: draft.customerId, jobId: draft.jobId,
+      totals, issuedOn, timeZone: admitted.timeZone, now, historical: admitted.historical, ceiling,
+    });
+
+    await audit(tx, ctx, "invoice.issued", "invoice", draft.id, { status: "draft" },
+      admitted.historical ? { ...after!, historical: true } : after!);
+    return loadInvoice(tx, ctx, draft.id);
+  });
+}
+
+export async function deleteDraft(ctx: ServiceContext, input: z.infer<typeof deleteInvoice.input>) {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const draft = await loadDraft(tx, input.id);
+    await releaseJobLines(tx, draft.id);
+    /**
+     * Gone rather than marked deleted. A draft was never a document anybody
+     * received and never touched the ledger, so there is nothing to keep but
+     * the audit line below, which records what it said.
+     */
+    await tx.delete(schema.invoice).where(eq(schema.invoice.id, draft.id));
+    await audit(tx, ctx, "invoice.draft_deleted", "invoice", draft.id, draft, null);
+    return { deleted: true as const, id: draft.id };
+  });
+}
+
+/**
+ * WHAT AN INVOICE CHARGES, AND WHETHER IT MAY.
+ *
+ * The pricing and the guards of `create`, on their own, so a draft being
+ * edited is priced by exactly the rules a new invoice is: price book
+ * versions in force, a contract's rate card, coverage that keeps rework off
+ * the customer's bill, the bill-to party, and the caller's expected totals
+ * as a cross check. Two copies of these rules would be two invoices that
+ * disagree about the same lines.
+ */
+type PricingInput = Pick<z.infer<typeof createInvoice.input>,
+  "customerId" | "jobId" | "lines" | "adjustment" | "expectedTotals">;
+
+async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInput, ownInvoiceId?: string) {
+  /**
+   * Prices come from the price book VERSION, not from the request, whenever
+   * an item id is given. A client that can name its own price is a client
+   * that will, and the version reference is what keeps an old invoice saying
+   * what it said after a price rise.
+   */
+  const itemIds = input.lines.map((l) => l.priceBookItemId).filter((x): x is string => Boolean(x));
+  const versions = itemIds.length
+    ? await tx.select({
+        itemId: schema.priceBookItemVersion.itemId,
+        versionId: schema.priceBookItemVersion.id,
+        name: schema.priceBookItemVersion.name,
+        price: schema.priceBookItemVersion.price,
+        cost: schema.priceBookItemVersion.cost,
+        taxable: schema.priceBookItemVersion.taxable,
+      })
+      .from(schema.priceBookItemVersion)
+      .where(and(
+        inArray(schema.priceBookItemVersion.itemId, itemIds),
+        /**
+         * The version IN FORCE, not the open ended one. `isNull(effectiveTo)`
+         * picks a revision dated ahead, so a price increase scheduled for
+         * next month applied today and the price actually in force became
+         * invisible. The reasoning is on `inForceAt`.
+         */
+        inForceAt(),
+      ))
+    : [];
+  const byItem = new Map(versions.map((v) => [v.itemId, v]));
+
+  /**
+   * WHOSE PRICE GOVERNS, PER LINE.
+   *
+   * Our price book is not the authority when the customer holds a
+   * contract with a rate card: the schema has said so since it was
+   * written, and until now nothing read it, so every commercial job
+   * invoiced at our list price and got rejected.
+   *
+   * Resolved per line rather than once per invoice, because a card covers
+   * some items and not others. A line the card prices takes the card's
+   * price; a line it does not is left at ours AND recorded, so the caller
+   * is told rather than finding out when the client rejects the invoice.
+   *
+   * COST IS NEVER TAKEN FROM THE CARD. The price is theirs and the cost is
+   * ours, which is the whole reason margin reporting still works on work
+   * we did not price.
+   */
+  const contracted = new Map<string, contracts.PriceResolution>();
+  const uncovered: string[] = [];
+  for (const itemId of new Set(itemIds)) {
+    const resolution = await contracts.priceFor(ctx, {
+      customerId: input.customerId,
+      priceBookItemId: itemId,
+    });
+    contracted.set(itemId, resolution);
+    if (!resolution.covered && resolution.cardApplies) {
+      uncovered.push(byItem.get(itemId)?.name ?? itemId);
+    }
+  }
+
+  /**
+   * TAX AS CHARGED, AND PRICES AS CHARGED, ARE HISTORY ONLY.
+   *
+   * Deciding what something costs and what tax is owed on it today is this
+   * server's job, for the reason at the top of this function. Recording
+   * what another system charged in 2021 is a different act, and the power
+   * to state a tax or keep a price the price book disagrees with is the
+   * power to make an invoice say anything, so it needs `data:import`.
+   */
+  if (input.lines.some((l) => l.taxRate !== undefined || l.taxAmount !== undefined || l.priceAsGiven)) {
+    requireImport(ctx);
+  }
+
+  const resolved = input.lines.map((line) => {
+    const linked = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
+    /**
+     * A line kept as given still links the item, so "which invoices sold
+     * this" has an answer, and takes nothing else from it: the name,
+     * price, cost and taxability are what the source charged.
+     */
+    const version = line.priceAsGiven ? undefined : linked;
+    const contract = line.priceBookItemId && !line.priceAsGiven ? contracted.get(line.priceBookItemId) : undefined;
+    const contractPrice = contract?.covered ? contract.price : undefined;
+    return {
+      name: version?.name ?? line.name,
+      description: line.description ?? null,
+      quantity: line.quantity,
+      unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
+      unitCost: version?.cost ? usd(version.cost) : null,
+      discountAmount: usd(line.discountAmount),
+      taxable: version?.taxable ?? line.taxable,
+      /**
+       * Resolved per jurisdiction in phase 5. Zero until then, honestly,
+       * unless the line is history and says what it was taxed at.
+       */
+      taxRate: line.taxRate ?? "0",
+      taxAmount: line.taxAmount === undefined ? undefined : usd(line.taxAmount),
+      costCode: line.costCode ?? null,
+      versionId: linked?.versionId ?? null,
+      coverageSource: line.coverageSource ?? null,
+      origin: "job" as "job" | "manual",
+      jobLineId: line.jobLineId ?? null as string | null,
+    };
+  });
+
+  /**
+   * AN AMOUNT THE LINES DO NOT ACCOUNT FOR.
+   *
+   * An invoice-wide discount, or a manual adjustment, had nowhere to go:
+   * the total is computed from lines and there was no line for it. It
+   * becomes one, at the end and marked `manual`, never taxable. A negative
+   * amount is a DISCOUNT rather than a negative price, so it posts to
+   * contra revenue like every other discount instead of quietly netting
+   * revenue down.
+   */
+  if (input.adjustment) {
+    const amount = usd(input.adjustment.amount);
+    if (m.isZero(amount)) {
+      throw new UnprocessableError("An adjustment of nothing is not an adjustment", [{
+        path: "adjustment.amount", message: "Send a non-zero amount, or leave the adjustment off.",
+      }]);
+    }
+    const negative = m.isNegative(amount);
+    resolved.push({
+      name: input.adjustment.name,
+      description: null,
+      quantity: "1",
+      unitPrice: negative ? usd("0") : amount,
+      unitCost: null,
+      discountAmount: negative ? m.negate(amount) : usd("0"),
+      taxable: false,
+      taxRate: "0",
+      taxAmount: undefined,
+      costCode: null,
+      versionId: null,
+      coverageSource: null,
+      origin: "manual",
+      jobLineId: null,
+    });
+  }
+
+  /**
+   * WORK THE CUSTOMER DOES NOT PAY FOR MUST NOT REACH THEM.
+   *
+   * A guard rather than a calculation. The sources this refuses on are the
+   * ones where billing the customer is not a pricing question but a
+   * mistake: we are back because of something we did, or we chose to
+   * absorb it. Rework billed to a customer is the complaint that ends a
+   * relationship, and it happens because the person invoicing was not the
+   * person who decided.
+   *
+   * A line's own `coverageSource` wins over the job's, because a job can
+   * be a callback with one chargeable extra on it.
+   */
+  const terms = input.jobId ? await entitlements.termsFor(tx, input.jobId) : null;
+  if (terms) {
+    /**
+     * Only the lines that INHERIT the job's coverage are tested. A line
+     * that names its own source was an explicit decision by whoever wrote
+     * it, including naming the customer: a callback can have one
+     * chargeable extra on it, and refusing that would make the guard
+     * something people work around rather than with.
+     */
+    const charges = resolved
+      .filter((r) => r.coverageSource == null)
+      .map((r) => ({
+        kind: chargeKindOf(r.name, r.costCode),
+        amount: m.multiply(r.unitPrice, r.quantity),
+      }));
+    const refusal = entitlements.refusalFor(terms, charges);
+    if (refusal) throw new ConflictError(refusal);
+  }
+
+  let computed: ReturnType<typeof ledger.computeInvoice>;
+  try {
+    computed = ledger.computeInvoice(resolved.map((r) => ({
+      quantity: r.quantity,
+      unitPrice: r.unitPrice,
+      discountAmount: r.discountAmount,
+      taxable: r.taxable,
+      taxRate: r.taxRate,
+      ...(r.taxAmount ? { taxAmount: r.taxAmount } : {}),
+    })));
+  } catch (error) {
+    if (error instanceof ledger.TaxAsAppliedError) {
+      throw new UnprocessableError("A line's tax is not what its rate gives", [{
+        path: `lines.${error.line}.taxAmount`, message: error.message,
+      }]);
+    }
+    throw error;
+  }
+
+  /**
+   * The caller's totals, compared and never used. See the contract.
+   */
+  if (input.expectedTotals) {
+    const expected: Partial<Record<keyof ledger.InvoiceTotals, ReturnType<typeof usd>>> = {};
+    for (const [field, value] of Object.entries(input.expectedTotals)) {
+      if (value !== undefined) expected[field as keyof ledger.InvoiceTotals] = usd(value);
+    }
+    const wrong = ledger.totalsMismatch(computed.totals, expected);
+    if (wrong.length > 0) {
+      throw new UnprocessableError("The invoice does not add up to the totals expected", wrong.map((w) => ({
+        path: `expectedTotals.${w.field}`,
+        message: `Expected ${w.expected}; the lines give ${w.computed}.`,
+      })));
+    }
+  }
+
+  /**
+   * THE INVOICE GOES TO WHOEVER IS BEING BILLED, NOT TO WHOEVER IS ON SITE.
+   *
+   * A property manager orders the work, a tenant is there, an owner pays.
+   * The product assumed one customer holding every role, and an invoice
+   * addressed to the tenant is a document the payer will not accept and
+   * the tenant should never have seen.
+   *
+   * Nobody named means the residential case, where the job's customer is
+   * all of them, and nothing about that gets harder.
+   */
+  if (input.jobId) {
+    const billTo = await commercial.billToFor(tx, input.jobId);
+    if (billTo?.customerId && billTo.customerId !== input.customerId) {
+      const [who] = await tx.select({ name: schema.customer.name })
+        .from(schema.customer).where(eq(schema.customer.id, billTo.customerId)).limit(1);
+      throw new ConflictError(
+        `This job is billed to ${who?.name ?? "another party"}, not to the customer on the invoice.`,
+      );
+    }
+  }
+
+  await assertJobLines(tx, input, ownInvoiceId);
+  return { resolved, computed, uncovered };
 }
 
 /**
@@ -420,6 +805,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.customerId ? eq(schema.invoice.customerId, input.customerId) : undefined,
         input.payerCustomerId ? eq(schema.invoice.payerCustomerId, input.payerCustomerId) : undefined,
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
+        byExternal(schema.invoice, input),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))
       .orderBy(desc(schema.invoice.createdAt))
@@ -473,11 +859,25 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
             id: existing.id,
             amount: existing.amount,
             allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
+            unappliedAmount: m.toString(unappliedOf(existing, allocations)),
             ledgerTransactionId: "",
           };
         }
       }
     }
+
+    /**
+     * WHEN THE MONEY ARRIVED, and the ledger now agrees. `receivedAt` has
+     * always been accepted and stored on the payment, and the posting
+     * ignored it and used the wall clock, so a cheque received in March and
+     * keyed in April was March on the payment and April in the books. Both
+     * now say March, and saying March needs the same authority as any other
+     * business date (see services/history.ts).
+     */
+    const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
+    const admitted = input.receivedAt
+      ? await admitInstant(tx, ctx, receivedAt, "receivedAt")
+      : { historical: false };
 
     const amount = usd(input.amount);
     const tip = usd(input.tipAmount);
@@ -486,7 +886,18 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
 
     const allocations = input.allocations?.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) })) ?? [];
 
-    if (allocations.length === 0) {
+    /**
+     * OMITTED AND EMPTY ARE DIFFERENT REQUESTS.
+     *
+     * Omitted means "apply it the way a bookkeeper would", oldest balance
+     * first. An empty list means "apply it to nothing": a deposit on work not
+     * started, or a customer paying ahead. Both used to mean oldest first, so
+     * a deposit taken last week for next month's job silently paid an
+     * invoice from 2021, and there was no way to record money held for a
+     * customer at all. Whatever is not applied is held as a liability (see
+     * `postPayment`) until it is applied or given back.
+     */
+    if (input.allocations === undefined) {
       /**
        * Oldest balance first, as a TOTAL order: most overdue, then oldest
        * issued, then by invoice number. The number is the last tie break
@@ -518,6 +929,8 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       }
     }
 
+    if (input.allocations !== undefined) await assertAllocatable(tx, input.customerId, allocations);
+
     const allocatedTotal = m.sum(allocations.map((a) => a.amount), "USD");
     if (m.compare(allocatedTotal, amount) > 0) {
       throw new ConflictError(
@@ -525,8 +938,10 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       );
     }
 
+    await assertUnclaimed(tx, "payment", input.externalRef);
     const [payment] = await tx.insert(schema.payment).values({
       organizationId: ctx.actor.organizationId,
+      ...provenance(input.externalRef),
       customerId: input.customerId,
       method: input.method,
       status: "succeeded",
@@ -534,7 +949,7 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       tipAmount: m.toString(tip),
       feeAmount: m.toString(fee),
       surchargeAmount: m.toString(surcharge),
-      receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
+      receivedAt,
       checkNumber: input.checkNumber ?? null,
       notes: input.notes ?? null,
       processorPaymentId: input.processorPaymentId ?? null,
@@ -542,58 +957,9 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
     }).returning();
 
     /** Invoices this payment took to zero, carried on the payment event. */
-    const settled: string[] = [];
-
-    for (const allocation of allocations) {
-      await tx.insert(schema.paymentAllocation).values({
-        organizationId: ctx.actor.organizationId,
-        paymentId: payment!.id,
-        invoiceId: allocation.invoiceId,
-        amount: m.toString(allocation.amount),
-      });
-
-      const [invoice] = await tx.select().from(schema.invoice)
-        .where(eq(schema.invoice.id, allocation.invoiceId)).limit(1);
-      if (!invoice) throw new NotFoundError("Invoice");
-
-      const paid = m.add(usd(invoice.amountPaid), allocation.amount);
-      const balance = m.subtract(usd(invoice.total), paid);
-
-      await tx.update(schema.invoice).set({
-        amountPaid: m.toString(paid),
-        balance: m.toString(balance),
-        status: m.isZero(balance) || m.isNegative(balance) ? "paid" : "partially_paid",
-        updatedAt: new Date(),
-      }).where(eq(schema.invoice.id, allocation.invoiceId));
-
-      if (invoice.jobId && (m.isZero(balance) || m.isNegative(balance))) {
-        await tx.update(schema.job).set({ status: "paid", updatedAt: new Date() })
-          .where(eq(schema.job.id, invoice.jobId));
-      }
-
-      /**
-       * PAID IN FULL IS THE EVENT, not "a payment touched this invoice".
-       *
-       * A part payment on a thousand dollar invoice is not the moment to
-       * send a thank you, and a workflow author writing "when an invoice is
-       * paid" means the balance reached zero. `payment.received` below is
-       * the other event, for the automations that do care about every
-       * payment.
-       */
-      if (m.isZero(balance) || m.isNegative(balance)) {
-        settled.push(allocation.invoiceId);
-        await emit(tx, ctx, {
-          name: "invoice.paid", entityType: "invoice", entityId: allocation.invoiceId,
-          payload: {
-            invoiceId: allocation.invoiceId,
-            customerId: input.customerId,
-            total: m.toString(usd(invoice.total)),
-            ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
-          },
-          previous: { balance: invoice.balance, status: invoice.status },
-        });
-      }
-    }
+    const settled = await allocate(tx, ctx, {
+      paymentId: payment!.id, customerId: input.customerId, allocations, announce: !admitted.historical,
+    });
 
     /**
      * THE FEE IS A LEDGER LEG, not a note on the payment row.
@@ -607,8 +973,9 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
      */
     const transactionId = await writePosting(tx, ctx, ledger.postPayment({
       paymentId: payment!.id,
-      occurredAt: new Date(),
+      occurredAt: receivedAt,
       appliedAmount: allocatedTotal,
+      unappliedAmount: m.subtract(amount, allocatedTotal),
       tipAmount: tip,
       surchargeAmount: surcharge,
       processingFee: fee,
@@ -624,7 +991,11 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       });
     }
 
-    await emit(tx, ctx, {
+    /**
+     * Not for history either. "Thanks for your payment" for a cheque from
+     * 2021 is the text a migration must never send.
+     */
+    if (!admitted.historical) await emit(tx, ctx, {
       name: "payment.received", entityType: "payment", entityId: payment!.id,
       payload: {
         paymentId: payment!.id,
@@ -636,15 +1007,439 @@ export async function pay(ctx: ServiceContext, input: z.infer<typeof recordPayme
       },
     });
 
-    await audit(tx, ctx, "payment.recorded", "payment", payment!.id, null, payment!);
+    await audit(tx, ctx, "payment.recorded", "payment", payment!.id, null,
+      admitted.historical ? { ...payment!, historical: true } : payment!);
 
     return {
       id: payment!.id,
       amount: m.toString(amount),
       allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, amount: m.toString(a.amount) })),
+      unappliedAmount: m.toString(m.subtract(amount, allocatedTotal)),
       ledgerTransactionId: transactionId,
     };
   });
+}
+
+/**
+ * WHERE MONEY MAY BE APPLIED, asked the same way whoever is applying it.
+ *
+ * Applying held money later checked all of this, and recording a payment
+ * with its allocations named checked none of it: a payment could be put
+ * on another customer's invoice, on a void or a draft one (which `allocate`
+ * then marked paid), or for more than the invoice owed, leaving a negative
+ * balance the AR report counted as money the company owed back. Now both
+ * ask here: this customer's (or the invoice's payer's), open, a positive
+ * amount, never more than the balance, counting every line for the same
+ * invoice together.
+ */
+async function assertAllocatable(
+  tx: Database, customerId: string,
+  allocations: Array<{ invoiceId: string; amount: m.Money }>,
+): Promise<void> {
+  if (allocations.some((a) => !m.isPositive(a.amount))) {
+    throw new UnprocessableError("Each allocation must be a positive amount", [{
+      path: "allocations", message: "Apply a positive amount to each invoice.",
+    }]);
+  }
+  const byInvoice = new Map<string, m.Money>();
+  for (const a of allocations) byInvoice.set(a.invoiceId, m.add(byInvoice.get(a.invoiceId) ?? usd("0"), a.amount));
+  for (const [invoiceId, amount] of byInvoice) {
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(and(eq(schema.invoice.id, invoiceId), isNull(schema.invoice.deletedAt))).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+    if ((invoice.payerCustomerId ?? invoice.customerId) !== customerId
+      && invoice.customerId !== customerId) {
+      throw new ConflictError(`Invoice ${invoice.number} is not this customer's.`);
+    }
+    if (invoice.status !== "open" && invoice.status !== "partially_paid") {
+      throw new ConflictError(`Invoice ${invoice.number} is ${invoice.status.replace("_", " ")} and takes no payment.`);
+    }
+    if (m.compare(amount, usd(invoice.balance)) > 0) {
+      throw new ConflictError(`Invoice ${invoice.number} owes ${m.toString(usd(invoice.balance))}, less than ${m.toString(amount)}.`);
+    }
+  }
+}
+
+/**
+ * What of a payment is still held for the customer: what arrived, less what
+ * was applied, less what was given back. Never below zero, because a
+ * processor refund of applied money moves the receivable rather than the
+ * credit.
+ */
+export function unappliedOf(
+  payment: { amount: string; refundedAmount: string },
+  allocations: Array<{ amount: string }>,
+): m.Money {
+  const left = m.subtract(
+    m.subtract(usd(payment.amount), m.sum(allocations.map((a) => usd(a.amount)), "USD")),
+    usd(payment.refundedAmount),
+  );
+  return m.isNegative(left) ? usd("0") : left;
+}
+
+/**
+ * Applying money a customer paid earlier to invoices now.
+ *
+ * Never more than the payment still holds, never more than an invoice owes,
+ * and only to that customer's open invoices: an unapplied credit applied to
+ * somebody else's invoice is a transfer between customers, which is a
+ * different conversation. Posted today, because the application happens
+ * today; the cash arrived when the payment did.
+ */
+export async function applyPayment(
+  ctx: ServiceContext,
+  input: { id: string; allocations: Array<{ invoiceId: string; amount: string }> },
+) {
+  return guardedWrite(ctx, "payment:collect", async (tx) => {
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "payment_application"),
+        )).limit(1);
+      if (seen?.entityId) return loadPayment(tx, ctx, input.id);
+    }
+
+    const [payment] = await tx.select().from(schema.payment)
+      .where(eq(schema.payment.id, input.id)).limit(1);
+    if (!payment) throw new NotFoundError("Payment");
+    const existing = await tx.select({ amount: schema.paymentAllocation.amount })
+      .from(schema.paymentAllocation).where(eq(schema.paymentAllocation.paymentId, payment.id));
+
+    const held = unappliedOf(payment, existing);
+    const allocations = input.allocations.map((a) => ({ invoiceId: a.invoiceId, amount: usd(a.amount) }));
+    const total = m.sum(allocations.map((a) => a.amount), "USD");
+    if (!m.isPositive(total) || allocations.some((a) => !m.isPositive(a.amount))) {
+      throw new UnprocessableError("Each allocation must be a positive amount", [{
+        path: "allocations", message: "Apply a positive amount to each invoice.",
+      }]);
+    }
+    if (m.compare(total, held) > 0) {
+      throw new ConflictError(`This payment holds ${m.toString(held)} unapplied, and ${m.toString(total)} was asked for.`);
+    }
+
+    await assertAllocatable(tx, payment.customerId, allocations);
+
+    await allocate(tx, ctx, {
+      paymentId: payment.id, customerId: payment.customerId, allocations, announce: true,
+    });
+    await writePosting(tx, ctx, ledger.postCreditApplication({
+      paymentId: payment.id, occurredAt: new Date(), amount: total, customerId: payment.customerId,
+    }));
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "payment.apply",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "payment_application", entityId: payment.id,
+      });
+    }
+    await audit(tx, ctx, "payment.applied", "payment", payment.id,
+      { unapplied: m.toString(held) },
+      { allocations: input.allocations, unapplied: m.toString(m.subtract(held, total)) });
+    return loadPayment(tx, ctx, payment.id);
+  });
+}
+
+/**
+ * Recording a refund paid by hand.
+ *
+ * Out of held money first, because returning a credit nobody used reverses
+ * nothing that was ever owed. Beyond that it reopens what the payment paid,
+ * newest allocation first, as NEGATIVE allocation rows rather than edits to
+ * the old ones: the allocations are the history of where this money went,
+ * and that history now says it came back. The invoice's paid amount and
+ * balance follow, so the cache agrees with the receivable the posting puts
+ * back.
+ *
+ * A job already marked paid stays paid. Its lifecycle does not go
+ * backwards, and the invoice is what now shows money owed.
+ */
+export async function recordRefund(
+  ctx: ServiceContext,
+  input: {
+    id: string; amount: string; method: string; reason: string;
+    refundedAt?: string | undefined; checkNumber?: string | undefined;
+  },
+) {
+  return guardedWrite(ctx, "payment:refund", async (tx) => {
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "payment_refund"),
+        )).limit(1);
+      if (seen?.entityId) return loadPayment(tx, ctx, seen.entityId);
+    }
+
+    const refundedAt = input.refundedAt ? new Date(input.refundedAt) : new Date();
+    if (input.refundedAt) await admitInstant(tx, ctx, refundedAt, "refundedAt");
+
+    const [payment] = await tx.select().from(schema.payment)
+      .where(eq(schema.payment.id, input.id)).limit(1);
+    if (!payment) throw new NotFoundError("Payment");
+
+    const amount = usd(input.amount);
+    if (!m.isPositive(amount)) {
+      throw new UnprocessableError("A refund is a positive amount", [{
+        path: "amount", message: "Send how much went back, as a positive amount.",
+      }]);
+    }
+    const left = m.subtract(usd(payment.amount), usd(payment.refundedAmount));
+    if (m.compare(amount, left) > 0) {
+      throw new ConflictError(`Only ${m.toString(left)} of that payment is left to refund.`);
+    }
+
+    const { fromHeld, after } = await reverseForRefund(tx, ctx, payment, amount, refundedAt);
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "payment.refund_recorded",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "payment_refund", entityId: payment.id,
+      });
+    }
+    await audit(tx, ctx, "payment.refund_recorded", "payment", payment.id, payment, {
+      ...after!, refund: {
+        amount: m.toString(amount), fromHeld: m.toString(fromHeld), method: input.method,
+        refundedAt, checkNumber: input.checkNumber ?? null, reason: input.reason,
+      },
+    });
+    return loadPayment(tx, ctx, payment.id);
+  });
+}
+
+/**
+ * What a refund does to the books, whoever reports it.
+ *
+ * Shared by a refund recorded by hand (`recordRefund`) and one the card
+ * processor reports (`payments.receive`), so the two cannot disagree about
+ * which invoices reopen or what the posting says. Out of held money first,
+ * then newest allocation first as negative allocation rows; the invoices'
+ * paid amount and balance follow; one `refund` posting dated `refundedAt`;
+ * and the payment's refunded total and status move with it. A void or
+ * written off invoice is refused rather than reopened, because the money it
+ * received cannot go back onto a receivable that no longer exists.
+ *
+ * The caller has already checked `amount` against what is left to refund.
+ */
+export async function reverseForRefund(
+  tx: Database, ctx: ServiceContext, payment: typeof schema.payment.$inferSelect,
+  amount: m.Money, refundedAt: Date,
+): Promise<{ fromHeld: m.Money; after: typeof schema.payment.$inferSelect }> {
+  const allocations = await tx.select().from(schema.paymentAllocation)
+    .where(eq(schema.paymentAllocation.paymentId, payment.id))
+    .orderBy(desc(schema.paymentAllocation.createdAt));
+  const held = unappliedOf(payment, allocations);
+  const fromHeld = m.compare(amount, held) <= 0 ? amount : held;
+  let fromApplied = m.subtract(amount, fromHeld);
+
+  /** What is still applied to each invoice, newest first. */
+  const netByInvoice = new Map<string, m.Money>();
+  for (const a of [...allocations].reverse()) {
+    netByInvoice.set(a.invoiceId, m.add(netByInvoice.get(a.invoiceId) ?? usd("0"), usd(a.amount)));
+  }
+  const order = [...new Set(allocations.map((a) => a.invoiceId))];
+
+  for (const invoiceId of order) {
+    if (!m.isPositive(fromApplied)) break;
+    const applied = netByInvoice.get(invoiceId) ?? usd("0");
+    if (!m.isPositive(applied)) continue;
+    const take = m.compare(fromApplied, applied) <= 0 ? fromApplied : applied;
+
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(eq(schema.invoice.id, invoiceId)).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+    if (invoice.status === "void" || invoice.status === "written_off") {
+      throw new ConflictError(
+        `Invoice ${invoice.number} is ${invoice.status.replace("_", " ")}, so the money this payment put on it cannot be reopened there.`,
+      );
+    }
+    await tx.insert(schema.paymentAllocation).values({
+      organizationId: ctx.actor.organizationId,
+      paymentId: payment.id, invoiceId, amount: m.toString(m.negate(take)),
+    });
+    const paid = m.subtract(usd(invoice.amountPaid), take);
+    const balance = m.add(usd(invoice.balance), take);
+    await tx.update(schema.invoice).set({
+      amountPaid: m.toString(paid),
+      balance: m.toString(balance),
+      status: m.isPositive(paid) ? "partially_paid" : "open",
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, invoiceId));
+    fromApplied = m.subtract(fromApplied, take);
+  }
+
+  await writePosting(tx, ctx, ledger.postRefund({
+    refundId: payment.id, occurredAt: refundedAt, amount, heldAmount: fromHeld,
+    customerId: payment.customerId,
+  }));
+
+  const refunded = m.add(usd(payment.refundedAmount), amount);
+  const [after] = await tx.update(schema.payment).set({
+    refundedAmount: m.toString(refunded),
+    status: m.compare(refunded, usd(payment.amount)) >= 0 ? "refunded" : "partially_refunded",
+    updatedAt: new Date(),
+  }).where(eq(schema.payment.id, payment.id)).returning();
+  return { fromHeld, after: after! };
+}
+
+/** A payment as the API returns it, inside a caller's transaction. */
+export async function loadPayment(tx: Database, ctx: ServiceContext, id: string) {
+  const [payment] = await tx.select().from(schema.payment).where(eq(schema.payment.id, id)).limit(1);
+  if (!payment) throw new NotFoundError("Payment");
+  const allocations = await tx.select({
+    invoiceId: schema.paymentAllocation.invoiceId,
+    amount: schema.paymentAllocation.amount,
+  }).from(schema.paymentAllocation)
+    .where(eq(schema.paymentAllocation.paymentId, id))
+    .orderBy(asc(schema.paymentAllocation.createdAt));
+  const { idempotencyKey: _key, ...rest } = payment;
+  return {
+    ...clean(ctx, "payment", rest),
+    allocations,
+    unappliedAmount: m.toString(unappliedOf(payment, allocations)),
+  };
+}
+
+/**
+ * Payments, newest received first.
+ *
+ * Cursor on the received instant and then the id, because a migration loads
+ * hundreds of payments dated the same day and a cursor on the instant alone
+ * would skip or repeat them at a page boundary.
+ */
+export async function pagePayments(ctx: ServiceContext, input: z.infer<typeof listPayments_.input>) {
+  return guardedRead(ctx, "payment:read", async (tx) => {
+    const cursor = decodeCursor(input.cursor);
+    const [at, id] = cursor ? cursor.split("|") : [];
+    const rows = await tx.select().from(schema.payment)
+      .where(and(
+        input.customerId ? eq(schema.payment.customerId, input.customerId) : undefined,
+        input.method ? eq(schema.payment.method, input.method) : undefined,
+        input.status ? eq(schema.payment.status, input.status as never) : undefined,
+        input.receivedFrom ? gte(schema.payment.receivedAt, new Date(input.receivedFrom)) : undefined,
+        input.receivedTo ? lt(schema.payment.receivedAt, new Date(input.receivedTo)) : undefined,
+        input.invoiceId
+          ? inArray(schema.payment.id, tx.select({ id: schema.paymentAllocation.paymentId })
+            .from(schema.paymentAllocation)
+            .where(eq(schema.paymentAllocation.invoiceId, input.invoiceId)))
+          : undefined,
+        byExternal(schema.payment, input),
+        at && id
+          ? sql`(${schema.payment.receivedAt}, ${schema.payment.id}) < (${new Date(at).toISOString()}::timestamptz, ${id}::uuid)`
+          : undefined,
+      ))
+      .orderBy(desc(schema.payment.receivedAt), desc(schema.payment.id))
+      .limit(input.unappliedOnly ? 1000 : input.limit + 1);
+
+    const ids = rows.map((r) => r.id);
+    const allocations = ids.length
+      ? await tx.select({
+          paymentId: schema.paymentAllocation.paymentId,
+          invoiceId: schema.paymentAllocation.invoiceId,
+          amount: schema.paymentAllocation.amount,
+        }).from(schema.paymentAllocation)
+          .where(inArray(schema.paymentAllocation.paymentId, ids))
+          .orderBy(asc(schema.paymentAllocation.createdAt))
+      : [];
+
+    const shaped = rows.map((payment) => {
+      const own = allocations.filter((a) => a.paymentId === payment.id)
+        .map((a) => ({ invoiceId: a.invoiceId, amount: a.amount }));
+      const { idempotencyKey: _key, ...rest } = payment;
+      return {
+        row: payment,
+        out: {
+          ...clean(ctx, "payment", rest),
+          allocations: own,
+          unappliedAmount: m.toString(unappliedOf(payment, own)),
+        },
+      };
+    });
+    /**
+     * Held money is computed, not stored, so "only what still holds
+     * something" is a filter over the computed figure, bounded so a company
+     * with a decade of payments cannot ask for all of them at once.
+     */
+    const kept = input.unappliedOnly
+      ? shaped.filter((p) => m.isPositive(usd(p.out.unappliedAmount))).slice(0, input.limit + 1)
+      : shaped;
+    const page = paginate(kept, input.limit, (p) => `${p.row.receivedAt.toISOString()}|${p.row.id}`);
+    return { ...page, data: page.data.map((p) => p.out) };
+  });
+}
+
+/**
+ * Applying money to invoices, for a payment as it arrives and for one applied
+ * later. One loop, so the two cannot disagree about what "paid" means.
+ *
+ * Returns the invoices taken to zero.
+ */
+async function allocate(
+  tx: Database, ctx: ServiceContext,
+  input: {
+    paymentId: string; customerId: string;
+    allocations: Array<{ invoiceId: string; amount: m.Money }>;
+    /** False for history, which is recorded and not announced. */
+    announce: boolean;
+  },
+): Promise<string[]> {
+  const settled: string[] = [];
+  for (const allocation of input.allocations) {
+    await tx.insert(schema.paymentAllocation).values({
+      organizationId: ctx.actor.organizationId,
+      paymentId: input.paymentId,
+      invoiceId: allocation.invoiceId,
+      amount: m.toString(allocation.amount),
+    });
+
+    const [invoice] = await tx.select().from(schema.invoice)
+      .where(eq(schema.invoice.id, allocation.invoiceId)).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+
+    const paid = m.add(usd(invoice.amountPaid), allocation.amount);
+    const balance = m.subtract(usd(invoice.total), paid);
+
+    await tx.update(schema.invoice).set({
+      amountPaid: m.toString(paid),
+      balance: m.toString(balance),
+      status: m.isZero(balance) || m.isNegative(balance) ? "paid" : "partially_paid",
+      updatedAt: new Date(),
+    }).where(eq(schema.invoice.id, allocation.invoiceId));
+
+    if (invoice.jobId && (m.isZero(balance) || m.isNegative(balance))) {
+      await tx.update(schema.job).set({ status: "paid", updatedAt: new Date() })
+        .where(eq(schema.job.id, invoice.jobId));
+    }
+
+    /**
+     * PAID IN FULL IS THE EVENT, not "a payment touched this invoice".
+     *
+     * A part payment on a thousand dollar invoice is not the moment to
+     * send a thank you, and a workflow author writing "when an invoice is
+     * paid" means the balance reached zero. `payment.received` is the other
+     * event, for the automations that do care about every payment.
+     */
+    if (m.isZero(balance) || m.isNegative(balance)) {
+      settled.push(allocation.invoiceId);
+      if (input.announce) await emit(tx, ctx, {
+        name: "invoice.paid", entityType: "invoice", entityId: allocation.invoiceId,
+        payload: {
+          invoiceId: allocation.invoiceId,
+          customerId: input.customerId,
+          total: m.toString(usd(invoice.total)),
+          ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+        },
+        previous: { balance: invoice.balance, status: invoice.status },
+      });
+    }
+  }
+  return settled;
 }
 
 /**
@@ -788,6 +1583,29 @@ export async function voidInvoice(
       balance: "0",
       updatedAt: new Date(),
     }).where(eq(schema.invoice.id, invoice.id));
+
+    /**
+     * THE JOB IS NO LONGER INVOICED once nothing live bills it. The status
+     * graph has always allowed invoiced back to completed "if the invoice is
+     * voided", and nothing ever made the move, so a job whose only invoice
+     * was voided said invoiced for ever and never reached a list of work
+     * waiting to be billed. Its job lines go back to unbilled for the same
+     * reason: the invoice that billed them no longer charges anything.
+     */
+    await releaseJobLines(tx, invoice.id);
+    if (invoice.jobId) {
+      const [live] = await tx.select({ id: schema.invoice.id }).from(schema.invoice)
+        .where(and(
+          eq(schema.invoice.jobId, invoice.jobId),
+          inArray(schema.invoice.status, ["open", "partially_paid", "paid", "written_off"]),
+          isNull(schema.invoice.deletedAt),
+          sql`${schema.invoice.id} <> ${invoice.id}`,
+        )).limit(1);
+      if (!live) {
+        await tx.update(schema.job).set({ status: "completed", updatedAt: new Date() })
+          .where(and(eq(schema.job.id, invoice.jobId), eq(schema.job.status, "invoiced")));
+      }
+    }
 
     await audit(tx, ctx, "invoice.voided", "invoice", invoice.id,
       { status: invoice.status, balance: invoice.balance },
@@ -972,8 +1790,13 @@ export async function listPayments(ctx: ServiceContext, input: PaymentQuery): Pr
         input.customerId ? eq(schema.payment.customerId, input.customerId) : undefined,
         input.method ? eq(schema.payment.method, input.method as never) : undefined,
         input.status ? eq(schema.payment.status, input.status as never) : undefined,
-        input.from ? sql`${schema.payment.receivedAt} >= ${new Date(input.from)}` : undefined,
-        input.to ? sql`${schema.payment.receivedAt} <= ${new Date(input.to)}` : undefined,
+        /**
+         * Through the column operators rather than a raw template. A Date
+         * interpolated into `sql` reaches the driver unencoded and the
+         * request fails, so a date range on this read had never worked.
+         */
+        input.from ? gte(schema.payment.receivedAt, new Date(input.from)) : undefined,
+        input.to ? lte(schema.payment.receivedAt, new Date(input.to)) : undefined,
       ))
       .orderBy(desc(schema.payment.receivedAt))
       .limit(limit);
@@ -1079,6 +1902,29 @@ export async function listPayments(ctx: ServiceContext, input: PaymentQuery): Pr
   });
 }
 
+/**
+ * `GET /v1/payments`: a page of payments and the totals for the window.
+ *
+ * The page is `pagePayments`, which a migration reads back through by
+ * cursor and by `externalRef`. The totals are `listPayments`, which a day's
+ * banking is checked against. They answer one request because they arrived
+ * as two routes on one path from two branches, and both answers were wanted.
+ */
 export const paymentReadHandlers = {
-  listPayments: (ctx: ServiceContext, input: PaymentQuery) => listPayments(ctx, input),
+  listPayments: async (ctx: ServiceContext, input: z.infer<typeof listPayments_.input>) => {
+    const page = await pagePayments(ctx, input);
+    const summary = await listPayments(ctx, {
+      customerId: input.customerId,
+      invoiceId: input.invoiceId,
+      method: input.method,
+      status: input.status,
+      from: input.receivedFrom,
+      /** `receivedTo` is exclusive and `to` is inclusive; a millisecond apart. */
+      to: input.receivedTo
+        ? new Date(new Date(input.receivedTo).getTime() - 1).toISOString()
+        : undefined,
+      limit: 500,
+    });
+    return { ...page, totals: summary.totals, byMethod: summary.byMethod };
+  },
 } as const;

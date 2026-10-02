@@ -204,7 +204,7 @@ export async function tickOne(db: Database, row: DueRow, now: Date): Promise<Tic
  */
 export async function tick(
   db: Database,
-  options: { now?: Date; limit?: number } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
 ): Promise<TickResult[]> {
   const now = options.now ?? new Date();
   const rows = await db.execute<DueRow>(
@@ -213,6 +213,8 @@ export async function tick(
 
   const results: TickResult[] = [];
   for (const row of rows) {
+    // Between items, never inside one: see `shouldStop` on runPass.
+    if (options.shouldStop?.()) break;
     try {
       results.push(await tickOne(db, row, now));
     } catch (error) {
@@ -276,7 +278,7 @@ export async function resumeOne(
 
 export async function resumeDue(
   db: Database,
-  options: { now?: Date; limit?: number } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
 ): Promise<ResumeResult[]> {
   const now = options.now ?? new Date();
   const rows = await db.execute<DueRunRow>(
@@ -285,6 +287,8 @@ export async function resumeDue(
 
   const results: ResumeResult[] = [];
   for (const row of rows) {
+    // Between items, never inside one: see `shouldStop` on runPass.
+    if (options.shouldStop?.()) break;
     try {
       const run = await resumeOne(db, row.organization_id, row.run_id, now);
       results.push({ organizationId: row.organization_id, runId: row.run_id, run });

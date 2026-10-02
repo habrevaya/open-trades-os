@@ -12,8 +12,8 @@ import { sendTransactional } from "./comms-send";
 import type {
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot,
 } from "../contracts/field";
+import { portalBase } from "../lib/portal-base";
 
-const PORTAL_BASE = process.env.PORTAL_BASE_URL ?? "https://portal.example.com";
 
 /**
  * THE BOARD
@@ -336,7 +336,7 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
         // service report, short enough that a forwarded link does not live on.
         expiresAt: new Date(Date.now() + 30 * 864e5),
       });
-      trackingUrl = `${PORTAL_BASE}/j/${token}`;
+      trackingUrl = `${portalBase()}/j/${token}`;
     }
 
     const outcome = address

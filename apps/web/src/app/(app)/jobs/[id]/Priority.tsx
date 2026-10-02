@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { work } from "@opentradesos/core";
 import { setPriority } from "./actions";
 
@@ -13,10 +13,10 @@ import { setPriority } from "./actions";
  * second week.
  */
 export function Priority({ jobId, current }: { jobId: string; current: number }) {
-  const [state, submit, pending] = useActionState(setPriority, null);
+  const [state, submitForm, pending] = useKeptAction(setPriority, null);
 
   return (
-    <form action={submit} className="mt-6 flex flex-wrap items-end gap-3">
+    <form {...submitForm} className="mt-6 flex flex-wrap items-end gap-3">
       <input type="hidden" name="jobId" value={jobId} />
       <label className="text-sm">
         <span className="block font-medium text-ink-700">How urgent</span>

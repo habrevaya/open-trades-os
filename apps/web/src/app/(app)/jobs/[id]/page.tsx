@@ -2,18 +2,26 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  jobs, customers, commercial, entitlements, files, NotFoundError,
+  jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, NotFoundError,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Authorize, Coverage } from "./Commercial";
 import { Priority } from "./Priority";
 import { Parties } from "./Parties";
+import { Costing } from "./Costing";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
-import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, label, tone } from "@/lib/labels";
+import { JOB_STATUS, VISIT_STATUS, JOB_TONE, VISIT_TONE, INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
+import { ActionForm } from "@/components/ActionForm";
+import { VisitFields } from "@/components/VisitFields";
+import { technicianChoices } from "@/lib/technicians";
+import { todayIn } from "@/lib/dates";
+import { addVisit } from "../actions";
+import { completeVisitFromOffice, setJobStatus } from "./actions";
+import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +38,15 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       if (error instanceof NotFoundError) notFound();
       throw error;
     });
+
+  /**
+   * Cost against revenue, for whoever may read both. The statement asks for
+   * the financial reports permission and job costing together; checking
+   * them here keeps the section absent rather than present and refusing.
+   */
+  const costing = can(user.actor, "report.financial:read") && can(user.actor, "job.cost:read")
+    ? await profitability.statement(ctx, { jobId: id })
+    : null;
 
   const [parties, authorization, entitlement, customer] = await Promise.all([
     commercial.parties(ctx, { jobId: id }),
@@ -64,6 +81,21 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     { stored: 0, pending: 0, abandoned: 0 },
   );
   const writes = can(user.actor, "job:write");
+  const schedules = can(user.actor, "visit:write") && job.status !== "cancelled" && job.status !== "paid";
+  const technicians = await technicianChoices(ctx, user.organizationTimezone);
+  const nameOf = new Map(technicians.map((t) => [t.id, t.displayName]));
+  const completes = can(user.actor, "job:complete");
+  const openVisits = job.visits.filter((v) => (OPEN_VISIT as readonly string[]).includes(v.status));
+  const used = (await jobs.lines(ctx, { id })).data;
+  const invoices = can(user.actor, "invoice:read")
+    ? (await billing.list(ctx, { limit: 50, jobId: id })).data
+    : [];
+  const canInvoice = can(user.actor, "invoice:write") && job.status !== "cancelled";
+  const items = completes && openVisits.length > 0 && can(user.actor, "pricebook:read")
+    ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
+      .map((item) => ({ id: item.id, name: item.name, price: item.price }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -216,13 +248,15 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           }
         : null} /> : null}
 
+      {costing && <Costing data={costing} />}
+
       <h2 className="mt-10 text-base font-semibold">Visits</h2>
       {job.visits.length === 0 ? (
         <Empty title="Not scheduled yet">
           A job becomes work when it has a visit on the board.
         </Empty>
       ) : (
-        <Table head={<><Th className="w-16">#</Th><Th>Window</Th><Th>Status</Th></>}>
+        <Table head={<><Th className="w-16">#</Th><Th>Window</Th><Th>Who</Th><Th>Status</Th></>}>
           {job.visits.map((visit) => (
             <tr key={visit.id}>
               <Td className="font-mono tabular-nums text-ink-700">{visit.sequence}</Td>
@@ -236,6 +270,14 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                 {visit.windowStart
                   ? formatIn(visit.windowStart, user.organizationTimezone)
                   : "Unscheduled"}
+                {visit.technicianNotes ? (
+                  <p className="mt-1 whitespace-pre-line text-xs text-ink-500">{visit.technicianNotes}</p>
+                ) : null}
+              </Td>
+              <Td className="text-ink-700">
+                {visit.technicianIds.length === 0
+                  ? <span className="text-ink-500">Nobody yet</span>
+                  : visit.technicianIds.map((t) => nameOf.get(t) ?? "A technician").join(", ")}
               </Td>
               <Td>
                 <Chip tone={tone(VISIT_TONE, visit.status)}>
@@ -245,6 +287,52 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             </tr>
           ))}
         </Table>
+      )}
+
+      {completes && openVisits.map((visit) => (
+        <CompleteVisit key={visit.id} action={completeVisitFromOffice} jobId={id}
+                       visit={{ id: visit.id, sequence: visit.sequence }} items={items} />
+      ))}
+
+      {writes && <JobLifecycle action={setJobStatus} jobId={id} status={job.status} openVisits={openVisits.length} />}
+
+      {schedules && (
+        <details className="mt-4 rounded-md border border-steel-200 p-4">
+          <summary className="cursor-pointer text-sm font-medium">Add a visit</summary>
+          <ActionForm action={addVisit} submit="Add visit" hidden={{ jobId: id }} className="mt-3 space-y-4">
+            <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
+                         legend="Next visit" />
+          </ActionForm>
+        </details>
+      )}
+
+      <UsedOnJob lines={used} />
+
+      {(invoices.length > 0 || canInvoice) && (
+        <section aria-label="Invoices">
+          <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Invoices</h2>
+            {canInvoice && (
+              <a href={`/invoices/new?job=${id}`}
+                 className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+                Invoice this job
+              </a>
+            )}
+          </div>
+          {invoices.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">Not invoiced yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm">
+              {invoices.map((inv) => (
+                <li key={inv.id} className="flex flex-wrap items-center gap-3">
+                  <a href={`/invoices/${inv.id}`} className="font-mono tabular-nums hover:underline">Invoice {inv.number}</a>
+                  <Money value={inv.total} />
+                  <Chip tone={tone(INVOICE_TONE, inv.status)}>{label(INVOICE_STATUS, inv.status)}</Chip>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
 
       {(photos.length > 0 || outstanding.pending > 0 || outstanding.abandoned > 0) && (

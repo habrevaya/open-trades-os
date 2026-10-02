@@ -24,6 +24,7 @@ import { paymentRoutes } from "./payments";
 import { emailRoutes } from "./email";
 import { accountingRoutes } from "./accounting";
 import { messagingRoutes } from "./messaging";
+import { conversationRoutes } from "./conversations";
 import { leadConnectorRoutes } from "./lead-connectors";
 import { invoiceDeliveryRoutes } from "./invoice-delivery";
 import { profitabilityRoutes } from "./profitability";
@@ -38,6 +39,7 @@ import { callTrackingRoutes } from "./call-tracking";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
+import { appRoutes } from "./apps";
 import { pricingAuthorityRoutes } from "./pricing-authority";
 
 export * from "./common";
@@ -67,6 +69,7 @@ export * from "./payments";
 export * from "./email";
 export * from "./accounting";
 export * from "./messaging";
+export * from "./conversations";
 export * from "./lead-connectors";
 export * from "./invoice-delivery";
 export * from "./profitability";
@@ -81,6 +84,7 @@ export * from "./call-tracking";
 export * from "./company";
 export * from "./readbacks";
 export * from "./service-reports";
+export * from "./apps";
 export * from "./pricing-authority";
 
 /**
@@ -128,6 +132,7 @@ export const routes = {
   ...emailRoutes,
   ...accountingRoutes,
   ...messagingRoutes,
+  ...conversationRoutes,
   ...leadConnectorRoutes,
   ...invoiceDeliveryRoutes,
   ...profitabilityRoutes,
@@ -142,6 +147,7 @@ export const routes = {
   ...companyRoutes,
   ...readbackRoutes,
   ...serviceReportRoutes,
+  ...appRoutes,
   ...pricingAuthorityRoutes,
 } as const;
 

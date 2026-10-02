@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { addTile, removeTile, moveTile } from "../../actions";
 
 export interface ReportOption {
@@ -26,7 +26,7 @@ export function AddTile({ id, tiles, reports }: {
   tiles: string;
   reports: ReportOption[];
 }) {
-  const [state, submit, pending] = useActionState(addTile, null);
+  const [state, submitForm, pending] = useKeptAction(addTile, null);
   const groups = [...new Set(reports.map((r) => r.group))];
 
   if (reports.length === 0) {
@@ -39,7 +39,7 @@ export function AddTile({ id, tiles, reports }: {
   }
 
   return (
-    <form action={submit} className="mt-3 flex flex-wrap items-end gap-3">
+    <form {...submitForm} className="mt-3 flex flex-wrap items-end gap-3">
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="tiles" value={tiles} />
 
@@ -105,12 +105,12 @@ export function TileControls({ id, tiles, tileKey, first, last }: {
   first: boolean;
   last: boolean;
 }) {
-  const [, move, moving] = useActionState(moveTile, null);
-  const [, remove, removing] = useActionState(removeTile, null);
+  const [, moveForm, moving] = useKeptAction(moveTile, null);
+  const [, removeForm, removing] = useKeptAction(removeTile, null);
 
   return (
     <span className="flex items-center gap-1 text-xs text-ink-500">
-      <form action={move}>
+      <form {...moveForm}>
         <input type="hidden" name="id" value={id} />
         <input type="hidden" name="tiles" value={tiles} />
         <input type="hidden" name="key" value={tileKey} />
@@ -123,7 +123,7 @@ export function TileControls({ id, tiles, tileKey, first, last }: {
         <button type="submit" disabled={first || moving} aria-label="Move up"
                 className="rounded px-1 hover:bg-steel-100 disabled:opacity-30">Up</button>
       </form>
-      <form action={move}>
+      <form {...moveForm}>
         <input type="hidden" name="id" value={id} />
         <input type="hidden" name="tiles" value={tiles} />
         <input type="hidden" name="key" value={tileKey} />
@@ -131,7 +131,7 @@ export function TileControls({ id, tiles, tileKey, first, last }: {
         <button type="submit" disabled={last || moving} aria-label="Move down"
                 className="rounded px-1 hover:bg-steel-100 disabled:opacity-30">Down</button>
       </form>
-      <form action={remove}>
+      <form {...removeForm}>
         <input type="hidden" name="id" value={id} />
         <input type="hidden" name="tiles" value={tiles} />
         <input type="hidden" name="key" value={tileKey} />

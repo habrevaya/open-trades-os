@@ -3,7 +3,7 @@ import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as templates from "../src/services/message-templates";
 import * as registration from "../src/services/messaging-registration";
-import { ConflictError, type ServiceContext } from "../src/services/context";
+import { type ServiceContext } from "../src/services/context";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
 
 /**

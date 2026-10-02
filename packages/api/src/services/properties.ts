@@ -5,6 +5,7 @@ import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, cleanAll, decodeCursor, paginate, NotFoundError,
 } from "./context";
 import { enforceWithin } from "./custom-fields";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import type {
   listProperties, getProperty, createProperty, linkCustomerToProperty,
 } from "../contracts/properties";
@@ -80,7 +81,10 @@ function shape<T extends {
     ...row,
     address: {
       line1: row.addressLine1,
-      line2: row.addressLine2,
+      // Absent rather than null: the published Address has `line2` optional,
+      // and a null broke every client generated from it on every property
+      // without a unit number.
+      ...(row.addressLine2 !== null ? { line2: row.addressLine2 } : {}),
       city: row.city,
       state: row.state,
       postalCode: row.postalCode,
@@ -115,6 +119,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       isNull(schema.property.deletedAt),
       byCustomer,
       input.territoryId ? eq(schema.property.territoryId, input.territoryId) : undefined,
+      byExternal(schema.property, input),
       // What a dispatcher types: a street, a city, or a postal code.
       input.q
         ? or(
@@ -223,6 +228,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
     await enforceWithin(
       tx, ctx.actor.organizationId, "property", input.customFields,
     );
+    await assertUnclaimed(tx, "property", input.externalRef);
 
     const [property] = await tx.insert(schema.property).values({
       organizationId: ctx.actor.organizationId,
@@ -240,6 +246,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       hazardNotes: input.hazardNotes ?? null,
       hasDog: input.hasDog,
       customFields: input.customFields,
+      ...provenance(input.externalRef),
     }).returning();
 
     /**

@@ -65,10 +65,40 @@ export const organization = pgTable("organization", {
   networkId: uuid("network_id").references(() => network.id, { onDelete: "set null" }),
   /** The franchisee's territory or the acquired brand's identifier. */
   networkMemberCode: text("network_member_code"),
+  /**
+   * What whoever runs this deployment calls this company, when somebody does.
+   *
+   * Written only by the operator API, and the reason it exists is retries. A
+   * control plane that creates a company and loses the response has to be
+   * able to ask again without making a second one, and the only thing it can
+   * ask with is its own identifier. Unique, so two concurrent retries cannot
+   * both win, and null for every company that signed itself up.
+   *
+   * A tenant cannot change it. If one could, it could take another
+   * customer's reference and receive that customer's ids on the operator's
+   * next retry, so a trigger in sql/after.sql refuses the write from any role
+   * that is not the operator.
+   */
+  externalRef: text("external_ref"),
+  /**
+   * Set while this company is suspended by whoever runs the deployment.
+   *
+   * Suspension refuses access and changes nothing else: no row is deleted,
+   * nothing is revoked, and resuming puts every session and token back
+   * exactly as it was. The refusal lives in the SQL that resolves a session,
+   * an app token and a portal link, and in what the worker is allowed to
+   * find, so a caller cannot forget to check it. Guarded by the same trigger
+   * as `external_ref`.
+   */
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  /** Why, in the operator's words. Shown to nobody but the operator. */
+  suspendedReason: text("suspended_reason"),
   ...timestamps,
 }, (t) => ({
   slugIdx: uniqueIndex("organization_slug_idx").on(t.slug),
   networkIdx: index("organization_network_idx").on(t.networkId),
+  externalRefIdx: uniqueIndex("organization_external_ref_idx").on(t.externalRef)
+    .where(sql`${t.externalRef} is not null`),
 }));
 
 /**
@@ -269,6 +299,40 @@ export const credential = pgTable("credential", {
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({ userIdx: uniqueIndex("credential_user_idx").on(t.userId) }));
+
+/**
+ * A ONE TIME LINK TO SET A FIRST PASSWORD
+ *
+ * When somebody else creates the company (the operator API, for a hosted
+ * deployment or for a firm running several companies), the owner exists
+ * before they have chosen a password, and the only safe thing to hand them
+ * is a link that lets them choose one. Not a password chosen for them, which
+ * then lives in an email and a support ticket forever.
+ *
+ * The same shape as a session: only the SHA-256 of the token is stored, so a
+ * dump of this table opens nothing. Single use, expiring, and only ever
+ * redeemable for a user who has NO password yet. That last condition is the
+ * important one and it is enforced in the SQL that consumes the token, not
+ * here: without it, anybody able to issue a link for an address could take
+ * over the existing account behind it.
+ *
+ * No organization_id, for the reason `credential` has none: it sits above the
+ * tenant. Read and written only through SECURITY DEFINER functions, with a
+ * deny-all policy for everybody else.
+ */
+export const setupToken = pgTable("setup_token", {
+  id: pk(),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  /** Set when a newer link replaced this one, so only the latest one works. */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  tokenIdx: uniqueIndex("setup_token_token_idx").on(t.tokenHash),
+  userIdx: index("setup_token_user_idx").on(t.userId),
+}));
 
 /** Technician-specific profile. Separate from membership so office staff rows stay clean. */
 export const technician = pgTable("technician", {

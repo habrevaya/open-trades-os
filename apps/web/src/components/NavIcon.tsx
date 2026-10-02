@@ -18,12 +18,49 @@
 export type IconName =
   | "day" | "today" | "schedule" | "jobs" | "tasks"
   | "customers" | "inbox"
-  | "invoices" | "agreements" | "pricebook"
+  | "invoices" | "estimates" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts" | "inspections";
+  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Compliance: a shield, for what keeps the company allowed to work. */
+  compliance: (
+    <>
+      <path d="M12 3.5 5 6v5.5c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9V6z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  /** Fleet: a van from the side, which is the asset everybody means first. */
+  fleet: (
+    <>
+      <path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" />
+      <circle cx="7" cy="17.5" r="1.6" />
+      <circle cx="17" cy="17.5" r="1.6" />
+    </>
+  ),
+  /** Certifications: a card with a seal, which is what a licence is. */
+  certifications: (
+    <>
+      <path d="M3.5 6h17v12h-17z" />
+      <circle cx="15.5" cy="12" r="2.4" />
+      <path d="M6.5 10h5M6.5 13.5h3.5" />
+    </>
+  ),
+  /** Projects: three stacked bars of a phase plan, each starting where one ends. */
+  projects: (
+    <>
+      <path d="M4 6h7M8 12h8M13 18h7" />
+    </>
+  ),
+  /** Payroll: a pay slip, a sheet with a total line under the rows. */
+  payroll: (
+    <>
+      <path d="M6 3.5h12v17H6z" />
+      <path d="M9 8h6M9 11.5h6" />
+      <path d="M9 16h3M14 16h1" />
+    </>
+  ),
   /** Inspections: a clipboard with a tick, which is what the thing physically is. */
   inspections: (
     <>
@@ -116,6 +153,17 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   // A bill: a document, torn off at the bottom.
+  /**
+   * Estimates: two cards side by side, one raised, for options the customer
+   * chooses between. Not a document, which is the invoice's shape.
+   */
+  estimates: (
+    <>
+      <rect x="3.5" y="7" width="7.5" height="12.5" rx="1.4" />
+      <rect x="13" y="4.5" width="7.5" height="12.5" rx="1.4" />
+      <path d="M6 11.5h2.5M15.5 9h2.5" />
+    </>
+  ),
   invoices: (
     <>
       <path d="M5.5 3.8h13v16.9l-2.6-1.7-2.6 1.7-2.6-1.7-2.6 1.7-2.6-1.7V3.8Z" />

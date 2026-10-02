@@ -233,7 +233,7 @@ export async function sweepOne(
  */
 export async function sweep(
   db: Database,
-  options: { now?: Date; limit?: number } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
 ): Promise<DwellResult[]> {
   const now = options.now ?? new Date();
   const rows = await db.execute<DwellWorkflowRow>(
@@ -242,6 +242,8 @@ export async function sweep(
 
   const results: DwellResult[] = [];
   for (const row of rows) {
+    // Between items, never inside one: see `shouldStop` on runPass.
+    if (options.shouldStop?.()) break;
     try {
       results.push(await sweepOne(db, row, now));
     } catch (error) {

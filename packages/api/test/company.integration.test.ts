@@ -7,7 +7,7 @@ import * as crews from "../src/services/crews";
 import * as inventory from "../src/services/inventory";
 import * as properties from "../src/services/properties";
 import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
-import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
  * THE COMPANY'S OWN SHAPE, AND THE GATES THAT COULD NEVER FIRE

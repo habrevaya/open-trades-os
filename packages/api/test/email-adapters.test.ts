@@ -196,8 +196,13 @@ describe("the Resend adapter", () => {
     expect(provider.delivery.because).toMatch(/signing secret/i);
   });
 
-  it("parses a delivery, a hard bounce and a complaint, and ignores an open", () => {
+  it("never takes the signing secret from the settings, which are a database column", () => {
     const provider = createResendProvider({ webhookSecret: SECRET }, "k");
+    expect(provider.delivery.kind).toBe("none");
+  });
+
+  it("parses a delivery, a hard bounce and a complaint, and ignores an open", () => {
+    const provider = createResendProvider({}, "k", { webhookSecret: SECRET });
     if (provider.delivery.kind !== "webhook") throw new Error("unreachable");
     const parse = (payload: unknown) =>
       provider.delivery.kind === "webhook"
@@ -241,7 +246,7 @@ describe("the Resend adapter", () => {
      * webhook the provider eventually disables for being unreliable, and the
      * deliveries we DO care about go with it.
      */
-    const provider = createResendProvider({ webhookSecret: SECRET }, "k");
+    const provider = createResendProvider({}, "k", { webhookSecret: SECRET });
     if (provider.delivery.kind !== "webhook") throw new Error("unreachable");
     expect(provider.delivery.parse({
       url: "", headers: {},
@@ -250,7 +255,7 @@ describe("the Resend adapter", () => {
   });
 
   it("does not fall over on a body that is not JSON", () => {
-    const provider = createResendProvider({ webhookSecret: SECRET }, "k");
+    const provider = createResendProvider({}, "k", { webhookSecret: SECRET });
     if (provider.delivery.kind !== "webhook") throw new Error("unreachable");
     expect(provider.delivery.parse({ url: "", headers: {}, body: "<html>nope" })).toBeNull();
   });

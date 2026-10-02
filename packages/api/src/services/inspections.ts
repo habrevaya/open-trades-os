@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { inspection as insp, time } from "@opentradesos/core";
 import {

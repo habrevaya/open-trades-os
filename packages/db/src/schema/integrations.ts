@@ -125,6 +125,15 @@ export const syncRun = pgTable("sync_run", {
  *  sync cannot push is a row nothing will ever resolve. */
 export const accountingEntityKind = pgEnum("accounting_entity_kind", [
   "customer", "invoice", "payment", "credit_memo",
+  /**
+   * Money returned against a payment AFTER that payment reached the books.
+   * The entity id is the refund's ledger transaction, because a refund has
+   * no row of its own: it is a `refund` posting against the payment. A
+   * refund made before the payment's first push is netted into the payment
+   * instead, and recorded here as linked with no document of its own, so it
+   * is never sent twice.
+   */
+  "refund",
 ]);
 
 /**
@@ -198,6 +207,13 @@ export const accountingEntityLink = pgTable("accounting_entity_link", {
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   pushedAt: timestamp("pushed_at", { withTimezone: true }),
+  /**
+   * On a payment's link: when the refunds netted into the pushed payment
+   * were written down as `refund` links of their own. Null on a payment
+   * pushed before refunds were synced, which the sync settles once, from the
+   * push time, before it sends any refund for that payment.
+   */
+  refundsNettedAt: timestamp("refunds_netted_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   /** THE GUARD. One entity, one document, per connection. */

@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { consent, contacts, customerLifecycle, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { comms, consent, contacts, customerLifecycle, portal, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { issuePortalGrant } from "@opentradesos/api/contracts";
+import { attempt, parsed, type FormState, refused } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -25,7 +27,7 @@ export async function grantMarketing(_previous: unknown, form: FormData) {
       proofText: String(form.get("proofText") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/customers");
@@ -42,7 +44,7 @@ export async function revokeMarketing(_previous: unknown, form: FormData) {
       proofText: String(form.get("proofText") ?? "") || null,
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/customers");
@@ -72,7 +74,7 @@ export async function addContact(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -86,7 +88,7 @@ export async function removeContact(_previous: unknown, form: FormData) {
     await contacts.remove(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -108,7 +110,7 @@ export async function makePrimary(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -131,7 +133,7 @@ export async function removeCustomer(_previous: unknown, form: FormData) {
       id, reason: String(form.get("reason") ?? ""),
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/customers");
@@ -147,7 +149,7 @@ export async function mergeCustomer(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return { error: error.message };
+      return refused(form, error.message);
     }
     throw error;
   }
@@ -157,4 +159,40 @@ export async function mergeCustomer(_previous: unknown, form: FormData) {
     moved: result.moved.map((m) => `${m.n} ${m.label}`),
     filled: result.filled,
   };
+}
+
+/**
+ * Text this customer, through the same send a reply uses.
+ *
+ * The customer id comes from the page and the service reads the customer
+ * inside the caller's scope, so it cannot reach a customer they may not see.
+ * A refusal (they replied STOP, no number to send from) comes back in words.
+ */
+export async function textCustomer(_previous: unknown, form: FormData) {
+  const customerId = String(form.get("customerId") ?? "");
+  let conversationId: string;
+  try {
+    ({ conversationId } = await comms.start(await ctx(), {
+      customerId, body: String(form.get("body") ?? ""),
+    }));
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) return refused(form, error.message);
+    throw error;
+  }
+  redirect(`/inbox/${conversationId}`);
+}
+
+/**
+ * THE CUSTOMER'S OWN LINK to their whole account: every invoice, estimate
+ * and visit, without a login. `POST /v1/portal/grants` with the customer
+ * scope, which was the only way to make one. The plaintext link exists once,
+ * in this answer, and is shown to be handed on.
+ */
+export async function accountLink(_previous: FormState, form: FormData): Promise<FormState> {
+  return attempt(form, async () => {
+    const issued = await portal.issueGrant(await ctx(), parsed(issuePortalGrant.input, {
+      customerId: String(form.get("customerId") ?? ""), scope: "customer",
+    }));
+    return { message: "Their account link. It opens everything they have with you, without a password.", link: issued.url };
+  });
 }

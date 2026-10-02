@@ -17,18 +17,19 @@ export async function approve(input: {
   optionId: string;
   selectedLineIds: string[];
   signerName: string;
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+}): Promise<{ ok: true; paymentUrl: string | null } | { ok: false; message: string }> {
   const h = await headers();
 
+  let paymentUrl: string | null = null;
   try {
-    await portal.approveEstimate(
+    ({ paymentUrl } = await portal.approveEstimate(
       getDb(),
       { ...input, acceptedTerms: true },
       {
         ip: h.get("x-forwarded-for")?.split(",")[0]?.trim(),
         userAgent: h.get("user-agent") ?? undefined,
       },
-    );
+    ));
   } catch (error) {
     // The link is single use, so the common failure is a second tab or a
     // double tap rather than anything sinister. Say what happened plainly.
@@ -39,7 +40,11 @@ export async function approve(input: {
   }
 
   revalidatePath(`/e/${input.token}`);
-  return { ok: true };
+  /**
+   * The deposit link, when the company asks for one. Minted with the
+   * approval, because the approval link is single use and spent by now.
+   */
+  return { ok: true, paymentUrl };
 }
 
 export async function decline(formData: FormData): Promise<void> {

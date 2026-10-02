@@ -1,5 +1,5 @@
 import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm";
-import { schema, type Database } from "@opentradesos/db";
+import { schema } from "@opentradesos/db";
 import { assertCan } from "@opentradesos/core";
 import type { z } from "zod";
 import {
@@ -7,11 +7,36 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError, scopeOf, audit,
 } from "./context";
 import { enforceWithin } from "./custom-fields";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { customerScopeFilter } from "./scope";
 import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
 
 type ListInput = z.infer<typeof listCustomers.input>;
 type CreateInput = z.infer<typeof CustomerCreate>;
+
+/**
+ * The row as the contract publishes it.
+ *
+ * The contract has promised a nested `billingAddress` and a numeric
+ * `paymentTermsDays` since it was written, and the service returned the flat
+ * columns and the numeric column's string, so every generated client read an
+ * address that was always undefined and a number that was a string. The
+ * flat columns stay alongside, for the screens that read them.
+ */
+function asCustomer<T extends Record<string, unknown>>(row: T) {
+  const parts = {
+    line1: row["billingAddressLine1"], line2: row["billingAddressLine2"], city: row["billingCity"],
+    state: row["billingState"], postalCode: row["billingPostalCode"], country: row["billingCountry"],
+  } as Record<string, string | null | undefined>;
+  const present = ["line1", "city", "state", "postalCode"].some((k) => parts[k] != null);
+  return {
+    ...row,
+    ...("paymentTermsDays" in row ? { paymentTermsDays: Number(row["paymentTermsDays"]) } : {}),
+    billingAddress: present
+      ? Object.fromEntries(Object.entries(parts).filter(([, v]) => v != null)) as Record<string, string>
+      : null,
+  };
+}
 
 /**
  * The exemplar service. Every other one follows this shape.
@@ -29,6 +54,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor),
       isNull(schema.customer.deletedAt),
       input.type ? eq(schema.customer.type, input.type) : undefined,
+      byExternal(schema.customer, input),
       // Trigram search across the three things a CSR actually types while
       // somebody is on the phone. A pg_trgm index backs each of them.
       input.q
@@ -49,7 +75,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       .limit(input.limit + 1);
 
     const page = paginate(rows, input.limit, (r) => r.createdAt.toISOString());
-    return { ...page, data: cleanAll(ctx, "customer", page.data) };
+    return { ...page, data: cleanAll(ctx, "customer", page.data).map(asCustomer) };
   });
 }
 
@@ -95,7 +121,7 @@ export async function get(ctx: ServiceContext, input: z.infer<typeof getCustomer
      * the discount. Putting it on afterwards would have sent it to
      * everybody.
      */
-    return clean(ctx, "customer", { ...row, balance: owed?.total ?? "0" });
+    return asCustomer(clean(ctx, "customer", { ...row, balance: owed?.total ?? "0" }));
   });
 }
 
@@ -118,13 +144,14 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       if (seen?.entityId) {
         const [existing] = await tx.select().from(schema.customer)
           .where(eq(schema.customer.id, seen.entityId)).limit(1);
-        if (existing) return clean(ctx, "customer", existing);
+        if (existing) return asCustomer(clean(ctx, "customer", existing));
       }
     }
 
     await enforceWithin(
       tx, ctx.actor.organizationId, "customer", input.customFields,
     );
+    await assertUnclaimed(tx, "customer", input.externalRef);
 
     const [customer] = await tx.insert(schema.customer).values({
       organizationId: ctx.actor.organizationId,
@@ -143,6 +170,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       taxExempt: input.taxExempt,
       tags: input.tags,
       customFields: input.customFields,
+      ...provenance(input.externalRef),
     }).returning();
 
     /**
@@ -186,7 +214,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     }
 
     await audit(tx, ctx, "customer.created", "customer", customer!.id, null, customer!);
-    return clean(ctx, "customer", customer!);
+    return asCustomer(clean(ctx, "customer", customer!));
   });
 }
 
@@ -281,7 +309,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateCu
     }).where(eq(schema.customer.id, input.id)).returning();
 
     await audit(tx, ctx, "customer.updated", "customer", input.id, before, after!);
-    return clean(ctx, "customer", after!);
+    return asCustomer(clean(ctx, "customer", after!));
   });
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { satisfyObligation, waiveObligation } from "./actions";
 
 /**
@@ -13,8 +13,8 @@ import { satisfyObligation, waiveObligation } from "./actions";
  * forgetting.
  */
 export function ObligationActions({ id }: { id: string }) {
-  const [satisfied, satisfy, satisfying] = useActionState(satisfyObligation, null);
-  const [waived, waive, waiving] = useActionState(waiveObligation, null);
+  const [satisfied, satisfyForm, satisfying] = useKeptAction(satisfyObligation, null);
+  const [waived, waiveForm, waiving] = useKeptAction(waiveObligation, null);
   const error = (satisfied && "error" in satisfied && satisfied.error)
     || (waived && "error" in waived && waived.error);
 
@@ -23,7 +23,7 @@ export function ObligationActions({ id }: { id: string }) {
       {error ? <p role="alert" className="mb-2 text-sm text-red-600">{error}</p> : null}
 
       <div className="flex flex-wrap items-end gap-2">
-        <form action={satisfy} className="flex items-end gap-2">
+        <form {...satisfyForm} className="flex items-end gap-2">
           <input type="hidden" name="id" value={id} />
           <input
             name="satisfiedByEvent"
@@ -39,7 +39,7 @@ export function ObligationActions({ id }: { id: string }) {
           </button>
         </form>
 
-        <form action={waive} className="flex items-end gap-2">
+        <form {...waiveForm} className="flex items-end gap-2">
           <input type="hidden" name="id" value={id} />
           <input
             name="reason"

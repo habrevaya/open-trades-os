@@ -294,7 +294,7 @@ function scan() {
     bind(file);
 
     const visit = (node: ts.Node, insidePredicate: boolean) => {
-      let predicate = insidePredicate;
+      const predicate = insidePredicate;
 
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
         const method = node.expression.name.text;

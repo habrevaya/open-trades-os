@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { comms, NotFoundError } from "@opentradesos/api/services";
+import { comms, consent, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Phone } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 import { Crumb } from "@/components/Detail";
 import { ReplyBox } from "./ReplyBox";
+import { ConsentSummary } from "./ConsentSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
   });
 
   await comms.markRead(ctx, { id });
+  const consentRows = await consent.history(ctx, { address: thread.conversation.externalAddress });
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 lg:px-6">
@@ -41,6 +43,19 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
           <Phone value={thread.conversation.externalAddress} />
         </span>
       </div>
+      {thread.customer && (
+        <p className="mt-1 text-sm">
+          <a href={`/inbox?customer=${String(thread.customer["id"])}`} className="text-ink-700 underline underline-offset-4">
+            Every conversation with them
+          </a>
+        </p>
+      )}
+
+      <ConsentSummary
+        entries={consentRows}
+        suppressed={thread.blockedReason === "suppressed"}
+        customerId={thread.conversation.customerId}
+      />
 
       <ol className="mt-8 space-y-4">
         {thread.messages.map((message) => {
@@ -79,18 +94,10 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
             typing and taught them the guard is an obstacle.
           */
           <p className="mt-8 rounded-md border border-steel-300 bg-canvas-raised px-4 py-3 text-sm text-ink-700">
-            {BLOCKED[thread.blockedReason ?? ""] ?? "You cannot reply to this number."}
+            {thread.blockedExplanation ?? "You cannot reply to this number."}
           </p>
         )
       ) : null}
     </div>
   );
 }
-
-const BLOCKED: Record<string, string> = {
-  suppressed: "They replied STOP. You cannot text this number until they opt back in.",
-  no_consent: "No consent on record for this number.",
-  revoked: "They withdrew consent for this number.",
-  channel_unregistered: "No registered sending number. Add one in settings before replying.",
-  quiet_hours: "Outside the hours this customer may be contacted.",
-};

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { setJobParties } from "./actions";
 import { fieldNames } from "@/lib/job-parties";
 
@@ -31,10 +31,10 @@ export function Parties({
   customerName: string;
   roles: PartyRow[];
 }) {
-  const [state, submit, pending] = useActionState(setJobParties, null);
+  const [state, submitForm, pending] = useKeptAction(setJobParties, null);
 
   return (
-    <form action={submit} className="mt-3">
+    <form {...submitForm} className="mt-3">
       <input type="hidden" name="jobId" value={jobId} />
       <input type="hidden" name="customerId" value={customerId} />
 

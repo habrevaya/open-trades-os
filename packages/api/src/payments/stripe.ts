@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   registerPaymentProvider,
   type ChargeOutcome, type ChargeRequest, type PaymentEvent, type PaymentEventKind,
-  type PaymentProvider, type RefundOutcome, type RefundRequest, type WebhookRequest,
+  type PaymentProvider, type PaymentRefund, type RefundOutcome, type RefundRequest, type WebhookRequest,
 } from "./provider";
 
 /**
@@ -150,7 +150,9 @@ export function verifyStripeSignature(
 function kindOf(type: string): PaymentEventKind {
   if (type === "payment_intent.succeeded") return "succeeded";
   if (type === "payment_intent.payment_failed") return "failed";
-  if (type === "charge.refunded" || type === "refund.updated") return "refunded";
+  if (type === "charge.refunded" || type === "refund.created" || type === "refund.updated") {
+    return "refunded";
+  }
   if (type.startsWith("charge.dispute.")) return "disputed";
   return "other";
 }
@@ -160,6 +162,43 @@ const num = (value: unknown): number | null =>
 
 const str = (value: unknown): string | null =>
   typeof value === "string" && value !== "" ? value : null;
+
+/** A Stripe timestamp, which is whole seconds since the epoch. */
+function instant(value: unknown): Date | null {
+  const seconds = num(value);
+  return seconds === null ? null : new Date(seconds * 1000);
+}
+
+/**
+ * The refunds an event names, from either shape.
+ *
+ * A `refund.*` event's object is the refund itself. A `charge.refunded`
+ * event's object is the charge, which lists its refunds under
+ * `refunds.data` only on API versions that still expand them; on newer ones
+ * the list is absent and the charge's cumulative `amount_refunded` is all the
+ * event carries.
+ */
+function refundsFrom(object: Record<string, unknown>): PaymentRefund[] {
+  const one = (r: Record<string, unknown>): PaymentRefund | null => {
+    const refundId = str(r["id"]);
+    const amountMinor = num(r["amount"]);
+    if (!refundId || amountMinor === null) return null;
+    return {
+      refundId, amountMinor, createdAt: instant(r["created"]), status: str(r["status"]),
+    };
+  };
+  if (object["object"] === "refund") {
+    const refund = one(object);
+    return refund ? [refund] : [];
+  }
+  const listed = asObject(object["refunds"])?.["data"];
+  if (!Array.isArray(listed)) return [];
+  return listed
+    .map((r) => asObject(r))
+    .filter((r): r is Record<string, unknown> => r !== null)
+    .map(one)
+    .filter((r): r is PaymentRefund => r !== null);
+}
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -368,6 +407,8 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
         currency: str(object["currency"]),
         feeMinor: feeFrom(object),
         refundedMinor: num(object["amount_refunded"]),
+        refunds: refundsFrom(object),
+        occurredAt: instant(envelope["created"]),
         metadata: metadataFrom(object),
         failureMessage:
           str(asObject(object["last_payment_error"])?.["message"])

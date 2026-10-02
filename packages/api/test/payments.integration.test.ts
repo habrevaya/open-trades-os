@@ -10,7 +10,7 @@ import {
   stripeProvider, verifyStripeSignature, SIGNATURE_HEADER, MAX_SKEW_MS,
 } from "../src/payments/stripe";
 import type {
-  ChargeOutcome, PaymentProvider, RefundOutcome, WebhookRequest,
+  ChargeOutcome, PaymentEvent, PaymentProvider, RefundOutcome, WebhookRequest,
 } from "../src/payments/provider";
 import { ConflictError, type ServiceContext } from "../src/services/context";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
@@ -629,6 +629,214 @@ run("giving it back", () => {
   });
 });
 
+/* ================================================ a refund Stripe reports */
+
+run("a refund the processor reports, on the books", () => {
+  /**
+   * The webhook used to move `refunded_amount` and nothing else, so a card
+   * refund left cash on the books that had gone back to the customer and an
+   * invoice marked paid that was not. These are the properties of putting it
+   * on the books the way a recorded refund is.
+   */
+  async function cardPaid(total: string) {
+    const connectionId = await connectStripe();
+    const connection = (await payments.connectionById(db(), connectionId))!;
+    const { customerId, invoiceId } = await customerWithInvoice(total);
+    const attempt = await payments.intent(
+      ctx(), { customerId, invoiceIds: [invoiceId] }, deps(fakeProvider({ charges: [], refunds: [] })),
+    );
+    const minor = Math.round(Number(total) * 100);
+    await payments.receive(db(), {
+      connection, event: event({ intentId: attempt.intentId, amountMinor: minor }),
+    });
+    return { connection, invoiceId, intentId: attempt.intentId };
+  }
+
+  const refundEvent = (intentId: string, over: Partial<PaymentEvent> = {}): PaymentEvent => event({
+    kind: "refunded", type: "refund.updated", intentId, amountMinor: null, refundedMinor: null,
+    ...over,
+  });
+
+  const refundPostings = () => raw<{ occurred_at: Date; n: string }[]>`
+    select occurred_at, count(*)::text as n from public.ledger_entry
+    where organization_id = ${ORG} and source_type = 'refund'
+    group by transaction_id, occurred_at order by occurred_at`;
+
+  it("posts the refund, dated when it was made, and reopens the invoice", async () => {
+    const { connection, invoiceId, intentId } = await cardPaid("100.00");
+    const madeAt = new Date(Date.now() - 2 * 3600_000);
+
+    await payments.receive(db(), {
+      connection,
+      event: refundEvent(intentId, {
+        refunds: [{ refundId: "re_A", amountMinor: 2500, createdAt: madeAt, status: "succeeded" }],
+      }),
+    });
+
+    /** Cash goes back out and the receivable comes back, by the refund. */
+    expect(await accountBalance("1000")).toBe("75.0000");
+    expect(await accountBalance("1200")).toBe("25.0000");
+    const postings = await refundPostings();
+    expect(postings).toHaveLength(1);
+    expect(postings[0]!.occurred_at.toISOString()).toBe(madeAt.toISOString());
+
+    const invoice = await billing.get(ctx(), { id: invoiceId });
+    expect(invoice.status).toBe("partially_paid");
+    expect(invoice.balance).toBe("25.0000");
+    const [row] = await raw<{ refunded_amount: string; status: string }[]>`
+      select refunded_amount::text, status from public.payment where organization_id = ${ORG}`;
+    expect(row!.refunded_amount).toBe("25.0000");
+    expect(row!.status).toBe("partially_refunded");
+  });
+
+  it("books one refund once, however many events report it", async () => {
+    /**
+     * Stripe sends `refund.created`, `refund.updated` and `charge.refunded`
+     * for one refund, three event ids between them. Keyed on the event, this
+     * was three postings.
+     */
+    const { connection, intentId } = await cardPaid("100.00");
+    const refund = { refundId: "re_B", amountMinor: 4000, createdAt: new Date(), status: "succeeded" };
+    await payments.receive(db(), {
+      connection, event: refundEvent(intentId, { type: "refund.created", refunds: [refund] }),
+    });
+    await payments.receive(db(), {
+      connection, event: refundEvent(intentId, { type: "refund.updated", refunds: [refund] }),
+    });
+    await payments.receive(db(), {
+      connection,
+      event: refundEvent(intentId, { type: "charge.refunded", refundedMinor: 4000, refunds: [refund] }),
+    });
+
+    expect(await refundPostings()).toHaveLength(1);
+    expect(await accountBalance("1000")).toBe("60.0000");
+  });
+
+  it("does not book a refund twice when the cumulative total arrived first", async () => {
+    /**
+     * On API versions that no longer list refunds on the charge,
+     * `charge.refunded` carries only the cumulative total. That is booked,
+     * and the `refund.updated` naming the same refund afterwards finds the
+     * money already counted.
+     */
+    const { connection, intentId } = await cardPaid("100.00");
+    await payments.receive(db(), {
+      connection, event: refundEvent(intentId, { type: "charge.refunded", refundedMinor: 3000 }),
+    });
+    await payments.receive(db(), {
+      connection,
+      event: refundEvent(intentId, {
+        refunds: [{ refundId: "re_C", amountMinor: 3000, createdAt: new Date(), status: "succeeded" }],
+      }),
+    });
+
+    expect(await refundPostings()).toHaveLength(1);
+    expect(await accountBalance("1000")).toBe("70.0000");
+
+    /** And a second, different refund after that is booked in full. */
+    await payments.receive(db(), {
+      connection,
+      event: refundEvent(intentId, {
+        refunds: [{ refundId: "re_D", amountMinor: 1000, createdAt: new Date(), status: "succeeded" }],
+      }),
+    });
+    expect(await refundPostings()).toHaveLength(2);
+    expect(await accountBalance("1000")).toBe("60.0000");
+  });
+
+  it("records a refund it cannot book against a void invoice instead of failing the webhook", async () => {
+    const { connection, invoiceId, intentId } = await cardPaid("100.00");
+    await raw`update public.invoice set status = 'void' where id = ${invoiceId}`;
+    const outcome = await payments.receive(db(), {
+      connection,
+      event: refundEvent(intentId, {
+        refunds: [{ refundId: "re_V", amountMinor: 1000, createdAt: new Date(), status: "succeeded" }],
+      }),
+    });
+    expect(outcome.handled).toBe(false);
+    expect(outcome.note).toMatch(/void/);
+    expect(await refundPostings()).toHaveLength(0);
+    const [failed] = await raw<{ status: string; error: string }[]>`
+      select status, error from public.integration_event
+      where organization_id = ${ORG} and direction = 'inbound' and status = 'failed'`;
+    expect(failed!.error).toMatch(/void/);
+  });
+
+  it("books nothing for a refund that has not succeeded", async () => {
+    const { connection, intentId } = await cardPaid("100.00");
+    await payments.receive(db(), {
+      connection,
+      event: refundEvent(intentId, {
+        type: "refund.created",
+        refunds: [{ refundId: "re_E", amountMinor: 1000, createdAt: new Date(), status: "pending" }],
+      }),
+    });
+    expect(await refundPostings()).toHaveLength(0);
+    expect(await accountBalance("1000")).toBe("100.0000");
+  });
+
+  it("dates a refund into a closed period today rather than refusing it", async () => {
+    /**
+     * The money has left the bank. Refusing would fail the webhook, Stripe
+     * would retry for days, and the refund would never be booked.
+     */
+    const { connection, intentId } = await cardPaid("100.00");
+    const lastYear = new Date(Date.now() - 400 * 86_400_000);
+    await raw`insert into public.accounting_period (organization_id, period_end)
+              values (${ORG}, ${lastYear.toISOString().slice(0, 10)})`;
+    await payments.receive(db(), {
+      connection,
+      event: refundEvent(intentId, {
+        refunds: [{ refundId: "re_F", amountMinor: 1000, createdAt: lastYear, status: "succeeded" }],
+      }),
+    });
+    const postings = await refundPostings();
+    expect(postings).toHaveLength(1);
+    expect(postings[0]!.occurred_at.getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+});
+
+/* ======================================================= parsing a refund */
+
+describe("reading a refund out of Stripe's two shapes", () => {
+  const provider = stripeProvider({}, "sk_test");
+  const parse = (payload: unknown) =>
+    provider.parseEvent({ headers: {}, body: JSON.stringify(payload) });
+
+  it("reads a refund event's own object as the refund", () => {
+    const parsed = parse({
+      id: "evt_r1", type: "refund.updated", created: 1_780_000_000,
+      data: { object: {
+        object: "refund", id: "re_1", amount: 2500, created: 1_779_999_000,
+        status: "succeeded", payment_intent: "pi_7",
+      } },
+    });
+    expect(parsed?.kind).toBe("refunded");
+    expect(parsed?.intentId).toBe("pi_7");
+    expect(parsed?.refunds).toEqual([{
+      refundId: "re_1", amountMinor: 2500, createdAt: new Date(1_779_999_000_000), status: "succeeded",
+    }]);
+  });
+
+  it("reads the list on a charge when the API version includes it, and nothing when not", () => {
+    const listed = parse({
+      id: "evt_r2", type: "charge.refunded",
+      data: { object: {
+        object: "charge", id: "ch_1", payment_intent: "pi_7", amount_refunded: 2500,
+        refunds: { data: [{ id: "re_1", amount: 2500, created: 1_779_999_000, status: "succeeded" }] },
+      } },
+    });
+    expect(listed?.refunds?.map((r) => r.refundId)).toEqual(["re_1"]);
+
+    const bare = parse({
+      id: "evt_r3", type: "charge.refunded",
+      data: { object: { object: "charge", id: "ch_1", payment_intent: "pi_7", amount_refunded: 2500 } },
+    });
+    expect(bare?.refunds).toEqual([]);
+    expect(bare?.refundedMinor).toBe(2500);
+  });
+});
+
 /* ================================================================ status */
 
 run("what the settings screen is told", () => {
@@ -706,6 +914,30 @@ run("connecting it", () => {
       select capability from public.integration_connection
       where organization_id = ${ORG} and provider = 'stripe'`;
     expect((row as { capability: string }).capability).toBe("payments");
+  });
+
+  it("keeps what it holds when the settings screen changes one field", async () => {
+    /**
+     * The screen never shows a setting back, so it cannot send the whole
+     * object. Replacing would make changing the publishable key wipe the
+     * webhook secret's name, and every payment after that would go
+     * unrecorded while the card form kept working.
+     */
+    await leadIntake.connect(ctx(), {
+      provider: "stripe", credentialRef: KEY_REF,
+      settings: { publishableKey: "pk_old", webhookSecretRef: HOOK_REF },
+    });
+    await leadIntake.connect(ctx(), {
+      provider: "stripe", settings: { publishableKey: "pk_new" }, keepExisting: true,
+    });
+
+    const view = await payments.status(ctx());
+    expect(view.publishableKey).toBe("pk_new");
+    expect(view.webhookConfigured).toBe(true);
+    const [row] = await raw<{ credential_ref: string }[]>`
+      select credential_ref from public.integration_connection
+      where organization_id = ${ORG} and provider = 'stripe'`;
+    expect(row!.credential_ref).toBe(KEY_REF);
   });
 
   it("can be turned off, and then nothing can be charged", async () => {

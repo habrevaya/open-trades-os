@@ -194,7 +194,7 @@ export const listAccountingProblems = defineRoute({
   output: z.object({
     problems: z.array(z.object({
       id: Uuid,
-      kind: z.enum(["customer", "invoice", "payment", "credit_memo"]),
+      kind: z.enum(["customer", "invoice", "payment", "credit_memo", "refund"]),
       entityId: Uuid,
       idempotencyKey: z.string(),
       attempts: z.number().int(),
@@ -216,7 +216,7 @@ export const retryAccountingDocument = defineRoute({
   input: z.object({ id: Uuid }),
   output: z.object({
     id: Uuid,
-    kind: z.enum(["customer", "invoice", "payment", "credit_memo"]),
+    kind: z.enum(["customer", "invoice", "payment", "credit_memo", "refund"]),
     attempts: z.number().int(),
   }),
 });

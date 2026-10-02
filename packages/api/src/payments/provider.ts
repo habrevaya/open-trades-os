@@ -160,10 +160,33 @@ export interface PaymentEvent {
   feeMinor: number | null;
   /** Cumulative amount refunded on this payment, where the event says. */
   refundedMinor: number | null;
+  /**
+   * The individual refunds this event names, each with the processor's own
+   * id. A refund event IS one; a charge event lists them only when the
+   * account's API version includes them. Empty when the event says nothing
+   * about individual refunds, and then `refundedMinor` is all there is.
+   *
+   * The id is what keeps a refund from being posted twice. Stripe reports one
+   * refund as `refund.created`, `refund.updated` and `charge.refunded`, three
+   * events with three event ids, and the event id alone would book it three
+   * times.
+   */
+  refunds?: PaymentRefund[] | undefined;
+  /** When the processor says the event happened. */
+  occurredAt?: Date | null | undefined;
   /** Whatever we attached at charge time. */
   metadata: Record<string, string>;
   /** For a failure, the processor's reason, written for a person. */
   failureMessage: string | null;
+}
+
+export interface PaymentRefund {
+  refundId: string;
+  amountMinor: number;
+  /** When the refund was made, which is the date its posting carries. */
+  createdAt: Date | null;
+  /** The processor's status. Only `succeeded` has moved any money. */
+  status: string | null;
 }
 
 export interface PaymentProvider {

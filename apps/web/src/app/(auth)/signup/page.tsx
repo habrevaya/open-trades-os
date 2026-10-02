@@ -1,11 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { Button, Field, Input } from "@opentradesos/ui";
 import { signUp, type ActionState } from "../actions";
 
 export default function SignUpPage() {
-  const [state, action, pending] = useActionState<ActionState, FormData>(signUp, {});
+  const [state, actionForm, pending] = useKeptAction<ActionState>(signUp, {});
 
   return (
     <>
@@ -14,19 +14,19 @@ export default function SignUpPage() {
         This creates your company and makes you its owner. Takes about a minute.
       </p>
 
-      <form action={action} className="mt-7 flex flex-col gap-5">
+      <form {...actionForm} className="mt-7 flex flex-col gap-5">
         <Field label="Your name" htmlFor="name" required error={state.fields?.name}>
-          <Input id="name" name="name" autoComplete="name" required invalid={!!state.fields?.name} />
+          <Input id="name" name="name" defaultValue={state.values?.name} autoComplete="name" required invalid={!!state.fields?.name} />
         </Field>
 
         <Field label="Company name" htmlFor="companyName" required error={state.fields?.companyName}
                hint="What your customers call you. You can change it later.">
-          <Input id="companyName" name="companyName" autoComplete="organization" required
+          <Input id="companyName" name="companyName" defaultValue={state.values?.companyName} autoComplete="organization" required
                  invalid={!!state.fields?.companyName} />
         </Field>
 
         <Field label="Work email" htmlFor="email" required error={state.fields?.email}>
-          <Input id="email" name="email" type="email" autoComplete="email" required
+          <Input id="email" name="email" defaultValue={state.values?.email} type="email" autoComplete="email" required
                  invalid={!!state.fields?.email} />
         </Field>
 

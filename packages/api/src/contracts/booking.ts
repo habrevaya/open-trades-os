@@ -169,6 +169,11 @@ export const createBookingRequest = defineRoute({
     trackingUrl: z.string().url(),
     /** Set when the service collects money to hold the slot. */
     depositDue: MoneyString.nullable(),
+    /**
+     * Always null for a booking request today. There is no customer yet to
+     * hold a deposit for; the office requests it after confirming and issues
+     * a `deposit` scope link to pay it.
+     */
     paymentUrl: z.string().url().nullable(),
   }),
 });

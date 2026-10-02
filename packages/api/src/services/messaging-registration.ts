@@ -62,10 +62,10 @@ import {
  * a twenty fifth and twenty sixth cannot join quietly. These two did, and the
  * count is what caught them.
  */
-const STATUSES = [
+export const REGISTRATION_STATUSES = [
   "not_started", "submitted", "pending_review", "approved", "rejected", "suspended",
 ] as const;
-export type RegistrationStatus = (typeof STATUSES)[number];
+export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
 
 /**
  * Where a status may go from where it is.

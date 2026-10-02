@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { bookVisit, deliverVisit, skipVisit, unskipVisit } from "./actions";
 
 const BUTTON =
@@ -31,10 +32,10 @@ export function VisitActions({
   skipped: boolean;
   skipReason: string | null;
 }) {
-  const [bookState, book, booking] = useActionState(bookVisit, null);
-  const [deliverState, deliver, delivering] = useActionState(deliverVisit, null);
-  const [skipState, skip, skipping] = useActionState(skipVisit, null);
-  const [unskipState, unskip, unskipping] = useActionState(unskipVisit, null);
+  const [bookState, bookForm, booking] = useKeptAction(bookVisit, null);
+  const [deliverState, deliverForm, delivering] = useKeptAction(deliverVisit, null);
+  const [skipState, skipForm, skipping] = useKeptAction(skipVisit, null);
+  const [unskipState, unskipForm, unskipping] = useKeptAction(unskipVisit, null);
   const [asking, setAsking] = useState(false);
 
   const error = [bookState, deliverState, skipState, unskipState]
@@ -49,7 +50,7 @@ export function VisitActions({
         <span className="text-sm text-ink-500">
           skipped{skipReason ? `: ${skipReason}` : ""}
         </span>
-        <form action={unskip}>
+        <form {...unskipForm}>
           <input type="hidden" name="agreementVisitId" value={agreementVisitId} />
           <input type="hidden" name="agreementId" value={agreementId} />
           <button type="submit" disabled={unskipping} className={BUTTON}>
@@ -63,7 +64,7 @@ export function VisitActions({
 
   if (asking) {
     return (
-      <form action={skip} className="flex flex-wrap items-center gap-2">
+      <form {...skipForm} className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="agreementVisitId" value={agreementVisitId} />
         <input type="hidden" name="agreementId" value={agreementId} />
         <label className="sr-only" htmlFor={`reason-${agreementVisitId}`}>
@@ -99,7 +100,7 @@ export function VisitActions({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {!booked && (
-        <form action={book}>
+        <form {...bookForm}>
           <input type="hidden" name="agreementVisitId" value={agreementVisitId} />
           <button type="submit" disabled={booking}
                   className="inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100 disabled:opacity-60">
@@ -107,7 +108,7 @@ export function VisitActions({
           </button>
         </form>
       )}
-      <form action={deliver}>
+      <form {...deliverForm}>
         <input type="hidden" name="agreementVisitId" value={agreementVisitId} />
         <input type="hidden" name="agreementId" value={agreementId} />
         <button type="submit" disabled={delivering} className={BUTTON}>

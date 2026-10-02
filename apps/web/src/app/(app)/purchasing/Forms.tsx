@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { addVendor, placeOrder, advanceOrder } from "./actions";
 
 function Note({ state }: { state: { done?: boolean; error?: string } }) {
@@ -10,9 +10,9 @@ function Note({ state }: { state: { done?: boolean; error?: string } }) {
 }
 
 export function AddVendor() {
-  const [state, action, pending] = useActionState(addVendor, {});
+  const [state, actionForm, pending] = useKeptAction(addVendor, {});
   return (
-    <form action={action} className="mt-3 flex flex-wrap items-end gap-2">
+    <form {...actionForm} className="mt-3 flex flex-wrap items-end gap-2">
       {[
         { name: "name", label: "Name", required: true, width: "w-56" },
         { name: "accountNumber", label: "Account number", required: false, width: "w-40" },
@@ -55,7 +55,7 @@ export function OrderBuilder({ suggestions, vendors }: {
   suggestions: Suggestion[];
   vendors: { id: string; name: string }[];
 }) {
-  const [state, action, pending] = useActionState(placeOrder, {});
+  const [state, actionForm, pending] = useKeptAction(placeOrder, {});
 
   if (vendors.length === 0) {
     return (
@@ -75,7 +75,7 @@ export function OrderBuilder({ suggestions, vendors }: {
   }
 
   return (
-    <form action={action} className="mt-3">
+    <form {...actionForm} className="mt-3">
       <label className="flex flex-col gap-1">
         <span className="text-sm font-medium text-ink-700">Vendor</span>
         <select name="vendorId" required
@@ -150,7 +150,7 @@ export function OrderBuilder({ suggestions, vendors }: {
  * than buried.
  */
 export function Advance({ id, status }: { id: string; status: string }) {
-  const [state, action, pending] = useActionState(advanceOrder, {});
+  const [state, actionForm, pending] = useKeptAction(advanceOrder, {});
 
   const next =
     status === "draft" ? { to: "submitted", label: "Send to vendor" }
@@ -160,7 +160,7 @@ export function Advance({ id, status }: { id: string; status: string }) {
   if (!next) return <span className="text-ink-500">{state.error ?? ""}</span>;
 
   return (
-    <form action={action} className="inline">
+    <form {...actionForm} className="inline">
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="status" value={next.to} />
       <button type="submit" disabled={pending}

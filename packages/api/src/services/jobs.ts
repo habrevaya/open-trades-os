@@ -2,14 +2,20 @@ import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError, scopeOf,
+  audit, type ServiceContext, guardedRead, guardedWrite, clean,
+  decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
+  withProvenance,
 } from "./context";
+import { admitInstant, requireImport } from "./history";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { enforceWithin } from "./custom-fields";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
-import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit } from "../contracts/jobs";
+import { awayBetween } from "./time-off";
+import { inForceAt } from "./pricebook";
+import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
 
@@ -55,6 +61,42 @@ async function nextNumber(
   return Number((row as { next: number }).next);
 }
 
+/**
+ * A number for a new document: the next one, or the one a migration asked
+ * for.
+ *
+ * Asking for one is recording history, so it needs `data:import`. The source
+ * document's number is what the customer knows it by, and an invoice that
+ * changes number on the way in is one nobody can find on the phone.
+ *
+ * Taken under the same lock as `nextNumber`, and refused if it is in use
+ * rather than left to the unique index, so the answer is a sentence instead
+ * of a constraint name. Nothing has to "move the sequence past" an imported
+ * number, because there is no sequence: the next number is always one more
+ * than the highest in use, so importing invoice 2201 makes the next new one
+ * 2202 and two documents can never share a number.
+ */
+async function claimNumber(
+  tx: Database, ctx: ServiceContext,
+  table: "job" | "invoice" | "estimate",
+  requested: number | undefined,
+): Promise<number> {
+  if (requested === undefined) return nextNumber(tx, ctx.actor.organizationId, table);
+  requireImport(ctx);
+  await tx.execute(sql`
+    select pg_advisory_xact_lock(hashtext(${`number:${table}:${ctx.actor.organizationId}`}))
+  `);
+  const taken = await tx.execute(sql`
+    select 1 from ${sql.raw(`public.${table}`)}
+    where organization_id = ${ctx.actor.organizationId} and number = ${requested}
+    limit 1
+  `);
+  if (taken.length > 0) {
+    throw new ConflictError(`${table[0]!.toUpperCase()}${table.slice(1)} number ${requested} is already taken.`);
+  }
+  return requested;
+}
+
 export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.input>) {
   return guardedRead(ctx, "job:read", async (tx) => {
     const cursor = decodeCursor(input.cursor);
@@ -70,6 +112,20 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         job: schema.job,
         customerName: schema.customer.name,
         propertyAddress: schema.property.addressLine1,
+        /**
+         * Published on every row and produced by nothing, so a board or a
+         * migration reading "when is this job next out" always got
+         * undefined. The earliest window still ahead of a visit that is
+         * still going to happen. The outer id is written out, not
+         * interpolated: see test/sql-fragments.test.ts for why.
+         */
+        nextVisitAt: sql<string | null>`(
+          select to_char(min(v.window_start) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          from public.visit v
+          where v.job_id = "job"."id"
+            and v.window_start >= now()
+            and v.status in ('unassigned', 'scheduled', 'dispatched', 'en_route', 'working')
+        )`,
       })
       .from(schema.job)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
@@ -79,6 +135,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.status ? inArray(schema.job.status, input.status) : undefined,
         input.customerId ? eq(schema.job.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.job.propertyId, input.propertyId) : undefined,
+        byExternal(schema.job, input),
         cursor ? lt(schema.job.createdAt, new Date(cursor)) : undefined,
         // Every scope, not just `own`. An unhandled one used to fall through
         // to no filter, which turned a role written to be limited into one
@@ -95,6 +152,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         ...clean(ctx, "job", r.job),
         customerName: r.customerName,
         propertyAddress: r.propertyAddress,
+        nextVisitAt: r.nextVisitAt,
       })),
     };
   });
@@ -106,12 +164,36 @@ export async function get(ctx: ServiceContext, input: z.infer<typeof getJob.inpu
       .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
     if (!job) throw new NotFoundError("Job");
 
-    const visits = await tx.select().from(schema.visit)
-      .where(eq(schema.visit.jobId, input.id))
-      .orderBy(schema.visit.sequence);
-
-    return { ...clean(ctx, "job", job), visits };
+    return { ...clean(ctx, "job", job), visits: await visitsOf(tx, input.id) };
   });
+}
+
+/**
+ * A job's visits as the contract publishes them, with who is assigned to
+ * each. `technicianIds` was published on every visit and never read, so a
+ * migration checking which technician it had put on a visit always saw none.
+ */
+async function visitsOf(tx: Database, jobId: string) {
+  const visits = await tx.select().from(schema.visit)
+    .where(eq(schema.visit.jobId, jobId))
+    .orderBy(schema.visit.sequence);
+  if (visits.length === 0) return [];
+  const assigned = await tx.select({
+    visitId: schema.visitAssignment.visitId, technicianId: schema.visitAssignment.technicianId,
+  }).from(schema.visitAssignment)
+    .where(inArray(schema.visitAssignment.visitId, visits.map((v) => v.id)))
+    .orderBy(desc(schema.visitAssignment.isLead));
+  return visits.map((v) => ({
+    ...withProvenance(v),
+    technicianIds: assigned.filter((a) => a.visitId === v.id).map((a) => a.technicianId),
+  }));
+}
+
+async function assignedTo(tx: Database, visitId: string): Promise<string[]> {
+  const rows = await tx.select({ technicianId: schema.visitAssignment.technicianId })
+    .from(schema.visitAssignment).where(eq(schema.visitAssignment.visitId, visitId))
+    .orderBy(desc(schema.visitAssignment.isLead));
+  return rows.map((r) => r.technicianId);
 }
 
 /**
@@ -152,6 +234,49 @@ async function assertCallbackParent(
   }
 }
 
+/**
+ * NOBODY IS BOOKED ONTO A DAY THEY HAVE OFF.
+ *
+ * The board has shown approved time off since it was built, so an empty
+ * column says why it is empty. Booking did not ask, so a job booked from a
+ * customer's page put a technician on the morning of their holiday and the
+ * first anybody knew was a customer waiting at home. Asked here, of the same
+ * approved time off the board reads, so the two cannot disagree.
+ *
+ * Only for work still to come. A visit whose window has already ended is a
+ * record of what happened, and history is not refused for being
+ * inconvenient: a migration loading last year's visits must not fail because
+ * somebody also took that week off.
+ */
+async function assertAvailable(
+  tx: Database, organizationId: string,
+  technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
+): Promise<void> {
+  if (technicianIds.length === 0 || windowEnd.getTime() < Date.now()) return;
+  const people = await tx.select({
+    id: schema.technician.id, displayName: schema.technician.displayName, active: schema.technician.active,
+  }).from(schema.technician)
+    .where(and(
+      eq(schema.technician.organizationId, organizationId),
+      inArray(schema.technician.id, [...technicianIds]),
+    ));
+  /**
+   * The same refusal dispatch gives for the same mistake. Booking an id that
+   * is not a technician here used to succeed and leave a visit assigned to
+   * nobody anybody could see.
+   */
+  if (people.length !== new Set(technicianIds).size || people.some((p) => !p.active)) {
+    throw new ConflictError("One of those technicians is not active in this company.");
+  }
+  const away = await awayBetween(tx, organizationId, windowStart, windowEnd, [...technicianIds]);
+  if (away.size === 0) return;
+  const names = people.filter((p) => away.has(p.id)).map((p) => p.displayName);
+  throw new ConflictError(
+    `${names.join(" and ")} ${names.length === 1 ? "is" : "are"} on approved time off then. `
+    + "Choose somebody else, or another time.",
+  );
+}
+
 export async function create(ctx: ServiceContext, input: CreateInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -163,7 +288,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         )).limit(1);
       if (seen?.entityId) {
         const [existing] = await tx.select().from(schema.job).where(eq(schema.job.id, seen.entityId)).limit(1);
-        if (existing) return clean(ctx, "job", existing);
+        if (existing) return { ...clean(ctx, "job", existing), visits: await visitsOf(tx, existing.id) };
       }
     }
 
@@ -174,7 +299,15 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       });
     }
 
-    const number = await nextNumber(tx, ctx.actor.organizationId, "job");
+    await assertUnclaimed(tx, "job", input.externalRef);
+    await assertUnclaimed(tx, "visit", input.visit?.externalRef);
+    if (input.visit) {
+      await assertAvailable(
+        tx, ctx.actor.organizationId, input.visit.technicianIds,
+        new Date(input.visit.windowStart), new Date(input.visit.windowEnd),
+      );
+    }
+    const number = await claimNumber(tx, ctx, "job", input.number);
 
     await enforceWithin(
       tx, ctx.actor.organizationId, "job", input.customFields,
@@ -207,6 +340,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       parentJobId: input.parentJobId ?? null,
       isWarranty: input.isWarranty ?? false,
       priceSource: input.priceSource ?? "price_book",
+      ...provenance(input.externalRef),
     }).returning();
 
     /**
@@ -249,6 +383,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         windowStart: new Date(input.visit.windowStart),
         windowEnd: new Date(input.visit.windowEnd),
         estimatedDurationMinutes: input.visit.estimatedDurationMinutes,
+        ...provenance(input.visit.externalRef),
       }).returning({ id: schema.visit.id });
 
       if (input.visit.technicianIds.length > 0) {
@@ -285,7 +420,12 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     });
 
     await audit(tx, ctx, "job.created", "job", job!.id, null, job!);
-    return clean(ctx, "job", job!);
+    /**
+     * With its visits, as the contract has always said. The created job came
+     * back without them, so a caller that booked a visit inline had to read
+     * the job again to learn the visit's id.
+     */
+    return { ...clean(ctx, "job", job!), visits: await visitsOf(tx, job!.id) };
   });
 }
 
@@ -317,6 +457,13 @@ const REACHABLE: Record<string, readonly string[]> = {
   cancelled: ["cancelled"],
 };
 
+/**
+ * The states a job's last visit finishes it from: work not yet finished.
+ * Not `canTransition(status, "completed")`, which also allows invoiced back
+ * to completed for a voided invoice, a move a visit must never make.
+ */
+const FINISHED_BY_LAST_VISIT = ["lead", "estimating", "scheduled", "in_progress", "on_hold"] as const;
+
 export function canTransition(from: string, to: string): boolean {
   return (REACHABLE[from] ?? []).includes(to);
 }
@@ -331,6 +478,30 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       throw new ConflictError(
         `A job cannot move from "${before.status}" to "${input.status}".`,
       );
+    }
+
+    /**
+     * WHEN IT WAS FINISHED, on the move to finished and at no other time.
+     *
+     * Completing a job stamped now, so a job finished in 2022 and recorded
+     * during a migration was finished on the day of the cutover, and every
+     * report asking what was done in a month was wrong for every month
+     * before it. The time is taken only together with the move to
+     * `completed`: changing when an already finished job was finished is
+     * rewriting a fact other things (commission, the technician's numbers)
+     * were computed from, and is not an edit this route offers.
+     */
+    let completedAt: Date | null = null;
+    let historical = false;
+    if (input.completedAt !== undefined) {
+      if (input.status !== "completed" || before.status === "completed" || before.completedAt !== null) {
+        throw new UnprocessableError("completedAt goes with the move to completed", [{
+          path: "completedAt",
+          message: 'Send it with status "completed", on a job that is not already completed.',
+        }]);
+      }
+      completedAt = new Date(input.completedAt);
+      historical = (await admitInstant(tx, ctx, completedAt, "completedAt")).historical;
     }
 
     /**
@@ -374,7 +545,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       // "completed" without one is invisible to every report that asks what
       // was finished this week.
       ...(input.status === "completed" && before.completedAt === null
-        ? { completedAt: new Date() }
+        ? { completedAt: completedAt ?? new Date() }
         : {}),
       ...(input.status === "cancelled" && before.cancelledAt === null
         ? { cancelledAt: new Date() }
@@ -394,11 +565,16 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
      * job is completed" is the thing every workflow author actually wants and
      * making them filter `job.updated` for it is a worse product.
      */
-    await emit(tx, ctx, {
+    /**
+     * A job finished in 2022 and recorded now is not news. "When a job is
+     * completed, ask for a review" would otherwise ask a thousand customers
+     * on the day of a migration about work they have forgotten.
+     */
+    if (!historical) await emit(tx, ctx, {
       name: "job.updated", entityType: "job", entityId: input.id,
       payload: { job: after! }, previous: { job: before },
     });
-    if (input.status !== undefined && input.status !== before.status) {
+    if (!historical && input.status !== undefined && input.status !== before.status) {
       await emit(tx, ctx, {
         /**
          * Built from the status enum, and the catalogue carries a line per
@@ -439,8 +615,65 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
 
 export async function addVisit(ctx: ServiceContext, input: z.infer<typeof scheduleVisit.input>) {
   return guardedWrite(ctx, "visit:write", async (tx) => {
+    /**
+     * THE CONTRACT SAID IDEMPOTENT AND THIS DID NOT READ THE KEY.
+     *
+     * The dispatcher handed the Idempotency-Key over and nothing looked at
+     * it, so a retried request after a dropped response added a second
+     * visit, and a technician was sent twice. Checked inside the
+     * transaction like every other create, so two simultaneous retries
+     * cannot both pass.
+     */
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "visit"),
+        )).limit(1);
+      if (seen?.entityId) {
+        const [existing] = await tx.select().from(schema.visit)
+          .where(eq(schema.visit.id, seen.entityId)).limit(1);
+        if (existing) return { ...withProvenance(existing), technicianIds: await assignedTo(tx, existing.id) };
+      }
+    }
+
     const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, input.id)).limit(1);
     if (!job) throw new NotFoundError("Job");
+    /**
+     * A cancelled job is finished with. Sending somebody to it is a visit
+     * the customer said no to, and the job's status would go on saying
+     * cancelled while a van drove there. A cancelled visit is still
+     * recorded, because that is history rather than work.
+     */
+    if (job.status === "cancelled" && input.status !== "cancelled") {
+      throw new ConflictError(`Job ${job.number} was cancelled. Book a new job rather than a visit on this one.`);
+    }
+    await assertUnclaimed(tx, "visit", input.externalRef);
+
+    /**
+     * Half a window is not a window. A start with no end invents the end,
+     * and an end with no start invents the start, and either puts a
+     * technician somewhere at a time nobody agreed.
+     */
+    if ((input.windowStart === undefined) !== (input.windowEnd === undefined)) {
+      throw new UnprocessableError("A window has both ends or neither", [{
+        path: input.windowStart === undefined ? "windowStart" : "windowEnd",
+        message: "Send windowStart and windowEnd together, or neither for a visit with no time yet.",
+      }]);
+    }
+    if (input.windowStart && input.windowEnd && Date.parse(input.windowEnd) < Date.parse(input.windowStart)) {
+      throw new UnprocessableError("The window ends before it starts", [{
+        path: "windowEnd", message: "windowEnd is before windowStart.",
+      }]);
+    }
+
+    if (input.windowStart && input.windowEnd && input.status !== "cancelled") {
+      await assertAvailable(
+        tx, ctx.actor.organizationId, input.technicianIds,
+        new Date(input.windowStart), new Date(input.windowEnd),
+      );
+    }
 
     const rows = await tx.execute<{ next: number }>(sql`
       select coalesce(max(sequence), 0) + 1 as next from public.visit where job_id = ${input.id}
@@ -451,11 +684,19 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       organizationId: ctx.actor.organizationId,
       jobId: input.id,
       sequence: next,
-      status: input.technicianIds.length > 0 ? "scheduled" : "unassigned",
-      windowStart: new Date(input.windowStart),
-      windowEnd: new Date(input.windowEnd),
+      /**
+       * CANCELLED COULD NOT BE RECORDED, so a migration either dropped a
+       * cancelled visit from the job's history or loaded it as scheduled and
+       * sent somebody to a customer who had said no. A visit with no window
+       * cannot be dispatched, so it is unassigned whoever is named on it.
+       */
+      status: input.status === "cancelled" ? "cancelled"
+        : input.technicianIds.length > 0 && input.windowStart ? "scheduled" : "unassigned",
+      windowStart: input.windowStart ? new Date(input.windowStart) : null,
+      windowEnd: input.windowEnd ? new Date(input.windowEnd) : null,
       estimatedDurationMinutes: input.estimatedDurationMinutes,
       crewId: input.crewId ?? null,
+      ...provenance(input.externalRef),
     }).returning();
 
     if (input.technicianIds.length > 0) {
@@ -467,8 +708,31 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       );
     }
 
+    /**
+     * A LEAD WITH A VISIT ON THE BOARD IS BOOKED.
+     *
+     * A job created without a visit starts as a lead, and the first visit
+     * put on it later left it there, so the jobs list called booked work a
+     * lead and the pipeline counted it twice. Only from those two states and
+     * only for a visit with a time: a visit with no window is not booked
+     * yet, and a job further along keeps its own status.
+     */
+    if ((job.status === "lead" || job.status === "estimating") && input.windowStart && input.status !== "cancelled") {
+      await tx.update(schema.job).set({ status: "scheduled", updatedAt: new Date() })
+        .where(eq(schema.job.id, input.id));
+    }
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "visit.schedule",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "visit", entityId: visit!.id,
+      });
+    }
+
     await audit(tx, ctx, "visit.scheduled", "visit", visit!.id, null, visit!);
-    return visit!;
+    return { ...withProvenance(visit!), technicianIds: input.technicianIds };
   });
 }
 
@@ -489,7 +753,7 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
 
     if (visit.status === "completed" || visit.status === "completed_after_cancellation") {
       // Idempotent by nature: a retry from a truck must not double-complete.
-      return { ...visit, raisedDispatchException: false };
+      return { ...withProvenance(visit), technicianIds: await assignedTo(tx, visit.id), raisedDispatchException: false };
     }
 
     const wasCancelled = visit.status === "cancelled";
@@ -528,21 +792,137 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
       });
     }
 
+    /**
+     * WHAT WAS USED, ON THE JOB.
+     *
+     * `partsUsed` has been in the contract since it was written and nothing
+     * read it, so the capacitor the office recorded while completing a visit
+     * went nowhere: not onto the job's cost, and not onto the invoice raised
+     * from the job afterwards. Each one is a job line priced from the price
+     * book version in force today, frozen by its version id the same way an
+     * invoice line is, and left unbilled until an invoice takes it.
+     */
+    if (input.partsUsed?.length) {
+      const itemIds = [...new Set(input.partsUsed.map((p) => p.priceBookItemId))];
+      const versions = await tx.select({
+        itemId: schema.priceBookItemVersion.itemId,
+        versionId: schema.priceBookItemVersion.id,
+        name: schema.priceBookItemVersion.name,
+        description: schema.priceBookItemVersion.description,
+        price: schema.priceBookItemVersion.price,
+        cost: schema.priceBookItemVersion.cost,
+        taxable: schema.priceBookItemVersion.taxable,
+        kind: schema.priceBookItem.kind,
+      }).from(schema.priceBookItemVersion)
+        .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
+        .where(and(inArray(schema.priceBookItemVersion.itemId, itemIds), inForceAt()));
+      const byItem = new Map(versions.map((v) => [v.itemId, v]));
+      const missing = itemIds.filter((id) => !byItem.has(id));
+      if (missing.length > 0) throw new NotFoundError("Price book item");
+
+      const [assignee] = await assignedTo(tx, input.id);
+      await tx.insert(schema.jobLine).values(input.partsUsed.map((part) => {
+        const v = byItem.get(part.priceBookItemId)!;
+        return {
+          organizationId: ctx.actor.organizationId,
+          jobId: visit.jobId,
+          visitId: input.id,
+          kind: v.kind === "labor" ? "labor" as const : v.kind === "equipment" ? "equipment" as const : "part" as const,
+          source: "office" as const,
+          priceBookItemVersionId: v.versionId,
+          name: v.name,
+          description: v.description ?? null,
+          quantity: part.quantity,
+          unitPrice: v.price,
+          unitCost: v.cost ?? null,
+          taxable: v.taxable,
+          technicianId: assignee ?? null,
+          occurredAt: completedAt,
+        };
+      }));
+    }
+
     const remaining = await tx.select({ id: schema.visit.id }).from(schema.visit)
       .where(and(
         eq(schema.visit.jobId, visit.jobId),
         inArray(schema.visit.status, ["unassigned", "scheduled", "dispatched", "en_route", "working"]),
       ));
 
-    if (remaining.length === 0) {
-      await tx.update(schema.job)
+    /**
+     * The last visit done finishes the job, but only along the job's own
+     * lifecycle. This wrote "completed" whatever the job said, so a late
+     * visit finished on a job already invoiced walked it back from invoiced
+     * to completed, with its invoice and ledger postings still standing, and
+     * the job came off every "awaiting payment" list. And it emitted
+     * nothing, so "when a job is completed" never fired for work finished
+     * this way, only for a status typed in by hand.
+     */
+    const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, visit.jobId)).limit(1);
+    if (remaining.length === 0 && job && (FINISHED_BY_LAST_VISIT as readonly string[]).includes(job.status)) {
+      const [finished] = await tx.update(schema.job)
         .set({ status: "completed", completedAt, updatedAt: new Date() })
-        .where(eq(schema.job.id, visit.jobId));
+        .where(eq(schema.job.id, visit.jobId))
+        .returning();
+      await emit(tx, ctx, {
+        name: "job.completed", entityType: "job", entityId: visit.jobId,
+        payload: { job: finished! }, previous: { job },
+      });
     }
 
+    /** The same event a technician's phone raises for the same act. */
+    await emit(tx, ctx, {
+      name: "visit.completed", entityType: "visit", entityId: input.id,
+      payload: { visitId: input.id, completedAt: completedAt.toISOString() },
+    });
+
     await audit(tx, ctx, "visit.completed", "visit", input.id, visit, updated!);
-    return { ...updated!, raisedDispatchException: wasCancelled };
+    return { ...withProvenance(updated!), technicianIds: await assignedTo(tx, input.id), raisedDispatchException: wasCancelled };
   });
 }
 
-export { nextNumber };
+/**
+ * What was used on a job, oldest first. Cost is redacted by the same rule
+ * as everywhere else it appears, at this boundary.
+ */
+export async function lines(ctx: ServiceContext, input: z.infer<typeof listJobLines.input>) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
+    if (!job) throw new NotFoundError("Job");
+    const rows = await tx.select().from(schema.jobLine)
+      .where(eq(schema.jobLine.jobId, input.id))
+      .orderBy(schema.jobLine.occurredAt, schema.jobLine.createdAt);
+    return {
+      data: rows.map((row) => {
+        const shown = clean(ctx, "jobLine", row);
+        return {
+          id: row.id, jobId: row.jobId, visitId: row.visitId, kind: row.kind, source: row.source,
+          priceBookItemVersionId: row.priceBookItemVersionId, name: row.name, description: row.description,
+          quantity: row.quantity, unitPrice: row.unitPrice,
+          ...("unitCost" in shown ? { unitCost: row.unitCost } : {}),
+          taxable: row.taxable, invoiceLineId: row.invoiceLineId, nonBillableReason: row.nonBillableReason,
+          occurredAt: row.occurredAt.toISOString(),
+        };
+      }),
+    };
+  });
+}
+
+/** The kinds of work this company does, by name. */
+export async function listTypes(ctx: ServiceContext, input: z.infer<typeof listJobTypes.input>) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const rows = await tx.select().from(schema.jobType)
+      // No `deleted_at` filter: nothing deletes a job type, it is made inactive.
+      .where(input.includeInactive ? undefined : eq(schema.jobType.active, true))
+      .orderBy(schema.jobType.name);
+    return {
+      data: rows.map((r) => ({
+        id: r.id, name: r.name, code: r.code,
+        defaultDurationMinutes: r.defaultDurationMinutes,
+        requiredSkills: r.requiredSkills, active: r.active,
+      })),
+    };
+  });
+}
+
+export { nextNumber, claimNumber };

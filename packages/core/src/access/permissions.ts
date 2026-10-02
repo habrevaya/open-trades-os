@@ -174,6 +174,15 @@ export const PERMISSIONS = {
   "workflow:write": "Create and edit automation workflows",
   "agent:configure": "Configure AI agents",
   "data:export": "Export all company data in bulk",
+  /**
+   * Recording history rather than making it: an invoice issued in 2019, a
+   * cheque received last year, tax as another system charged it, the source
+   * document's own number. Every one of those is also how books are cooked,
+   * so it is its own permission, held by the owner and by nobody else unless
+   * the owner says so. A migration's app token is given it for the length of
+   * the migration; an office manager is not given it to fix a date.
+   */
+  "data:import": "Load history from another system: back-dated documents, tax as charged, source numbers",
   "billing:manage": "Manage the OpenTradesOS subscription",
 } as const;
 

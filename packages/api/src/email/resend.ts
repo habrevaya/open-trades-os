@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   constantTimeEquals, registerEmailProvider,
   type DeliveryFeedback, type EmailEvent, type EmailProvider,
-  type OutboundEmail, type SendResult, type WebhookRequest,
+  type OutboundEmail, type ProviderSecrets, type SendResult, type WebhookRequest,
 } from "./provider";
 
 /**
@@ -20,13 +20,6 @@ import {
 interface ResendSettings {
   /** Override for testing. Never set in production. */
   baseUrl?: string;
-  /**
-   * The Svix endpoint secret from the Resend dashboard, `whsec_` prefixed.
-   * Separate from the API key, which is the `secret` this factory is handed:
-   * they are two different credentials and a deployment can hold one without
-   * the other. Without it there is no verification, so there is no webhook.
-   */
-  webhookSecret?: string;
   /**
    * How far out of step a webhook's own timestamp may be, in seconds.
    *
@@ -171,13 +164,24 @@ function firstRecipient(data: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/**
+ * `secrets.webhookSecret` is the Svix endpoint secret from the Resend
+ * dashboard, `whsec_` prefixed, read from the secret store under the name in
+ * `settings.webhookSecretRef`. Separate from the API key, which is `apiKey`:
+ * they are two different credentials and a deployment can hold one without
+ * the other. Without it there is no verification, so there is no webhook.
+ *
+ * It is never read from `settings`. It used to be, which put a credential
+ * that can forge a hard bounce into an ordinary database column.
+ */
 export function createResendProvider(
   settings: Record<string, unknown>,
   apiKey: string,
+  secrets: ProviderSecrets = {},
 ): EmailProvider {
   const config = settings as unknown as ResendSettings;
   const base = config.baseUrl ?? "https://api.resend.com";
-  const webhookSecret = config.webhookSecret;
+  const webhookSecret = secrets.webhookSecret;
   const tolerance = config.toleranceSeconds ?? 300;
 
   /**
@@ -228,7 +232,8 @@ export function createResendProvider(
         because:
           "No webhook signing secret is configured for this Resend connection, so a delivery "
           + "callback could not be told apart from anyone on the internet posting to the same URL. "
-          + "Add the endpoint secret from the Resend dashboard to turn delivery reporting on.",
+          + "Put the endpoint secret from the Resend dashboard in your secret store and give the "
+          + "connection its name as the webhook signing secret to turn delivery reporting on.",
       };
 
   return {

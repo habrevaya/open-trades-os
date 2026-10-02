@@ -1,5 +1,10 @@
 import { randomUUID, createHash, randomBytes } from "node:crypto";
 import postgres from "postgres";
+import { time } from "@opentradesos/core";
+import { createClient, type Database } from "@opentradesos/db";
+import { createInvoice, recordPayment } from "../contracts/billing";
+import * as billing from "../services/billing";
+import type { ServiceContext } from "../services/context";
 
 /**
  * THE DEMO COMPANY
@@ -244,6 +249,7 @@ const JOBS = [
 
 async function main(): Promise<void> {
   const sql = postgres(URL, { max: 4, prepare: false });
+  const db = createClient(URL);
   try {
     await wipe(sql);
     await organization(sql);
@@ -256,6 +262,7 @@ async function main(): Promise<void> {
     }
     const customers = await customersAndProperties(sql);
     await work(sql, customers, technicians, jobTypes);
+    await invoices(db, customers);
     await estimate(sql, customers);
     await communications(sql, customers);
     await agreementBook(sql, customers);
@@ -278,6 +285,7 @@ async function main(): Promise<void> {
     report({ owner, tech }, links);
   } finally {
     await sql.end();
+    await db.$close();
   }
 }
 
@@ -541,7 +549,10 @@ async function work(
     number += 1;
   }
 
-  await invoices(sql, customers);
+  /*
+    The arrangement first, so the invoice against it is checked against the
+    ceiling and consumes it the way a real one does.
+  */
   await commercialArrangement(sql, customers);
 }
 
@@ -588,7 +599,7 @@ async function commercialArrangement(
     insert into public.authorization
       (id, organization_id, job_id, state, amount, consumed_amount,
        granted_by_party_id, granted_by_name, external_reference, granted_at)
-    values (${id("authz:brazos-suite400")}, ${ORG}, ${jobId}, 'granted', '2500.00', '2480.50',
+    values (${id("authz:brazos-suite400")}, ${ORG}, ${jobId}, 'granted', '2500.00', '0',
             ${id("party:brazos-requester")}, 'Brazos, Dana Whitcomb', 'PO 44812', ${at(-6)})
   `;
 }
@@ -910,6 +921,63 @@ async function communications(
 }
 
 /**
+ * THE MONEY GOES THROUGH THE SERVICES THAT POST IT
+ *
+ * Everything else in this file is written straight into its tables, which
+ * is fine for rows that are only ever read. Invoices and payments are not
+ * only read: revenue on a job, the job costing report, the trend tile and
+ * the accounting sync all come from the LEDGER POSTINGS an issued invoice
+ * and a received payment write, and an invoice inserted as a row has none.
+ * Seeded that way, every job showed $0.00 of revenue beside an invoice for
+ * hundreds, which is the one disagreement the product exists to rule out.
+ *
+ * So these are raised and paid by `billing.create` and `billing.pay`, as the
+ * owner, exactly as the office screens do it: totals computed from the
+ * lines, the job moved to invoiced, the authorisation consumed, and the
+ * postings dated the day each thing happened. Back-dated work is recording
+ * history, which the owner may do (`data:import`), and the seed's numbers
+ * are kept so the demo still reads "invoice 2203".
+ */
+function asOwner(db: Database): ServiceContext {
+  return { actor: { userId: id("user:owner"), organizationId: ORG, roles: ["owner"] }, db };
+}
+
+/** A day relative to the seed's today, in the company's calendar. */
+const daysFromToday = (days: number): string => plusDays(today(), days);
+
+/** Midday on a company calendar day, as the instant a payment arrived. */
+function middayOn(day: string): string {
+  return time.instantOfLocal(day, 12 * 60, "America/Chicago").toISOString();
+}
+
+async function raise(
+  db: Database,
+  invoice: {
+    number: number; customerId: string; jobId?: string; issuedOn: string; dueOn: string;
+    lines: { name: string; quantity?: string; unitPrice: string }[];
+    paidOn?: string; checkNumber?: string;
+  },
+): Promise<void> {
+  const created = await billing.create(asOwner(db), createInvoice.input.parse({
+    number: invoice.number,
+    customerId: invoice.customerId,
+    ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
+    issuedOn: invoice.issuedOn,
+    dueOn: invoice.dueOn,
+    lines: invoice.lines.map((line) => ({ ...line, taxable: false })),
+  }));
+  if (!invoice.paidOn) return;
+  await billing.pay(asOwner(db), recordPayment.input.parse({
+    customerId: invoice.customerId,
+    method: "check",
+    amount: created.total,
+    receivedAt: middayOn(invoice.paidOn),
+    ...(invoice.checkNumber ? { checkNumber: invoice.checkNumber } : {}),
+    allocations: [{ invoiceId: created.id, amount: created.total }],
+  }));
+}
+
+/**
  * Receivables in three states, because an AR screen that only shows paid
  * invoices tells an owner nothing about whether they can make payroll.
  *
@@ -918,32 +986,40 @@ async function communications(
  * invoice that has to be marked overdue by a nightly job is an invoice that
  * is quietly not overdue whenever that job fails.
  */
-async function invoices(sql: postgres.Sql, customers: Map<string, { customer: string; property: string }>): Promise<void> {
+async function invoices(db: Database, customers: Map<string, { customer: string; property: string }>): Promise<void> {
   const rows = [
-    { key: "whitfield", customer: "whitfield", job: "whitfield-maint", number: 2201, status: "paid", total: "344.24", balance: "0", issued: -28, due: 2 },
-    { key: "kestrel", customer: "kestrel", job: "kestrel-quarterly", number: 2202, status: "open", total: "580.00", balance: "580.00", issued: -12, due: 3 },
+    {
+      customer: "whitfield", job: "whitfield-maint", number: 2201, issued: -28, due: 2, paid: -20,
+      lines: [
+        { name: "Semiannual maintenance, two systems", quantity: "2", unitPrice: "129.00" },
+        { name: "Pleated filter, 16x25x1", quantity: "2", unitPrice: "43.12" },
+      ],
+    },
+    {
+      customer: "kestrel", job: "kestrel-quarterly", number: 2202, issued: -12, due: 3,
+      lines: [{ name: "Quarterly filter change, rooftop unit", quantity: "4", unitPrice: "145.00" }],
+    },
     // Open, and 17 days past its due date. That is what overdue is.
-    { key: "brazos", customer: "brazos", job: "brazos-suite400", number: 2203, status: "open", total: "2480.50", balance: "2480.50", issued: -47, due: -17 },
+    {
+      customer: "brazos", job: "brazos-suite400", number: 2203, issued: -47, due: -17,
+      lines: [
+        { name: "Zoning diagnosis, Suite 400", unitPrice: "380.50" },
+        { name: "Zone damper actuators, replaced", quantity: "3", unitPrice: "700.00" },
+      ],
+    },
   ];
 
   for (const row of rows) {
     const link = customers.get(row.customer);
     if (!link) continue;
-    const issued = now(); issued.setDate(issued.getDate() + row.issued);
-    const due = now(); due.setDate(due.getDate() + row.due);
-
-    await sql`
-      insert into public.invoice
-        (id, organization_id, number, customer_id, job_id, status, issued_on, due_on,
-         subtotal, tax_total, total, balance)
-      values (${id(`inv:${row.key}`)}, ${ORG}, ${row.number}, ${link.customer},
-              ${id(`job:${row.job}`)}, ${row.status},
-              ${issued.toISOString().slice(0, 10)}, ${due.toISOString().slice(0, 10)},
-              ${row.total}, '0', ${row.total}, ${row.balance})
-    `;
+    await raise(db, {
+      number: row.number, customerId: link.customer, jobId: id(`job:${row.job}`),
+      issuedOn: daysFromToday(row.issued), dueOn: daysFromToday(row.due), lines: row.lines,
+      ...(row.paid !== undefined ? { paidOn: daysFromToday(row.paid), checkNumber: String(row.number + 3000) } : {}),
+    });
   }
 
-  await history(sql, customers);
+  await history(db, customers);
 }
 
 /**
@@ -964,7 +1040,7 @@ async function invoices(sql: postgres.Sql, customers: Map<string, { customer: st
  * tests make size order and time order disagree.
  */
 async function history(
-  sql: postgres.Sql,
+  db: Database,
   customers: Map<string, { customer: string; property: string }>,
 ): Promise<void> {
   /*
@@ -986,22 +1062,22 @@ async function history(
     const link = customers.get(payers[index % payers.length]!);
     if (!link) continue;
 
-    const issued = now();
     // The 12th of the month, so a month boundary and a timezone cannot move
-    // an invoice into the bucket next door.
-    issued.setMonth(issued.getMonth() - (months.length - index), 12);
-
-    await sql`
-      insert into public.invoice
-        (id, organization_id, number, customer_id, status, issued_on, due_on,
-         subtotal, tax_total, total, balance)
-      values (${id(`inv:history:${index}`)}, ${ORG}, ${number}, ${link.customer}, 'paid',
-              ${issued.toISOString().slice(0, 10)},
-              ${issued.toISOString().slice(0, 10)}::date + 30,
-              ${total}, '0', ${total}, '0')
-    `;
+    // an invoice into the bucket next door. Paid ten days later, which is
+    // never after today: the latest of these is the 12th of last month.
+    const issuedOn = `${plusMonths(today(), -(months.length - index)).slice(0, 8)}12`;
+    await raise(db, {
+      number, customerId: link.customer, issuedOn, dueOn: plusDays(issuedOn, 30),
+      lines: [{ name: "Service and repair, month to date", unitPrice: total }],
+      paidOn: plusDays(issuedOn, 10),
+    });
     number += 1;
   }
+}
+
+function plusDays(day: string, days: number): string {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 /**

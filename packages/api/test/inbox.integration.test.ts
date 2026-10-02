@@ -286,3 +286,113 @@ run("replying by hand", () => {
       .rejects.toThrow(/message:send/);
   });
 });
+
+run("starting a conversation, and the inbox over the API", () => {
+  /**
+   * The inbox could answer a customer and never start with one, and none of
+   * it was in the API, so an integration or an agent could not read a reply
+   * at all. Both now go through the same consent decision as every send.
+   */
+  const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+    const { dispatch } = await import("../src/http/dispatch");
+    const response = await dispatch(new Request(`http://localhost${path}`, {
+      method,
+      headers: { "content-type": "application/json", ...headers },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }), { db: db(), resolveSession: async () => owner() });
+    return { status: response.status, body: await response.json() as Record<string, unknown> };
+  };
+
+  it("texts a customer first, threads it under them, and sends a retry once", async () => {
+    const first = await call("POST", "/v1/conversations",
+      { customerId, body: "Your part came in. Thursday?" }, { "idempotency-key": "start-1" });
+    expect(first.status).toBeLessThan(300);
+    const again = await call("POST", "/v1/conversations",
+      { customerId, body: "Your part came in. Thursday?" }, { "idempotency-key": "start-1" });
+    expect(again.body["messageId"]).toBe(first.body["messageId"]);
+
+    const [n] = await raw<{ n: number }[]>`
+      select count(*)::int as n from public.message where organization_id = ${ORG} and direction = 'outbound'`;
+    expect(n!.n).toBe(1);
+
+    const listed = await call("GET", `/v1/conversations?customerId=${customerId}`);
+    const data = listed.body["data"] as { id: string; customerName: string }[];
+    expect(data.map((t) => t.id)).toEqual([first.body["conversationId"]]);
+    expect(data[0]!.customerName).toBe("Ida Inbox");
+  });
+
+  it("says in words why a reply would be refused", async () => {
+    await store(db(), ORG, inbound("STOP"));
+    const [thread] = (await inbox.threads(owner(), { customerId })).data;
+    const got = await call("GET", `/v1/conversations/${thread!.id}`);
+    expect(got.body["canReply"]).toBe(false);
+    expect(got.body["blockedReason"]).toBe("suppressed");
+    expect(got.body["blockedExplanation"]).toMatch(/replied STOP/);
+
+    const refused = await call("POST", "/v1/conversations", { customerId, body: "Hello?" },
+      { "idempotency-key": "start-2" });
+    expect(refused.status).toBe(409);
+  });
+
+  it("records and reads consent over the API", async () => {
+    const granted = await call("POST", "/v1/consent", {
+      address: THEIRS, channel: "sms", purpose: "marketing", method: "verbal",
+      proofText: "Yes, text me about tune-up offers",
+    }, { "idempotency-key": "consent-1" });
+    expect(granted.status).toBeLessThan(300);
+    const read = await call("GET", `/v1/consent?address=${encodeURIComponent(THEIRS)}`);
+    const history = read.body["history"] as { purpose: string; state: string; current: boolean }[];
+    expect(history.filter((h) => h.current)).toEqual([
+      expect.objectContaining({ purpose: "marketing", state: "granted" }),
+    ]);
+  });
+});
+
+run("a number as somebody typed it", () => {
+  /**
+   * Customer records hold the number however it was typed, and the carrier
+   * knows the same person in E.164. Compared as typed, a STOP the carrier
+   * recorded was not found when the office texted from the customer's page,
+   * the text was queued to "(512) 555-0121" which no carrier accepts, and
+   * the reply opened a second conversation under nobody.
+   */
+  const TYPED = "(512) 555-0121";
+  const E164 = "+15125550121";
+  let typedCustomerId = "";
+
+  beforeAll(async () => {
+    if (!url) return;
+    const created = await customers.create(owner(), {
+      type: "residential", name: "Tad Typed", phone: TYPED,
+      paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {},
+    });
+    typedCustomerId = created.id;
+  });
+
+  it("queues the text to the number in E.164", async () => {
+    const { messageId } = await inbox.start(owner(), { customerId: typedCustomerId, body: "Part is in." });
+    const [row] = await raw<{ to_address: string }[]>`
+      select to_address from public.message where id = ${messageId}`;
+    expect(row!.to_address).toBe(E164);
+  });
+
+  it("honours a STOP the carrier recorded against the E.164 form", async () => {
+    await store(db(), ORG, inbound("STOP", E164));
+    await expect(inbox.start(owner(), { customerId: typedCustomerId, body: "Hello?" }))
+      .rejects.toThrow(/STOP/);
+  });
+
+  it("threads their reply onto the conversation the office started, under them", async () => {
+    const { conversationId } = await inbox.start(owner(), { customerId: typedCustomerId, body: "Part is in." });
+    await store(db(), ORG, inbound("Great, Thursday works", E164));
+    const threads = (await inbox.threads(owner(), { customerId: typedCustomerId })).data;
+    expect(threads.map((t) => t.id)).toEqual([conversationId]);
+  });
+
+  it("recognises a stranger's first text as the customer whose record has the typed number", async () => {
+    await store(db(), ORG, inbound("Is anyone free today?", E164));
+    const threads = (await inbox.threads(owner(), { customerId: typedCustomerId })).data;
+    expect(threads).toHaveLength(1);
+    expect(threads[0]!.customerName).toBe("Tad Typed");
+  });
+});

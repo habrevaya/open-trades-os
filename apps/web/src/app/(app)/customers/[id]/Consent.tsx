@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { Chip } from "@opentradesos/ui";
 import { grantMarketing, revokeMarketing } from "./actions";
 
@@ -33,8 +33,8 @@ export function Consent({
   reason: string;
   hasRecord: boolean;
 }) {
-  const [grantState, grant, granting] = useActionState(grantMarketing, null);
-  const [revokeState, revoke, revoking] = useActionState(revokeMarketing, null);
+  const [grantState, grantForm, granting] = useKeptAction(grantMarketing, null);
+  const [revokeState, revokeForm, revoking] = useKeptAction(revokeMarketing, null);
   const error = (grantState && "error" in grantState && grantState.error)
     || (revokeState && "error" in revokeState && revokeState.error);
 
@@ -71,7 +71,7 @@ export function Consent({
           START. Recording a consent here would not change it and should not.
         </p>
       ) : allowed || hasRecord ? (
-        <form action={revoke} className="mt-3 flex flex-wrap items-center gap-2">
+        <form {...revokeForm} className="mt-3 flex flex-wrap items-center gap-2">
           <input type="hidden" name="address" value={address} />
           <label className="sr-only" htmlFor="revoke-reason">What they said</label>
           <input
@@ -86,7 +86,7 @@ export function Consent({
       ) : null}
 
       {!suppressed && !allowed && (
-        <form action={grant} className="mt-3 flex flex-wrap items-end gap-2">
+        <form {...grantForm} className="mt-3 flex flex-wrap items-end gap-2">
           <input type="hidden" name="address" value={address} />
           <div>
             <label htmlFor="proof" className="block text-xs text-ink-500">

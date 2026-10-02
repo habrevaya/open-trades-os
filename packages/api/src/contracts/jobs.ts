@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 
 /**
  * WHOSE PRICE GOVERNS.
@@ -62,6 +62,7 @@ export const Visit = z.object({
   arrivedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
   technicianNotes: z.string().nullable(),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const Job = z.object({
@@ -91,9 +92,18 @@ export const Job = z.object({
   /** Redacted unless the caller holds job.cost:read. */
   cost: MoneyString.nullable().optional(),
   grossMargin: MoneyString.nullable().optional(),
+  externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
 export const JobCreate = z.object({
+  /**
+   * The source document's own number, kept for history. Needs
+   * `data:import`. Refused if taken; the next number this company is given
+   * is always past the highest one in use, imported or not.
+   */
+  number: z.number().int().min(1).max(2_000_000_000).optional(),
+  /** Where this came from in another system. See `ExternalRef`. */
+  externalRef: ExternalRef.optional(),
   customerId: Uuid,
   propertyId: Uuid,
   jobTypeId: Uuid.optional(),
@@ -160,6 +170,8 @@ export const JobCreate = z.object({
     windowEnd: z.string().datetime(),
     estimatedDurationMinutes: z.number().int().min(5).max(1440).default(60),
     technicianIds: z.array(Uuid).default([]),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
   }).optional(),
 });
 
@@ -177,6 +189,8 @@ export const listJobs = defineRoute({
     technicianId: Uuid.optional(),
     scheduledFrom: z.string().datetime().optional(),
     scheduledTo: z.string().datetime().optional(),
+    /** Find by where it came from. See `ExternalRef`. */
+    ...ExternalLookup,
   }),
   output: pageOf(Job.omit({ visits: true }).extend({
     customerName: z.string(),
@@ -212,9 +226,16 @@ export const updateJob = defineRoute({
   summary: "Update a job",
   module: "M10",
   permissions: ["job:write"],
-  input: JobCreate.partial().omit({ visit: true, parties: true, coverage: true }).extend({
+  input: JobCreate.partial().omit({ visit: true, parties: true, coverage: true, number: true, externalRef: true }).extend({
     id: Uuid,
     status: JobStatus.optional(),
+    /**
+     * When the work was finished, sent with `status: "completed"` and only
+     * then. Omit for now. A completion more than a week back is history and
+     * needs `data:import`, because "what was finished in March" is what
+     * commission and technician reports are built on.
+     */
+    completedAt: z.string().datetime().optional(),
   }),
   output: Job,
 });
@@ -228,11 +249,25 @@ export const scheduleVisit = defineRoute({
   idempotent: true,
   input: z.object({
     id: Uuid,
-    windowStart: z.string().datetime(),
-    windowEnd: z.string().datetime(),
+    /**
+     * The window, both ends or neither. Neither is a visit nobody has put a
+     * time on yet: it waits off the board, unassigned, rather than at an
+     * invented hour.
+     */
+    windowStart: z.string().datetime().optional(),
+    windowEnd: z.string().datetime().optional(),
     estimatedDurationMinutes: z.number().int().min(5).max(1440).default(60),
     technicianIds: z.array(Uuid).default([]),
     crewId: Uuid.optional(),
+    /**
+     * Record the visit as already cancelled: a visit the customer called off,
+     * kept because it is part of the job's history. Nobody is dispatched to
+     * it and it does not hold the job open. The technicians named are the
+     * ones who were going to go.
+     */
+    status: z.literal("cancelled").optional(),
+    /** Where this came from in another system. See `ExternalRef`. */
+    externalRef: ExternalRef.optional(),
   }),
   output: Visit,
 });
@@ -269,6 +304,73 @@ export const completeVisit = defineRoute({
   }),
 });
 
+/**
+ * The kinds of work this company does.
+ *
+ * A job's `jobTypeId` had to be an id, and nothing listed them, so a caller
+ * could only set one it had found some other way.
+ */
+export const listJobTypes = defineRoute({
+  method: "get",
+  path: "/v1/job-types",
+  summary: "List job types",
+  module: "M10",
+  permissions: ["job:read"],
+  input: z.object({ includeInactive: z.boolean().default(false) }),
+  output: z.object({
+    data: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      code: z.string().nullable(),
+      defaultDurationMinutes: z.number().int(),
+      requiredSkills: z.array(z.string()),
+      active: z.boolean(),
+    })),
+  }),
+});
+
+/**
+ * WHAT WAS USED ON A JOB.
+ *
+ * Job lines have been written since the field app first recorded a part,
+ * and nothing could read them back except a margin report, so the office
+ * raising an invoice had to ask the technician what they had used. Listed
+ * with whether each one is billed yet, because "what is still to invoice on
+ * this job" is the question the invoice is answering.
+ */
+export const JobLine = z.object({
+  id: Uuid,
+  jobId: Uuid,
+  visitId: Uuid.nullable(),
+  kind: z.string(),
+  source: z.string(),
+  priceBookItemVersionId: Uuid.nullable(),
+  name: z.string(),
+  description: z.string().nullable(),
+  quantity: MoneyString,
+  unitPrice: MoneyString,
+  /** Redacted unless the caller holds job.cost:read. */
+  unitCost: MoneyString.nullable().optional(),
+  taxable: z.boolean(),
+  /** Null until an invoice line bills it. */
+  invoiceLineId: Uuid.nullable(),
+  /** Set when it is deliberately not billed: warranty, goodwill, rework. */
+  nonBillableReason: z.string().nullable(),
+  occurredAt: z.string().datetime(),
+});
+
+export const listJobLines = defineRoute({
+  method: "get",
+  path: "/v1/jobs/{id}/lines",
+  summary: "List what was used on a job",
+  description:
+    "Parts, labour and anything else recorded against the job, from the field or the office, oldest first, each with the invoice line that billed it or null when nothing has yet.",
+  module: "M10",
+  permissions: ["job:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({ data: z.array(JobLine) }),
+});
+
 export const jobRoutes = {
-  listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit,
+  listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines,
 } as const;

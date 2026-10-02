@@ -20,3 +20,23 @@ export function getDb(): Database {
   globalForDb.__otsDb ??= createClient();
   return globalForDb.__otsDb;
 }
+
+const globalForWorkerDb = globalThis as unknown as { __otsWorkerDb?: Database };
+
+/**
+ * The connection the worker tick uses.
+ *
+ * The worker's own, when one is configured. Finding which companies have
+ * unread events calls `app.pending_event_organizations`, which the role the
+ * request path runs as deliberately may not call, so a deployment that
+ * connects the web app as an ordinary role points WORKER_DATABASE_URL at the
+ * `background` role exactly as it would for the worker container. Unset, the
+ * web app's own pool is used, which is right in development and for anybody
+ * whose DATABASE_URL can already do everything. See docs/self-hosting/worker.md.
+ */
+export function getWorkerDb(): Database {
+  const url = process.env["WORKER_DATABASE_URL"];
+  if (!url) return getDb();
+  globalForWorkerDb.__otsWorkerDb ??= createClient(url);
+  return globalForWorkerDb.__otsWorkerDb;
+}

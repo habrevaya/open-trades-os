@@ -1,4 +1,4 @@
-import { dispatch, authenticate, attributingApp } from "@opentradesos/api/http";
+import { dispatch, authenticate, attributingApp, configuredToken } from "@opentradesos/api/http";
 import { getDb } from "@/lib/db";
 import { sessionFromCookie } from "@/lib/auth";
 
@@ -43,6 +43,16 @@ async function handle(request: Request): Promise<Response> {
       return authenticated?.ctx ?? null;
     },
     resolveApp: (req) => attributingApp(req, db),
+    /**
+     * The operator API, under /api/v1/operator, and off unless OPERATOR_TOKEN
+     * is set to something at least 32 characters long. It never reads the
+     * cookie: its own bearer token is the only thing it accepts.
+     * docs/self-hosting/operator-api.md.
+     */
+    operator: {
+      token: configuredToken("OPERATOR_TOKEN"),
+      publicUrl: process.env["PUBLIC_URL"] || process.env["AUTH_URL"],
+    },
   });
 }
 

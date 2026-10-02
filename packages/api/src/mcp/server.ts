@@ -1,6 +1,7 @@
 import type { Actor } from "@opentradesos/core";
 import { dispatch, type DispatchDeps } from "../http/dispatch";
 import { allTools, toolsFor, IDEMPOTENCY_FIELD, type McpTool } from "./tools";
+import { OrganizationSuspendedError } from "../services/context";
 
 /**
  * THE MCP SERVER
@@ -86,6 +87,25 @@ const json = (value: unknown): Response =>
 const toolError = (id: string | number | null | undefined, message: string): Response =>
   rpc(id, { content: [{ type: "text", text: message }], isError: true });
 
+const SUSPENDED = Symbol("suspended");
+
+/**
+ * The caller, or the fact that their company is suspended.
+ *
+ * Resolution throws for a suspended company so that no caller can mistake it
+ * for a signed in one. Here it becomes a tool result the model can read and
+ * repeat to the person, rather than a transport failure that reads as "the
+ * server is down" and sends somebody debugging their MCP client.
+ */
+async function actorOrSuspended(deps: McpDeps, request: Request) {
+  try {
+    return await deps.resolveActor(request);
+  } catch (error) {
+    if (error instanceof OrganizationSuspendedError) return SUSPENDED;
+    throw error;
+  }
+}
+
 export async function handleMcp(request: Request, deps: McpDeps): Promise<Response> {
   if (request.method !== "POST") {
     return rpcError(null, INVALID_REQUEST, "This endpoint speaks JSON-RPC over POST.");
@@ -149,7 +169,9 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       return isNotification ? new Response(null, { status: 202 }) : rpc(message.id, {});
 
     case "tools/list": {
-      const actor = await deps.resolveActor(request);
+      // A suspended company lists nothing, the same as no credential.
+      const actor = await actorOrSuspended(deps, request);
+      if (actor === SUSPENDED) return rpc(message.id, { tools: [] });
       /**
        * An unauthenticated list is EMPTY, not the whole catalogue.
        *
@@ -168,7 +190,8 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
         return rpcError(message.id, INVALID_PARAMS, "A tool call must name a tool.");
       }
 
-      const actor = await deps.resolveActor(request);
+      const actor = await actorOrSuspended(deps, request);
+      if (actor === SUSPENDED) return toolError(message.id, new OrganizationSuspendedError().message);
       if (!actor) return toolError(message.id, "Not signed in. Present a valid credential.");
 
       const tool = allTools().find((t) => t.name === name);

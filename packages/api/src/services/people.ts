@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { time } from "@opentradesos/core";
 import {
@@ -790,6 +790,8 @@ export async function standingFor(
 export interface Person {
   membershipId: string;
   userId: string;
+  name: string | null;
+  email: string;
   role: string;
   active: boolean;
   technicianId: string | null;
@@ -806,12 +808,12 @@ export interface Person {
  * settings screen listed members under a different permission; this is the
  * surface it names, so that excuse is gone.
  *
- * NO EMAIL, AND NOT BY CHOICE. `public."user"` carries a row level security
- * policy that returns a user's own row and nothing else, and the comment on
- * it says cross-user reads go through membership joins inside the tenant
- * boundary and never through that table. So this lists memberships and
- * technician profiles. A roster that quietly returned one address, the
- * caller's own, would be worse than one that returns none.
+ * NAMES AND EMAILS THROUGH A FUNCTION, NOT A JOIN. `public."user"` carries
+ * a row level security policy that returns a user's own row and nothing
+ * else, so a join to it from here returned one address, the caller's own.
+ * `app.organization_people()` answers for this company's members only, with
+ * the name and address a colleague already sees on the schedule. Without
+ * them a migration matching technicians by email had nothing to match on.
  *
  * NO `technician.skills` EITHER, AND THAT ONE IS A FINDING RATHER THAN A
  * DESIGN. The column exists, `services/crews.ts` has a comment calling skills
@@ -828,8 +830,16 @@ export interface Person {
  * `compliance:read`. Hanging the certifications off this read would hand
  * every holder of the staff list the compliance file with it.
  */
-export async function listPeople(ctx: ServiceContext): Promise<Person[]> {
+export async function listPeople(
+  ctx: ServiceContext, input: { email?: string | undefined } = {},
+): Promise<Person[]> {
   return guardedRead(ctx, "user:read", async (tx) => {
+    const directory = await tx.execute<{ membership_id: string; name: string | null; email: string }>(
+      sql`select membership_id, name, email from app.organization_people()`,
+    );
+    const byMembership = new Map(directory.map((d) => [d.membership_id, d]));
+    const wanted = input.email?.toLowerCase();
+
     const rows = await tx.select({
       membershipId: schema.membership.id,
       userId: schema.membership.userId,
@@ -846,11 +856,55 @@ export async function listPeople(ctx: ServiceContext): Promise<Person[]> {
     return rows.map((row) => ({
       membershipId: row.membershipId,
       userId: row.userId,
+      name: byMembership.get(row.membershipId)?.name ?? null,
+      email: byMembership.get(row.membershipId)?.email ?? "",
       role: row.role,
       active: row.active,
       technicianId: row.technicianId,
       displayName: row.displayName,
       technicianActive: row.technicianActive,
+    })).filter((person) => wanted === undefined || person.email.toLowerCase() === wanted);
+  });
+}
+
+/**
+ * The people on the settings screen: each active membership with its name,
+ * address, the role deciding for it and any scope it is narrowed to.
+ *
+ * The settings screen used to build this by joining `membership` to
+ * `public."user"`, and that table's row level security returns a user's own
+ * row and nothing else, so the inner join dropped every colleague and an
+ * owner opening settings saw a company of one: themselves. Names come
+ * through `app.organization_people()` instead, the same path `listPeople`
+ * reads, and the policy on the user table stays as tight as it was.
+ */
+export async function members(ctx: ServiceContext) {
+  return guardedRead(ctx, "user:read", async (tx) => {
+    const directory = await tx.execute<{ membership_id: string; name: string | null; email: string }>(
+      sql`select membership_id, name, email from app.organization_people()`,
+    );
+    const byMembership = new Map(directory.map((d) => [d.membership_id, d]));
+
+    const rows = await tx.select({
+      membership: schema.membership,
+      roleName: schema.role.name,
+    })
+      .from(schema.membership)
+      .leftJoin(schema.role, and(
+        eq(schema.role.id, schema.membership.roleId),
+        isNull(schema.role.deletedAt),
+      ))
+      .where(and(
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.active, true),
+      ))
+      .orderBy(asc(schema.membership.createdAt));
+
+    return rows.map(({ membership, roleName }) => ({
+      membership,
+      roleName,
+      name: byMembership.get(membership.id)?.name ?? null,
+      email: byMembership.get(membership.id)?.email ?? "",
     }));
   });
 }
@@ -901,8 +955,8 @@ async function loadCertification(tx: Database, organizationId: string, id: strin
  * generated from it.
  */
 export const handlers = {
-  listPeople: async (ctx: ServiceContext): Promise<{ people: Person[] }> =>
-    ({ people: await listPeople(ctx) }),
+  listPeople: async (ctx: ServiceContext, input: { email?: string | undefined }): Promise<{ people: Person[] }> =>
+    ({ people: await listPeople(ctx, input) }),
 
   listCertificationTypes: async (ctx: ServiceContext): Promise<{
     types: {

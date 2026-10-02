@@ -68,12 +68,19 @@ export const NAV: NavGroup[] = [
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
       { href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks" },
       { href: "/recurring", label: "Recurring", permission: "job:read", icon: "recurring" },
+      /** Phased work under one contract, billed in draws. Work, because it is jobs. */
+      { href: "/projects", label: "Projects", permission: "job:read", icon: "projects" },
       /**
        * Under Work rather than Business, because a deficiency backlog is a
        * list of jobs that have not been booked yet. Filing it as a report
        * would make it something somebody reads rather than works.
        */
       { href: "/inspections", label: "Inspections", permission: "compliance:read", icon: "inspections" },
+      /**
+       * Beside inspections, because both answer "may this work go ahead":
+       * one about the equipment, this one about the person sent to it.
+       */
+      { href: "/certifications", label: "Certifications", permission: "compliance:read", icon: "certifications" },
     ],
   },
   {
@@ -93,12 +100,21 @@ export const NAV: NavGroup[] = [
   {
     label: "Money",
     items: [
+      { href: "/estimates", label: "Estimates", permission: "estimate:read", icon: "estimates" },
       { href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices" },
       { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
       { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
       { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
+      /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
+      { href: "/fleet", label: "Fleet", permission: "asset:read", icon: "fleet" },
       { href: "/timesheets", label: "Timesheets", permission: "timesheet:read", icon: "timesheets" },
+      /**
+       * Beside timesheets, because it is what the hours become: a closed
+       * period, a register somebody can check line by line, and the file the
+       * bureau takes.
+       */
+      { href: "/payroll", label: "Payroll", permission: "payroll:read", icon: "payroll" },
       { href: "/booking", label: "Online booking", permission: "booking:configure", icon: "booking" },
     ],
   },
@@ -120,6 +136,8 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/reviews", label: "Reviews", permission: "review:respond", icon: "reviews" },
+      /** The company's own licences, insurance and filings. Business, because it is about the company rather than a job. */
+      { href: "/compliance", label: "Compliance", permission: "document:read", icon: "compliance" },
       {
         href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
         children: [
@@ -128,7 +146,13 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/automations", label: "Automations", permission: "workflow:read", icon: "automations" },
-      { href: "/settings", label: "Settings", permission: "settings:read", icon: "settings" },
+      {
+        href: "/settings", label: "Settings", permission: "settings:read", icon: "settings",
+        children: [
+          { href: "/settings", label: "Company" },
+          { href: "/settings/integrations", label: "Integrations" },
+        ],
+      },
     ],
   },
 ];

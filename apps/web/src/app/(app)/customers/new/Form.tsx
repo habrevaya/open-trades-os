@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { createCustomer } from "../actions";
 
 /**
@@ -11,10 +11,10 @@ import { createCustomer } from "../actions";
  * thing to keep in step for the sake of saving one round trip.
  */
 export function NewCustomerForm() {
-  const [state, action, pending] = useActionState(createCustomer, null);
+  const [state, actionForm, pending] = useKeptAction(createCustomer, null);
 
   return (
-    <form action={action} className="mt-6 space-y-5">
+    <form {...actionForm} className="mt-6 space-y-5">
       {state?.error ? (
         <p role="alert" className="rounded border border-red-600/20 bg-red-tint px-3 py-2 text-sm text-red-600">
           {state.error}

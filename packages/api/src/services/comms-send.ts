@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import * as phoneNumbers from "./phone-numbers";
 import { comms } from "@opentradesos/core";
@@ -29,7 +29,13 @@ import { comms } from "@opentradesos/core";
  * Exported because the inbox asks the same question before letting a person
  * type a reply, and asking it twice in two ways is how the answers diverge.
  */
-export async function sendability(tx: Database, organizationId: string, address: string) {
+export async function sendability(tx: Database, organizationId: string, typed: string) {
+  /**
+   * In E.164, whatever the caller held. A STOP arrives from the carrier as
+   * "+15125550192"; the customer record says "(512) 555-0192". Compared as
+   * typed, the STOP was not found and the text went anyway.
+   */
+  const address = comms.phoneAddress(typed);
   /**
    * WHICH NUMBER A TEXT COMES FROM IS A DECISION, and this used to make it by
    * taking whichever number was created last. That was harmless only while
@@ -112,10 +118,17 @@ export async function threadFor(tx: Database, input: {
    */
   let customerId = input.customerId ?? null;
   if (!customerId) {
-    const [found] = await tx.select({ id: schema.customer.id })
+    /**
+     * By the digits, because the record holds the number as it was typed and
+     * the carrier hands us E.164: a reply from "+15125550192" is the customer
+     * whose record says "(512) 555-0192", and an exact match said nobody.
+     */
+    const digits = comms.phoneAddress(input.address).startsWith("+") ? input.address.replace(/\D/g, "") : "";
+    const forms = digits.length === 11 && digits.startsWith("1") ? [digits, digits.slice(1)] : [digits];
+    const [found] = digits.length < 7 ? [] : await tx.select({ id: schema.customer.id })
       .from(schema.customer)
       .where(and(
-        eq(schema.customer.phone, input.address),
+        inArray(sql`regexp_replace(${schema.customer.phone}, '[^0-9]', '', 'g')`, forms),
         isNull(schema.customer.deletedAt),
       ))
       .limit(1);
@@ -162,7 +175,15 @@ export async function sendTransactional(tx: Database, input: {
   const body = input.body.trim();
   if (body === "") return { sent: false, reason: "empty", explanation: "Nothing to send." };
 
-  const decision = await sendability(tx, input.organizationId, input.address);
+  /**
+   * One form of the number for the decision, the thread and the carrier.
+   * The callers hand over what is on the customer or contact record, which
+   * is however somebody typed it; queued as typed, the carrier is asked to
+   * send to "512-555-0192", and the customer's reply, which arrives from
+   * "+15125550192", opens a second conversation nobody is watching.
+   */
+  const address = comms.phoneAddress(input.address);
+  const decision = await sendability(tx, input.organizationId, address);
   if (!decision.allowed || !decision.from) {
     /**
      * TWO DIFFERENT FAILURES, and they were collapsed into one stale string.
@@ -182,7 +203,7 @@ export async function sendTransactional(tx: Database, input: {
 
   const conversationId = await threadFor(tx, {
     organizationId: input.organizationId,
-    address: input.address,
+    address,
     phoneNumberId: decision.from.id,
     customerId: input.customerId ?? null,
   });
@@ -194,7 +215,7 @@ export async function sendTransactional(tx: Database, input: {
     channel: "sms",
     purpose: "transactional",
     fromAddress: decision.from.e164,
-    toAddress: input.address,
+    toAddress: address,
     body,
     status: "queued",
     sentByUserId: input.sentByUserId ?? null,

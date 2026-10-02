@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
+import { useState } from "react";
 import { offerService, saveWindows, saveHours } from "./actions";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -21,7 +22,7 @@ function Note({ state }: { state: { done?: boolean; error?: string } }) {
 export function OfferService({ jobTypes }: {
   jobTypes: { id: string; name: string }[];
 }) {
-  const [state, action, pending] = useActionState(offerService, {});
+  const [state, actionForm, pending] = useKeptAction(offerService, {});
 
   if (jobTypes.length === 0) {
     return (
@@ -33,7 +34,7 @@ export function OfferService({ jobTypes }: {
   }
 
   return (
-    <form action={action} className="mt-3 grid gap-3 sm:grid-cols-2">
+    <form {...actionForm} className="mt-3 grid gap-3 sm:grid-cols-2">
       <label className="flex flex-col gap-1">
         <span className="text-sm font-medium text-ink-700">Job type</span>
         <select name="jobTypeId" required className="h-10 rounded border border-steel-300 px-2 text-sm">
@@ -104,13 +105,13 @@ export function OfferService({ jobTypes }: {
 export function Windows({ current }: {
   current: { name: string; startsAt: string; endsAt: string }[];
 }) {
-  const [state, action, pending] = useActionState(saveWindows, {});
+  const [state, actionForm, pending] = useKeptAction(saveWindows, {});
   const [rows, setRows] = useState(
     current.length > 0 ? current : [{ name: "", startsAt: "", endsAt: "" }],
   );
 
   return (
-    <form action={action} className="mt-3">
+    <form {...actionForm} className="mt-3">
       <div className="space-y-2">
         {rows.map((row, i) => (
           <div key={i} className="flex flex-wrap items-end gap-2">
@@ -159,11 +160,11 @@ export function Windows({ current }: {
 export function Hours({ current }: {
   current: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
 }) {
-  const [state, action, pending] = useActionState(saveHours, {});
+  const [state, actionForm, pending] = useKeptAction(saveHours, {});
   const byDay = new Map(current.map((d) => [d.dayOfWeek, d]));
 
   return (
-    <form action={action} className="mt-3">
+    <form {...actionForm} className="mt-3">
       <div className="space-y-1">
         {DAYS.map((label, day) => {
           const row = byDay.get(day);

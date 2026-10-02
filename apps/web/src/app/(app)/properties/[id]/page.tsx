@@ -54,6 +54,17 @@ export default async function PropertyPage({
           .filter(Boolean).join(" ")}
       </p>
 
+      {can(user.actor, "job:write") && property.customers.length > 0 && (
+        <p className="mt-3 flex flex-wrap gap-2">
+          {property.customers.map((link) => (
+            <a key={link.id} href={`/jobs/new?customer=${link.id}&property=${id}`}
+               className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">
+              {property.customers.length === 1 ? "Book a job here" : `Book a job here for ${link.name}`}
+            </a>
+          ))}
+        </p>
+      )}
+
       <Facts>
         {property.customers.length > 0 && (
           <Fact label="People">

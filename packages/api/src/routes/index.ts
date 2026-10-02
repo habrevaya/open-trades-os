@@ -11,6 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
+  apps, comms, consent,
 } from "../services/index";
 
 /**
@@ -92,13 +93,20 @@ export const handlers = {
   updateJob: jobs.update,
   scheduleVisit: jobs.addVisit,
   completeVisit: jobs.complete,
+  listJobLines: jobs.lines,
+  listJobTypes: jobs.listTypes,
 
   // Money
   createInvoice: billing.create,
   getInvoice: billing.get,
   listInvoices: billing.list,
   recordPayment: billing.pay,
+  applyPayment: billing.applyPayment,
+  recordRefund: billing.recordRefund,
   voidInvoice: billing.voidInvoice,
+  updateInvoice: billing.updateDraft,
+  issueInvoice: billing.issue,
+  deleteInvoice: billing.deleteDraft,
   writeOffInvoice: billing.writeOff,
   getArAging: billing.arAging,
 
@@ -203,6 +211,7 @@ export const handlers = {
   // Files. Content addressed, so a phone retrying over a metered connection
   // lands on the key it already occupies.
   listAttachments: files.handlers.listAttachments,
+  uploadAttachment: files.handlers.uploadAttachment,
   listPendingUploads: files.handlers.listPendingUploads,
   storeUpload: files.handlers.storeUpload,
   failUpload: files.handlers.failUpload,
@@ -306,6 +315,14 @@ export const handlers = {
   closeAccountingPeriod: accounting.handlers.closeAccountingPeriod,
   reopenAccountingPeriod: accounting.handlers.reopenAccountingPeriod,
 
+  listConversations: comms.handlers.listConversations,
+  getConversation: comms.handlers.getConversation,
+  markConversationRead: comms.handlers.markConversationRead,
+  replyToConversation: comms.handlers.replyToConversation,
+  startConversation: comms.handlers.startConversation,
+  getConsent: consent.handlers.getConsent,
+  grantConsent: consent.handlers.grantConsent,
+  revokeConsent: consent.handlers.revokeConsent,
   defineMessageTemplate: messageTemplates.handlers.defineMessageTemplate,
   listMessageTemplates: messageTemplates.handlers.listMessageTemplates,
   updateMessageTemplate: messageTemplates.handlers.updateMessageTemplate,
@@ -480,6 +497,7 @@ export const handlers = {
   annotateServiceReport: serviceReports.handlers.annotateServiceReport,
   publishServiceReport: serviceReports.handlers.publishServiceReport,
   unpublishServiceReport: serviceReports.handlers.unpublishServiceReport,
+  getAppSelf: apps.handlers.getAppSelf,
   listScheduledRevisions: priceBook.revisionHandlers.listScheduledRevisions,
   publishRevision: priceBook.revisionHandlers.publishRevision,
   discardRevision: priceBook.revisionHandlers.discardRevision,

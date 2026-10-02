@@ -1,19 +1,20 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { Button, Field, Input } from "@opentradesos/ui";
 import { signIn, type ActionState } from "../actions";
 
 export default function LoginPage() {
-  const [state, action, pending] = useActionState<ActionState, FormData>(signIn, {});
+  const [state, actionForm, pending] = useKeptAction<ActionState>(signIn, {});
 
   return (
     <>
       <h1 className="text-xl font-semibold">Sign in</h1>
 
-      <form action={action} className="mt-7 flex flex-col gap-5">
+      <form {...actionForm} className="mt-7 flex flex-col gap-5">
         <Field label="Work email" htmlFor="email" required>
-          <Input id="email" name="email" type="email" autoComplete="email" required autoFocus />
+          <Input id="email" name="email" type="email" autoComplete="email" required autoFocus
+                 defaultValue={state.values?.email} />
         </Field>
 
         <Field label="Password" htmlFor="password" required>

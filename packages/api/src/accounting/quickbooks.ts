@@ -1,7 +1,7 @@
 import {
   registerProvider,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
-  type ExternalAccount, type ExternalChange, type ExternalCredit,
+  type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
   type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
@@ -112,6 +112,7 @@ const KEY_FIELD: Record<AccountingEntityKind, { entity: string; field: string }>
   invoice: { entity: "Invoice", field: "DocNumber" },
   payment: { entity: "Payment", field: "PaymentRefNum" },
   credit_memo: { entity: "CreditMemo", field: "DocNumber" },
+  refund: { entity: "Purchase", field: "DocNumber" },
 };
 
 /**
@@ -529,6 +530,59 @@ export function createQuickBooksProvider(
         }],
       });
     },
+
+    /**
+     * AN EXPENSE FROM THE BANK, CATEGORISED TO ACCOUNTS RECEIVABLE.
+     *
+     * Intuit's own instructions for refunding a paid invoice are three
+     * documents: a credit memo, an expense categorised to Accounts
+     * Receivable, and a receive-payment linking the two ("Refund your
+     * customer for a paid invoice", QuickBooks Online help). The credit memo
+     * is the decision that the customer no longer owes the money, and in
+     * this product that decision is a void or a write-off of the reopened
+     * invoice, which already reaches the books as a credit memo of its own.
+     * What a refund is here is the middle document: cash out of the bank,
+     * the customer's receivable back up. That is exactly the `refund`
+     * posting in our ledger, held money included, because QuickBooks keeps a
+     * payment's unapplied remainder as a credit in the same receivable.
+     *
+     * Not a RefundReceipt. A RefundReceipt is a negative sale: its lines are
+     * items and it takes the money out of income. Sending one would reduce
+     * revenue for a refund our ledger books against the receivable, and
+     * reduce it a second time when the reopened invoice is written off.
+     */
+    async pushRefund(refund: ExternalRefund): Promise<PushResult> {
+      if (!refund.receivableAccountExternalId) {
+        return {
+          ok: false,
+          code: "unmapped",
+          message: "Map the accounts receivable account to QuickBooks' Accounts Receivable before refunds can be sent: "
+            + "a refund puts the money back on what the customer owes.",
+          retryable: false,
+          duplicate: false,
+        };
+      }
+      return create("Purchase", {
+        DocNumber: refund.idempotencyKey,
+        TxnDate: refund.refundedOn,
+        PaymentType: "Check",
+        AccountRef: { value: refund.bankAccountExternalId },
+        EntityRef: { value: refund.customerExternalId, type: "Customer" },
+        CurrencyRef: { value: refund.amount.currency },
+        PrivateNote: refund.memo,
+        Line: [{
+          Amount: amountOf(refund.amount),
+          DetailType: "AccountBasedExpenseLineDetail",
+          Description: refund.memo,
+          AccountBasedExpenseLineDetail: {
+            AccountRef: { value: refund.receivableAccountExternalId },
+            CustomerRef: { value: refund.customerExternalId },
+          },
+        }],
+      });
+    },
+
+    heldMoneyReachesBooks: true,
 
     async findPushed(
       kind: AccountingEntityKind, idempotencyKey: string,

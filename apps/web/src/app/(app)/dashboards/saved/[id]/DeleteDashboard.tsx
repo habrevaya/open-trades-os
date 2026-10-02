@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useKeptAction } from "@/lib/use-kept-action";
 import { deleteDashboard } from "../../actions";
 
 /**
@@ -13,11 +13,11 @@ import { deleteDashboard } from "../../actions";
  * click they avoid for a fortnight.
  */
 export function DeleteDashboard({ id, name }: { id: string; name: string }) {
-  const [state, remove, removing] = useActionState(deleteDashboard, null);
+  const [state, removeForm, removing] = useKeptAction(deleteDashboard, null);
 
   return (
     <form
-      action={remove}
+      {...removeForm}
       onSubmit={(event) => {
         if (!confirm(`Delete "${name}"? The reports on it are not touched.`)) event.preventDefault();
       }}

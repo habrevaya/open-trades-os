@@ -1,5 +1,6 @@
 "use server";
 
+import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -39,7 +40,7 @@ export async function declarePolicy(_previous: unknown, form: FormData) {
       onCallTreatment: String(form.get("onCallTreatment") ?? "") as "hours_worked_at_base",
     });
   } catch (error) {
-    if (error instanceof ConflictError) return { error: error.message };
+    if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/timesheets");
