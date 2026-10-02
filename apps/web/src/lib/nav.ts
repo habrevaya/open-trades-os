@@ -221,6 +221,13 @@ export const NAV: NavGroup[] = [
         href: "/settings", label: "Settings", permission: "settings:read", icon: "settings",
         children: [
           { href: "/settings", label: "Company" },
+          /**
+           * Where the company works. Under Settings rather than under the
+           * schedule because it is declared once and then read by everything
+           * else: a property gets its territory when it is created, and the trip
+           * charge follows from that rather than from anything on the board.
+           */
+          { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
            * The group this company is in, and what it has agreed to let the

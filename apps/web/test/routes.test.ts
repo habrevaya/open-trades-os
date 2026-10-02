@@ -58,20 +58,33 @@ function links(): { file: string; href: string }[] {
       if (statSync(full).isDirectory()) { walk(full); continue; }
       if (!/\.tsx?$/.test(entry)) continue;
       const source = readFileSync(full, "utf8");
-      for (const match of source.matchAll(/href[=:]\s*"(\/[^"]*)"/g)) {
-        out.push({ file: relative(APP, full), href: match[1]! });
-      }
       /**
-       * Template literals too, with the interpolations stood in for.
+       * EVERY PATH NEAR AN `href`, NOT JUST ONE SHAPE OF IT.
        *
-       * `href={`/customers/${id}`}` is how nearly every link to a detail page
-       * is written, and the first version of this test skipped anything
-       * containing `${`, which excluded exactly the links most likely to be
-       * pointing at a page nobody has built. It passed while /customers/[id]
-       * did not exist.
+       * This used to anchor on the two shapes somebody thought of:
+       * `href="/jobs"` and `` href={`/jobs/${id}`} ``. Anything else was
+       * invisible, and the shape it could not see is the one a conditional
+       * link is written in:
+       *
+       *     href={allowed ? `/setup/${step.key}` : undefined}
+       *
+       * The setup wizard links that way to all ten of its steps and nine of
+       * them had no page. The test that exists to catch a dead link passed
+       * against nine of them for as long as it anchored on a shape.
+       *
+       * So: find each `href`, then take every string or template literal
+       * beginning with a slash out of the 200 characters after it. A path in
+       * that window which is not a link is not a problem, because it still
+       * has to be a path the app serves.
        */
-      for (const match of source.matchAll(/href[=:]\s*\{?`(\/[^`]*)`/g)) {
-        out.push({ file: relative(APP, full), href: match[1]!.replace(/\$\{[^}]*\}/g, "x") });
+      for (const at of source.matchAll(/href[=:]/g)) {
+        const window = source.slice(at.index!, at.index! + 200);
+        for (const literal of window.matchAll(/["`](\/[^"`\n]*)["`]/g)) {
+          out.push({
+            file: relative(APP, full),
+            href: literal[1]!.replace(/\$\{[^}]*\}/g, "x"),
+          });
+        }
       }
       for (const match of source.matchAll(/redirect\(\s*[`"](\/[^`"?]*)/g)) {
         out.push({ file: relative(APP, full), href: match[1]!.replace(/\$\{[^}]*\}/g, "x") });

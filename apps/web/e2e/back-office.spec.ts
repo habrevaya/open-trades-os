@@ -704,3 +704,72 @@ test("Work from other systems: an order arrives, is accepted, completed, and the
   /** And the networks' caveats are on the screen rather than in a help article. */
   await expect(owner.getByText("Accepting cannot be undone").first()).toBeVisible();
 });
+
+test("Service area: a territory is declared, an overlapping one is refused, and a rename to nothing is refused", async ({ owner }) => {
+  /**
+   * The step the setup wizard asked for and had nowhere to send anybody. The
+   * overlap refusal is the reason this is a screen rather than a text box: one
+   * postal code in two territories makes a property's territory, trip charge and
+   * route non-deterministic across a vacuum, and the only moment anybody can see
+   * both territories is the moment they draw the overlap.
+   */
+  const north = `North ${run}`;
+  /**
+   * Digits only, and that is not cosmetic. `normalisePostalCodes` upper cases a
+   * code, because a Canadian property stored "K1A 0B1" would otherwise never
+   * match a territory holding "k1a 0b1". The first version of this built a code
+   * out of the run suffix, which has letters in it, and failed against the
+   * product behaving correctly.
+   */
+  const code = `9${[...run.slice(-4)].map((c) => c.charCodeAt(0) % 10).join("")}`;
+
+  await owner.goto("/settings/service-area");
+  await expect(owner.getByRole("heading", { level: 1, name: "Service area" })).toBeVisible();
+
+  const create = owner.getByRole("button", { name: "Add territory" });
+  await owner.getByLabel("Postal codes for the new territory").fill(code);
+  await owner.getByLabel("Trip charge for the new territory").fill("45");
+  await owner.getByRole("textbox", { name: "Name", exact: true }).fill(north);
+  await create.click();
+
+  const table = owner.getByRole("table", { name: "Territories" });
+  const row = table.getByRole("row").filter({ hasText: north });
+  await expect(row).toContainText(code);
+  await expect(row).toContainText("$45.00");
+  await expect(row).toContainText("In use");
+
+  /**
+   * A second territory claiming the same code is refused, in words, and the
+   * sentence names the territory already holding it.
+   *
+   * Filtered rather than bare: Next's own route announcer is a `role="alert"`
+   * too, so `getByRole("alert")` alone is a strict mode violation on every page
+   * in this app.
+   */
+  await owner.getByLabel("Postal codes for the new territory").fill(code);
+  await owner.getByRole("textbox", { name: "Name", exact: true }).fill(`South ${run}`);
+  await create.click();
+  const overlap = owner.getByRole("alert").filter({ hasText: "already in" });
+  await expect(overlap).toContainText(code);
+  await expect(overlap).toContainText(north);
+
+  /** Clearing a name is refused rather than leaving a nameless territory. */
+  await row.getByLabel(`Name of ${north}`).fill("");
+  await row.getByRole("button", { name: "Save" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "needs a name" })).toBeVisible();
+  await expect(table.getByRole("row").filter({ hasText: north })).toBeVisible();
+
+  /** Clearing the trip charge puts it back on the company default, not on zero. */
+  await row.getByLabel(`Name of ${north}`).fill(north);
+  await row.getByLabel(`Trip charge for ${north}`).fill("");
+  await row.getByRole("button", { name: "Save" }).click();
+  await expect(table.getByRole("row").filter({ hasText: north })).toContainText("Company default");
+
+  /** Retiring frees the code, which is what lets a company reorganise its patches. */
+  await table.getByRole("row").filter({ hasText: north }).getByRole("button", { name: "Retire" }).click();
+  await expect(table.getByRole("row").filter({ hasText: north })).toContainText("Retired");
+  await owner.getByLabel("Postal codes for the new territory").fill(code);
+  await owner.getByRole("textbox", { name: "Name", exact: true }).fill(`South ${run}`);
+  await create.click();
+  await expect(table.getByRole("row").filter({ hasText: `South ${run}` })).toContainText(code);
+});

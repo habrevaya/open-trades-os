@@ -491,6 +491,19 @@ export async function updateTerritory(
       ));
     if (!before) throw new NotFoundError("Territory");
 
+    /**
+     * A rename to nothing is refused, the same as a creation with no name.
+     *
+     * `createTerritory` has always refused an empty name and this did not, so a
+     * territory could be renamed to the empty string and then be a row in the
+     * settings list with a blank cell where its name goes, matched against by
+     * postal code and nameable by nobody. The asymmetry was invisible for as
+     * long as the only caller was an API nobody pointed a form at.
+     */
+    if (input.name !== undefined && input.name.trim() === "") {
+      throw new ConflictError("A territory needs a name.");
+    }
+
     const codes = input.postalCodes === undefined
       ? undefined
       : normalisePostalCodes(input.postalCodes);

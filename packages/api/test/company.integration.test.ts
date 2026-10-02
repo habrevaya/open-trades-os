@@ -380,6 +380,22 @@ run("the areas the company covers", () => {
     })).resolves.toMatchObject({ postalCodes: ["78701", "78703"] });
   });
 
+  it("refuses a rename to nothing, the same as a creation with no name", async () => {
+    /**
+     * `createTerritory` has always refused an empty name and `updateTerritory`
+     * did not, which was invisible while the only caller was an API nobody
+     * pointed a form at. The settings screen has a name box on every row, so a
+     * cleared one would have left a territory matched by postal code and
+     * nameable by nobody.
+     */
+    const area = await company.createTerritory(owner(), { name: "Central", postalCodes: ["78701"] });
+    await expect(company.updateTerritory(owner(), { id: area.id, name: "   " }))
+      .rejects.toThrow(/needs a name/);
+    /** And the name it had is still there, because nothing was written. */
+    await expect(company.listTerritories(owner()))
+      .resolves.toMatchObject([{ id: area.id, name: "Central" }]);
+  });
+
   it("frees a code once the area holding it is retired", async () => {
     /**
      * Retired areas are excluded from the overlap check, because a code that

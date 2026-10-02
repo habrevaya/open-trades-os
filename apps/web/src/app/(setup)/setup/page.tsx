@@ -54,7 +54,7 @@ export default async function SetupPage() {
             return (
               <li key={step.key} className={i > 0 ? "border-t border-steel-200" : ""}>
                 <a
-                  href={allowed ? `/setup/${step.key}` : undefined}
+                  href={allowed ? step.href : undefined}
                   aria-disabled={!allowed}
                   className={`flex items-start gap-4 px-5 py-4 transition-colors ${
                     allowed ? "hover:bg-steel-100" : "cursor-not-allowed opacity-60"
