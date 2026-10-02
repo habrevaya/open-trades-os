@@ -103,6 +103,35 @@ Sending an estimate issues the grant as part of sending, so the normal path is
 | `/b/{token}` | One booking request, before anybody has confirmed it |
 | `/c/{token}` | The whole account: visits, documents, agreements, history |
 
+### Ask to move or cancel a visit
+
+From a job link or the account link, a customer looking at a visit still to come
+can ask to move it or to cancel it. `/j/{token}/change` is the job link's next
+visit and `/c/{token}/change/{visitId}` is one visit on the account.
+
+It is a request, never a move. A visit on the board has a technician and a route
+the customer cannot see, so asking writes a request, raises it in the office
+queue with the customer's reason, and changes nothing about the visit. A move is
+chosen from exactly the windows online booking would offer for that kind of
+work, from the same function: the company's notice period, open days, per window
+limit and service area. A window a customer has asked for counts against that
+limit for the next person, as a booking request does. A job whose type is not
+bookable online cannot be moved from the link, and the page says to reply
+instead; it can still be cancelled. A cancellation needs a reason. One request
+per visit at a time.
+
+`GET /v1/portal/visit-change` is what the page reads and
+`POST /v1/portal/visit-change` is the request, both reached by the link.
+
+The office answers from the job or from the queue. `GET /v1/visit-change-requests`
+is the list, and `POST /v1/visit-change-requests/{id}/approve` and
+`POST /v1/visit-change-requests/{id}/decline` are the two answers, behind
+`visit:reschedule`. Agreeing to a move checks the window is still open, moves
+the visit, takes it off the technician's day and puts it back on the board for
+the new day; agreeing to a cancellation cancels it. Either way the customer is
+told, by text where they can be texted and by email otherwise, and the request
+records whether they were.
+
 ### Take a booking from the website
 
 `GET /v1/public/services` and `GET /v1/public/availability` are read by a
@@ -145,6 +174,11 @@ approving on their behalf.
 | `POST /v1/portal/grants/{id}/revoke` | `portal:revoke` |
 | `GET /v1/public/availability` | nothing |
 | `POST /v1/public/bookings` | nothing |
+| `GET /v1/portal/visit-change` | nothing |
+| `POST /v1/portal/visit-change` | nothing |
+| `GET /v1/visit-change-requests` | `visit:read` |
+| `POST /v1/visit-change-requests/{id}/approve` | `visit:reschedule` |
+| `POST /v1/visit-change-requests/{id}/decline` | `visit:reschedule` |
 | `GET /v1/bookings` | `booking:read` |
 | `POST /v1/bookings/{id}/confirm` | `booking:decide`, `job:write` |
 | `PUT /v1/booking/hours` | `booking:configure` |
@@ -168,4 +202,13 @@ A customer cannot log in: every route into the portal is a link somebody sent
 them. There is no account creation, no password and no saved payment method.
 The portal blocks a trade pack declares are data with nothing reading them yet,
 so the customer view is the same shape for every trade. Rescheduling from the
-portal is not built: a customer who needs a different day replies.
+portal is a request the office answers, deliberately: nothing a customer does
+from a link moves a visit by itself. Windows are offered by the online booking
+service for the job's type, so a company that takes no online bookings for that
+work cannot offer moves for it. The office cannot propose a different time from
+the request: a decline says why in words, and the customer replies or asks
+again. Capacity is the per window limit online booking uses, not the
+technicians' real days, which arrives with the dispatch board's own
+availability. Agreeing to cancel a job's only visit cancels the visit and
+leaves the job as it was; whether the work is off altogether is the office's
+decision on the job.

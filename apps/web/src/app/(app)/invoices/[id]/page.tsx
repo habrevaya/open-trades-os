@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, creditNotes, customers, invoiceDelivery, jobs, payments, NotFoundError } from "@opentradesos/api/services";
+import {
+  agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, NotFoundError,
+} from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -39,6 +41,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     invoiceDelivery.history(ctx, { invoiceId: id }).then((r) => r.deliveries),
   ]);
   const credited = (await creditNotes.list(ctx, { limit: 50, invoiceId: id })).data;
+  const memberIds = invoice.lines.map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
+  const plans = memberIds.length > 0 && can(user.actor, "customer:read")
+    ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
+    : new Map<string, string>();
   /**
    * A credit can be raised on anything issued and still standing, paid
    * included: what a paid invoice no longer owes stays on the account.
@@ -100,6 +106,14 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
               <span className="font-medium">{line.name}</span>
               {line.taxable ? <span className="ml-2 text-xs text-ink-500">taxable</span> : null}
               {line.description ? <p className="mt-0.5 text-ink-700">{line.description}</p> : null}
+              {/* Never silently: the plan that took money off this line, and how much. */}
+              {Number(line.memberDiscountAmount ?? "0") > 0 ? (
+                <p className="mt-0.5 text-xs text-ink-500">
+                  Member discount
+                  {line.memberAgreementId && plans.get(line.memberAgreementId) ? `, ${plans.get(line.memberAgreementId)}` : ""}
+                  : <Money value={line.memberDiscountAmount!} />
+                </p>
+              ) : null}
             </Td>
             <Td className="text-right font-mono tabular-nums">{Number(line.quantity)}</Td>
             <Td className="text-right"><Money value={line.unitPrice} /></Td>

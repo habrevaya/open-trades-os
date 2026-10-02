@@ -13,6 +13,14 @@ export const EstimateLine = z.object({
   quantity: MoneyString,
   unitPrice: MoneyString,
   discountAmount: MoneyString,
+  /**
+   * How much of `discountAmount` was member pricing, and which agreement it
+   * came from. Computed by the server when the estimate is written, never
+   * taken from the request: `discountAmount` on a line sent in is only what
+   * somebody typed.
+   */
+  memberDiscountAmount: MoneyString.optional(),
+  memberAgreementId: Uuid.nullable().optional(),
   taxable: z.boolean(),
   /** The rate AS APPLIED, frozen on the line and carried onto the invoice. */
   taxRate: RateString,
@@ -96,7 +104,8 @@ export const createEstimate = defineRoute({
   summary: "Create an estimate",
   description:
     "One estimate, one to three options. Totals are computed server side from the lines; a client supplied total is ignored. " +
-    "An option is a whole scope of work, not a discount tier: lines belong to the option, not to the estimate.",
+    "An option is a whole scope of work, not a discount tier: lines belong to the option, not to the estimate. " +
+    "When the customer holds an active agreement at this property whose plan carries a discount, the member rate is taken off each eligible line on top of any discount sent, and each line says how much and which agreement.",
   module: "M07",
   permissions: ["estimate:write"],
   idempotent: true,
@@ -339,7 +348,42 @@ export const refundDeposit = defineRoute({
   output: Deposit,
 });
 
+/**
+ * The pipeline a company can still close: sent, not approved or declined, and
+ * not expired. At its own path because a literal beside `/v1/estimates/{id}`
+ * is ambiguous.
+ */
+export const listUnsoldEstimates = defineRoute({
+  method: "get",
+  path: "/v1/unsold-estimates",
+  summary: "Estimates sent and still waiting for an answer",
+  description:
+    "Oldest first by default, or largest first with `sort=value`. The value is the recommended option, or the largest when none is recommended, which is what the work is worth if the customer says yes; summing every option would count one job two or three times.",
+  module: "M07",
+  permissions: ["estimate:read"],
+  input: z.object({
+    sort: z.enum(["age", "value"]).default("age"),
+    limit: z.number().int().min(1).max(500).default(200),
+  }),
+  output: z.object({
+    estimates: z.array(z.object({
+      id: Uuid,
+      number: z.number().int(),
+      title: z.string().nullable(),
+      customerId: Uuid,
+      customerName: z.string(),
+      status: EstimateStatus,
+      sentAt: z.string().datetime(),
+      viewedAt: z.string().datetime().nullable(),
+      /** Whole days since it went out. */
+      ageDays: z.number().int(),
+      value: MoneyString,
+    })),
+  }),
+});
+
 export const estimateRoutes = {
+  listUnsoldEstimates,
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
   requestDeposit, applyDeposit, refundDeposit,

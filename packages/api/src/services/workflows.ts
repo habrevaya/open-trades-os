@@ -6,6 +6,8 @@ import {
 } from "./context";
 import { SHAPES } from "./workflow-dwell";
 import { checkReportStep } from "./report-delivery";
+import { refusingDuplicate } from "./duplicates";
+import { policyFor, reviewUrlFor } from "./reviews";
 
 /**
  * AUTOMATIONS, AS SOMETHING A PERSON CAN SEE AND TURN OFF
@@ -271,6 +273,17 @@ function check(
   const armProblems = automation.checkBranches(input.steps);
   if (armProblems.length > 0) return automation.explainBranch(armProblems[0]!);
 
+  /**
+   * A re-check naming a question this build cannot ask would stop every run
+   * at that step with a failure, so it is refused here where it can be fixed.
+   */
+  const badCheck = input.steps.find((step) =>
+    step.kind === "stop_unless" && !automation.isCheck(step.config?.["check"]));
+  if (badCheck) {
+    return `This build cannot check ${String(badCheck.config?.["check"] ?? "nothing")}. `
+      + `Choose one of: ${Object.values(automation.CHECKS).map((c) => c.label.toLowerCase()).join("; ")}.`;
+  }
+
   if (input.triggerKind === "event") {
     if ((input.triggerEvents ?? []).length === 0) {
       return "An event automation needs at least one event to trigger on.";
@@ -381,49 +394,67 @@ async function seenEventNames(tx: Database, organizationId: string): Promise<Set
  * saved sends its first message before anybody has read it back.
  */
 export async function create(ctx: ServiceContext, input: WorkflowInput) {
-  return guardedWrite(ctx, "workflow:write", async (tx) => {
-    const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId))
-      ?? await checkStepSettings(tx, ctx, input.steps);
-    if (refusal) throw new ConflictError(refusal);
+  return guardedWrite(ctx, "workflow:write", (tx) => createWithin(tx, ctx, input));
+}
 
-    const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
-    if (!required.ok) throw new ConflictError("This definition cannot be published.");
+/**
+ * The body of `create`, inside a transaction the caller holds, so installing a
+ * recommended automation is this exact path and not a second one: the same
+ * check, the same permission rule, the same first version.
+ */
+async function createWithin(
+  tx: Database,
+  ctx: ServiceContext,
+  input: WorkflowInput,
+  options: { templateKey?: string; enabled?: boolean } = {},
+) {
+  const refusal = check(ctx, input, await seenEventNames(tx, ctx.actor.organizationId))
+    ?? await checkStepSettings(tx, ctx, input.steps);
+  if (refusal) throw new ConflictError(refusal);
 
-    const [workflow] = await tx.insert(schema.workflow).values({
+  const required = automation.canPublish(permissionsFor(ctx.actor), input.steps);
+  if (!required.ok) throw new ConflictError("This definition cannot be published.");
+
+  const [workflow] = await refusingDuplicate(
+    "workflow_template_idx",
+    "That recommended automation is already installed. Open it from the list to change it, "
+      + "or delete it first to start again from the recommended version.",
+    () => tx.insert(schema.workflow).values({
       organizationId: ctx.actor.organizationId,
       name: input.name.trim(),
       description: input.description ?? null,
-      enabled: false,
+      enabled: options.enabled ?? false,
       triggerKind: input.triggerKind,
       triggerEvents: input.triggerKind === "event" ? (input.triggerEvents ?? []) : [],
       schedule: input.triggerKind === "schedule" ? (input.schedule ?? null) : null,
       dwell: input.triggerKind === "dwell" ? (input.dwell ?? null) : null,
+      templateKey: options.templateKey ?? null,
       createdByUserId: ctx.actor.userId,
-    }).returning();
+    }).returning(),
+  );
 
-    const [version] = await tx.insert(schema.workflowVersion).values({
-      organizationId: ctx.actor.organizationId,
-      workflowId: workflow!.id,
-      version: 1,
-      conditions: (input.conditions ?? {}) as Record<string, unknown>,
-      steps: input.steps as Record<string, unknown>[],
-      /**
-       * What was approved, recorded at publish time. The run checks against
-       * it again, so this is a record of what somebody signed off rather
-       * than a standing grant.
-       */
-      requiredPermissions: required.required,
-      publishedByUserId: ctx.actor.userId,
-      publishedAt: new Date(),
-    }).returning();
+  const [version] = await tx.insert(schema.workflowVersion).values({
+    organizationId: ctx.actor.organizationId,
+    workflowId: workflow!.id,
+    version: 1,
+    conditions: (input.conditions ?? {}) as Record<string, unknown>,
+    steps: input.steps as Record<string, unknown>[],
+    /**
+     * What was approved, recorded at publish time. The run checks against
+     * it again, so this is a record of what somebody signed off rather
+     * than a standing grant.
+     */
+    requiredPermissions: required.required,
+    publishedByUserId: ctx.actor.userId,
+    publishedAt: new Date(),
+  }).returning();
 
-    await tx.update(schema.workflow)
-      .set({ activeVersionId: version!.id })
-      .where(eq(schema.workflow.id, workflow!.id));
+  await tx.update(schema.workflow)
+    .set({ activeVersionId: version!.id })
+    .where(eq(schema.workflow.id, workflow!.id));
 
-    await audit(tx, ctx, "workflow.created", "workflow", workflow!.id, null, workflow);
-    return { ...workflow!, activeVersionId: version!.id };
-  });
+  await audit(tx, ctx, "workflow.created", "workflow", workflow!.id, null, workflow);
+  return { ...workflow!, activeVersionId: version!.id };
 }
 
 /**
@@ -613,6 +644,30 @@ const IMPLEMENTED = [
     description:
       "Runs the steps under it when a condition holds, and the steps under Otherwise when it does not.",
   },
+  {
+    kind: "stop_unless",
+    label: "Stop unless still true",
+    description:
+      "Looks again, after a wait, and ends the run quietly if the answer has changed. "
+      + "The estimate being approved on day two is the follow up working.",
+  },
+  {
+    kind: "send_estimate",
+    label: "Send the estimate link",
+    description:
+      "Texts or emails the customer a fresh link to their estimate, while it is still waiting for an answer.",
+  },
+  {
+    kind: "request_review",
+    label: "Ask whether to ask for a review",
+    description:
+      "Puts the job to your review rules: who may be asked, how often, how soon and how late. Waits if they say later.",
+  },
+  {
+    kind: "send_review_request",
+    label: "Send the review request",
+    description: "Sends the ask your review rules queued for the job, with the link to your review site.",
+  },
 ];
 
 /** The things an automation can wait on, as the screen has to name them. */
@@ -631,6 +686,152 @@ export function describeDwell(
   if (!shape) return `Waiting on something this build does not have: ${dwell.shape}`;
   const days = dwell.afterDays;
   return `${shape.label}, after ${days} ${days === 1 ? "day" : "days"}`;
+}
+
+/* ---------------------------------------------------- recommended automations */
+
+export interface RecommendedAutomation {
+  key: string;
+  name: string;
+  summary: string;
+  needs: string;
+  parameters: automation.TemplateParameter[];
+  /** The workflow it installed, when it is installed. An ordinary one, edited on the canvas. */
+  installed: { id: string; enabled: boolean; name: string } | null;
+  /** Why it cannot be turned on yet, in words, or null when it can. */
+  blockedBy: string | null;
+  /** For a platform parameter: the review sites declared with a link. */
+  platforms: { platform: string; displayName: string }[];
+}
+
+/**
+ * The recommended list, and whether each is on.
+ *
+ * "On" means a live workflow installed from that template exists. Edited,
+ * renamed or switched off, it is still that install, because the label on
+ * the row is what the list reads and the steps are whatever the company made
+ * them. Deleted, it is not, and the template can be turned on again.
+ */
+export async function recommended(ctx: ServiceContext): Promise<RecommendedAutomation[]> {
+  return guardedRead(ctx, "workflow:read", async (tx) => {
+    const installs = await tx.select({
+      id: schema.workflow.id,
+      name: schema.workflow.name,
+      enabled: schema.workflow.enabled,
+      templateKey: schema.workflow.templateKey,
+    }).from(schema.workflow)
+      .where(and(isNull(schema.workflow.deletedAt), sql`${schema.workflow.templateKey} is not null`));
+
+    const platforms = (await tx.select({
+      platform: schema.reviewPlatform.platform,
+      displayName: schema.reviewPlatform.displayName,
+      reviewUrl: schema.reviewPlatform.reviewUrl,
+    }).from(schema.reviewPlatform)
+      .where(and(eq(schema.reviewPlatform.active, true), isNull(schema.reviewPlatform.deletedAt))))
+      .filter((p) => (p.reviewUrl ?? "").trim() !== "")
+      .map((p) => ({ platform: p.platform, displayName: p.displayName }));
+
+    const hasPolicy = await policyFor(tx, ctx.actor.organizationId).then(() => true, () => false);
+
+    return automation.TEMPLATES.map((template) => {
+      const install = installs.find((row) => row.templateKey === template.key);
+      let blockedBy: string | null = null;
+      if (template.key === "review_after_paid") {
+        if (!hasPolicy) {
+          blockedBy = "Set your review rules first, under Reviews: how soon after a job, how often at most, and how late in the day.";
+        } else if (platforms.length === 0) {
+          blockedBy = "Declare where your customers leave reviews, with its link, under Reviews first.";
+        }
+      }
+      return {
+        key: template.key,
+        name: template.name,
+        summary: template.summary,
+        needs: template.needs,
+        parameters: template.parameters,
+        installed: install ? { id: install.id, enabled: install.enabled, name: install.name } : null,
+        blockedBy,
+        platforms: template.parameters.some((p) => p.kind === "platform") ? platforms : [],
+      };
+    });
+  });
+}
+
+/**
+ * Turn a recommended automation on: install it as an ordinary workflow and
+ * switch it on, in one step.
+ *
+ * ON, unlike a workflow made on the canvas, which starts off. The canvas
+ * starts off because nobody has read back what they drew; here the person has
+ * just read what it does in a sentence and pressed "Turn on", and an install
+ * that then sat switched off would be the automation they believe they have
+ * and do not.
+ *
+ * THE SAME PATH AS ANY OTHER WORKFLOW. `createWithin` checks the definition,
+ * refuses a step the installer may not publish and records the permissions the
+ * run will hold, so a template is not a way to acquire authority. What is
+ * checked here in addition is what the template needs from the company to do
+ * anything at all, and a refusal says what to set up.
+ */
+export async function installTemplate(
+  ctx: ServiceContext,
+  input: { key: string; values?: Record<string, unknown> | undefined },
+) {
+  return guardedWrite(ctx, "workflow:write", async (tx) => {
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "workflow_template_install"),
+        )).limit(1);
+      if (seen?.entityId) {
+        const [row] = await tx.select().from(schema.workflow)
+          .where(eq(schema.workflow.id, seen.entityId)).limit(1);
+        if (row) return { id: row.id, name: row.name, enabled: row.enabled, templateKey: row.templateKey };
+      }
+    }
+
+    const built = automation.buildTemplate(input.key, input.values ?? {});
+    if (!built.ok) throw new ConflictError(built.reason);
+
+    if (input.key === "review_after_paid") {
+      await policyFor(tx, ctx.actor.organizationId);
+      const platform = String(input.values?.["platform"] ?? "");
+      if (!(await reviewUrlFor(tx, platform))) {
+        throw new ConflictError(
+          `${platform} is not a review site you have declared with a link, so there would be nowhere to send them. `
+          + "Declare it under Reviews first.",
+        );
+      }
+    }
+
+    const workflow = await createWithin(tx, ctx, {
+      name: built.definition.name,
+      description: built.definition.description,
+      triggerKind: built.definition.triggerKind,
+      triggerEvents: built.definition.triggerEvents,
+      steps: automation.flattenPlan(built.definition.steps)
+        .map((step) => ({ kind: step.kind, config: step.config ?? {} })),
+    }, { templateKey: input.key, enabled: true });
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        idempotencyKey: ctx.idempotencyKey,
+        entityType: "workflow_template_install",
+        entityId: workflow.id,
+        direction: "inbound",
+        provider: "api",
+        eventType: "workflow_template.installed",
+        status: "succeeded",
+      });
+    }
+
+    await audit(tx, ctx, "workflow.installed_from_template", "workflow", workflow.id, null,
+      { templateKey: input.key, values: input.values ?? {} });
+    return { id: workflow.id, name: workflow.name, enabled: workflow.enabled, templateKey: input.key };
+  });
 }
 
 export const handlers = {
@@ -679,4 +880,10 @@ export const handlers = {
    * synchronous entry is a different type the registry cannot hold.
    */
   listWorkflowSteps: async (ctx: ServiceContext) => ({ steps: availableSteps(ctx) }),
+
+  listWorkflowTemplates: async (ctx: ServiceContext) => ({ templates: await recommended(ctx) }),
+
+  installWorkflowTemplate: (ctx: ServiceContext, input: {
+    key: string; values?: Record<string, string | number> | undefined;
+  }) => installTemplate(ctx, input),
 } as const;

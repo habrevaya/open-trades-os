@@ -2,13 +2,15 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { agreements, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, money } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
-import { formatDay } from "@/lib/dates";
+import { formatDay, formatIn } from "@/lib/dates";
+import { ActionForm, TextField } from "@/components/ActionForm";
 import { PageHeader, Table, Th, Td } from "@/components/Table";
 import { VisitActions } from "../VisitActions";
 import { BillButton } from "../BillButton";
 import { CancelForm } from "../CancelForm";
+import { renewAgreement } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,8 @@ export default async function AgreementPage({
   const writes = can(user.actor, "membership:write");
   const { agreement, plan } = data;
   const zone = user.organizationTimezone;
+  /** A term column only once there is more than one term to tell apart. */
+  const renewed = agreement.renewalCount > 0;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -64,6 +68,17 @@ export default async function AgreementPage({
         </span>
         <span><Money value={agreement.price} /> {agreement.billingFrequency.replace(/_/g, " ")}</span>
       </div>
+
+      {/*
+        The member benefit, said where somebody looks it up. It is applied to
+        estimates and invoices for this customer at this address while the
+        agreement is running, as a discount on each line naming this plan.
+      */}
+      {plan.discountRate && Number(plan.discountRate) > 0 ? (
+        <p className="mt-2 text-sm text-ink-700">
+          Members get {agreements.percentOf(plan.discountRate)} off eligible work, taken off each line of their estimates and invoices.
+        </p>
+      ) : null}
 
       {agreement.cancellationReason ? (
         <p className="mt-2 text-sm text-ink-700">
@@ -89,11 +104,12 @@ export default async function AgreementPage({
         somebody remembers. That is the difference between a book that renews
         and one that quietly does not.
       </p>
-      <Table head={<><Th>Due</Th><Th>Visit</Th><Th>State</Th><Th className="text-right">Worth</Th><Th /></>}>
+      <Table head={<><Th>Due</Th><Th>Visit</Th>{renewed ? <Th>Term</Th> : null}<Th>State</Th><Th className="text-right">Worth</Th><Th /></>}>
         {data.visits.map((visit) => (
           <tr key={visit.id}>
             <Td className="tabular-nums">{formatDay(visit.dueOn, zone)}</Td>
             <Td className="text-ink-500">{visit.sequence}</Td>
+            {renewed ? <Td className="text-ink-500">{visit.term}</Td> : null}
             <Td>
               {visit.deliveredOn
                 ? <Chip tone="success">delivered</Chip>
@@ -153,6 +169,58 @@ export default async function AgreementPage({
           </tr>
         ))}
       </Table>
+
+      <section aria-labelledby="renewal" className="mt-10 border-t border-steel-200 pt-4">
+        <h2 id="renewal" className="text-sm font-medium text-ink-700">Renewal</h2>
+        <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          <dt className="text-ink-500">Term</dt>
+          <dd>{agreement.renewalCount + 1}{agreement.lastRenewedOn ? `, renewed ${formatDay(agreement.lastRenewedOn, zone)}` : ""}</dd>
+          <dt className="text-ink-500">Renews on its own</dt>
+          <dd>
+            {/*
+              Both switches, because they mean different things and a member
+              asking "will I be charged again" needs the one that applies. The
+              plan's says the company sells it as continuing; the agreement's
+              is this member, and a cancellation turns it off.
+            */}
+            {plan.autoRenews && agreement.autoRenews
+              ? `Yes, on ${agreement.endsOn ? formatDay(agreement.endsOn, zone) : "its end date"}, at the same price`
+              : !plan.autoRenews
+                ? "No. This plan does not renew on its own, so somebody has to renew it"
+                : "No. This member's agreement is set not to"}
+          </dd>
+          <dt className="text-ink-500">Notice before it ends</dt>
+          <dd>
+            {plan.renewalNoticeDays <= 0
+              ? "The plan owes none"
+              : agreement.renewalNoticeSentAt === null
+                ? `${plan.renewalNoticeDays} days before the end, by text or email`
+                : agreement.renewalNoticeOutcome === "queued"
+                  ? `Sent ${formatIn(agreement.renewalNoticeSentAt, zone)}`
+                  : <span className="text-red-600">Could not be sent. {agreement.renewalNoticeOutcome}</span>}
+          </dd>
+        </dl>
+        {writes && (agreement.status === "active" || agreement.status === "lapsed") ? (
+          <ActionForm
+            action={renewAgreement}
+            submit="Renew for another term"
+            hidden={{ id: agreement.id }}
+            className="mt-3 flex flex-wrap items-end gap-3"
+          >
+            <TextField
+              label="New price, if it changes"
+              name="price"
+              placeholder={money.edit(money.money(agreement.price))}
+              inputMode="decimal"
+              className="block w-56"
+            />
+          </ActionForm>
+        ) : null}
+        <p className="mt-2 text-xs text-ink-500">
+          The next term starts the day this one ends, and owes its own visits and
+          instalments. Leave the price blank to keep this member&apos;s price.
+        </p>
+      </section>
 
       {writes && agreement.status !== "cancelled" ? (
         <div className="mt-10 border-t border-steel-200 pt-4">

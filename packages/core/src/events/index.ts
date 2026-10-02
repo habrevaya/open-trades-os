@@ -109,12 +109,34 @@ export const EVENTS = {
   "agreement.visit_unskipped": {
     summary: "A member changed their mind about a skipped visit", entity: "agreement", emitted: true,
   },
+  "agreement.renewed": {
+    summary: "An agreement started a new term", entity: "agreement", emitted: true,
+  },
+  "agreement.renewal_noticed": {
+    summary: "The notice a plan owes before its renewal was sent, or could not be",
+    entity: "agreement", emitted: true,
+  },
 
   /* ------------------------------------------------------------- customers */
 
   "booking.requested": {
     summary: "Somebody asked for an appointment online",
     entity: "booking_request",
+    emitted: true,
+  },
+  "visit.change_requested": {
+    summary: "A customer asked to move or cancel a visit from their link",
+    entity: "visit_change_request",
+    emitted: true,
+  },
+  /**
+   * The estimate's link was issued to the customer. Emitted by sending, which
+   * is the moment the clock on "they have not answered" starts, and which a
+   * follow up waits from.
+   */
+  "estimate.sent": {
+    summary: "An estimate went to the customer",
+    entity: "estimate",
     emitted: true,
   },
   "message.received": {
@@ -163,12 +185,6 @@ export const EVENTS = {
     entity: "visit",
     emitted: false,
     owedBy: "M09. Dispatch writes the visit and emits nothing.",
-  },
-  "estimate.sent": {
-    summary: "An estimate went to the customer",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07 records the delivery without emitting.",
   },
   "estimate.approved": {
     summary: "A customer approved an estimate",

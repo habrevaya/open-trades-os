@@ -7,6 +7,10 @@ import type { ServiceContext } from "./context";
 import { raise } from "./tasks";
 import { timezoneOf } from "./context";
 import { deliverReport, readReportStep } from "./report-delivery";
+import { mintGrant } from "./portal";
+import { sendTransactional } from "./comms-send";
+import * as email from "./email";
+import * as reviews from "./reviews";
 
 /**
  * WHAT A WORKFLOW STEP ACTUALLY DOES
@@ -487,4 +491,355 @@ export async function emailReport(
       refused: result.recipients.filter((r) => r.refused).map((r) => `${r.address || "somebody"}: ${r.refused}`),
     },
   };
+}
+
+/* ------------------------------------------------------------- asking again */
+
+/**
+ * Stop the run here unless something is still true.
+ *
+ * The step a follow up turns on. A branch compares what the event carried, so
+ * three days after "an estimate was sent" it can only ever say the estimate
+ * was sent; whether the customer has answered since is a fact about now, and
+ * this is the one step that asks the database for it. The question is a
+ * declared check (`automation.CHECKS`), never a query somebody wrote.
+ *
+ * A NO IS NOT A FAILURE. The customer approving on day two is the follow up
+ * working, so the run finishes as succeeded with the remaining steps written
+ * down as skipped, the same rows a branch writes for the arm it did not take.
+ * The output says which check and why, because "the follow up did not go"
+ * is the question somebody opens the run to answer.
+ */
+export async function stopUnless(
+  tx: Database,
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+  following: number,
+): Promise<StepResult> {
+  const check = config["check"];
+  if (!automation.isCheck(check)) {
+    return { ok: false, reason: `this build has no check called ${String(check)}` };
+  }
+
+  const verdict = await holds(tx, check, event);
+  if (verdict.holds) return { ok: true, output: { check, held: true } };
+
+  return {
+    ok: true,
+    skipOffsets: Array.from({ length: following }, (_, i) => i + 1),
+    output: { check, held: false, because: verdict.because },
+  };
+}
+
+async function holds(
+  tx: Database,
+  check: automation.CheckKey,
+  event: typeof schema.domainEvent.$inferSelect,
+): Promise<{ holds: true } | { holds: false; because: string }> {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  switch (check) {
+    case "estimate_undecided": {
+      const id = estimateIdOf(event);
+      if (!id) return { holds: false, because: "the event names no estimate" };
+      const [row] = await tx.select({
+        status: schema.estimate.status, sentAt: schema.estimate.sentAt, number: schema.estimate.number,
+      }).from(schema.estimate).where(eq(schema.estimate.id, id)).limit(1);
+      if (!row) return { holds: false, because: "the estimate is gone" };
+      if (row.status !== "sent" && row.status !== "viewed") {
+        return { holds: false, because: `estimate #${row.number} is ${row.status} now` };
+      }
+      /**
+       * SENT AGAIN SINCE is a no as well. A revised estimate sent on day two
+       * starts its own follow up from that send, and this run carrying on
+       * would chase the customer twice about one quote, the first time with
+       * a link to numbers the office has since changed.
+       */
+      const sentAt = readPath(payload, "estimate.sentAt");
+      if (typeof sentAt === "string" && row.sentAt
+          && row.sentAt.getTime() > new Date(sentAt).getTime() + 1_000) {
+        return { holds: false, because: `estimate #${row.number} was sent again since` };
+      }
+      return { holds: true };
+    }
+  }
+}
+
+const estimateIdOf = (event: typeof schema.domainEvent.$inferSelect): string | undefined =>
+  (readPath(event.payload, "estimate.id") as string | undefined)
+  ?? (event.entityType === "estimate" ? event.entityId ?? undefined : undefined);
+
+/* -------------------------------------------------------- the estimate link */
+
+/**
+ * Send the customer a link to their estimate, again.
+ *
+ * A NEW LINK, NOT THE OLD ONE. Only the hash of a link is ever stored, so the
+ * one sent the first time cannot be read back, and that is the point of how
+ * links work here. This mints another, single use like the first, and leaves
+ * the first alone: the customer may still have the original email open. A
+ * revised estimate sent from the office withdraws every outstanding link
+ * including this one, which is what stops a reminder pointing at old numbers.
+ *
+ * ONLY WHILE IT IS STILL AN OPEN QUESTION. Checked here as well as by any
+ * `stop_unless` before it, because a step that sends to a customer has to be
+ * right on its own: an automation somebody rearranged on the canvas must not
+ * text a link to an estimate that was declined an hour ago.
+ *
+ * NOTHING TO SEND TO IS NOT A FAILURE. A customer with no mobile number skips
+ * the text and still gets the email, and a refusal by consent or the
+ * suppression list is recorded the same way the plain message step records
+ * one. A link minted for a message that did not go is withdrawn, so a refused
+ * send leaves nothing live behind it.
+ */
+export async function sendEstimateLink(
+  tx: Database,
+  ctx: ServiceContext,
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+  runId: string,
+): Promise<StepResult> {
+  const organizationId = ctx.actor.organizationId;
+  const channel = config["channel"] === "email" ? "email" as const : "sms" as const;
+  const estimateId = estimateIdOf(event);
+  if (!estimateId) return { ok: false, reason: "the event names no estimate" };
+
+  const [estimate] = await tx.select().from(schema.estimate)
+    .where(eq(schema.estimate.id, estimateId)).limit(1);
+  if (!estimate) return { ok: false, reason: "estimate not found" };
+  if (estimate.status !== "sent" && estimate.status !== "viewed") {
+    return { ok: true, output: { sent: false, because: `estimate #${estimate.number} is ${estimate.status}` } };
+  }
+
+  const [customer] = await tx.select().from(schema.customer)
+    .where(and(eq(schema.customer.id, estimate.customerId), isNull(schema.customer.deletedAt)))
+    .limit(1);
+  if (!customer) return { ok: false, reason: "customer not found" };
+
+  const address = channel === "email" ? customer.email : customer.phone;
+  if (!address) {
+    return { ok: true, output: { sent: false, because: `customer has no ${channel === "email" ? "email address" : "phone number"}` } };
+  }
+
+  const [org] = await tx.select({ name: schema.organization.name })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+
+  const link = await mintGrant(tx, {
+    organizationId,
+    customerId: estimate.customerId,
+    scope: "estimate",
+    subjectId: estimate.id,
+    expiresInDays: 30,
+    maxUses: 1,
+  });
+
+  const scope = {
+    customer: { ...customer, name: customer.name.split(" ")[0] || customer.name, fullName: customer.name },
+    estimate: { id: estimate.id, number: estimate.number, title: estimate.title ?? "" },
+    organization: { name: org?.name ?? "" },
+    link: link.url,
+  };
+  const body = render(String(config["body"] ?? ""), scope).trim();
+  if (body === "") return { ok: false, reason: "step has no body" };
+  if (!body.includes(link.url)) {
+    /**
+     * A reminder that does not carry the link is a message telling somebody
+     * there is a link. Refused as a configuration problem rather than sent,
+     * so the canvas edit that dropped `{{ link }}` shows up as a failed step.
+     */
+    await withdraw(tx, link.row.id);
+    return { ok: false, reason: "the message does not include {{ link }}, so it would not carry the estimate" };
+  }
+
+  let messageId: string | null = null;
+  let refused: string | null = null;
+  if (channel === "sms") {
+    const outcome = await sendTransactional(tx, {
+      organizationId, address, body, customerId: customer.id,
+    });
+    if (outcome.sent) messageId = outcome.messageId;
+    else refused = outcome.explanation;
+  } else {
+    const subject = render(String(config["subject"] ?? "Your estimate"), scope).trim() || "Your estimate";
+    const outcome = await email.queue({ ...ctx, db: tx }, {
+      to: address, subject, text: body, customerId: customer.id,
+    });
+    if (outcome.queued) messageId = outcome.messageId;
+    else refused = outcome.explanation;
+  }
+
+  if (!messageId) {
+    await withdraw(tx, link.row.id);
+    return { ok: true, output: { sent: false, channel, refused } };
+  }
+
+  /** Which automation sent it, one join from the message. Same as `sendMessage`. */
+  await tx.update(schema.message).set({ automationRef: `run:${runId}` })
+    .where(eq(schema.message.id, messageId));
+
+  await tx.insert(schema.portalEvent).values({
+    organizationId,
+    customerId: estimate.customerId,
+    estimateId: estimate.id,
+    kind: "estimate_sent",
+    headline: `Estimate #${estimate.number} sent again`,
+    detail: channel === "email" ? "By email, from an automation" : "By text, from an automation",
+    isCustomerVisible: false,
+  });
+
+  return { ok: true, output: { sent: false, queued: true, channel, messageId } };
+}
+
+async function withdraw(tx: Database, grantId: string): Promise<void> {
+  await tx.update(schema.portalGrant).set({ revokedAt: new Date() })
+    .where(eq(schema.portalGrant.id, grantId));
+}
+
+/* ----------------------------------------------------------------- reviews */
+
+const jobIdOf = (event: typeof schema.domainEvent.$inferSelect): string | undefined =>
+  (readPath(event.payload, "jobId") as string | undefined)
+  ?? (readPath(event.payload, "job.id") as string | undefined)
+  ?? (event.entityType === "job" ? event.entityId ?? undefined : undefined);
+
+/**
+ * Ask the reviews module whether to ask, and write its answer down.
+ *
+ * THE MODULE DECIDES, NOT THE AUTOMATION. `reviews.requestWithin` is the
+ * function the office uses: the company's review rules, the cooldown on this
+ * customer, an open complaint, a callback still running, an opt out. An
+ * automation that decided for itself would be the one that eventually asked a
+ * customer with a complaint open, which is the review that costs the most.
+ *
+ * NOT TWICE ABOUT ONE JOB. A request already sent for this job is left as it
+ * is: re-deciding would overwrite the record that it went.
+ *
+ * WHEN THE RULES SAY LATER, THE RUN WAITS. "Not before nine in the morning"
+ * is an answer with a time on it, and the run parks until then rather than
+ * sending now or dropping it.
+ */
+export async function requestReview(
+  tx: Database,
+  ctx: ServiceContext,
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+  now: Date,
+): Promise<StepResult> {
+  const jobId = jobIdOf(event);
+  if (!jobId) return { ok: true, output: { asked: false, because: "the event names no job" } };
+
+  const [already] = await tx.select({ id: schema.reviewRequest.id })
+    .from(schema.reviewRequest)
+    .where(and(
+      eq(schema.reviewRequest.jobId, jobId),
+      eq(schema.reviewRequest.state, "sent"),
+      isNull(schema.reviewRequest.deletedAt),
+    )).limit(1);
+  if (already) return { ok: true, output: { asked: false, because: "already asked about this job" } };
+
+  const platform = typeof config["platform"] === "string" && config["platform"].trim() !== ""
+    ? config["platform"].trim()
+    : undefined;
+
+  const outcome = await reviews.requestWithin(tx, ctx.actor.organizationId, {
+    jobId, ...(platform ? { platform } : {}),
+  }, now);
+
+  const output: Record<string, unknown> = {
+    asked: outcome.asked,
+    ...(outcome.withheld ? { withheld: outcome.withheld, because: outcome.explanation } : {}),
+    ...(outcome.sendAt ? { sendAt: outcome.sendAt.toISOString() } : {}),
+  };
+
+  if (outcome.asked && outcome.sendAt && outcome.sendAt > now) {
+    return { ok: true, waitUntil: outcome.sendAt, output };
+  }
+  return { ok: true, output };
+}
+
+/**
+ * Send the review request the module queued for this job, if it did.
+ *
+ * Nothing queued is the ordinary case when the rules withheld it, and is a
+ * successful step that sends nothing. A queued request is sent through the
+ * same consent gate as every other message, marked sent with the message that
+ * carried it, or marked failed with the refusal, so the reviews screen and the
+ * run say the same thing about it.
+ */
+export async function sendReviewRequest(
+  tx: Database,
+  ctx: ServiceContext,
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+  runId: string,
+  now: Date,
+): Promise<StepResult> {
+  const organizationId = ctx.actor.organizationId;
+  const channel = config["channel"] === "email" ? "email" as const : "sms" as const;
+  const jobId = jobIdOf(event);
+  if (!jobId) return { ok: true, output: { sent: false, because: "the event names no job" } };
+
+  const [request] = await tx.select().from(schema.reviewRequest)
+    .where(and(
+      eq(schema.reviewRequest.jobId, jobId),
+      eq(schema.reviewRequest.state, "queued"),
+      isNull(schema.reviewRequest.deletedAt),
+    )).limit(1);
+  if (!request) return { ok: true, output: { sent: false, because: "nothing is queued for this job" } };
+  if (request.sendAt && request.sendAt > now) {
+    return { ok: true, output: { sent: false, because: "it is not due yet", sendAt: request.sendAt.toISOString() } };
+  }
+
+  const url = request.platform ? await reviews.reviewUrlFor(tx, request.platform) : null;
+  if (!url) {
+    return {
+      ok: false,
+      reason: request.platform
+        ? `no link is declared for ${request.platform}, so there is nowhere to send them`
+        : "the request names no review site, so there is nowhere to send them",
+    };
+  }
+
+  const [customer] = await tx.select().from(schema.customer)
+    .where(eq(schema.customer.id, request.customerId)).limit(1);
+  const [org] = await tx.select({ name: schema.organization.name })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+
+  const scope = {
+    customer: { ...(customer ?? {}), name: customer?.name.split(" ")[0] || customer?.name || "" },
+    organization: { name: org?.name ?? "" },
+    review: { url, platform: request.platform },
+  };
+  const body = render(String(config["body"] ?? ""), scope).trim();
+  if (body === "") return { ok: false, reason: "step has no body" };
+
+  const address = channel === "email" ? customer?.email : customer?.phone;
+  let messageId: string | null = null;
+  let refused: string | null = address ? null : `customer has no ${channel === "email" ? "email address" : "phone number"}`;
+  if (address && channel === "sms") {
+    const outcome = await sendTransactional(tx, { organizationId, address, body, customerId: request.customerId });
+    if (outcome.sent) messageId = outcome.messageId;
+    else refused = outcome.explanation;
+  } else if (address) {
+    const subject = render(String(config["subject"] ?? "How did we do?"), scope).trim() || "How did we do?";
+    const outcome = await email.queue({ ...ctx, db: tx }, {
+      to: address, subject, text: body, customerId: request.customerId,
+    });
+    if (outcome.queued) messageId = outcome.messageId;
+    else refused = outcome.explanation;
+  }
+
+  if (!messageId) {
+    await tx.update(schema.reviewRequest).set({
+      state: "failed", withheldDetail: refused, updatedAt: new Date(),
+    }).where(and(eq(schema.reviewRequest.id, request.id), eq(schema.reviewRequest.state, "queued")));
+    return { ok: true, output: { sent: false, refused } };
+  }
+
+  await tx.update(schema.message).set({ automationRef: `run:${runId}` })
+    .where(eq(schema.message.id, messageId));
+  await tx.update(schema.reviewRequest).set({
+    state: "sent", sentAt: new Date(), messageId, updatedAt: new Date(),
+  }).where(and(eq(schema.reviewRequest.id, request.id), eq(schema.reviewRequest.state, "queued")));
+
+  return { ok: true, output: { sent: false, queued: true, messageId } };
 }

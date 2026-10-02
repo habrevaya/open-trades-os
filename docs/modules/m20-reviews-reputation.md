@@ -137,12 +137,28 @@ not child jobs: the callback count reads rows by parent job, and a project whose
 phases were children would read as rework and suppress the review ask on the parent
 for the life of the job.
 
-**Can a request go out automatically?** The decision and the queue exist; sending is
-a workflow somebody builds in M29, or somebody works the due list.
+**Can a request go out automatically?** Yes, once the company turns it on.
+"Ask for a review after a paid job" is a recommended automation on
+`/automations`: some hours after a job's invoice is paid in full it puts the job
+to this module's own decision (the policy, the cooldown, an open complaint, a
+callback, an opt out), waits if the decision says later, and sends the ask with
+the link to the review site the company chose. A withheld request is recorded
+with its reason exactly as one decided by hand is, and a request is never made
+twice about one job. It cannot be turned on until the policy is set and a review
+site has been declared with its link, and the screen says which is missing.
+
+**Is the ask a marketing message?** It is sent as an account message, through
+the same consent and suppression gate as every other text, and a customer who
+withdrew marketing consent is withheld by the decision itself.
 
 ## What is not built
 
 No connector to Google, Facebook or any other platform, in either direction: a
 review is typed in and a reply is posted on the platform by hand. There is no
-sentiment analysis and deliberately no predicted rating. Nothing schedules the ask,
-so the due list is worked by a person or by an automation somebody writes.
+sentiment analysis and deliberately no predicted rating. The ask is scheduled
+only by the recommended automation, which starts from a paid invoice: a job
+that is never invoiced, or paid by a credit note, is never asked about unless
+somebody asks by hand. The automation sends by text; an email ask is a change
+on its canvas. Requests the policy queued for later from the office's own
+`POST /v1/reviews/requests` are still sent by nobody unless an automation or a
+person works the due list.

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, NotFoundError,
+  jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, NotFoundError,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -20,7 +20,8 @@ import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { addVisit } from "../actions";
-import { completeVisitFromOffice, setJobStatus } from "./actions";
+import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus } from "./actions";
+import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 
 export const dynamic = "force-dynamic";
@@ -87,6 +88,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const completes = can(user.actor, "job:complete");
   const openVisits = job.visits.filter((v) => (OPEN_VISIT as readonly string[]).includes(v.status));
   const used = (await jobs.lines(ctx, { id })).data;
+  /** A customer asking from their link to move or cancel one of these visits. */
+  const changeRequests = can(user.actor, "visit:read")
+    ? await visitChanges.list(ctx, { status: "pending", jobId: id })
+    : [];
   const invoices = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 50, jobId: id })).data
     : [];
@@ -287,6 +292,25 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             </tr>
           ))}
         </Table>
+      )}
+
+      {changeRequests.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {changeRequests.map((request) => (
+            <VisitChangeDecision
+              key={request.id}
+              request={{
+                ...request,
+                assigned: (job.visits.find((v) => v.id === request.visitId)?.technicianIds ?? [])
+                  .map((t) => nameOf.get(t) ?? "A technician"),
+              }}
+              timezone={user.organizationTimezone}
+              approve={approveVisitChange}
+              decline={declineVisitChange}
+              canDecide={can(user.actor, "visit:reschedule")}
+            />
+          ))}
+        </div>
       )}
 
       {completes && openVisits.map((visit) => (

@@ -7,6 +7,7 @@ import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { deliverDue } from "./delivery-schedules";
+import { renewalsPass } from "./agreements";
 
 /**
  * THE WORKER
@@ -256,6 +257,16 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       await resumeDue(options.db, stop ? { shouldStop: stop } : {});
       // And the records that have been sitting there too long.
       await sweep(options.db, stop ? { shouldStop: stop } : {});
+      /**
+       * And the agreements whose term is ending: renewed when the plan and the
+       * member both said so, lapsed when they did not, and told beforehand
+       * when the plan owes a notice. On the clock rather than on an event,
+       * because the end of a term is a date arriving rather than anything
+       * somebody did. Its texts go into the outbox like a workflow's, and each
+       * renewal and notice writes an event, so the drain below sends them on
+       * this pass.
+       */
+      await renewalsPass(options.db, stop ? { shouldStop: stop } : {});
     } catch (error) {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.

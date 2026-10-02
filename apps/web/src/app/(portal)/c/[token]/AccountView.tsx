@@ -64,8 +64,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * builds the card control for one invoice; it is a client component bound
  * to the token and the invoice on the server.
  */
-export function AccountView({ account, pay, returned = null, statementHref }: {
+export function AccountView({ account, pay, returned = null, statementHref, changeHref }: {
   account: AccountViewData;
+  /** Where asking to move or cancel one coming visit opens, when the page offers it. */
+  changeHref?: (visitId: string) => string;
   /** Where the customer's statement opens, when there is one to show. */
   statementHref?: string;
   /** Stripe's redirect outcome, which is the browser's account and changes nothing. */
@@ -147,6 +149,11 @@ export function AccountView({ account, pay, returned = null, statementHref }: {
                   <span className="block text-xs text-ink-500">
                     {time(v.windowStart!)}{v.windowEnd ? ` to ${time(v.windowEnd)}` : ""}
                   </span>
+                  {changeHref && v.status !== "en_route" && v.status !== "working" ? (
+                    <a href={changeHref(v.id)} className="block text-xs text-ink-700 underline underline-offset-4">
+                      Change or cancel
+                    </a>
+                  ) : null}
                 </span>
               </li>
             ))}

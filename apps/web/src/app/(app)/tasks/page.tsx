@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { tasks, obligations, inTenant } from "@opentradesos/api/services";
+import { tasks, obligations, visitChanges, inTenant } from "@opentradesos/api/services";
 import { schema } from "@opentradesos/db";
 import { inArray } from "drizzle-orm";
 import { can } from "@opentradesos/core";
@@ -10,6 +10,8 @@ import { Empty, PageHeader } from "@/components/Table";
 import { TASK_PRIORITY, label } from "@/lib/labels";
 import { TaskActions } from "./TaskActions";
 import { ObligationActions } from "./ObligationActions";
+import { VisitChangeDecision } from "@/components/VisitChangeDecision";
+import { approveVisitChange, declineVisitChange } from "../jobs/[id]/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,9 @@ const LINKS: Record<string, (id: string) => string> = {
   customer: (id) => `/customers/${id}`,
   invoice: (id) => `/invoices/${id}`,
   conversation: (id) => `/inbox/${id}`,
+  /** Raised by the estimate follow up, and by a renewal notice that could not go. */
+  estimate: (id) => `/estimates/${id}`,
+  agreement: (id) => `/agreements/${id}`,
 };
 
 export default async function TasksPage({
@@ -67,6 +72,21 @@ export default async function TasksPage({
   const ctx = { actor: user.actor, db: getDb() };
   const page = await tasks.list(ctx, { view, limit: 100 });
   const writes = can(user.actor, "task:write");
+
+  /**
+   * A customer's request to move or cancel a visit is answered here, not
+   * marked done: the answer is what moves the visit and tells the customer,
+   * and a task ticked off without it would leave both undone with the queue
+   * saying otherwise. The request is read once for the page.
+   */
+  const changeIds = page.data
+    .filter((t) => t.entityType === "visit_change_request" && t.entityId)
+    .map((t) => t.entityId!);
+  const changes = new Map(
+    changeIds.length > 0 && can(user.actor, "visit:read")
+      ? (await visitChanges.list(ctx, { ids: changeIds })).map((r) => [r.id, r] as const)
+      : [],
+  );
 
   /**
    * Deadlines, above the queue.
@@ -167,9 +187,14 @@ export default async function TasksPage({
       ) : (
         <ul className="mt-6 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
           {page.data.map((task) => {
-            const link = task.entityType && task.entityId
-              ? LINKS[task.entityType]?.(task.entityId)
+            const change = task.entityType === "visit_change_request" && task.entityId
+              ? changes.get(task.entityId)
               : undefined;
+            const link = change
+              ? `/jobs/${change.jobId}`
+              : task.entityType && task.entityId
+                ? LINKS[task.entityType]?.(task.entityId)
+                : undefined;
             return (
               <li key={task.id} className="bg-canvas p-4">
                 <div className="flex flex-wrap items-baseline gap-2">
@@ -204,15 +229,27 @@ export default async function TasksPage({
                   */}
                   {link && (
                     <a href={link} className="text-ink-700 hover:underline">
-                      Open the {task.entityType}
+                      {change ? "Open the job" : `Open the ${task.entityType}`}
                     </a>
                   )}
                 </div>
 
+                {change && change.status === "pending" ? (
+                  <div className="mt-3">
+                    <VisitChangeDecision
+                      request={change}
+                      timezone={user.organizationTimezone}
+                      approve={approveVisitChange}
+                      decline={declineVisitChange}
+                      canDecide={can(user.actor, "visit:reschedule")}
+                    />
+                  </div>
+                ) : null}
+
                 <TaskActions
                   id={task.id}
                   claimable={task.assigneeUserId === null}
-                  closable={writes}
+                  closable={writes && !(change && change.status === "pending")}
                 />
               </li>
             );

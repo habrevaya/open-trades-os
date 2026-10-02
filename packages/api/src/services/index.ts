@@ -99,3 +99,4 @@ export * as kpis from "./kpis";
 export * as dispatchMap from "./dispatch-map";
 export * as geocoding from "./geocoding";
 export * as qualification from "./qualification";
+export * as visitChanges from "./visit-changes";

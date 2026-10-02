@@ -138,6 +138,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     idempotency_key: "The occurrence a report was delivered for, a schedule and a day or a run and a step. "
       + "Not a credential.",
   },
+  workflow: {
+    template_key: "The name of the recommended automation a workflow was installed from, such as "
+      + "estimate_follow_up. A label in the product's own catalogue, not a credential.",
+  },
   ai_usage: {
     idempotency_key: "A retry key the AI call chose. Not a credential.",
     /**

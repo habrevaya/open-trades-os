@@ -463,6 +463,13 @@
       "when": 1790975386156,
       "tag": "0065_chubby_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790975830212,
+      "tag": "0066_graceful_jackal",
+      "breakpoints": true
     }
   ]
 }

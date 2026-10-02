@@ -151,6 +151,69 @@ export const listWorkflowSteps = defineRoute({
   }),
 });
 
+/**
+ * RECOMMENDED AUTOMATIONS
+ *
+ * Turning one on IS on the API, unlike writing a definition, and the
+ * difference is the shape of the input: a template's key and a few named
+ * values, none of them recursive, rather than a condition group. What it
+ * installs is an ordinary workflow, published through the same check as one
+ * drawn on the canvas, with the same rule that a workflow cannot do anything
+ * its installer may not.
+ */
+export const WorkflowTemplateView = z.object({
+  key: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  /** What has to be true in the company for it to do anything. */
+  needs: z.string(),
+  parameters: z.array(z.object({
+    key: z.string(),
+    label: z.string(),
+    help: z.string(),
+    kind: z.enum(["number", "platform"]),
+    default: z.number().int().optional(),
+    min: z.number().int().optional(),
+    max: z.number().int().optional(),
+  })),
+  /** The ordinary workflow it installed, when it is installed. */
+  installed: z.object({ id: Uuid, enabled: z.boolean(), name: z.string() }).nullable(),
+  /** Why it cannot be turned on yet, in words. */
+  blockedBy: z.string().nullable(),
+  platforms: z.array(z.object({ platform: z.string(), displayName: z.string() })),
+});
+
+export const listWorkflowTemplates = defineRoute({
+  method: "get",
+  path: "/v1/workflow-templates",
+  summary: "Recommended automations, and which are on",
+  description:
+    "Following up an estimate nobody answered, and asking for a review once a job is paid. Each says what it does, what it needs from the company, and whether it is installed; an installed one is an ordinary workflow at `/v1/workflows`.",
+  module: "M29",
+  permissions: ["workflow:read"],
+  input: z.object({}),
+  output: z.object({ templates: z.array(WorkflowTemplateView) }),
+});
+
+export const installWorkflowTemplate = defineRoute({
+  method: "post",
+  path: "/v1/workflow-templates/{key}/install",
+  summary: "Turn a recommended automation on",
+  description:
+    "Installs the template as an ordinary, editable workflow and switches it on. Refused when it is already installed, when a value is outside its bounds, when the installer does not hold every permission its steps need, and, for the review request, when the company has no review rules or no review site with a link to send people to.",
+  module: "M29",
+  permissions: ["workflow:write"],
+  idempotent: true,
+  input: z.object({
+    key: z.string().min(1).max(60),
+    values: z.record(z.union([z.string().max(200), z.number()])).optional(),
+  }),
+  output: z.object({
+    id: Uuid, name: z.string(), enabled: z.boolean(), templateKey: z.string().nullable(),
+  }),
+});
+
 export const workflowRoutes = {
   listWorkflows, getWorkflowRuns, setWorkflowEnabled, listWorkflowEvents, listWorkflowSteps,
+  listWorkflowTemplates, installWorkflowTemplate,
 } as const;

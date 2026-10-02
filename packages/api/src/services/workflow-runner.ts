@@ -3,7 +3,10 @@ import { schema, type Database } from "@opentradesos/db";
 import { automation, comms, type Actor, type Permission, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
-import { sendMessage, createTask, waitStep, branchStep, emailReport, type StepResult } from "./workflow-steps";
+import {
+  sendMessage, createTask, waitStep, branchStep, emailReport, stopUnless, sendEstimateLink,
+  requestReview, sendReviewRequest, type StepResult,
+} from "./workflow-steps";
 
 /**
  * THE RUNNER
@@ -458,6 +461,14 @@ async function perform(
       return branchStep(step.config ?? {}, event, following);
     case "email_report":
       return emailReport(tx, ctx, step.config ?? {}, runId, { ...position, now });
+    case "stop_unless":
+      return stopUnless(tx, step.config ?? {}, event, following);
+    case "send_estimate":
+      return sendEstimateLink(tx, ctx, step.config ?? {}, event, runId);
+    case "request_review":
+      return requestReview(tx, ctx, step.config ?? {}, event, now);
+    case "send_review_request":
+      return sendReviewRequest(tx, ctx, step.config ?? {}, event, runId, now);
     default:
       return { ok: false, reason: `step kind not implemented: ${step.kind}` };
   }

@@ -1,8 +1,9 @@
+import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, integer, index, timestamp, date, time, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { pk, timestamps, money, currency, rate } from "./_shared";
-import { organization, businessUnit } from "./tenancy";
+import { organization, businessUnit, user } from "./tenancy";
 import { customer, property } from "./crm";
-import { job, jobType } from "./work";
+import { job, jobType, visit } from "./work";
 import { territory } from "./scheduling";
 import { estimate } from "./billing";
 import { connectedApp } from "./integrations";
@@ -234,6 +235,79 @@ export const bookingRequest = pgTable("booking_request", {
 }, (t) => ({
   orgIdx: index("booking_request_org_idx").on(t.organizationId, t.status, t.requestedDate),
   dateIdx: index("booking_request_date_idx").on(t.organizationId, t.requestedDate),
+}));
+
+/**
+ * A CUSTOMER ASKING TO MOVE OR CALL OFF A VISIT, FROM THEIR OWN LINK.
+ *
+ * A request and never a move. A visit on the board has a technician, a route
+ * and a morning built around it, and the customer cannot see any of that: a
+ * portal that moved a dispatched visit on a tap would leave a van outside an
+ * empty house and a dispatcher finding out from the technician. So the
+ * customer asks, the office decides from the visit or from the queue, and the
+ * customer is told the answer through the same messaging everything else
+ * uses.
+ *
+ * The window asked for is one of the windows online booking would offer for
+ * that work, checked when the request is made and again when it is approved,
+ * because the slot free on Monday evening can be gone by Tuesday morning.
+ *
+ * The task is the office's to work. It is raised with the request and closed
+ * with the decision, so the queue and this table cannot disagree about
+ * whether anybody still owes the customer an answer.
+ */
+export const visitChangeKind = pgEnum("visit_change_kind", ["reschedule", "cancel"]);
+export const visitChangeStatus = pgEnum("visit_change_status", [
+  "pending", "approved", "declined",
+  /** The visit moved on without the request: done, cancelled, or already moved by the office. */
+  "superseded",
+]);
+
+export const visitChangeRequest = pgTable("visit_change_request", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  visitId: uuid("visit_id").notNull().references(() => visit.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id").notNull().references(() => job.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  kind: visitChangeKind("kind").notNull(),
+  status: visitChangeStatus("status").notNull().default("pending"),
+  /** The customer's own words. Required to cancel, optional to move. */
+  reason: text("reason"),
+
+  /** Where they asked to move it, for a reschedule. Null for a cancel. */
+  bookableServiceId: uuid("bookable_service_id").references(() => bookableService.id, { onDelete: "set null" }),
+  requestedDate: date("requested_date"),
+  arrivalWindowId: uuid("arrival_window_id").references(() => arrivalWindow.id, { onDelete: "set null" }),
+  /** The window as instants, worked out once in the company's zone when asked. */
+  requestedStart: timestamp("requested_start", { withTimezone: true }),
+  requestedEnd: timestamp("requested_end", { withTimezone: true }),
+  /** Where the visit was when they asked, so the office sees the move and not just the target. */
+  previousStart: timestamp("previous_start", { withTimezone: true }),
+  previousEnd: timestamp("previous_end", { withTimezone: true }),
+
+  /** The office queue's copy of this. Closed with the decision. */
+  taskId: uuid("task_id"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** What the office said back, when it declined. Sent to the customer as written. */
+  response: text("response"),
+  /**
+   * Whether the customer was told, as a word: `queued`, or the refusal.
+   * A decision the customer never heard about is the same phone call as no
+   * decision, so the screen shows this beside it.
+   */
+  notified: text("notified"),
+  ...timestamps,
+}, (t) => ({
+  /**
+   * One open request per visit. A customer tapping twice, or asking to move
+   * it and then to cancel it before anybody looked, would otherwise leave
+   * the office two answers to give about one morning.
+   */
+  pendingIdx: uniqueIndex("visit_change_request_pending_idx").on(t.visitId)
+    .where(sql`${t.status} = 'pending'`),
+  orgIdx: index("visit_change_request_org_idx").on(t.organizationId, t.status, t.createdAt),
+  jobIdx: index("visit_change_request_job_idx").on(t.jobId),
 }));
 
 /**
