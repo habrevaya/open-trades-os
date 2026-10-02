@@ -1,6 +1,6 @@
-import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { marketing as mk, money as m, telephony as tel } from "@opentradesos/core";
+import { marketing as mk, money as m, telephony as tel, time } from "@opentradesos/core";
 import { guardedRead, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import * as acquisition from "./acquisition";
 import { revenueByJob } from "./marketing";
@@ -137,6 +137,22 @@ interface Built {
   model: mk.AttributionModelKey;
 }
 
+/**
+ * A range of calendar days as the instants they occupy IN THE COMPANY'S ZONE,
+ * half open. A call at seven in the evening in Austin is that day's call, and
+ * reading the dates as UTC put it on the next one: a report for Monday missed
+ * Monday evening and took Sunday's.
+ */
+async function boundsOf(tx: Database, organizationId: string, input: { from: string; to: string }) {
+  const [org] = await tx.select({ timezone: schema.organization.timezone })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const zone = org?.timezone && time.isZone(org.timezone) ? org.timezone : "America/Chicago";
+  return {
+    from: time.startOfDayIn(input.from, zone),
+    end: time.startOfDayIn(time.nextDay(input.to), zone),
+  };
+}
+
 function checkRange(input: { from: string; to: string }) {
   const iso = /^\d{4}-\d{2}-\d{2}$/;
   if (!iso.test(input.from) || !iso.test(input.to)) {
@@ -185,8 +201,7 @@ function outcomeOf(call: {
 async function build(tx: Database, organizationId: string, input: FunnelInput): Promise<Built> {
   checkRange(input);
   const model = input.model ?? (await acquisition.settingsWithin(tx, organizationId)).attributionModel;
-  const from = new Date(`${input.from}T00:00:00.000Z`);
-  const to = new Date(`${input.to}T23:59:59.999Z`);
+  const { from, end } = await boundsOf(tx, organizationId, input);
   const org = organizationId;
 
   await acquisition.ensureChannels(tx, org);
@@ -233,7 +248,7 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
        * for a column it can see the type of.
        */
       sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) >= ${from.toISOString()}::timestamptz`,
-      sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) <= ${to.toISOString()}::timestamptz`,
+      sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) < ${end.toISOString()}::timestamptz`,
     ));
 
   const callDim = (call: typeof schema.call.$inferSelect): string => {
@@ -285,7 +300,7 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
     .where(and(
       eq(schema.marketingTouch.organizationId, org),
       gte(schema.marketingTouch.occurredAt, from),
-      lte(schema.marketingTouch.occurredAt, to),
+      lt(schema.marketingTouch.occurredAt, end),
     ));
   for (const { touch } of touchRows) if (touch.callId) touchCallIds.add(touch.callId);
   await loadCallNumbers(tx, org, [...touchCallIds].filter((id) => !callNumber.has(id)), callNumber);
@@ -323,7 +338,7 @@ async function build(tx: Database, organizationId: string, input: FunnelInput): 
     .where(and(
       eq(schema.job.organizationId, org),
       gte(schema.job.createdAt, from),
-      lte(schema.job.createdAt, to),
+      lt(schema.job.createdAt, end),
       ne(schema.job.status, "cancelled"),
       isNull(schema.job.deletedAt),
     ));
@@ -656,8 +671,7 @@ export async function callLog(ctx: ServiceContext, input: {
   return guardedRead(ctx, "adspend:read", async (tx) => {
     checkRange(input);
     const org = ctx.actor.organizationId;
-    const from = new Date(`${input.from}T00:00:00.000Z`);
-    const to = new Date(`${input.to}T23:59:59.999Z`);
+    const { from, end } = await boundsOf(tx, org, input);
     const rows = await tx.select({
       call: schema.call,
       customerName: schema.customer.name,
@@ -673,7 +687,7 @@ export async function callLog(ctx: ServiceContext, input: {
         eq(schema.call.organizationId, org),
         eq(schema.call.direction, "inbound"),
         sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) >= ${from.toISOString()}::timestamptz`,
-        sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) <= ${to.toISOString()}::timestamptz`,
+        sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) < ${end.toISOString()}::timestamptz`,
         ...(input.numberId ? [eq(schema.call.phoneNumberId, input.numberId)] : []),
         ...(input.campaignId ? [eq(schema.call.acquisitionCampaignId, input.campaignId)] : []),
         ...(input.channelId ? [eq(schema.call.channelId, input.channelId)] : []),

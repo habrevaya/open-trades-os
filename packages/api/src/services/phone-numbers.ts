@@ -267,10 +267,17 @@ export async function update(
       attributionSource: input.attributionSource !== undefined
         ? input.attributionSource
         : (input.campaignId !== undefined || input.channelId !== undefined) ? null : before.attributionSource,
+      /**
+       * And the other way round: a source given on its own, cleared or
+       * changed, replaces the channel and campaign it would otherwise sit
+       * beside, so clearing it really does leave a number that measures
+       * nothing, which is then refused.
+       */
       campaignId: input.campaignId !== undefined ? input.campaignId
-        : input.channelId !== undefined ? null : before.acquisitionCampaignId,
+        : (input.channelId !== undefined || input.attributionSource !== undefined) ? null : before.acquisitionCampaignId,
       channelId: input.channelId !== undefined ? input.channelId
-        : input.campaignId !== undefined ? null : before.acquisitionCampaignId ? null : before.channelId,
+        : (input.campaignId !== undefined || input.attributionSource !== undefined) ? null
+          : before.acquisitionCampaignId ? null : before.channelId,
       forwardsToE164: input.forwardsToE164 !== undefined
         ? input.forwardsToE164 : before.forwardsToE164,
       smsRegistered: input.smsRegistered ?? before.smsRegistered,

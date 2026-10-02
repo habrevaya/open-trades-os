@@ -125,7 +125,8 @@ because chasing a slow payer is not a marketing outcome.
 
 ## What each funnel column counts
 
-For a range from F to T:
+For a range from F to T, whole days in the company's own timezone, so a call at
+seven in the evening in Austin is that day's call:
 
 - **Spend**: spend rows dated F to T, the part of each fixed price campaign
   that falls in the range (allocated to the cent across its days, so adjacent

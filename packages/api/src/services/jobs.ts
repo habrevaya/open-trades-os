@@ -430,7 +430,25 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         userId: ctx.actor.userId,
       });
       if (!credit.credited) {
-        await acquisition.assertLeadSourceGiven(tx, ctx.actor.organizationId, declared, "job", false);
+        /**
+         * Nothing new to credit: a repeat customer ringing the office number
+         * they have had for years. The job carries the customer's own source,
+         * marked derived, rather than being refused or left blank, and only a
+         * customer with no source anywhere trips the company's requirement.
+         */
+        const [owner] = await tx.select({
+          leadSource: schema.customer.leadSource,
+          channelId: schema.customer.channelId,
+          campaignId: schema.customer.acquisitionCampaignId,
+        }).from(schema.customer).where(eq(schema.customer.id, input.customerId)).limit(1);
+        if (owner?.leadSource) {
+          await tx.update(schema.job).set({
+            leadSource: owner.leadSource, leadSourceOrigin: "derived",
+            channelId: owner.channelId, acquisitionCampaignId: owner.campaignId,
+          }).where(eq(schema.job.id, job!.id));
+        } else {
+          await acquisition.assertLeadSourceGiven(tx, ctx.actor.organizationId, declared, "job", false);
+        }
       }
     }
 

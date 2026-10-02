@@ -1245,14 +1245,7 @@ export async function performance(
           return {
             source: source as mk.LeadSourceKey,
             leads: entry?.leads.size ?? 0,
-            /**
-             * Capped at the leads, because `summariseSpend` refuses more
-             * booked jobs than leads and, over a date range, a customer who
-             * first rang last month and booked this month is exactly that.
-             * The funnel report counts both honestly; this older summary keeps
-             * its refusal for the case it was written for.
-             */
-            bookedJobs: Math.min(entry?.jobs.size ?? 0, entry?.leads.size ?? 0),
+            bookedJobs: entry?.jobs.size ?? 0,
             bookedValue: entry?.value ?? m.zero("USD"),
           };
         }),

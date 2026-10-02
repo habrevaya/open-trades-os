@@ -59,7 +59,7 @@ export default async function SpendPage() {
               of your tracking campaigns lands on it; lines that cannot be read are listed, and the rest load.
             </p>
             <ActionForm action={uploadSpend} submit="Upload" className="mt-3 space-y-3">
-              <LeadSourceSelect options={channels} name="for" label="Every row is for" required />
+              <LeadSourceSelect options={channels} name="for" id="lead-source-upload" label="Every row is for" required />
               <label className="block">
                 <span className="text-sm font-medium text-ink-700">File</span>
                 <input type="file" name="file" accept=".csv,text/csv" required className="mt-1 block text-sm" />
