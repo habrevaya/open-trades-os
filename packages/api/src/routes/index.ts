@@ -15,6 +15,7 @@ import {
   dispatchMap, geocoding,
   reports, deliverySchedules, statementDelivery,
   agreements, visitChanges,
+  customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
 } from "../services/index";
 
 /**
@@ -656,6 +657,42 @@ export const handlers = {
   setReportSchedulePaused: deliverySchedules.handlers.setReportSchedulePaused,
   deleteReportSchedule: deliverySchedules.handlers.deleteReportSchedule,
   listReportDeliveries: deliverySchedules.handlers.listReportDeliveries,
+
+  // CRM tags and the duplicate sweep (M03)
+  listCustomerTags: customerTags.handlers.listCustomerTags,
+  setCustomerTags: customerTags.handlers.setCustomerTags,
+  renameCustomerTag: customerTags.handlers.renameCustomerTag,
+  mergeCustomerTags: customerTags.handlers.mergeCustomerTags,
+  listCustomerDuplicatePairs: customerDuplicates.handlers.listCustomerDuplicatePairs,
+  dismissCustomerDuplicate: customerDuplicates.handlers.dismissCustomerDuplicate,
+
+  // Price book categories and bulk changes (M06)
+  listPriceBookCategories: priceCategories.handlers.listPriceBookCategories,
+  createPriceBookCategory: priceCategories.handlers.createPriceBookCategory,
+  updatePriceBookCategory: priceCategories.handlers.updatePriceBookCategory,
+  placePriceBookCategory: priceCategories.handlers.placePriceBookCategory,
+  removePriceBookCategory: priceCategories.handlers.removePriceBookCategory,
+  filePriceBookItems: priceCategories.handlers.filePriceBookItems,
+  previewPriceChange: repricing.handlers.previewPriceChange,
+  applyPriceChange: repricing.handlers.applyPriceChange,
+  listPriceChanges: repricing.handlers.listPriceChanges,
+  getPriceChange: repricing.handlers.getPriceChange,
+  reversePriceChange: repricing.handlers.reversePriceChange,
+
+  // Recurring tasks, escalation and checklists (M34)
+  listTaskTemplates: taskRules.handlers.listTaskTemplates,
+  createTaskTemplate: taskRules.handlers.createTaskTemplate,
+  updateTaskTemplate: taskRules.handlers.updateTaskTemplate,
+  listTaskEscalationRules: taskRules.handlers.listTaskEscalationRules,
+  createTaskEscalationRule: taskRules.handlers.createTaskEscalationRule,
+  updateTaskEscalationRule: taskRules.handlers.updateTaskEscalationRule,
+  listTaskEscalations: taskRules.handlers.listTaskEscalations,
+  listReportingLines: taskRules.handlers.listReportingLines,
+  setReportingLine: taskRules.handlers.setReportingLine,
+  getTaskChecklist: taskChecklist.handlers.getTaskChecklist,
+  addTaskChecklistItem: taskChecklist.handlers.addTaskChecklistItem,
+  tickTaskChecklistItem: taskChecklist.handlers.tickTaskChecklistItem,
+  removeTaskChecklistItem: taskChecklist.handlers.removeTaskChecklistItem,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

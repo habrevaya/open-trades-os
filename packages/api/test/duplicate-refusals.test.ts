@@ -76,6 +76,8 @@ const REFUSED: Record<string, Refused> = {
   visit_change_request_pending_idx: { file: "visit-changes.ts", how: "catch" },
   vendor_name_idx: { file: "inventory.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
+  /** Two shelves with one name under one parent, typed into the category manager. */
+  price_book_category_name_idx: { file: "price-categories.ts", how: "catch" },
   marketing_campaign_utm_idx: { file: "campaigns.ts", how: "catch" },
   organization_slug_idx: { file: "organizations.ts", how: "catch" },
   organization_external_ref_idx: { file: "operator.ts", how: "catch" },
@@ -151,6 +153,15 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   commission_reversal_cause_idx: "One reversal per cause, derived from the refund.",
   review_request_job_idx: "One request per job, which is what stops a second ask.",
   task_automation_idx: "One task per automation run, which is what makes the rule idempotent.",
+  task_template_occurrence_idx:
+    "One task per recurring template per company day. The worker inserts with on conflict do "
+    + "nothing, so a restarted or doubled worker raises the day's task once.",
+  task_escalation_once_idx:
+    "One escalation per task per rule, inserted first with on conflict do nothing, so only the "
+    + "pass whose insert landed tells anybody.",
+  customer_not_duplicate_pair_idx:
+    "The ordered pair of two customers somebody said are different people, inserted with on "
+    + "conflict do nothing: saying it twice is not news.",
   campaign_recipient_once_idx:
     "One row per address per campaign. The sender writes it; nobody types an address into it.",
 

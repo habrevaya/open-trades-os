@@ -179,7 +179,15 @@ export const getWarrantyWatch = defineRoute({
     on: IsoDate.optional(),
   }),
   output: z.object({
-    units: z.array(z.object({ ...EquipmentFields, address: z.string() })),
+    units: z.array(z.object({
+      ...EquipmentFields,
+      address: z.string(),
+      /**
+       * Who to ring: the customer linked to the address now, primary first and
+       * owners before tenants. Null for an address nobody is linked to.
+       */
+      customer: z.object({ id: Uuid, name: z.string() }).nullable(),
+    })),
   }),
 });
 

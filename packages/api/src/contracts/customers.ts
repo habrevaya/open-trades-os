@@ -96,7 +96,14 @@ export const listCustomers = defineRoute({
     /** Trigram search across name, email and phone. */
     q: z.string().max(200).optional(),
     type: CustomerType.optional(),
-    tag: z.string().optional(),
+    /** One tag. Kept for callers that already send it; the same as `tags` with one entry. */
+    tag: z.string().max(40).optional(),
+    /**
+     * Customers carrying these tags, compared without case. `tagMatch` says
+     * whether a customer needs any of them (the default) or every one.
+     */
+    tags: z.array(z.string().max(40)).max(20).optional(),
+    tagMatch: z.enum(["any", "all"]).optional(),
     includeInactive: z.boolean().default(false),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,

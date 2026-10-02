@@ -8,6 +8,7 @@ import { sweep } from "./workflow-dwell";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { deliverDue } from "./delivery-schedules";
 import { renewalsPass } from "./agreements";
+import { taskPass } from "./task-rules";
 
 /**
  * THE WORKER
@@ -271,6 +272,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.
       console.error("[worker] schedules:", (error as Error).message);
+    }
+    /**
+     * The office queue's own clock: recurring tasks raised for the company's
+     * day, and late tasks escalated. Its own try, so a broken template cannot
+     * hold up a scheduled workflow or the other way round, and each company's
+     * failure inside it is kept to that company. Both halves are idempotent on
+     * a unique index, so a pass cut short and repeated raises and tells once.
+     */
+    try {
+      for (const result of await taskPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.escalated.length > 0) delivered.add(result.organizationId);
+        for (const failure of result.failed) console.error(`[worker] tasks ${result.organizationId}: ${failure}`);
+      }
+    } catch (error) {
+      console.error("[worker] tasks:", (error as Error).message);
     }
     /**
      * Reports and statements on a clock. Its own try, so a broken workflow

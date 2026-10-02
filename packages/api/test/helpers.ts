@@ -51,7 +51,9 @@ const ORDER = [
   // Then the things work points at.
   "deficiency", "inspection", "inspection_program",
   "equipment_move", "equipment",
+  "customer_not_duplicate",
   "customer_property", "contact", "property", "customer",
+  "price_change_line", "price_change_batch",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
   "timeclock_entry", "overtime_policy", "wage_scale",
@@ -80,7 +82,9 @@ const ORDER = [
   "dashboard", "report",
   // The company's own logo and favicon, which are bytes rather than a key.
   "brand_asset",
+  "task_escalation", "task_checklist_item",
   "task",
+  "task_escalation_rule", "task_template",
   "workflow_step_run", "workflow_run", "workflow_schedule", "workflow_version", "workflow",
   "event_cursor", "domain_event",
   // Communications, in dependency order: a message points at a conversation
