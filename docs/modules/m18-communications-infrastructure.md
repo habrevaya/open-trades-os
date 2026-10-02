@@ -129,7 +129,11 @@ wizard flags it as needing somebody else's review queue.
 ### Email
 
 `POST /v1/email/messages` queues one and `POST /v1/email/send-queued` hands it to
-the provider. `GET /v1/email/suppressions` is the list,
+the provider. The worker does the same on its pass for every company that queued
+something, the way it sends texts, so a report or a statement queued at seven in
+the morning by the worker itself goes out without anybody pressing anything. An
+email can carry files: a delivered report's CSV is kept beside its message and
+handed to Resend or the SMTP server with it. `GET /v1/email/suppressions` is the list,
 `POST /v1/email/suppressions` adds an address and
 `DELETE /v1/email/suppressions/{address}` lifts one.
 

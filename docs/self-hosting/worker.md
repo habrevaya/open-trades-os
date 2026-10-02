@@ -44,6 +44,28 @@ nobody has to guess:
 | The worker was down for three days | One run, for the occurrence it was due, and then back on the normal clock. Not three |
 | An expression nothing can read | Recorded on the row with a reason, rather than quietly becoming "never" |
 
+## Reports and statements that arrive on their own
+
+Scheduled reports and the monthly statement run fire on the same pass, from
+their own cursor (`delivery_schedule.next_run_at`), the same way a scheduled
+workflow does: a cross tenant read of what is due through
+`app.due_deliveries`, which returns ids and nothing else, then inside the
+company a conditional update on the due time as the claim, with the delivery in
+the same transaction.
+
+| Case | What happens |
+|---|---|
+| The worker was down over three Mondays | One delivery, for the occurrence that was due, then back on the clock |
+| A restart, or a second worker, reaches an occurrence that already went | Nothing. Each delivery row carries its occurrence's key under a unique index, inserted first |
+| A schedule was paused | Not returned as due, and not sent if a pause lands mid pass |
+| The person who set it up can no longer see the report | Recorded as not run, with the reason, and the clock moves on |
+| A delivery throws | Rolled back, still due, retried on the next pass, and the reason is written on the schedule |
+
+A company whose report or statements went into the outbox on a pass is handed
+to the after-pass hooks (texts, email, webhooks, accounting) even if it had no
+events, so the email goes on that pass. The email hook is new with this: queued
+email used to wait for `POST /v1/email/send-queued`.
+
 ## Waiting for something not to happen
 
 The third trigger kind, and the one the other two cannot express. An event
@@ -112,7 +134,9 @@ definition, and row level security is forced on every tenant table, so it
 cannot be done by selecting. It goes through
 `app.pending_event_organizations`, which returns organization ids and a count
 and nothing else. The clock uses a second one, `app.scheduled_workflows`,
-which returns ids, the cron expression and the company's timezone.
+which returns ids, the cron expression and the company's timezone, and
+scheduled reports and statements a third, `app.due_deliveries`, which returns
+ids and the due time.
 
 `authenticated`, the role every request runs as, is **not** granted execute on
 it. A web request being able to enumerate every tenant with pending work is an

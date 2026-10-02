@@ -128,6 +128,18 @@ permissions its steps need, the author must hold all of them, and the run gets e
 that set. Publishing is checked against what the author holds rather than against
 whether they may touch workflows at all, which is the part that stops the escalation.
 
+**"Run and email a report" runs the report as whoever published the version.** A
+run's own actor holds only the permissions its steps declared and no scope, and a
+report run under no scope is a report of nothing; running it as the company would
+hand anybody who can publish an automation the owner's books. So the step declares
+`report:read` and `message:send`, and the report itself is read as the publisher, as
+they are on the day it runs, through the same delivery a scheduled report uses
+(M21): each person picked must be able to open the report and is sent it as they
+would see it, the delivery is recorded with each recipient's outcome, and it is keyed
+on the run and the step, so a run resumed after a wait does not send it twice. The
+report and the people are checked against the author at publish, with the step's
+number in the refusal.
+
 **A step this build does not know is refused at publish rather than skipped at run
 time.** Skipping would let a definition written against a newer version run here with
 the steps it could not perform quietly dropped.
@@ -226,5 +238,6 @@ applies to what; every condition on a branch has to hold, which is what somebody
 means by "only if" nine times out of ten, and the API takes the other two.
 There is no loop and there will not be one: a flat list only goes forwards, which
 is the second loop guard, because the two upstream ones catch a workflow
-re-triggering itself and not one looping inside a single run. Scheduled report
-delivery is not built, and neither is a workflow step that runs a report.
+re-triggering itself and not one looping inside a single run. The report step
+emails a report to people picked on the canvas; it cannot send a report to the
+customer the event is about.
