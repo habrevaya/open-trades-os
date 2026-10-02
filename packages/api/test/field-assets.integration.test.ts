@@ -75,7 +75,7 @@ afterAll(async () => { if (raw) await raw.end(); });
 
 beforeEach(async () => {
   if (!url) return;
-  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Field Co", slug: "field-co" });
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Field Co", slug: "field-assets-co" });
   const [customer] = await raw<{ id: string }[]>`
     insert into public.customer (organization_id, type, name)
     values (${ORG}, 'commercial', 'Roof Holdings') returning id`;
