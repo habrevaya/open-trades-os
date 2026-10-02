@@ -318,6 +318,19 @@ function Card({
       {node.kind === "send_message" && <MessageFields config={node.config} set={set} />}
       {node.kind === "create_task" && <TaskFields config={node.config} set={set} />}
       {node.kind === "wait" && <WaitFields config={node.config} set={set} />}
+      {node.kind === "stop_unless" && <CheckFields config={node.config} set={set} />}
+      {(node.kind === "send_estimate" || node.kind === "send_review_request") && (
+        <LinkMessageFields
+          config={node.config} set={set}
+          placeholder={node.kind === "send_estimate"
+            ? "Hi {{ customer.name }}, just checking you saw estimate #{{ estimate.number }}: {{ link }}"
+            : "Hi {{ customer.name }}, would you leave us a review? {{ review.url }}"}
+          note={node.kind === "send_estimate"
+            ? "Has to include {{ link }}, which becomes a fresh link to the estimate. Sent only while it is still waiting for an answer."
+            : "{{ review.url }} is the link to the review site the request names. Sent only if your review rules queued a request."}
+        />
+      )}
+      {node.kind === "request_review" && <PlatformFields config={node.config} set={set} />}
 
       {node.kind === "branch" && (
         <div className="mt-3">
@@ -493,6 +506,96 @@ function WaitFields({
       </label>
       <p className="pb-2 text-xs text-ink-500">Stored on the run, so it survives a restart.</p>
     </div>
+  );
+}
+
+/**
+ * Which fact to look at again. A list from the engine's own catalogue, so
+ * there is no way to type a question this build cannot ask.
+ */
+function CheckFields({
+  config, set,
+}: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
+  const checks = Object.entries(automation.CHECKS);
+  return (
+    <label className="mt-3 block text-sm">
+      <span className="block text-ink-700">Carry on only while</span>
+      <select
+        value={String(config["check"] ?? checks[0]?.[0] ?? "")}
+        onChange={(e) => set({ ...config, check: e.target.value })}
+        className={`${FIELD} w-full`}
+      >
+        {checks.map(([key, check]) => <option key={key} value={key}>{check.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+/** A message that carries a link: by text or by email, with a subject for an email. */
+function LinkMessageFields({
+  config, set, placeholder, note,
+}: {
+  config: Record<string, unknown>;
+  set: (c: Record<string, unknown>) => void;
+  placeholder: string;
+  note: string;
+}) {
+  const channel = config["channel"] === "email" ? "email" : "sms";
+  return (
+    <div className="mt-3 space-y-2 text-sm">
+      <label className="block">
+        <span className="block text-ink-700">How</span>
+        <select
+          value={channel}
+          onChange={(e) => set({ ...config, channel: e.target.value })}
+          className={`${FIELD} w-40`}
+        >
+          <option value="sms">By text</option>
+          <option value="email">By email</option>
+        </select>
+      </label>
+      {channel === "email" && (
+        <label className="block">
+          <span className="block text-ink-700">Subject</span>
+          <input
+            value={String(config["subject"] ?? "")}
+            onChange={(e) => set({ ...config, subject: e.target.value })}
+            className={`${FIELD} w-full`}
+          />
+        </label>
+      )}
+      <label className="block">
+        <span className="block text-ink-700">What it says</span>
+        <textarea
+          rows={3}
+          value={String(config["body"] ?? "")}
+          onChange={(e) => set({ ...config, body: e.target.value })}
+          placeholder={placeholder}
+          className="mt-1 w-full rounded border border-steel-300 p-2 text-sm"
+        />
+      </label>
+      <p className="text-xs text-ink-500">{note} Consent is checked when it is sent, not now.</p>
+    </div>
+  );
+}
+
+/** Which review site the ask points at, by the key it was declared under. */
+function PlatformFields({
+  config, set,
+}: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
+  return (
+    <label className="mt-3 block text-sm">
+      <span className="block text-ink-700">Review site</span>
+      <input
+        value={String(config["platform"] ?? "")}
+        onChange={(e) => set({ ...config, platform: e.target.value })}
+        placeholder="google"
+        className={`${FIELD} w-48`}
+      />
+      <span className="mt-1 block text-xs text-ink-500">
+        The key you declared it under on the reviews screen. Your review rules decide whether and when to ask.
+      </span>
+    </label>
   );
 }
 

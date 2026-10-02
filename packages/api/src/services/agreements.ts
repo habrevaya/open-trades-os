@@ -1378,6 +1378,26 @@ export async function memberPricing(
   });
 }
 
+/**
+ * The plan behind each agreement a priced line names, for a screen showing
+ * why a line is cheaper.
+ *
+ * `customer:read` for the reason `memberPricing` gives: whoever can see the
+ * estimate or invoice can see which membership priced it, without reading the
+ * agreement book.
+ */
+export async function planNamesFor(ctx: ServiceContext, input: { agreementIds: string[] }) {
+  return guardedRead(ctx, "customer:read", async (tx) => {
+    const ids = [...new Set(input.agreementIds)];
+    if (ids.length === 0) return new Map<string, string>();
+    const rows = await tx.select({ id: schema.agreement.id, planName: schema.agreementPlan.name })
+      .from(schema.agreement)
+      .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
+      .where(inArray(schema.agreement.id, ids));
+    return new Map(rows.map((r) => [r.id, r.planName] as const));
+  });
+}
+
 /** "0.150000" as "15%", for a sentence. */
 export const percentOf = (rate: string): string =>
   `${Number((Number(rate) * 100).toFixed(2))}%`;

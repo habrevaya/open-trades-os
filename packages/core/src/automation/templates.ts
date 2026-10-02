@@ -148,7 +148,8 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
         triggerKind: "event",
         triggerEvents: ["estimate.sent"],
         steps: [
-          { kind: "wait", config: { days } },
+          /** Both units written, so the canvas shows exactly what will run. */
+          { kind: "wait", config: { days, hours: 0 } },
           { kind: "stop_unless", config: { check: "estimate_undecided" } },
           {
             kind: "send_estimate",
@@ -203,7 +204,7 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
         triggerKind: "event",
         triggerEvents: ["invoice.paid"],
         steps: [
-          { kind: "wait", config: { hours } },
+          { kind: "wait", config: { days: 0, hours } },
           { kind: "request_review", config: { platform } },
           {
             kind: "send_review_request",

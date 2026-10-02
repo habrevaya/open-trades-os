@@ -38,6 +38,7 @@ export default async function AccountPage({
         account={account}
         returned={returned}
         statementHref={`/c/${token}/statement`}
+        changeHref={(visitId) => `/c/${token}/change/${visitId}`}
         pay={(invoice) => (
           <PayNow
             start={startAccountPayment.bind(null, token, invoice.id)}

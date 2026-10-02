@@ -137,7 +137,14 @@ export const NAV: NavGroup[] = [
           { href: "/invoices/credit-notes", label: "Credit notes" },
         ],
       },
-      { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
+      {
+        href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements",
+        children: [
+          { href: "/agreements", label: "The book" },
+          /** The renewal conversation starts here: who ends in the next thirty days. */
+          { href: "/agreements/renewals", label: "Ending soon" },
+        ],
+      },
       { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
       { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },

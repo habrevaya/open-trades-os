@@ -50,7 +50,7 @@ describe("following up an estimate", () => {
     expect(steps.map((s) => s.kind)).toEqual([
       "wait", "stop_unless", "send_estimate", "send_estimate", "create_task",
     ]);
-    expect(steps[0]!.config).toEqual({ days: 5 });
+    expect(steps[0]!.config).toEqual({ days: 5, hours: 0 });
     expect(isCheck(steps[1]!.config!["check"])).toBe(true);
     expect(steps.map((s) => s.config?.["channel"]).filter(Boolean)).toEqual(["sms", "email"]);
     expect(built.definition.triggerEvents).toEqual(["estimate.sent"]);
@@ -58,7 +58,7 @@ describe("following up an estimate", () => {
 
   it("defaults the wait, and refuses one outside its bounds rather than clamping it", () => {
     const defaulted = buildTemplate("estimate_follow_up", {});
-    expect(defaulted.ok && flattenPlan(defaulted.definition.steps)[0]!.config).toEqual({ days: 3 });
+    expect(defaulted.ok && flattenPlan(defaulted.definition.steps)[0]!.config).toEqual({ days: 3, hours: 0 });
     expect(buildTemplate("estimate_follow_up", { days: 90 })).toEqual({
       ok: false, reason: "Days to wait after sending cannot be more than 30.",
     });

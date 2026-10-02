@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, deposits, estimates, NotFoundError } from "@opentradesos/api/services";
+import { agreements, customers, deposits, estimates, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -30,6 +30,11 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
     can(user.actor, "deposit:read") ? deposits.list(ctx, { estimateId: id }).then((r) => r.deposits) : [],
   ]);
   const chosen = estimate.options.find((o) => o.id === estimate.selectedOptionId);
+  const memberIds = estimate.options.flatMap((o) => o.lines)
+    .map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
+  const plans = memberIds.length > 0 && can(user.actor, "customer:read")
+    ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
+    : new Map<string, string>();
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -50,7 +55,7 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
         <Fact label="Signed by">{estimate.signerName}</Fact>
       </Facts>
 
-      <Options estimate={estimate} />
+      <Options estimate={estimate} plans={plans} />
 
       <EstimateActions
         action={actOnEstimate}

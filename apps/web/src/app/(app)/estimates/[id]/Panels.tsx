@@ -11,7 +11,10 @@ export interface EstimateView {
   jobId: string | null;
   options: {
     id: string; name: string; isRecommended: boolean; total: string; optionalTotal: string;
-    lines: { id: string; name: string; quantity: string; unitPrice: string; lineTotal: string; isOptional: boolean }[];
+    lines: {
+      id: string; name: string; quantity: string; unitPrice: string; lineTotal: string; isOptional: boolean;
+      discountAmount?: string; memberDiscountAmount?: string; memberAgreementId?: string | null;
+    }[];
   }[];
 }
 
@@ -22,7 +25,13 @@ export interface DepositView { id: string; status: string; amountRequested: stri
  * the recommended one pulled up, optional lines priced and outside the
  * total. The service orders them; this only draws them.
  */
-export function Options({ estimate }: { estimate: EstimateView }) {
+export function Options({
+  estimate, plans = new Map(),
+}: {
+  estimate: EstimateView;
+  /** The plan behind each agreement a line was member priced from. */
+  plans?: ReadonlyMap<string, string>;
+}) {
   return (
     <div className="mt-6 grid gap-4 md:grid-cols-2">
       {estimate.options.map((option) => (
@@ -36,13 +45,29 @@ export function Options({ estimate }: { estimate: EstimateView }) {
           </div>
           <ul className="mt-3 space-y-1 text-sm">
             {option.lines.map((line) => (
-              <li key={line.id} className="flex justify-between gap-3">
-                <span>
-                  {line.name}
-                  {Number(line.quantity) !== 1 ? <span className="text-ink-500"> × {Number(line.quantity)}</span> : null}
-                  {line.isOptional ? <span className="ml-1 text-xs text-ink-500">(optional)</span> : null}
-                </span>
-                <Money value={line.lineTotal} />
+              <li key={line.id}>
+                <div className="flex justify-between gap-3">
+                  <span>
+                    {line.name}
+                    {Number(line.quantity) !== 1 ? <span className="text-ink-500"> × {Number(line.quantity)}</span> : null}
+                    {line.isOptional ? <span className="ml-1 text-xs text-ink-500">(optional)</span> : null}
+                  </span>
+                  <Money value={line.lineTotal} />
+                </div>
+                {/*
+                  Never silently. A member discount is said on the line it came
+                  off, with the plan that gave it, so the office and the
+                  customer can both see why this line is cheaper than the price
+                  book says.
+                */}
+                {Number(line.memberDiscountAmount ?? "0") > 0 ? (
+                  <p className="text-xs text-ink-500">
+                    Member discount
+                    {line.memberAgreementId && plans.get(line.memberAgreementId)
+                      ? `, ${plans.get(line.memberAgreementId)}`
+                      : ""}: <Money value={`-${line.memberDiscountAmount}`} />
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
