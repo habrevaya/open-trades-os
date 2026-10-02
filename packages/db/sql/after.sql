@@ -918,6 +918,42 @@ returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
 revoke all on function app.dwell_workflows(int) from public;
 grant execute on function app.dwell_workflows(int) to background;
 
+-- =========================================================================
+-- AGREEMENTS COMING UP FOR RENEWAL
+--
+-- The same shape as the three above and for the same reason: ids only, not
+-- callable by the role the request path uses. A company is returned when it
+-- has an active agreement whose end is inside the plan's notice window, with
+-- a day to spare either side for timezones. Whether anything is actually due
+-- is decided per agreement, in the company's own calendar, by the service.
+-- =========================================================================
+
+create or replace function app.agreement_renewal_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.organization_id
+    from public.agreement a
+    join public.agreement_plan p on p.id = a.plan_id
+    where a.status = 'active'
+      and a.ends_on is not null
+      and (
+        a.ends_on <= current_date + 1
+        or (a.renewal_notice_sent_at is null
+            and a.ends_on <= current_date + p.renewal_notice_days + 1)
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = a.organization_id and o.suspended_at is not null
+      )
+    group by a.organization_id
+    order by min(a.ends_on)
+    limit p_limit
+  $$;
+
+revoke all on function app.agreement_renewal_organizations(int) from public;
+grant execute on function app.agreement_renewal_organizations(int) to background;
+
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN
 -- sessions, which is right: a policy letting any authenticated role read the

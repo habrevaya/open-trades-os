@@ -15,6 +15,13 @@ export const InvoiceLine = z.object({
   quantity: MoneyString,
   unitPrice: MoneyString,
   discountAmount: MoneyString,
+  /**
+   * How much of `discountAmount` was member pricing, and which agreement it
+   * came from. Worked out by the server as the invoice is priced; a line sent
+   * in carries only the discount somebody typed.
+   */
+  memberDiscountAmount: MoneyString.optional(),
+  memberAgreementId: Uuid.nullable().optional(),
   taxable: z.boolean(),
   /** The rate AS APPLIED, frozen on the line. Never recomputed on read. */
   taxRate: RateString,

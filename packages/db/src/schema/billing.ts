@@ -166,6 +166,21 @@ export const estimateLine = pgTable("estimate_line", {
   unitPrice: money("unit_price").notNull().default("0"),
   unitCost: money("unit_cost"),
   discountAmount: money("discount_amount").notNull().default("0"),
+  /**
+   * MEMBER PRICING, AND WHICH AGREEMENT PRODUCED IT.
+   *
+   * `discount_amount` is the whole of the line's discount and is what every
+   * total and the ledger read, so a member discount posts to the discounts
+   * account exactly as a hand typed one does. These two say how much of it
+   * came from a plan and from which agreement, because "why is this line
+   * cheaper" has to have an answer that is not somebody's memory, and a
+   * discount a customer is entitled to is a different fact from one somebody
+   * chose to give. Not a foreign key, like `entitlement_id`: the agreement
+   * schema imports this file, and the link is a record of what applied on
+   * the day rather than a dependency.
+   */
+  memberAgreementId: uuid("member_agreement_id"),
+  memberDiscountAmount: money("member_discount_amount").notNull().default("0"),
   taxable: boolean("taxable").notNull().default(true),
   /** The rate AS APPLIED, carried onto the invoice on conversion. */
   taxRate: rate("tax_rate").notNull().default("0"),
@@ -354,6 +369,9 @@ export const invoiceLine = pgTable("invoice_line", {
   unitPrice: money("unit_price").notNull().default("0"),
   unitCost: money("unit_cost"),
   discountAmount: money("discount_amount").notNull().default("0"),
+  /** See `estimate_line.member_agreement_id`. Carried across on conversion. */
+  memberAgreementId: uuid("member_agreement_id"),
+  memberDiscountAmount: money("member_discount_amount").notNull().default("0"),
   taxable: boolean("taxable").notNull().default(true),
   /** The rate AS APPLIED. Never recomputed on read. */
   taxRate: rate("tax_rate").notNull().default("0"),

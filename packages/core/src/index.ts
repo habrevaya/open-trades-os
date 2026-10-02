@@ -30,3 +30,4 @@ export * as files from "./files/index.js";
 export * as connectors from "./connectors/index.js";
 export * as modules from "./modules/index.js";
 export * as events from "./events/index.js";
+export * as membership from "./membership/index.js";

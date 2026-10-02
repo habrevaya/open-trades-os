@@ -69,6 +69,10 @@ const REFUSED: Record<string, Refused> = {
   report_name_idx: { file: "reports.ts", how: "catch" },
   dashboard_name_idx: { file: "dashboards.ts", how: "catch" },
   agreement_plan_code_idx: { file: "agreements.ts", how: "catch" },
+  /** A second press of "Turn on" for a recommended automation already installed. */
+  workflow_template_idx: { file: "workflows.ts", how: "catch" },
+  /** A customer asking twice about one visit before the office has answered. */
+  visit_change_request_pending_idx: { file: "visit-changes.ts", how: "catch" },
   vendor_name_idx: { file: "inventory.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
   marketing_campaign_utm_idx: { file: "campaigns.ts", how: "catch" },

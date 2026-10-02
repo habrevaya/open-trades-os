@@ -78,11 +78,19 @@ describe("permissions", () => {
       "GET /v1/portal/invoice",
       "GET /v1/portal/job",
       "GET /v1/portal/session",
+      /**
+       * A customer asking to move or cancel a visit from the link they were
+       * sent. The grant decides which visits it reaches; a visit id in the
+       * request only narrows inside that. Asking writes a request and a task
+       * and moves nothing: the office approves, behind `visit:reschedule`.
+       */
+      "GET /v1/portal/visit-change",
       "GET /v1/public/availability",
       "GET /v1/public/services",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/portal/invoice/pay",
+      "POST /v1/portal/visit-change",
       "POST /v1/public/bookings",
       /**
        * A lead form on a company's own website, filled in by a homeowner

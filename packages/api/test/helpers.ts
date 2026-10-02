@@ -39,6 +39,12 @@ const ORDER = [
   // Then work.
   "delivery",
   "obligation", "authorization", "external_work_order",
+  /**
+   * A customer's request to move or cancel a visit points at the visit, the
+   * job, the customer and the online booking rules it was checked against,
+   * so it goes before all four.
+   */
+  "visit_change_request",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
   "visit", "entitlement", "job_party", "job", "job_type",

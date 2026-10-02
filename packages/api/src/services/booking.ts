@@ -112,6 +112,50 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
     )).limit(1);
   if (!service) throw new NotFoundError("Service");
 
+  return { slots: await openSlots(db, { organizationId: org.id, timezone: org.timezone, service, from: input.from, days: input.days }) };
+}
+
+export interface OpenSlot {
+  date: string;
+  arrivalWindowId: string;
+  label: string;
+  startsAt: string;
+  endsAt: string;
+  remaining: number;
+}
+
+/**
+ * The windows a service can be booked into, from a day, for some days.
+ *
+ * The whole of what the public widget offers, on its own, so that a customer
+ * asking to move a visit from their link is offered exactly the windows a
+ * stranger booking the same work would be: the same notice, the same open
+ * days, the same per window ceiling. Two calendars that disagree about one
+ * Tuesday are a customer told two different things by one company.
+ *
+ * Takes a database handle rather than resolving a company, because one caller
+ * has a slug and no tenant context and the other is already inside a grant's
+ * tenant boundary. Every read is filtered by the organization explicitly, so
+ * it is correct from either.
+ *
+ * `held` counts what a visit change request has already asked for in a window,
+ * pending or approved, the same way a booking request counts: a slot one
+ * customer has asked to move into is a slot the next one should not be
+ * offered. `exceptRequestId` leaves one request out of that count, so
+ * re-checking a request's own slot when it is approved does not find it full
+ * of itself.
+ */
+export async function openSlots(db: Database, input: {
+  organizationId: string;
+  timezone: string;
+  service: typeof schema.bookableService.$inferSelect;
+  from: string;
+  days: number;
+  exceptRequestId?: string | undefined;
+}): Promise<OpenSlot[]> {
+  const { service } = input;
+  const org = { id: input.organizationId, timezone: input.timezone };
+
   const windows = await db.select().from(schema.arrivalWindow)
     .where(and(
       eq(schema.arrivalWindow.organizationId, org.id),
@@ -147,8 +191,28 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
     ))
     .groupBy(schema.bookingRequest.requestedDate, schema.bookingRequest.arrivalWindowId);
 
+  const held = await db.select({
+    date: schema.visitChangeRequest.requestedDate,
+    windowId: schema.visitChangeRequest.arrivalWindowId,
+    n: sql<number>`count(*)::int`,
+  }).from(schema.visitChangeRequest)
+    .where(and(
+      eq(schema.visitChangeRequest.organizationId, org.id),
+      eq(schema.visitChangeRequest.bookableServiceId, service.id),
+      eq(schema.visitChangeRequest.kind, "reschedule"),
+      inArray(schema.visitChangeRequest.status, ["pending", "approved"]),
+      gte(schema.visitChangeRequest.requestedDate, input.from),
+      lte(schema.visitChangeRequest.requestedDate, isoDate(until)),
+      input.exceptRequestId ? sql`${schema.visitChangeRequest.id} <> ${input.exceptRequestId}` : undefined,
+    ))
+    .groupBy(schema.visitChangeRequest.requestedDate, schema.visitChangeRequest.arrivalWindowId);
+
   const takenKey = (date: string, windowId: string) => `${date}|${windowId}`;
-  const taken = new Map(booked.map((b) => [takenKey(b.date, b.windowId ?? ""), b.n]));
+  const taken = new Map<string, number>();
+  for (const b of [...booked, ...held]) {
+    const key = takenKey(b.date ?? "", b.windowId ?? "");
+    taken.set(key, (taken.get(key) ?? 0) + b.n);
+  }
 
   /**
    * Time off is per technician, so one person being away is not a reason to
@@ -177,10 +241,7 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
       eq(schema.timeOff.approved, true),
     ));
 
-  const slots: Array<{
-    date: string; arrivalWindowId: string; label: string;
-    startsAt: string; endsAt: string; remaining: number;
-  }> = [];
+  const slots: OpenSlot[] = [];
 
   for (let i = 0; i < days; i++) {
     const day = new Date(from.getTime() + i * 864e5);
@@ -201,9 +262,7 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
        * out all summer and six all winter, which is the difference between
        * offering a customer a slot the company can staff and one it cannot.
        */
-      const opensAt = new Date(
-        time.startOfDayIn(date, org.timezone).getTime() + minutesInto(w.startsAt) * 60_000,
-      );
+      const opensAt = windowStart(date, w.startsAt, org.timezone);
       if (opensAt < earliest) continue;
 
       const used = taken.get(takenKey(date, w.id)) ?? 0;
@@ -223,7 +282,12 @@ export async function availability(db: Database, input: z.infer<typeof getAvaila
     }
   }
 
-  return { slots };
+  return slots;
+}
+
+/** A window's clock time on a day, as an instant, in the company's zone. */
+export function windowStart(date: string, clock: string, timezone: string): Date {
+  return new Date(time.startOfDayIn(date, timezone).getTime() + minutesInto(clock) * 60_000);
 }
 
 /**

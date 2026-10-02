@@ -1,6 +1,6 @@
 import { and, asc, eq, desc, lt, gte, lte, inArray, sql, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { authorization as authz, coverage, history, ledger, money as m, time } from "@opentradesos/core";
+import { authorization as authz, coverage, history, ledger, membership, money as m, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
@@ -18,6 +18,7 @@ import { claimNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as entitlements from "./entitlements";
 import * as commercial from "./commercial";
+import { memberPricingWithin } from "./agreements";
 import type {
   createInvoice, listInvoices, getInvoice, recordPayment, getArAging, listPayments as listPayments_,
   updateInvoice, issueInvoice, deleteInvoice,
@@ -64,7 +65,10 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
       : { historical: false, timeZone: await timezoneOf(tx, ctx.actor.organizationId) };
     const issuedOn = input.issuedOn ?? time.dateIn(now, admitted.timeZone);
 
-    const { resolved, computed, uncovered } = await priceInvoice(tx, ctx, input);
+    const { resolved, computed, uncovered } = await priceInvoice(
+      tx, ctx, input, undefined,
+      admitted.historical || input.externalRef ? null : issuedOn,
+    );
 
     /**
      * AND IT MAY NOT GO OVER WHAT THEY AUTHORISED.
@@ -224,6 +228,8 @@ async function writeLines(
     unitPrice: m.toString(r.unitPrice),
     unitCost: r.unitCost ? m.toString(r.unitCost) : null,
     discountAmount: m.toString(r.discountAmount),
+    memberAgreementId: r.memberAgreementId,
+    memberDiscountAmount: m.toString(r.memberDiscountAmount),
     taxable: r.taxable,
     taxRate: r.taxRate,
     taxAmount: m.toString(computed.lines[i]!.taxAmount),
@@ -432,7 +438,21 @@ async function pricedForDraft(
     ...(input.adjustment ? { adjustment: input.adjustment } : {}),
     ...(input.expectedTotals ? { expectedTotals: input.expectedTotals } : {}),
   };
-  return priceInvoice(tx, ctx, pricing, draft.id);
+  /**
+   * A draft is priced as of today, member pricing included, and the lines
+   * sent are what somebody typed: the edit screen shows the hand discount
+   * apart from the member one for exactly this reason, so saving a draft
+   * does not take the member rate off twice.
+   */
+  return priceInvoice(tx, ctx, pricing, draft.id,
+    time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)));
+}
+
+/** The address a job's work is at, which is what decides whose membership covers it. */
+async function propertyOfJob(tx: Database, jobId: string): Promise<string | null> {
+  const [row] = await tx.select({ propertyId: schema.job.propertyId })
+    .from(schema.job).where(eq(schema.job.id, jobId)).limit(1);
+  return row?.propertyId ?? null;
 }
 
 export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvoice.input>) {
@@ -508,7 +528,16 @@ export async function deleteDraft(ctx: ServiceContext, input: z.infer<typeof del
 type PricingInput = Pick<z.infer<typeof createInvoice.input>,
   "customerId" | "jobId" | "lines" | "adjustment" | "expectedTotals">;
 
-async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInput, ownInvoiceId?: string) {
+async function priceInvoice(
+  tx: Database, ctx: ServiceContext, input: PricingInput, ownInvoiceId?: string,
+  /**
+   * The day member pricing is decided on, or null for none. Null for history:
+   * an invoice recorded from another system charged what it charged, and a
+   * member discount applied to it today would make it disagree with the copy
+   * the customer was sent.
+   */
+  memberOn: string | null = null,
+) {
   /**
    * Prices come from the price book VERSION, not from the request, whenever
    * an item id is given. A client that can name its own price is a client
@@ -524,8 +553,10 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
         price: schema.priceBookItemVersion.price,
         cost: schema.priceBookItemVersion.cost,
         taxable: schema.priceBookItemVersion.taxable,
+        kind: schema.priceBookItem.kind,
       })
       .from(schema.priceBookItemVersion)
+      .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
       .where(and(
         inArray(schema.priceBookItemVersion.itemId, itemIds),
         /**
@@ -611,8 +642,53 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
       coverageSource: line.coverageSource ?? null,
       origin: "job" as "job" | "manual",
       jobLineId: line.jobLineId ?? null as string | null,
+      /** Whether member pricing may touch it. A line kept as given is history. */
+      memberEligible: !line.priceAsGiven
+        && membership.eligibleForMemberPricing({
+          unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
+          itemKind: linked?.kind ?? null,
+        }),
+      memberDiscountAmount: usd("0"),
+      memberAgreementId: null as string | null,
     };
   });
+
+  /**
+   * MEMBER PRICING, on the lines that take it, as a per line discount.
+   *
+   * The same decision and the same arithmetic an estimate uses, from core, so
+   * a member quoted a price and then invoiced for the work directly pays the
+   * same either way. Written into each line's own discount, which is what
+   * every total and `postInvoice` already read: the discount posts to the
+   * discounts account with revenue at the full price, exactly as a discount
+   * typed by hand does. The line records how much of it was the plan and
+   * which agreement, so it is shown rather than silently taken.
+   *
+   * A line priced from a client's rate card is still a line this customer is
+   * a member for. Whether a contract price should also take the member rate
+   * is a question for whoever wrote the contract; the plan's rate is the
+   * company's own standing offer and it is applied the same way to both.
+   */
+  const member = memberOn === null ? null : await memberPricingWithin(tx, {
+    customerId: input.customerId,
+    propertyId: input.jobId ? await propertyOfJob(tx, input.jobId) : null,
+    on: memberOn,
+  });
+  if (member) {
+    const off = membership.memberDiscounts(resolved.map((r) => ({
+      quantity: r.quantity,
+      unitPrice: r.unitPrice,
+      discountAmount: r.discountAmount,
+      eligible: r.memberEligible,
+    })), member.rate);
+    for (const [i, r] of resolved.entries()) {
+      const amount = off[i]!;
+      if (!m.isPositive(amount)) continue;
+      r.memberDiscountAmount = amount;
+      r.memberAgreementId = member.agreementId;
+      r.discountAmount = m.add(r.discountAmount, amount);
+    }
+  }
 
   /**
    * AN AMOUNT THE LINES DO NOT ACCOUNT FOR.
@@ -647,6 +723,9 @@ async function priceInvoice(tx: Database, ctx: ServiceContext, input: PricingInp
       coverageSource: null,
       origin: "manual",
       jobLineId: null,
+      memberEligible: false,
+      memberDiscountAmount: usd("0"),
+      memberAgreementId: null,
     });
   }
 

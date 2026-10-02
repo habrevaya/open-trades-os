@@ -122,10 +122,28 @@ export const workflow = pgTable("workflow", {
    * which is why it is nullable and why `enabled` alone does not mean it runs.
    */
   activeVersionId: uuid("active_version_id"),
+  /**
+   * The recommended automation this was installed from, when it was.
+   *
+   * A label and nothing more. The installed workflow is an ordinary one, its
+   * steps are in its own versions like any other, and editing it changes
+   * nothing about the template. This is how the recommended list knows it
+   * is already on, so a second press does not install a second copy that
+   * texts every customer twice.
+   */
+  templateKey: text("template_key"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("workflow_org_idx").on(t.organizationId, t.enabled),
+  /**
+   * One live install per template. Unique rather than checked, because two
+   * presses of the same button are two requests racing, and the loser's
+   * insert is the only thing that can be relied on to fail. A deleted one
+   * does not count, so a company can remove it and turn it on again.
+   */
+  templateIdx: uniqueIndex("workflow_template_idx").on(t.organizationId, t.templateKey)
+    .where(sql`${t.templateKey} is not null and ${t.deletedAt} is null`),
 }));
 
 /**

@@ -43,6 +43,8 @@ import { appRoutes } from "./apps";
 import { equipmentRoutes } from "./equipment";
 import { taskRoutes } from "./tasks";
 import { workflowRoutes } from "./workflows";
+import { agreementRoutes } from "./agreements";
+import { visitChangeRoutes } from "./visit-changes";
 import { inspectionRoutes } from "./inspections";
 import { creditNoteRoutes } from "./credit-notes";
 import { statementRoutes } from "./statements";
@@ -102,6 +104,8 @@ export * from "./pricing-authority";
 export * from "./field-assets";
 export * from "./credit-notes";
 export * from "./statements";
+export * from "./agreements";
+export * from "./visit-changes";
 
 /**
  * Every route in the product, and the only description of them.
@@ -169,6 +173,8 @@ export const routes = {
   ...equipmentRoutes,
   ...taskRoutes,
   ...workflowRoutes,
+  ...agreementRoutes,
+  ...visitChangeRoutes,
   ...inspectionRoutes,
   ...pricingAuthorityRoutes,
   ...fieldAssetRoutes,

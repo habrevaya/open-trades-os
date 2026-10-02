@@ -12,6 +12,7 @@ import {
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
   apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  agreements, visitChanges,
 } from "../services/index";
 
 /**
@@ -118,6 +119,7 @@ export const handlers = {
   approveEstimate: estimates.approve,
   declineEstimate: estimates.decline,
   convertEstimate: estimates.convert,
+  listUnsoldEstimates: estimates.unsoldHandler,
   requestDeposit: deposits.request,
   applyDeposit: deposits.apply,
   refundDeposit: deposits.refund,
@@ -521,6 +523,20 @@ export const handlers = {
   setWorkflowEnabled: workflows.handlers.setWorkflowEnabled,
   listWorkflowEvents: workflows.handlers.listWorkflowEvents,
   listWorkflowSteps: workflows.handlers.listWorkflowSteps,
+  listWorkflowTemplates: workflows.handlers.listWorkflowTemplates,
+  // Agreements
+  createAgreementPlan: agreements.handlers.createAgreementPlan,
+  sellAgreement: agreements.handlers.sellAgreement,
+  renewAgreement: agreements.handlers.renewAgreement,
+  listAgreementRenewals: agreements.handlers.listAgreementRenewals,
+  getMemberPricing: agreements.handlers.getMemberPricing,
+  // A customer asking to move or cancel a visit, and the office answering
+  getPortalVisitChange: visitChanges.handlers.getPortalVisitChange,
+  requestPortalVisitChange: visitChanges.handlers.requestPortalVisitChange,
+  listVisitChangeRequests: visitChanges.handlers.listVisitChangeRequests,
+  approveVisitChangeRequest: visitChanges.handlers.approveVisitChangeRequest,
+  declineVisitChangeRequest: visitChanges.handlers.declineVisitChangeRequest,
+  installWorkflowTemplate: workflows.handlers.installWorkflowTemplate,
 
   listTasks: tasks.handlers.listTasks,
   getTaskCounts: tasks.handlers.getTaskCounts,
