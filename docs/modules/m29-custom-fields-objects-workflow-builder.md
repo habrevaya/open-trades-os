@@ -141,6 +141,23 @@ most important control on the screen and the reason the screen exists: an automa
 misbehaving is a thing somebody needs to stop in seconds, without a deploy and without
 a database client.
 
+**Some questions have to be asked again after a wait.** A branch reads the
+event, so three days after "an estimate was sent" it can only ever say it was
+sent. `stop_unless` asks the database one declared question (today, whether
+the estimate is still waiting for an answer and has not been sent again since)
+and, when the answer is no, ends the run as finished with the steps after it
+written down as skipped. A customer who approved on day two is the follow up
+working, not failing. The questions are a catalogue in core, like the dwell
+shapes: a workflow names one and never writes a query.
+
+**A recommended automation is an ordinary one.** Turning one on from the
+recommended list installs a workflow through the same check, permission rule
+and versions as one drawn on the canvas, switched on because the person just
+read what it does and pressed the button. It is labelled with the template it
+came from so the list knows it is on and a second press is refused, and that
+label is all that is special about it: its steps are on the canvas and the
+company edits them like any other.
+
 **The step rows are the point of the detail screen.** "Why did this customer get that
 text in March" is the question it answers, and a run row on its own says only that
 something happened. Seeing that is `workflow:read`, which the office manager preset
@@ -164,6 +181,34 @@ without writing anything.
 `/automations` is what exists, what it did and how to stop it. `/automations/new`
 writes a definition, and `/automations/{id}` is one workflow with its recent runs step
 by step.
+
+### Turn on a recommended one
+
+The top of `/automations` offers two, each with what it does, what it needs from
+the company, and its one or two settings:
+
+- **Follow up an estimate that has not been answered.** On `estimate.sent`: wait
+  some days, stop unless the estimate is still waiting for an answer, text the
+  customer a fresh link to it, email one, and raise a call in the office queue.
+  A link minted for a message that could not go is withdrawn.
+- **Ask for a review after a paid job.** On `invoice.paid`: wait some hours, put
+  the job to the reviews module's own decision, waiting again if it says later,
+  and send the ask with the review site's link. M20 has the decision.
+
+`GET /v1/workflow-templates` lists them with whether each is on, and
+`POST /v1/workflow-templates/{key}/install` turns one on.
+
+### The steps
+
+Send a message, raise a task, wait, only if, and four added for these:
+`stop_unless` (carry on only while a declared fact still holds), `send_estimate`
+(a fresh link to the estimate by text or email, only while it is undecided, and
+refused as a failed step if the wording has lost its link), `request_review`
+(the reviews module's decision, parking the run when it says later) and
+`send_review_request` (the queued ask, marked sent or failed with the reason).
+`send_estimate` needs `estimate:send`, `portal:grant` and `message:send`;
+`request_review` needs `review:respond`; `send_review_request` needs both of
+those last two.
 
 ## Permissions
 
@@ -193,9 +238,12 @@ second is a much smaller list of people.
 | `POST /v1/workflows/{id}/enabled` | `workflow:write` |
 | `GET /v1/workflow-events` | `workflow:read` |
 | `GET /v1/workflow-steps` | `workflow:read` |
+| `GET /v1/workflow-templates` | `workflow:read` |
+| `POST /v1/workflow-templates/{key}/install` | `workflow:write` |
 
-Reading and stopping are on the API; writing a definition is not, and that is a
-decision rather than an omission. A definition carries a condition group, which is
+Reading and stopping are on the API, and so is turning on a recommended
+automation, whose input is a template's name and a few values; writing a
+definition is not, and that is a decision rather than an omission. A definition carries a condition group, which is
 a recursive shape the OpenAPI generator cannot describe, so publishing one would
 mean publishing a document that does not say what the request is. And the authority
 check on a publish is against what the AUTHOR holds, which is a question about a
@@ -212,9 +260,13 @@ Switching the validator on is product work; discovering it that way is not.
 **Can I add a whole new object, not just a field?** No. The module's name says objects
 and what exists is fields on the six entities that have somewhere to put them.
 
-**Is the automation builder visual?** No, deliberately. It is what exists, what it did
-and make it stop. The definitions it can write cover the shapes the engine actually
-implements.
+**Is the automation builder visual?** It is a canvas that only goes downwards: a
+trigger, steps, and a branch opening two lanes that rejoin. It draws only shapes
+the engine actually runs.
+
+**Can a recommended automation be changed?** Yes, on the canvas like any other.
+Changing it does not change the template, and deleting it lets the template be
+turned on again from its original wording.
 
 ## What is not built
 
@@ -228,3 +280,7 @@ There is no loop and there will not be one: a flat list only goes forwards, whic
 is the second loop guard, because the two upstream ones catch a workflow
 re-triggering itself and not one looping inside a single run. Scheduled report
 delivery is not built, and neither is a workflow step that runs a report.
+There are two recommended automations and the list is code, not something a
+company or a trade pack can add to. `stop_unless` can ask one question so far.
+The canvas's plain message step is text only; the estimate and review steps
+can email.

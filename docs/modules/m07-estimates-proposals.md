@@ -104,7 +104,33 @@ permission than writing an estimate.
 ### Turn it into work
 
 `POST /v1/estimates/{id}/convert` needs `estimate:write` and `job:write`. It
-produces the job and the invoice as a copy.
+produces the job and the invoice as a copy, discounts included: the invoice
+carries the option's discount total as well as its total, so a converted
+estimate with a discount on it posts like any other invoice when it is issued.
+
+### Chase the ones nobody answered
+
+`/estimates` opens on the unsold ones: sent, not approved or declined, not
+expired, oldest first or largest first, with how long each has been out and
+whether the customer has opened it. The value is the recommended option, or the
+largest, never every option added up. `GET /v1/unsold-estimates` is the same
+list.
+
+Following them up is a recommended automation on `/automations`, "Follow up an
+estimate that has not been answered", turned on with how many days to wait. It
+installs an ordinary automation the company can edit: some days after an
+estimate is sent, if it is still waiting for an answer, it texts the customer a
+fresh link to it, emails one, and raises a call in the office queue. Sending an
+estimate emits `estimate.sent`, which is what it waits from, and asking again
+after the wait is what stops it when the customer approved on day two or the
+office sent a revised one since. M29 has how the engine does it.
+
+### Price it for a member
+
+A customer holding a running agreement whose plan carries a discount is priced
+as a member when the estimate is written: the plan's rate comes off each
+eligible line, and each line says how much and which plan. The discount limit
+below governs only what somebody types. M08 has the rules.
 
 ### Set the discount ceiling
 
@@ -132,6 +158,7 @@ read their screen.
 | Call | Needs |
 |---|---|
 | `GET /v1/estimates` | `estimate:read` |
+| `GET /v1/unsold-estimates` | `estimate:read` |
 | `GET /v1/estimates/{id}` | `estimate:read` |
 | `POST /v1/estimates` | `estimate:write` |
 | `POST /v1/estimates/{id}/send` | `estimate:send`, `portal:grant` |
@@ -160,5 +187,8 @@ else's behalf is a decision about their money. Handing them a link is not.
 An estimate's historical status is not accepted on import, so a migration brings
 estimates in as current rather than as won or lost. There is no proposal
 template or branded PDF: the customer reads the estimate as a web page.
-Follow-up on an unanswered estimate is a workflow somebody has to build in M29
-rather than something this module does.
+Following up is an automation the company turns on rather than something
+that happens unless switched off. Sending an estimate still only issues the
+link: the office hands it over, and only the follow up sends one itself.
+`estimate.approved` and `estimate.declined` are not emitted, so an automation
+cannot start on a decision; the follow up asks again after its wait instead.

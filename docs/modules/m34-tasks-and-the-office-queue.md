@@ -104,6 +104,19 @@ A task is created by a person on the screen, or raised by a workflow step. Finis
 and dismissing are different actions, and the second is not a quieter version of the
 first.
 
+### Tasks other modules raise
+
+Three things put work in the queue without anybody creating it:
+
+- A customer asking from their link to move or cancel a visit (M05). The task
+  is raised high and due before the visit, and it is answered rather than
+  ticked off: the queue shows the request with "Agree" and "Say no", answering
+  closes the task, and "Done" is not offered on it, because a task ticked off
+  without the answer would leave the visit unmoved and the customer untold.
+- A renewal notice that could not be sent (M08), so somebody tells the member
+  another way before their plan renews.
+- The estimate follow up's call (M07 and M29), linked to the estimate.
+
 ### Deadlines
 
 `GET /v1/obligations` is what is open and what is overdue.

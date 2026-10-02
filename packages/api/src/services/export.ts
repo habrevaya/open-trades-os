@@ -125,6 +125,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   },
   integration_event: { idempotency_key: "A retry key the worker chose. Not a credential." },
   workflow_run: { idempotency_key: "A retry key the workflow chose. Not a credential." },
+  workflow: {
+    template_key: "The name of the recommended automation a workflow was installed from, such as "
+      + "estimate_follow_up. A label in the product's own catalogue, not a credential.",
+  },
   ai_usage: {
     idempotency_key: "A retry key the AI call chose. Not a credential.",
     /**
