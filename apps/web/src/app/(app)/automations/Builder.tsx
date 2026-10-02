@@ -1,26 +1,29 @@
 "use client";
 
 import { useState } from "react";
+import { automation } from "@opentradesos/core";
+import { Canvas, type StepOption } from "./Canvas";
 
 /**
  * WRITING AN AUTOMATION
  *
- * Not a canvas of boxes and arrows. That is the thing everybody pictures and
- * almost nobody finishes, and the shapes a contractor actually wants are
- * three or four: when this happens, wait, then do that.
+ * The trigger half. The steps are a canvas now, in `Canvas.tsx`, and this file used
+ * to carry a comment arguing against one: "not a canvas of boxes and arrows, that is
+ * the thing everybody pictures and almost nobody finishes".
  *
- * Only the steps this build can perform are offered. A JSON field would be
- * more expressive and would also be a way to save a definition naming a step
- * that does nothing at run time, which is the failure the whole screen exists
- * to prevent.
+ * Half of that was right and the half that was right is kept. What this is not is a
+ * free-form graph editor, because a free graph expresses a cycle and a dangling
+ * node and this engine runs a list that only goes forwards. What it is now is a
+ * vertical flow with lanes, which is the shape an automation actually has, and which
+ * made `branch` authorable: the step was in the engine's permission table from the
+ * start with no shape anybody could write, so every automation was a straight line
+ * while the thing contractors ask for first is "only if".
+ *
+ * Only the steps this build can perform are offered, which is the part that did not
+ * change. A JSON field would be more expressive and would also be a way to save a
+ * definition naming a step that does nothing at run time.
  */
-export interface StepOption {
-  kind: string;
-  label: string;
-  description: string;
-  permissions: string[];
-  allowed: boolean;
-}
+export type { StepOption } from "./Canvas";
 
 export interface DwellShape {
   key: string;
@@ -45,16 +48,22 @@ export function Builder({
   };
 }) {
   const [triggerKind, setTriggerKind] = useState(initial?.triggerKind ?? "event");
-  const [chosen, setChosen] = useState<string[]>(
-    initial?.steps.map((s) => s.kind) ?? ["create_task"],
-  );
 
-  const configOf = (kind: string) =>
-    (initial?.steps.find((s) => s.kind === kind)?.config ?? {}) as Record<string, unknown>;
-  const value = (kind: string, field: string) => {
-    const v = configOf(kind)[field];
-    return v === undefined || v === null ? "" : String(v);
-  };
+  /**
+   * The flat list the engine stores, read back as the lanes somebody drew.
+   *
+   * `nestSteps` is the inverse of what the canvas posts, so opening an automation
+   * shows the picture it was saved as rather than a list of its steps in order with
+   * the branching flattened out of it.
+   */
+  const drawn = initial ? automation.nestSteps(initial.steps) : undefined;
+
+  /** What fires it, in words, drawn at the top of the flow. */
+  const triggerSummary = triggerKind === "schedule"
+    ? "On a clock"
+    : triggerKind === "dwell"
+      ? "When something has not happened"
+      : "When something happens";
 
   return (
     <div className="space-y-6">
@@ -205,118 +214,7 @@ export function Builder({
         )}
       </fieldset>
 
-      <fieldset>
-        <legend className="text-sm font-medium text-ink-700">What does it do?</legend>
-        <p className="mt-1 text-xs text-ink-500">
-          In order, top to bottom. A step that fails stops the ones after it,
-          because a later step that assumes an earlier one happened will do
-          something wrong rather than nothing.
-        </p>
-
-        <div className="mt-3 space-y-3">
-          {steps.map((step) => {
-            const on = chosen.includes(step.kind);
-            return (
-              <div key={step.kind} className="rounded-md border border-steel-200 p-3">
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox" name="step" value={step.kind}
-                    checked={on} disabled={!step.allowed}
-                    onChange={(e) => setChosen((c) =>
-                      e.target.checked ? [...c, step.kind] : c.filter((k) => k !== step.kind))}
-                    className="mt-0.5 h-4 w-4"
-                  />
-                  <span>
-                    <span className="font-medium">{step.label}</span>
-                    <span className="block text-ink-700">{step.description}</span>
-                    {/*
-                      Shown with the reason rather than hidden. A step missing
-                      from the list reads as a product that cannot do the
-                      thing, rather than as an account that may not.
-                    */}
-                    {!step.allowed && (
-                      <span className="block text-ink-500">
-                        You do not hold {step.permissions.join(", ")}, so you
-                        cannot publish an automation that does this.
-                      </span>
-                    )}
-                  </span>
-                </label>
-
-                {on && step.kind === "send_message" && (
-                  <label className="mt-3 block text-sm">
-                    <span className="block text-ink-700">What it says</span>
-                    <textarea
-                      name="send_message.body" rows={2}
-                      defaultValue={value("send_message", "body")}
-                      placeholder="Hi {{ customer.name }}, just checking on the quote we sent."
-                      className="mt-1 w-full rounded border border-steel-300 p-2"
-                    />
-                    <span className="mt-1 block text-xs text-ink-500">
-                      Placeholders are filled from the event. Nothing is
-                      evaluated: it is substitution and no more. Consent is
-                      checked when the message is sent, not now.
-                    </span>
-                  </label>
-                )}
-
-                {on && step.kind === "create_task" && (
-                  <div className="mt-3 flex flex-wrap gap-3 text-sm">
-                    <label>
-                      <span className="block text-ink-700">Title</span>
-                      <input
-                        name="create_task.title" defaultValue={value("create_task", "title")}
-                        placeholder="Chase this estimate"
-                        className="mt-1 h-9 w-64 rounded border border-steel-300 px-2"
-                      />
-                    </label>
-                    <label>
-                      <span className="block text-ink-700">Queue</span>
-                      <input
-                        name="create_task.queue" defaultValue={value("create_task", "queue")}
-                        placeholder="office"
-                        className="mt-1 h-9 w-32 rounded border border-steel-300 px-2"
-                      />
-                    </label>
-                    <label>
-                      <span className="block text-ink-700">Due in hours</span>
-                      <input
-                        name="create_task.dueInHours" type="number" min="0"
-                        defaultValue={value("create_task", "dueInHours")}
-                        className="mt-1 h-9 w-28 rounded border border-steel-300 px-2"
-                      />
-                    </label>
-                  </div>
-                )}
-
-                {on && step.kind === "wait" && (
-                  <div className="mt-3 flex flex-wrap gap-3 text-sm">
-                    <label>
-                      <span className="block text-ink-700">Days</span>
-                      <input
-                        name="wait.days" type="number" min="0"
-                        defaultValue={value("wait", "days") || "3"}
-                        className="mt-1 h-9 w-24 rounded border border-steel-300 px-2"
-                      />
-                    </label>
-                    <label>
-                      <span className="block text-ink-700">Hours</span>
-                      <input
-                        name="wait.hours" type="number" min="0"
-                        defaultValue={value("wait", "hours") || "0"}
-                        className="mt-1 h-9 w-24 rounded border border-steel-300 px-2"
-                      />
-                    </label>
-                    <p className="self-end pb-2 text-xs text-ink-500">
-                      Stored on the run, so it survives a restart.
-                    </p>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </fieldset>
+      <Canvas steps={steps} initial={drawn} triggerSummary={triggerSummary} />
     </div>
   );
 }

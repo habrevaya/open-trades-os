@@ -76,6 +76,39 @@ own.
 an export header, and the office that created the second one will never find out why
 half the rows are blank.
 
+**The builder is a canvas, and it is a vertical flow rather than a graph.** The
+shape an automation has is a trigger at the top, steps down the page, and a
+branch opening two lanes that rejoin. A free-form graph with boxes and arrows
+somebody connects by hand can express a cycle and a dangling node, and this
+engine runs a list that only goes forwards, so an editor that can draw what the
+runner cannot run is an editor whose every save is a possible refusal.
+
+**Branching is a flat list with counts, not a tree.** A branch counts the steps
+that follow it: that many belong to the arm that runs when the condition holds,
+the next that many to the arm that runs when it does not, and the other arm is
+written down as skipped. A tree would mean a path instead of an index, which
+means a new resume model, a new unique index and a migration, to express what
+the flat form expresses exactly. Nesting falls out of it rather than being a
+second feature, and the arms are bracket matched at the save, because a list
+whose arms overlap does something no reading of the definition predicts.
+
+**The arm not taken is written down.** That is what makes a branch and a wait
+compose: a run that parks inside an arm resumes at the next index, and without
+the skipped rows it would run the arm the branch decided against, three days
+later, with nothing on the screen explaining why. It is also the honest record,
+because "the condition did not hold" is a different fact from "nothing
+happened".
+
+**A branch reads nothing.** It compares values the event already carried, so its
+answer cannot change between the moment it was taken and the moment the run
+resumes.
+
+**One translation between the canvas and the engine.** The tree a person draws
+and the flat list the engine runs are converted by one pair of functions in
+core, used by both the screen and the server. Two implementations of a
+translation disagree eventually, and the one that would be wrong is the
+server's, which is the one that decides what actually runs.
+
 **Conditions are data, evaluated by the engine, and never code.** A builder that
 accepts an expression string and evaluates it has handed anybody who can write a
 workflow the ability to run arbitrary code on the server, in a product whose whole
@@ -187,6 +220,11 @@ implements.
 
 Custom objects: fields only. The validator is written and not wired into the
 customer, property and job writes. Writing a workflow definition is office only, as
-above. There is no canvas and no branching UI: branching exists as a step the engine
-runs and the builder writes a linear definition. Scheduled report delivery is not
-built, and neither is a workflow step that runs a report.
+above. The canvas offers `all` conditions only. The engine evaluates `any` and `none`
+too, and a screen offering all three needs a nested group editor to say which
+applies to what; every condition on a branch has to hold, which is what somebody
+means by "only if" nine times out of ten, and the API takes the other two.
+There is no loop and there will not be one: a flat list only goes forwards, which
+is the second loop guard, because the two upstream ones catch a workflow
+re-triggering itself and not one looping inside a single run. Scheduled report
+delivery is not built, and neither is a workflow step that runs a report.

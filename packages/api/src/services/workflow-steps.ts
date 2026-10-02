@@ -2,7 +2,7 @@ import { and, eq, isNull, desc } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import * as phoneNumbers from "./phone-numbers";
 import { renderWithin } from "./message-templates";
-import { comms } from "@opentradesos/core";
+import { automation, comms } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import { raise } from "./tasks";
 
@@ -30,6 +30,17 @@ export type StepResult =
    * deploy rather than living in a timer somebody's process is holding.
    */
   | { ok: true; waitUntil: Date; output?: Record<string, unknown> }
+  /**
+   * The step decided, and these later steps are not to run.
+   *
+   * A branch. Offsets from the branch itself rather than absolute indices,
+   * because the decision is made by a pure function in core that does not know
+   * where in the list it sits. The runner turns them into step rows marked
+   * `skipped`, which is what makes the decision durable: a run that parks on a
+   * wait inside an arm resumes without re-deciding, and the arm that was not
+   * taken is in the log rather than merely absent from it.
+   */
+  | { ok: true; skipOffsets: number[]; output?: Record<string, unknown> }
   | { ok: false; reason: string };
 
 /** Defined in `lib/render.ts`, because the template service needs it too. */
@@ -358,4 +369,63 @@ export function waitStep(
   if (ms > MAX) return { ok: false, reason: "a wait cannot be longer than a year" };
 
   return { ok: true, waitUntil: new Date(now.getTime() + ms) };
+}
+
+
+/* ------------------------------------------------------------------ branching */
+
+/**
+ * Take a branch.
+ *
+ * NO READS AND NO WRITES. The decision is `automation.decideBranch`, which is pure
+ * and tested without a database, and everything this adds is the sentence that
+ * goes in the log. A branch that queried anything would be a branch whose answer
+ * depended on when it ran, and a run resumed after a three day wait would take the
+ * other arm.
+ *
+ * The output names the arm AND the condition, because the question this log
+ * answers is "why did this customer get that text" and "the branch was false" is
+ * only half of it.
+ */
+export function branchStep(
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+  /**
+   * How many steps follow this one, so an arm that runs off the end is refused
+   * here too.
+   *
+   * The runner knows it and core's reader takes it, and not passing it was a real
+   * hole: a branch claiming nine steps in a list of two skipped everything that
+   * followed and reported success, so a definition nobody can read ran as "do
+   * nothing" and looked fine.
+   */
+  following: number,
+): StepResult {
+  const read = automation.readBranch(config, following);
+  if (!read.ok) {
+    /**
+     * Refused at run time as well as at publish, and the duplication is on
+     * purpose: a definition published by an older build, or written straight into
+     * the table, reaches the runner without having been through `check`.
+     */
+    return {
+      ok: false,
+      reason: automation.explainBranch({ at: 0, problem: read.problem }),
+    };
+  }
+
+  const decision = automation.decideBranch(read.shape, {
+    payload: (event.payload ?? {}) as Record<string, unknown>,
+  });
+
+  return {
+    ok: true,
+    skipOffsets: decision.skipOffsets,
+    output: {
+      taken: decision.taken,
+      thenCount: read.shape.thenCount,
+      elseCount: read.shape.elseCount,
+      conditions: read.shape.conditions as unknown as Record<string, unknown>,
+    },
+  };
 }

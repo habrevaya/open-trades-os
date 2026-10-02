@@ -255,6 +255,21 @@ function check(
   if (input.name.trim() === "") return "An automation needs a name.";
   if (input.steps.length === 0) return "An automation needs at least one step.";
 
+  /**
+   * BRANCH ARMS, BRACKET MATCHED, AT THE SAVE.
+   *
+   * A branch counts the steps that follow it, so a list whose arms overlap or run
+   * off the end describes something no reading of it predicts. Refused here
+   * because this is the only moment anybody can fix it: the alternative is a
+   * workflow that saves, enables, and then skips a step nobody expected, which
+   * reads on the run screen as a step that simply did not happen.
+   *
+   * The first problem only. A list with three of them is a list somebody is still
+   * writing, and four sentences at once is harder to act on than the first.
+   */
+  const armProblems = automation.checkBranches(input.steps);
+  if (armProblems.length > 0) return automation.explainBranch(armProblems[0]!);
+
   if (input.triggerKind === "event") {
     if ((input.triggerEvents ?? []).length === 0) {
       return "An event automation needs at least one event to trigger on.";
@@ -565,6 +580,12 @@ const IMPLEMENTED = [
     kind: "wait",
     label: "Wait",
     description: "Pauses the run. The wait is stored, so it survives a restart.",
+  },
+  {
+    kind: "branch",
+    label: "Only if",
+    description:
+      "Runs the steps under it when a condition holds, and the steps under Otherwise when it does not.",
   },
 ];
 

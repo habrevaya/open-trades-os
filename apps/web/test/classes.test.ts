@@ -67,6 +67,16 @@ describe("colour classes", () => {
         /\b(?:bg|text|border|ring|fill|stroke|from|to|via)-([a-z]+)-([a-z0-9]+)\b/g,
       )) {
         const [whole, palette] = m;
+        /**
+         * A SIDE IS NOT A PALETTE.
+         *
+         * `border-l-2` is a border width on the left, and it matches the pattern
+         * above as palette `l` shade `2`. The first class of that shape anybody wrote
+         * failed this test, which is the wrong answer: the class is correct Tailwind
+         * and the test was reading it as an invented colour. Same for the other
+         * sides, and for the axis and logical shorthands.
+         */
+        if (["t", "r", "b", "l", "x", "y", "s", "e"].includes(palette!)) continue;
         // Tailwind's own built-in palettes are fine; what is not fine is a
         // palette this project invented and never defined.
         const builtin = ["white", "black", "transparent", "current", "inherit", "slate", "gray", "zinc"];
