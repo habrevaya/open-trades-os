@@ -139,12 +139,15 @@ permission rather than an inventory one, because a delivery is a billable event.
 | `PUT /v1/reorder-policies` | `po:write` |
 | `GET /v1/purchase-orders` | `po:read` |
 | `GET /v1/vendors` | `vendor:read` |
+| `POST /v1/vendors` | `vendor:write` |
+| `POST /v1/purchase-orders` | `po:write` |
+| `POST /v1/purchase-orders/{id}/status` | `po:write`, and `po:approve` to submit |
 
-The declared permission on a route and the one its service checks are not always
-the same string on this module: several purchasing routes were declared against
-inventory permissions before the service was corrected to the vendor and purchase
-order ones. Where they differ, the service is what refuses, so the vendor and
-purchase order permissions above are the ones a role needs.
+Five of these routes declared inventory permissions while their services checked
+vendor and purchase order ones, so the published list was a promise the service
+refused. They agree now, and `permission-declarations.test.ts` probes every route
+with an actor holding nothing and asserts the permission it demands is one the
+route declares, so the two cannot drift again in silence.
 
 ## Common questions
 

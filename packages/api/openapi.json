@@ -39388,7 +39388,7 @@
       "post": {
         "operationId": "createPurchaseOrder",
         "summary": "Raise a purchase order",
-        "description": "Lines are supplied rather than taken wholesale from the suggestions, because the suggestion is advice and the order is a commitment. A location per line, falling back to the order's: a vendor drops the condensers at the shop and the filters onto a van more often than it sounds.\n\nRequires a session holding: inventory:adjust.",
+        "description": "Lines are supplied rather than taken wholesale from the suggestions, because the suggestion is advice and the order is a commitment. A location per line, falling back to the order's: a vendor drops the condensers at the shop and the filters onto a van more often than it sounds.\n\nRequires a session holding: po:write.",
         "tags": [
           "M16"
         ],
@@ -39505,7 +39505,7 @@
         ],
         "x-authorization": "session",
         "x-permissions": [
-          "inventory:adjust"
+          "po:write"
         ]
       },
       "get": {
@@ -39609,7 +39609,7 @@
       "post": {
         "operationId": "receivePurchaseOrder",
         "summary": "Receive against an order",
-        "description": "Partial receipts are the case that goes wrong: three of five arrive, two are still owed, and a system that closes the order on any receipt loses the other two forever. The received totals and the resulting status are computed, never accumulated by the caller.\n\nRequires a session holding: inventory:adjust.",
+        "description": "Partial receipts are the case that goes wrong: three of five arrive, two are still owed, and a system that closes the order on any receipt loses the other two forever. The received totals and the resulting status are computed, never accumulated by the caller.\n\nRequires a session holding: po:write.",
         "tags": [
           "M16"
         ],
@@ -39735,7 +39735,7 @@
         ],
         "x-authorization": "session",
         "x-permissions": [
-          "inventory:adjust"
+          "po:write"
         ]
       }
     },
@@ -39747,7 +39747,7 @@
       "post": {
         "operationId": "setPurchaseOrderStatus",
         "summary": "Move an order along",
-        "description": "A received order cannot go back to draft and a cancelled one is finished. Both are absorbing states, and reopening one is how stock gets received twice against the same promise.\n\nRequires a session holding: inventory:adjust.",
+        "description": "A received order cannot go back to draft and a cancelled one is finished. Both are absorbing states, and reopening one is how stock gets received twice against the same promise.\n\nRequires a session holding: po:write.",
         "tags": [
           "M16"
         ],
@@ -39873,7 +39873,7 @@
         ],
         "x-authorization": "session",
         "x-permissions": [
-          "inventory:adjust"
+          "po:write"
         ]
       }
     },
@@ -49925,7 +49925,7 @@
       "post": {
         "operationId": "createVendor",
         "summary": "Add a vendor",
-        "description": "Requires a session holding: inventory:adjust.",
+        "description": "Requires a session holding: vendor:write.",
         "tags": [
           "M16"
         ],
@@ -50042,13 +50042,13 @@
         ],
         "x-authorization": "session",
         "x-permissions": [
-          "inventory:adjust"
+          "vendor:write"
         ]
       },
       "get": {
         "operationId": "listVendors",
         "summary": "List vendors",
-        "description": "Requires a session holding: inventory:read.",
+        "description": "Requires a session holding: vendor:read.",
         "tags": [
           "M16"
         ],
@@ -50134,7 +50134,7 @@
         ],
         "x-authorization": "session",
         "x-permissions": [
-          "inventory:read"
+          "vendor:read"
         ]
       }
     },

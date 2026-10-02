@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { assertCan } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -511,5 +512,21 @@ export const handlers = {
     input: { id?: string | undefined; fieldMap?: Record<string, unknown> | undefined; sample: Record<string, unknown> },
   ) => testMapping(ctx, input),
 
-  listLeadFieldTargets: async () => ({ targets: TARGETS.map((t) => ({ ...t })) }),
+  /**
+   * The list of things a lead field can be mapped onto.
+   *
+   * It is a constant, so there is nothing tenant scoped to leak, and the first
+   * version took no context and checked nothing for exactly that reason. The
+   * route declares `integration:read` all the same, and a declared permission
+   * nothing asserts is the defect `permissions-enforced.test.ts` exists for one
+   * level down: an owner withholding it believes they have withheld something.
+   *
+   * So it is checked. `assertCan` rather than `guardedRead`, because there is no
+   * query to run inside a tenant and opening a transaction to read a constant
+   * would be the same claim made more expensively.
+   */
+  listLeadFieldTargets: async (ctx: ServiceContext) => {
+    assertCan(ctx.actor, "integration:read");
+    return { targets: TARGETS.map((t) => ({ ...t })) };
+  },
 } as const;

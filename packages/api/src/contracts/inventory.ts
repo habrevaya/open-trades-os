@@ -270,12 +270,29 @@ export const Vendor = z.object({
   active: z.boolean(),
 });
 
+/**
+ * THE DECLARED PERMISSION IS THE ENFORCED ONE
+ *
+ * These five routes declared inventory permissions and their services check
+ * vendor and purchase order ones. The service is what refuses, so the
+ * declaration was documentation of something that is not true: OpenAPI says
+ * "Requires a session holding: ..." from this field, and the MCP server filters
+ * its tool list by it. A role built from the published docs was refused, and an
+ * agent holding `po:write` was not offered a tool it could have used.
+ *
+ * `permissions-enforced.test.ts` fixed the SERVICE side of the vendor case, when
+ * `vendor:read` and `vendor:write` turned out to be declared on roles and
+ * guarded by nothing, and nobody came back to the contract.
+ * `permission-declarations.test.ts` now probes every session route with an actor
+ * holding nothing and asserts the permission it demands is one the route
+ * declares, so this cannot drift again in silence.
+ */
 export const listVendors = defineRoute({
   method: "get",
   path: "/v1/vendors",
   summary: "List vendors",
   module: "M16",
-  permissions: ["inventory:read"],
+  permissions: ["vendor:read"],
   input: z.object({}),
   output: z.object({ vendors: z.array(Vendor) }),
 });
@@ -285,7 +302,7 @@ export const createVendor = defineRoute({
   path: "/v1/vendors",
   summary: "Add a vendor",
   module: "M16",
-  permissions: ["inventory:adjust"],
+  permissions: ["vendor:write"],
   idempotent: true,
   input: z.object({
     name: z.string().min(1).max(200),
@@ -328,7 +345,7 @@ export const createPurchaseOrder = defineRoute({
   description:
     "Lines are supplied rather than taken wholesale from the suggestions, because the suggestion is advice and the order is a commitment. A location per line, falling back to the order's: a vendor drops the condensers at the shop and the filters onto a van more often than it sounds.",
   module: "M16",
-  permissions: ["inventory:adjust"],
+  permissions: ["po:write"],
   idempotent: true,
   input: z.object({
     vendorId: Uuid,
@@ -345,6 +362,17 @@ export const createPurchaseOrder = defineRoute({
   output: z.object({ id: Uuid, number: z.number().int(), status: PurchaseOrderStatus }),
 });
 
+/**
+ * `po:write` here, and SUBMITTING ALSO NEEDS `po:approve`.
+ *
+ * Declared as the one it always needs rather than as both, because both would
+ * tell a reader and an agent that moving an order to `draft` needs approval
+ * authority, which it does not. The service picks `po:approve` for the submit
+ * transition and `po:write` for every other one, and its comment says why the
+ * two are separate powers: guarding the whole transition on approval stops a
+ * buyer doing their own work, and guarding all of it on writing lets anybody who
+ * can raise an order approve it.
+ */
 export const setPurchaseOrderStatus = defineRoute({
   method: "post",
   path: "/v1/purchase-orders/{id}/status",
@@ -352,7 +380,7 @@ export const setPurchaseOrderStatus = defineRoute({
   description:
     "A received order cannot go back to draft and a cancelled one is finished. Both are absorbing states, and reopening one is how stock gets received twice against the same promise.",
   module: "M16",
-  permissions: ["inventory:adjust"],
+  permissions: ["po:write"],
   idempotent: true,
   input: z.object({ id: Uuid, status: PurchaseOrderStatus }),
   output: z.object({ id: Uuid, status: PurchaseOrderStatus }),
@@ -365,7 +393,7 @@ export const receivePurchaseOrder = defineRoute({
   description:
     "Partial receipts are the case that goes wrong: three of five arrive, two are still owed, and a system that closes the order on any receipt loses the other two forever. The received totals and the resulting status are computed, never accumulated by the caller.",
   module: "M16",
-  permissions: ["inventory:adjust"],
+  permissions: ["po:write"],
   idempotent: true,
   input: z.object({
     id: Uuid,
