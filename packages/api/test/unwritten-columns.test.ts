@@ -107,12 +107,22 @@ const SOFT_DELETE_NOT_OFFERED = [
  * somebody scrolls past. This is meant to empty, and a test above fails when
  * an entry is fixed and not removed.
  */
-const KNOWN_GAPS = new Map<string, string>([
-  ["visitAsset.completedAt",
-    "M33. The equipment history reads per-unit inspection outcomes; nothing writes visit_asset yet, so that section is always empty."],
-  ["deficiency.equipmentId",
-    "M33. Same read. Deficiencies have no writer at all, so no fault is ever attached to a unit."],
-]);
+/**
+ * IT IS EMPTY, which is the state this list was written to reach.
+ *
+ * Both entries were M33 and both were about the same screen. The equipment
+ * history has a section for per-unit inspection outcomes and a section for
+ * faults found on a machine, and neither could ever show anything:
+ * `visit_asset` had no writer at all, and `deficiency.equipment_id` was never
+ * set by the code that writes deficiencies.
+ *
+ * They are gone because the columns have writers now, not because the test
+ * was relaxed: a check below fails when an entry is listed and no longer
+ * reachable, which is what made removing them compulsory. The map stays, and
+ * typed, so the next genuine gap has somewhere to be named rather than being
+ * added to a sweep's silence.
+ */
+const KNOWN_GAPS = new Map<string, string>([]);
 
 type Dep = { table: string; column: string; where: string };
 

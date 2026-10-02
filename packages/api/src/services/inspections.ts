@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { inspection as insp, time } from "@opentradesos/core";
 import {
@@ -297,6 +297,51 @@ export async function record(
      * somebody works. A deficiency that exists only inside one report is a
      * fault nobody follows up.
      */
+    /**
+     * WHICH MACHINE EACH ANSWER WAS ABOUT, checked once against the register.
+     *
+     * `deficiency.equipment_id` had no writer, so the equipment history's
+     * fault section was always empty and the column sat in
+     * `unwritten-columns.test.ts` as a known gap. A checkpoint may now name
+     * the unit it was about, and the finding carries it.
+     *
+     * Checked here rather than taken on trust, and in ONE query rather than
+     * one per finding: an inspection of eight rooftop units produces a
+     * reference per unit, and a per finding lookup would be eight round trips
+     * inside a transaction a technician's phone is waiting on.
+     *
+     * At the property this inspection is about, not merely existing. A fault
+     * attached to a machine at a different address is worse than no
+     * attachment: it puts a repair on somebody else's equipment history.
+     */
+    const named = [...new Set(
+      input.answers.map((a) => a.equipmentId).filter((id): id is string => typeof id === "string"),
+    )];
+    const here = new Set<string>();
+    if (named.length > 0) {
+      const rows = await tx.select({ id: schema.equipment.id }).from(schema.equipment)
+        .where(and(
+          eq(schema.equipment.organizationId, ctx.actor.organizationId),
+          inArray(schema.equipment.id, named),
+          eq(schema.equipment.propertyId, input.propertyId),
+          isNull(schema.equipment.deletedAt),
+        ));
+      for (const row of rows) here.add(row.id);
+      const stray = named.filter((id) => !here.has(id));
+      if (stray.length > 0) {
+        throw new ConflictError(
+          `Equipment ${stray[0]} is not on the register at this property. A fault attached to `
+          + "a machine at a different address puts a repair on somebody else's equipment "
+          + "history.",
+        );
+      }
+    }
+    const unitOf = new Map(
+      input.answers
+        .filter((a) => typeof a.equipmentId === "string")
+        .map((a) => [a.itemKey, a.equipmentId!]),
+    );
+
     const byKey = new Map(program.checkpoints.map((c) => [c.key, c]));
     for (const found of assessment.deficiencies) {
       const checkpoint = byKey.get(found.itemKey);
@@ -307,6 +352,14 @@ export async function record(
         customerId: input.customerId,
         severity: FROM_CORE[found.severity],
         checkpointKey: found.itemKey,
+        /**
+         * The unit the answer that produced this finding was about, or null
+         * when the checkpoint was about the property. Half the checkpoints on
+         * a real programme have no machine: "is the gas meter accessible" has
+         * none, and inventing an equipment row for the building to satisfy a
+         * column would be worse than the null.
+         */
+        equipmentId: unitOf.get(found.itemKey) ?? null,
         code: found.codeReference ?? null,
         description: found.summary,
         foundOn: performedOn,

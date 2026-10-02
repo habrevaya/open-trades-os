@@ -699,6 +699,24 @@ export interface RecordedAnswer {
   by: string;
   note?: string | undefined;
   photoIds?: readonly string[] | undefined;
+  /**
+   * WHICH MACHINE THIS ANSWER WAS ABOUT.
+   *
+   * Optional, and that is the honest shape rather than a convenience: half
+   * the checkpoints on a real programme are about the property rather than a
+   * unit. "Is the gas meter accessible" has no machine, and forcing one would
+   * mean inventing an equipment row for the building.
+   *
+   * It carries through onto the deficiency, which is what makes a fault
+   * attachable to a unit. `deficiency.equipment_id` had no writer, so the
+   * equipment history's fault section was always empty and the column was a
+   * known gap: a query whose answer was decided before it ran.
+   *
+   * NOT VALIDATED HERE. Core does not know what equipment exists; it carries
+   * the reference and the service checks it against the register, which is
+   * the same split every other id in this interface follows.
+   */
+  equipmentId?: string | undefined;
 }
 
 /**

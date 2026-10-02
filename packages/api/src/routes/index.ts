@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent,
+  apps, comms, consent, visitAssets, deliveries,
 } from "../services/index";
 
 /**
@@ -504,6 +504,12 @@ export const handlers = {
   getDiscountPolicy: estimates.discountHandlers.getDiscountPolicy,
   setDiscountPolicy: estimates.discountHandlers.setDiscountPolicy,
   clearDiscountPolicy: estimates.discountHandlers.clearDiscountPolicy,
+  getVisitUnits: visitAssets.handlers.getVisitUnits,
+  planVisitUnits: visitAssets.handlers.planVisitUnits,
+  recordUnitOutcome: visitAssets.handlers.recordUnitOutcome,
+  recordDelivery: deliveries.handlers.recordDelivery,
+  listDeliveries: deliveries.handlers.listDeliveries,
+  getConsumption: deliveries.handlers.getConsumption,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

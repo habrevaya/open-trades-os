@@ -121,6 +121,10 @@
       "description": "Commercial Parties, Contracts and Third-Party Billing"
     },
     {
+      "name": "M33",
+      "description": "Inspections and the Deficiency Backlog"
+    },
+    {
       "name": "M34",
       "description": "Tasks and the Office Work Queue"
     }
@@ -16032,6 +16036,421 @@
         "x-authorization": "session",
         "x-permissions": [
           "customer:write"
+        ]
+      }
+    },
+    "/v1/deliveries": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listDeliveries",
+        "summary": "What has been delivered, and what it was worth",
+        "description": "The quantity total is a count of units and only means one thing when a product was asked for: gallons of oil plus pounds of chemical is not a quantity of anything.\n\nRequires a session holding: invoice:read.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "propertyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "equipmentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "partialOnly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What has been delivered, and what it was worth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDeliveriesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:read"
+        ]
+      },
+      "post": {
+        "operationId": "recordDelivery",
+        "summary": "Record what came off the truck",
+        "description": "The meter is the authority: given both readings, the quantity is their difference. Given both readings AND a written quantity that disagrees, this refuses rather than quietly preferring one, because the disagreement is the thing somebody needs to look at and the customer is charged from this number.\n\nRequires a session holding: invoice:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordDeliveryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record what came off the truck",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordDeliveryOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write"
+        ]
+      }
+    },
+    "/v1/deliveries/consumption": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getConsumption",
+        "summary": "How fast this property gets through it",
+        "description": "The first delivery's quantity is excluded from the rate, and that is the one piece of arithmetic here that is expensive to get wrong: consumption is measured BETWEEN deliveries, so the first drop is what was burned over a period that started before any record exists. Including it divides a quantity spanning an unknown period by a known one, the answer is always too high, and the truck goes too early for every customer. The next-due figure is null below three deliveries, because one interval is not a rate and a cold fortnight would set the schedule for the year.\n\nRequires a session holding: invoice:read.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "propertyId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How fast this property gets through it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetConsumptionOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:read"
         ]
       }
     },
@@ -44787,6 +45206,395 @@
         ]
       }
     },
+    "/v1/visits/{visitId}/units": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getVisitUnits",
+        "summary": "The machines this visit covers, in the order to walk them",
+        "description": "Requires a session holding: visit:read.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "visitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The machines this visit covers, in the order to walk them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetVisitUnitsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      },
+      "put": {
+        "operationId": "planVisitUnits",
+        "summary": "Say which machines this visit covers",
+        "description": "A job names one unit: the one somebody rang about. A building with eight rooftop units has one maintenance job and eight machines, each with its own verdict. Replaces the list, in the order given, except that units already recorded as done are kept: a dispatcher tidying the list at eleven must not delete the morning's work.\n\nRequires a session holding: visit:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "visitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanVisitUnitsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Say which machines this visit covers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVisitUnitsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:write"
+        ]
+      }
+    },
+    "/v1/visits/{visitId}/units/{equipmentId}/outcome": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordUnitOutcome",
+        "summary": "What happened to one machine",
+        "description": "The moment comes from the caller rather than the clock, because the field app records a round in a basement and syncs it an hour later: now() would stamp eight units with the moment the phone found signal and lose the order they were done in. Skipping a unit needs a note, because every other outcome says what happened and that one says somebody decided.\n\nRequires a session holding: visit:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "visitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "equipmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordUnitOutcomeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "What happened to one machine",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordUnitOutcomeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:write"
+        ]
+      }
+    },
     "/v1/webhooks/endpoints": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -56996,6 +57804,70 @@
           "marketing"
         ]
       },
+      "GetConsumptionOutput": {
+        "type": "object",
+        "properties": {
+          "consumption": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "propertyId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "product": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "days": {
+                "type": "number"
+              },
+              "deliveries": {
+                "type": "number"
+              },
+              "quantity": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "perDay": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "partialFills": {
+                "type": "number"
+              },
+              "nextDueEstimate": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "propertyId",
+              "product",
+              "from",
+              "to",
+              "days",
+              "deliveries",
+              "quantity",
+              "perDay",
+              "partialFills",
+              "nextDueEstimate"
+            ]
+          }
+        },
+        "required": [
+          "consumption"
+        ]
+      },
       "GetConversationOutput": {
         "type": "object",
         "properties": {
@@ -61849,6 +62721,82 @@
           "abandoned"
         ]
       },
+      "GetVisitUnitsOutput": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "equipmentId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "equipmentLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sequence": {
+                  "type": "number"
+                },
+                "outcome": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "serviced",
+                    "faults_found",
+                    "no_access",
+                    "skipped",
+                    "out_of_service"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "completedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "deficiencyCount": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "visitId",
+                "equipmentId",
+                "equipmentLabel",
+                "sequence",
+                "outcome",
+                "notes",
+                "completedAt",
+                "deficiencyCount"
+              ]
+            }
+          }
+        },
+        "required": [
+          "units"
+        ]
+      },
       "GetWebhookPositionOutput": {
         "type": "object",
         "properties": {
@@ -65901,6 +66849,148 @@
         },
         "required": [
           "submissions"
+        ]
+      },
+      "ListDeliveriesOutput": {
+        "type": "object",
+        "properties": {
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "propertyId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "equipmentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "visitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "product": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "meterStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "meterStop": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "tankPercentBefore": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d+(\\.\\d{1,4})?$"
+                },
+                "tankPercentAfter": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d+(\\.\\d{1,4})?$"
+                },
+                "wasPartialFill": {
+                  "type": "boolean"
+                },
+                "deliveredAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "customerId",
+                "propertyId",
+                "equipmentId",
+                "jobId",
+                "visitId",
+                "product",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "total",
+                "meterStart",
+                "meterStop",
+                "tankPercentBefore",
+                "tankPercentAfter",
+                "wasPartialFill",
+                "deliveredAt"
+              ]
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "quantity": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "partialFills": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "quantity",
+              "value",
+              "partialFills"
+            ]
+          }
+        },
+        "required": [
+          "deliveries",
+          "totals"
         ]
       },
       "ListDepositsOutput": {
@@ -72072,6 +73162,36 @@
           "percent"
         ]
       },
+      "PlanVisitUnitsInput": {
+        "type": "object",
+        "properties": {
+          "equipmentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "equipmentIds"
+        ]
+      },
+      "PlanVisitUnitsOutput": {
+        "type": "object",
+        "properties": {
+          "planned": {
+            "type": "number"
+          },
+          "kept": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "planned",
+          "kept"
+        ]
+      },
       "PreviewMessageTemplateInput": {
         "type": "object",
         "properties": {
@@ -73145,6 +74265,209 @@
           "status"
         ]
       },
+      "RecordDeliveryInput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "product": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "meterStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "meterStop": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tankPercentBefore": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d+(\\.\\d{1,4})?$"
+          },
+          "tankPercentAfter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d+(\\.\\d{1,4})?$"
+          },
+          "wasPartialFill": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "visitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "equipmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "customerId",
+          "propertyId",
+          "product",
+          "unit",
+          "unitPrice"
+        ]
+      },
+      "RecordDeliveryOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "equipmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "visitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "product": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "meterStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "meterStop": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tankPercentBefore": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d+(\\.\\d{1,4})?$"
+          },
+          "tankPercentAfter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d+(\\.\\d{1,4})?$"
+          },
+          "wasPartialFill": {
+            "type": "boolean"
+          },
+          "deliveredAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "propertyId",
+          "equipmentId",
+          "jobId",
+          "visitId",
+          "product",
+          "quantity",
+          "unit",
+          "unitPrice",
+          "total",
+          "meterStart",
+          "meterStop",
+          "tankPercentBefore",
+          "tankPercentAfter",
+          "wasPartialFill",
+          "deliveredAt"
+        ]
+      },
       "RecordMessagingBrandInput": {
         "type": "object",
         "properties": {
@@ -74011,6 +75334,100 @@
           "spentOn",
           "amount",
           "origin"
+        ]
+      },
+      "RecordUnitOutcomeInput": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "serviced",
+              "faults_found",
+              "no_access",
+              "skipped",
+              "out_of_service"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "outcome"
+        ]
+      },
+      "RecordUnitOutcomeOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "visitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "equipmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "equipmentLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": "number"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "serviced",
+              "faults_found",
+              "no_access",
+              "skipped",
+              "out_of_service"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deficiencyCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "visitId",
+          "equipmentId",
+          "equipmentLabel",
+          "sequence",
+          "outcome",
+          "notes",
+          "completedAt",
+          "deficiencyCount"
         ]
       },
       "RefundDepositInput": {
