@@ -91,6 +91,15 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  property: {
+    address_key: "The address itself, lower cased with its spacing tidied, which the geocoder "
+      + "compares to decide whether a coordinate still answers for it. A key in the sense of a "
+      + "lookup, not a credential.",
+  },
+  location: {
+    address_key: "The same normalised address as on a property, for a branch or yard. Nothing "
+      + "secret in it.",
+  },
   integration_connection: {
     credential_ref: "The NAME of a secret in the deployment's own store, never the secret. A "
       + "company moving away needs it to know which secrets to go and find.",

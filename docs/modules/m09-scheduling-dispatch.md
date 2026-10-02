@@ -92,6 +92,55 @@ mode of a whiteboard and a group text.
 **Nobody on call is said in words.** A blank where a name should be reads as
 fine.
 
+**The map is the board's day, drawn where it happens.** Every visit as a pin in
+its technician's colour, numbered in the order they will drive it; unassigned
+work as an outline, so it cannot be mistaken for anybody's; a late visit ringed
+in red; each technician's day as a line from where it starts, through the stops
+and back. A visit whose address is not on the map yet is listed beside it with
+a link to place the pin, never dropped: a map missing three addresses shows a
+lighter day than the one the technicians are going to have.
+
+**The map is drawn by a small component, not a mapping library.** Raster tiles
+from a URL the deployment configures (`MAP_TILE_URL`, OpenStreetMap's own
+servers by default, with their attribution drawn on the map as their terms
+require), placed by Web Mercator arithmetic that lives in core with its own
+tests. Pins are buttons, so a keyboard and a screen reader can reach them.
+
+**A day starts somewhere.** A technician's own start location when one is set
+on the technicians screen, otherwise the company's first location, which is
+said wherever it is used. Locations are geocoded like properties.
+
+**The optimiser proposes; it never reorders.** For one technician's day it
+proposes the order that keeps arrival windows first and drive time second,
+starting and ending where the day does. A fixed appointment is a window that
+opens and closes at the same minute. Work already under way or finished is not
+moved, and the plan starts from it. Applying the proposal sends the whole day
+to the same reorder a drag uses.
+
+**A window that cannot be kept is said, not broken quietly.** The proposal
+names it, says by how much, and says whether any order at all could have kept
+it, because "nobody can get there by ten" and "this order gets there at ten
+forty" are different calls to the customer.
+
+**Drive time is an estimate, and says so.** A straight line between two
+addresses, stretched by a road factor, at an average speed the company sets,
+except between two stops on the same route that declares its own drive time,
+where the operator's number is used. Nearest neighbour construction and 2-opt
+and or-opt improvement, deterministic: the same day in gives the same order
+out.
+
+**Who should take the unassigned work is a suggestion too.** Each unassigned
+visit goes to the technician it adds the least driving to without breaking a
+window, among those whose skills and time off allow it, and every technician
+considered is listed with their figure or the reason they were ruled out.
+
+**Nobody is sent alone to work they are not qualified for.** The job type's
+required skills are checked for an individual technician on a drop, on the
+assignment API, on booking with a technician named, and in the suggestions,
+with one sentence naming the person and the skill. See M24 for where the
+answer comes from. An override needs `visit:assign_unqualified` and a reason,
+and the audit log keeps the reason beside the refusal it overrode.
+
 ## Using it
 
 ### Run today
@@ -100,6 +149,33 @@ fine.
 `POST /v1/visits/{id}/assign` and `POST /v1/visits/{id}/crew` put somebody on a
 visit, `POST /v1/dispatch/route` sets the order, and
 `POST /v1/visits/{id}/on-my-way` tells the customer.
+
+### See the day on a map
+
+`/schedule?view=map` is the map, and `/schedule?view=split` puts it beside the
+board. `GET /v1/dispatch/map` is the same data. Click a pin to open the visit
+and put it on somebody's day.
+
+### Put a technician's day in order
+
+"Optimise route" on a technician's column previews the proposed order with the
+drive time before and after and any window it cannot keep; "Use this order"
+applies it. `GET /v1/dispatch/optimise` is the proposal and its `applyOrder`
+goes to `POST /v1/dispatch/route`.
+
+### Fill the unassigned pile
+
+"Suggest who" above the unassigned pile proposes a technician for each visit.
+`GET /v1/dispatch/suggestions` is the same, and accepting one is
+`POST /v1/visits/{id}/assign`.
+
+### Say what people do and where their day starts
+
+`/schedule/technicians` records each technician's skills, start location and
+colour (`PATCH /v1/technicians/{id}`, which needs `user:write`), places the
+company's locations on the map (`POST /v1/locations/{id}/pin`), and sets how
+drive time is estimated (`PUT /v1/dispatch/travel`, which needs
+`settings:write`). `GET /v1/technicians` lists them.
 
 ### Run a route business
 
@@ -146,8 +222,8 @@ on the board and is checked when a visit is booked, for work still to come only.
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | Reads the board, dispatches, reschedules, runs routes and recurring work |
-| Dispatcher | The board, assignment, sequencing, crews and the rota. No money |
+| Office manager | Reads the board, dispatches, reschedules, overrides a skill refusal with a reason, runs routes and recurring work |
+| Dispatcher | The board, the map, assignment, sequencing, crews and the rota. Cannot override a skill refusal unless given `visit:assign_unqualified`. No money |
 | CSR | Books work. Cannot dispatch |
 | Technician | Their own day. Requests their own time off |
 | Crew lead | The crew's day |
@@ -162,10 +238,21 @@ and `POST /v1/calendar-feeds/{id}/revoke` handle a leaked URL. All four are
 
 ## Common questions
 
-**Is there route optimisation?** No. The order is set by a person and the
-density check tells them whether what they set will fit. A solver is not built.
+**Is there route optimisation?** Yes, as a proposal per technician that a
+person accepts or ignores. It never reorders a day on its own. Route templates
+at `/schedule/routes` are still ordered by a person and checked for density.
 
-**Is there a map?** No. The board is a list by technician and by time.
+**Is there a map?** Yes, beside or instead of the board. It needs addresses on
+the map: connect a geocoder under Settings, Integrations (M25) or place pins by
+hand on each property's page.
+
+**Why is the drive time different from my phone's?** Because it is a straight
+line at an average speed, not a road network. Tune the speed and road factor on
+the technicians screen, or declare a drive time on a route.
+
+**Who may override a skill refusal?** The owner, an administrator and the
+office manager preset hold `visit:assign_unqualified`. A dispatcher is given it
+by name when the company wants the person at the board to make that call.
 
 **Why can anybody request time off?** Because `timeclock:own` is the permission
 for acting on your own behalf. Approving it is `timesheet:approve`, which is a
@@ -173,9 +260,15 @@ manager.
 
 ## What is not built
 
-No dispatch map, no route optimiser, and no drive time matrix: travel is what the
-company declared, which is why a density total with no declared drive time
-reports a floor rather than a figure. Crews, routes and the rota are not on the
-dispatch board yet, so a route business plans at `/schedule/routes` and then
-watches the day at `/schedule`. Skills gate crew assignment and are not checked
-for an individual technician.
+No drive time matrix from a road network: the optimiser estimates from the
+straight line and the company's own declared route times, and a route
+template's density check still uses only declared travel, which is why a
+density total with no declared drive time reports a floor rather than a
+figure. The optimiser orders one technician's day and suggests a technician for
+each unassigned visit; it does not rebalance work between technicians, move a
+visit to another day, or account for lunch, overtime or the end of the working
+day beyond arrival windows. Crew visits are not on the map's lines, which follow
+individual assignments. The map is raster tiles only, with no traffic and no
+live technician positions. Crews, routes and the rota are not on the dispatch
+board yet, so a route business plans at `/schedule/routes` and then watches the
+day at `/schedule`.

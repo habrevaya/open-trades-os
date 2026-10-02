@@ -112,6 +112,24 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "companyId", label: "Company id (optional)", kind: "text" },
     ],
   },
+  nominatim: {
+    credential: null,
+    fields: [
+      { key: "contactEmail", label: "Contact email for the OpenStreetMap volunteers", kind: "text",
+        placeholder: "office@yourcompany.com",
+        hint: "Sent with every lookup, as the public server's usage policy asks, so they can reach you rather than block you." },
+      { key: "endpoint", label: "Your own Nominatim server (optional)", kind: "text",
+        placeholder: "https://nominatim.openstreetmap.org",
+        hint: "Leave blank for the public server, which is asked one address a second at most." },
+      { key: "countryCodes", label: "Countries you work in, comma separated (optional)", kind: "list", placeholder: "us" },
+    ],
+  },
+  mapbox: {
+    credential: "Access token, as the name of the secret holding it",
+    fields: [
+      { key: "countryCodes", label: "Countries you work in, comma separated (optional)", kind: "list", placeholder: "us" },
+    ],
+  },
   ics_feed: {
     credential: null,
     fields: [],

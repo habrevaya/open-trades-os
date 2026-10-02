@@ -67099,6 +67099,38 @@
           },
           "active": {
             "type": "boolean"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -67111,7 +67143,11 @@
           "country",
           "timezone",
           "isWarehouse",
-          "active"
+          "active",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
         ]
       },
       "CreatePaymentIntentInput": {
@@ -87525,6 +87561,38 @@
                 },
                 "active": {
                   "type": "boolean"
+                },
+                "latitude": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "longitude": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "locationPrecision": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "rooftop",
+                    "interpolated",
+                    "street",
+                    "postal_code",
+                    "locality",
+                    "placed"
+                  ]
+                },
+                "locationSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -87537,7 +87605,11 @@
                 "country",
                 "timezone",
                 "isWarehouse",
-                "active"
+                "active",
+                "latitude",
+                "longitude",
+                "locationPrecision",
+                "locationSource"
               ]
             }
           }
@@ -90758,10 +90830,30 @@
                 "homeLocationId"
               ]
             }
+          },
+          "companyStart": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "locationId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "locationId",
+              "name"
+            ]
           }
         },
         "required": [
-          "technicians"
+          "technicians",
+          "companyStart"
         ]
       },
       "ListTerritoriesOutput": {
@@ -106949,6 +107041,38 @@
           },
           "active": {
             "type": "boolean"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -106961,7 +107085,11 @@
           "country",
           "timezone",
           "isWarehouse",
-          "active"
+          "active",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
         ]
       },
       "UpdateMessageTemplateInput": {

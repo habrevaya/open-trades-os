@@ -1,13 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { assignVisit, reorderDay } from "./actions";
+import { assignVisit, reorderDay, proposeRoute, suggestAssignments } from "./actions";
 import type { dispatch } from "@opentradesos/api/services";
+import type { TileSource } from "@/lib/map-tiles";
+import { DispatchMap, type MapData } from "./DispatchMap";
+import { RoutePreview, Suggestions, type Proposal, type Suggested } from "./Proposals";
 
 type BoardData = Awaited<ReturnType<typeof dispatch.board>>;
 type Column = BoardData["technicians"][number];
 type Card = Column["visits"][number];
 type Unassigned = BoardData["unassigned"][number];
+
+export type BoardView = "board" | "map" | "split";
 
 /**
  * Formatted in the COMPANY's timezone, passed in, not the viewer's.
@@ -46,10 +51,14 @@ const shiftDate = (date: string, days: number) =>
  * a full day look half empty, which is how a dispatcher over-books somebody.
  */
 export function Board({
-  board, date, today, canDispatch, canReorder, timezone,
+  board, date, today, canDispatch, canReorder, timezone, view, map, tiles,
 }: {
   board: BoardData;
   date: string;
+  /** The list, the map, or both side by side. The map is read only when it is shown. */
+  view: BoardView;
+  map: MapData | null;
+  tiles: TileSource;
   /**
    * The company's today, resolved on the server.
    *
@@ -66,18 +75,60 @@ export function Board({
   const time = timeIn(timezone);
   const [dragging, setDragging] = useState<{ id: string; from: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * A qualification refusal the person at the board may override. Held
+   * rather than shown as a plain error, so "Send anyway" can carry the visit
+   * and the technician it was refused for.
+   */
+  const [refused, setRefused] = useState<{ visitId: string; technicianId: string; message: string } | null>(null);
+  const [reason, setReason] = useState("");
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [suggested, setSuggested] = useState<Suggested | null>(null);
   const [pending, start] = useTransition();
+
+  const nameOf = new Map(board.technicians.map((t) => [t.id, t.displayName]));
+  const customerOf = new Map([
+    ...board.technicians.flatMap((t) => t.visits.map((v) => [v.id, v.customerName] as const)),
+    ...board.unassigned.map((v) => [v.id, v.customerName] as const),
+  ]);
+
+  /**
+   * Every way of putting somebody on a visit goes through here: a drop, the
+   * map's card, an accepted suggestion and an override. One path, so a
+   * refusal reads the same and the override is offered the same wherever
+   * the attempt came from.
+   */
+  async function assign(visitId: string, technicianId: string, overrideReason?: string): Promise<boolean> {
+    const result = await assignVisit({ visitId, technicianId, date, ...(overrideReason ? { overrideReason } : {}) });
+    if (!result.ok) {
+      if (result.qualification?.mayOverride) setRefused({ visitId, technicianId, message: result.message });
+      else setError(result.message);
+      return false;
+    }
+    if (result.unknownSkills.length > 0) {
+      setNotice(
+        `Assigned. Nothing records who does ${result.unknownSkills.join(" or ")}, so that was not checked.`,
+      );
+    }
+    return true;
+  }
+
+  function clearMessages() {
+    setError(null);
+    setNotice(null);
+    setRefused(null);
+  }
 
   function drop(technicianId: string, beforeVisitId?: string) {
     if (!dragging) return;
     const { id, from } = dragging;
     setDragging(null);
-    setError(null);
+    clearMessages();
 
     start(async () => {
       if (from !== technicianId) {
-        const result = await assignVisit({ visitId: id, technicianId, date });
-        if (!result.ok) { setError(result.message); return; }
+        if (!await assign(id, technicianId)) return;
       }
 
       if (!canReorder) return;
@@ -108,11 +159,11 @@ export function Board({
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
       <header className="flex flex-wrap items-center gap-3 border-b border-steel-200 px-4 py-3 lg:px-6">
         <div className="flex items-center gap-1">
-          <a href={`/schedule?date=${shiftDate(date, -1)}`} aria-label="Previous day"
+          <a href={`/schedule?date=${shiftDate(date, -1)}${view === "board" ? "" : `&view=${view}`}`} aria-label="Previous day"
              className="flex h-9 w-9 items-center justify-center rounded border border-steel-300 text-lg leading-none">
             ‹
           </a>
-          <a href={`/schedule?date=${shiftDate(date, 1)}`} aria-label="Next day"
+          <a href={`/schedule?date=${shiftDate(date, 1)}${view === "board" ? "" : `&view=${view}`}`} aria-label="Next day"
              className="flex h-9 w-9 items-center justify-center rounded border border-steel-300 text-lg leading-none">
             ›
           </a>
@@ -128,10 +179,28 @@ export function Board({
           })}
         </h1>
 
-        <a href={`/schedule?date=${today}`}
+        <a href={`/schedule?date=${today}${view === "board" ? "" : `&view=${view}`}`}
            className="rounded border border-steel-300 px-2.5 py-1 text-sm">
           Today
         </a>
+
+        {/*
+          The list, the map, or both. Links rather than a client toggle, so the
+          map's data is only read when somebody asks to see it, and a reload
+          keeps the view they were in.
+        */}
+        <nav aria-label="Board or map" className="flex overflow-hidden rounded border border-steel-300 text-sm">
+          {([["board", "Board"], ["map", "Map"], ["split", "Both"]] as const).map(([key, label]) => (
+            <a
+              key={key}
+              href={`/schedule?date=${date}${key === "board" ? "" : `&view=${key}`}`}
+              aria-current={view === key ? "page" : undefined}
+              className={`px-2.5 py-1 ${view === key ? "bg-ink-900 text-white" : "hover:bg-steel-100"}`}
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
 
         <div className="ml-auto flex items-center gap-3 text-sm">
           {/* The two numbers a dispatcher is actually watching. */}
@@ -150,21 +219,139 @@ export function Board({
       </header>
 
       {error && (
-        <div className="border-b border-red-600 bg-red-tint px-4 py-2 text-sm text-red-600 lg:px-6">
+        <div role="alert" className="border-b border-red-600 bg-red-tint px-4 py-2 text-sm text-red-600 lg:px-6">
           {error}
         </div>
       )}
+      {notice && (
+        <div role="status" className="border-b border-amber-700 bg-amber-tint px-4 py-2 text-sm text-amber-700 lg:px-6">
+          {notice}
+        </div>
+      )}
+      {refused && (
+        /*
+          The refusal, and the override beside it for somebody who holds the
+          permission. A reason is required because the audit log keeps it next
+          to what was refused, and "sent anyway" with no why is not a record.
+        */
+        <form
+          aria-label="Not qualified"
+          className="flex flex-wrap items-end gap-3 border-b border-red-600 bg-red-tint px-4 py-2 text-sm lg:px-6"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const { visitId, technicianId } = refused;
+            start(async () => {
+              if (await assign(visitId, technicianId, reason.trim())) {
+                setRefused(null);
+                setReason("");
+              }
+            });
+          }}
+        >
+          <p role="alert" className="w-full text-red-600">{refused.message}</p>
+          <label className="flex-1">
+            <span className="block text-xs font-medium text-ink-700">Why they are going anyway</span>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              minLength={5}
+              required
+              className="mt-1 h-9 w-full rounded border border-steel-300 bg-canvas px-2"
+            />
+          </label>
+          <button type="submit" className="h-9 rounded border border-red-600 px-3 font-medium text-red-600">
+            Send anyway
+          </button>
+          <button type="button" onClick={() => setRefused(null)} className="h-9 px-2 text-ink-700 underline">
+            Leave it
+          </button>
+        </form>
+      )}
 
+      {proposal && (
+        <RoutePreview
+          proposal={proposal}
+          technicianName={nameOf.get(proposal.technicianId) ?? "This technician"}
+          customerOf={customerOf}
+          canApply={canReorder}
+          onClose={() => setProposal(null)}
+          onApply={() => {
+            const { technicianId, applyOrder } = proposal;
+            clearMessages();
+            start(async () => {
+              const result = await reorderDay({ technicianId, date, visitIds: applyOrder });
+              if (!result.ok) setError(result.message);
+              else setProposal(null);
+            });
+          }}
+        />
+      )}
+
+      {view === "map" && map ? (
+        <DispatchMap
+          map={map} tiles={tiles} canDispatch={canDispatch} time={time} className="flex-1"
+          onAssign={(visitId, technicianId) => {
+            clearMessages();
+            start(async () => { await assign(visitId, technicianId); });
+          }}
+        />
+      ) : (
       <div className="flex flex-1 overflow-hidden">
+        {view === "split" && map && (
+          <DispatchMap
+            map={map} tiles={tiles} canDispatch={canDispatch} time={time} stacked
+            className="w-1/2 shrink-0 border-r border-steel-200"
+            onAssign={(visitId, technicianId) => {
+              clearMessages();
+              start(async () => { await assign(visitId, technicianId); });
+            }}
+          />
+        )}
         {/*
           The unassigned pile is a column, pinned left, not a modal or a
           drawer. It is the thing a dispatcher is trying to empty, and a pile
           you have to open to see is a pile that stays full.
         */}
         <aside className="w-72 shrink-0 overflow-y-auto border-r border-steel-200 bg-steel-100 p-3">
-          <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-[0.08em] text-ink-500">
-            Unassigned
-          </h2>
+          <div className="flex items-center justify-between px-1 pb-2">
+            <h2 className="text-xs font-medium uppercase tracking-[0.08em] text-ink-500">
+              Unassigned
+            </h2>
+            {canDispatch && board.unassigned.length > 0 && (
+              <button
+                type="button"
+                className="rounded border border-steel-300 bg-canvas px-2 py-0.5 text-xs font-medium hover:bg-steel-100"
+                onClick={() => {
+                  clearMessages();
+                  start(async () => {
+                    const result = await suggestAssignments({ date });
+                    if (result.ok) setSuggested(result.result);
+                    else setError(result.message);
+                  });
+                }}
+              >
+                Suggest who
+              </button>
+            )}
+          </div>
+          {suggested && (
+            <Suggestions
+              suggested={suggested}
+              customerOf={customerOf}
+              onClose={() => setSuggested(null)}
+              onAccept={(visitId, technicianId) => {
+                clearMessages();
+                start(async () => {
+                  if (await assign(visitId, technicianId)) {
+                    setSuggested((current) => current && {
+                      ...current,
+                      suggestions: current.suggestions.filter((x) => x.visitId !== visitId),
+                    });
+                  }
+                });
+              }}
+            />
+          )}
           {board.unassigned.length === 0 ? (
             <p className="px-1 text-sm text-ink-500">Nothing waiting.</p>
           ) : (
@@ -189,6 +376,14 @@ export function Board({
               onDragStart={(id) => setDragging({ id, from: t.id })}
               onDrop={(beforeVisitId) => drop(t.id, beforeVisitId)}
               time={time}
+              onOptimise={canReorder ? () => {
+                clearMessages();
+                start(async () => {
+                  const result = await proposeRoute({ technicianId: t.id, date });
+                  if (result.ok) setProposal(result.proposal);
+                  else setError(result.message);
+                });
+              } : null}
             />
           ))}
           {board.technicians.length === 0 && (
@@ -198,12 +393,13 @@ export function Board({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
 
 function TechnicianColumn({
-  technician, canDispatch, dragging, onDragStart, onDrop, time,
+  technician, canDispatch, dragging, onDragStart, onDrop, time, onOptimise,
 }: {
   technician: Column;
   canDispatch: boolean;
@@ -211,6 +407,8 @@ function TechnicianColumn({
   onDragStart: (visitId: string) => void;
   onDrop: (beforeVisitId?: string) => void;
   time: TimeFormatter;
+  /** Null when this person may not reorder a day, so the button is not offered. */
+  onOptimise: (() => void) | null;
 }) {
   const [over, setOver] = useState(false);
   const minutes = technician.visits.reduce((n, v) => n + v.estimatedDurationMinutes, 0);
@@ -240,6 +438,16 @@ function TechnicianColumn({
           {technician.timeOff ? "Off" : `${Math.round(minutes / 6) / 10}h`}
         </span>
       </header>
+      {onOptimise && technician.visits.length >= 2 && (
+        <button
+          type="button"
+          onClick={onOptimise}
+          aria-label={`Optimise route for ${technician.displayName}`}
+          className="mx-2 mt-2 rounded border border-steel-300 px-2 py-1 text-xs font-medium hover:bg-steel-100"
+        >
+          Optimise route
+        </button>
+      )}
 
       {/*
         Off AND assigned is shown as both, never as one.
@@ -361,3 +569,4 @@ function UnassignedCard({
     </article>
   );
 }
+

@@ -585,12 +585,23 @@ const profileOf = (row: typeof schema.technician.$inferSelect): TechnicianProfil
   skills: row.skills ?? [], homeLocationId: row.homeLocationId,
 });
 
-export async function technicians(ctx: ServiceContext): Promise<TechnicianProfile[]> {
+export async function technicians(ctx: ServiceContext): Promise<{
+  technicians: TechnicianProfile[];
+  companyStart: { locationId: string; name: string } | null;
+}> {
   return guardedRead(ctx, "visit:read", async (tx) => {
     const rows = await tx.select().from(schema.technician)
       .where(eq(schema.technician.organizationId, ctx.actor.organizationId))
       .orderBy(asc(schema.technician.displayName));
-    return rows.map(profileOf);
+    /** The same rule `loadDay` uses: the oldest active location. */
+    const [first] = await tx.select({ id: schema.location.id, name: schema.location.name })
+      .from(schema.location)
+      .where(and(eq(schema.location.organizationId, ctx.actor.organizationId), eq(schema.location.active, true)))
+      .orderBy(asc(schema.location.createdAt), asc(schema.location.id)).limit(1);
+    return {
+      technicians: rows.map(profileOf),
+      companyStart: first ? { locationId: first.id, name: first.name } : null,
+    };
   });
 }
 
@@ -649,7 +660,7 @@ export const handlers = {
   setTravelSettings: (ctx: ServiceContext, input: {
     averageKmh?: number | undefined; roadFactor?: number | undefined; dayStartsAt?: string | undefined;
   }) => setTravelSettings(ctx, input),
-  listTechnicians: async (ctx: ServiceContext) => ({ technicians: await technicians(ctx) }),
+  listTechnicians: (ctx: ServiceContext) => technicians(ctx),
   updateTechnician: (ctx: ServiceContext, input: {
     id: string; skills?: string[] | undefined; homeLocationId?: string | null | undefined; color?: string | null | undefined;
   }) => updateTechnician(ctx, input),

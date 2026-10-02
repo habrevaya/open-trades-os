@@ -103,9 +103,16 @@ export async function requiredSkillsOf(tx: Database, visitId: string): Promise<{
  * doing so, with the refusals attached for a screen that offers the override.
  */
 export class QualificationRefusedError extends ConflictError {
+  /**
+   * The name stays `ConflictError` on purpose. Screens match refusals by
+   * name, because the error classes can be duplicated by a bundler and
+   * `instanceof` then quietly fails, and a refusal renamed to something they
+   * do not know would be thrown at the person as a bug instead of shown to
+   * them as a sentence. This marker is how a screen tells it apart.
+   */
+  readonly qualificationRefused = true as const;
   constructor(message: string, readonly refusals: { technicianId: string; refusal: string }[]) {
     super(message);
-    this.name = "QualificationRefusedError";
   }
 }
 

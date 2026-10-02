@@ -7,6 +7,9 @@ import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Empty } from "@/components/Table";
 import { Register } from "./Register";
+import { PinEditor } from "@/components/PinEditor";
+import { tileSource } from "@/lib/map-tiles";
+import { placePropertyPin, clearPropertyPin } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +84,28 @@ export default async function PropertyPage({
         {property.gateCode && <Fact label="Gate">{property.gateCode}</Fact>}
         <Fact label="Units">{property.equipmentCount}</Fact>
       </Facts>
+
+      {/*
+        Where it is. A pin the geocoder could not place, or placed in the
+        middle of a postcode, is fixed here by hand, and the dispatch map's
+        "not on the map yet" list links straight to this section.
+      */}
+      <section id="pin" aria-label="Where it is" className="mt-8">
+        <h2 className="text-base font-semibold">Where it is</h2>
+        <div className="mt-2">
+          <PinEditor
+            id={id}
+            label={property.address.line1}
+            tiles={tileSource()}
+            current={{
+              latitude: property.latitude, longitude: property.longitude,
+              precision: property.locationPrecision, source: property.locationSource,
+            }}
+            place={can(user.actor, "property:write") ? placePropertyPin : null}
+            clear={can(user.actor, "property:write") ? clearPropertyPin : null}
+          />
+        </div>
+      </section>
 
       {readsEquipment ? (
         <Register

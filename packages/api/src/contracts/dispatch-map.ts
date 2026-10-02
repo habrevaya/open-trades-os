@@ -218,7 +218,11 @@ export const listTechnicians = defineRoute({
   module: "M24",
   permissions: ["visit:read"],
   input: z.object({}),
-  output: z.object({ technicians: z.array(Technician) }),
+  output: z.object({
+    technicians: z.array(Technician),
+    /** Where the day starts for somebody with no start of their own: the company's first location. */
+    companyStart: z.object({ locationId: Uuid, name: z.string() }).nullable(),
+  }),
 });
 
 export const updateTechnician = defineRoute({

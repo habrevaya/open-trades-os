@@ -44,6 +44,18 @@ nobody has to guess:
 | The worker was down for three days | One run, for the occurrence it was due, and then back on the normal clock. Not three |
 | An expression nothing can read | Recorded on the row with a reason, rather than quietly becoming "never" |
 
+## Addresses on the map
+
+Each pass also looks up a few addresses for every company that has connected a
+geocoder (OpenStreetMap or Mapbox, under Settings, Integrations), so a customer
+saved in the office never waits on a geocoder. It runs on its own budget of a
+few seconds a pass, before the drain, and a geocoder that is down is logged and
+skipped rather than holding up a text. Against the public OpenStreetMap server it
+asks one address a second at most, which is a limit **per process**: run one
+worker, or point the connection at your own Nominatim server, before sending it a
+customer list in the thousands. A company with no geocoder connected is never
+looked at. Turn it off for a deployment with `geocoding: false` on the pass.
+
 ## Waiting for something not to happen
 
 The third trigger kind, and the one the other two cannot express. An event

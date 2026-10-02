@@ -80,6 +80,12 @@ export const NAV: NavGroup[] = [
            * servicer before it is a cadence.
            */
           { href: "/schedule/routes", label: "Routes" },
+          /**
+           * What each person is recorded as doing and where their day starts:
+           * the two things the board's qualification check and the route
+           * optimiser read, and that had no screen.
+           */
+          { href: "/schedule/technicians", label: "Technicians" },
         ],
       },
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },

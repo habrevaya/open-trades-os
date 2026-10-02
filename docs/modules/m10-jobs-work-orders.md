@@ -57,6 +57,17 @@ board since it was built, so an empty slot on somebody's day off looked
 bookable. Checked for work still to come only, because a visit whose window has
 already ended is a record of something that happened.
 
+**Nobody is booked or sent alone onto work they are not qualified for.** A job
+type's required skills are checked for each technician named when a visit is
+booked or assigned, with a sentence naming the person and the skill. The answer
+comes from M24: a live certification clears a skill, a lapsed or missing one
+refuses it, and for a skill no certification grants, the person's recorded
+skills decide once anybody in the company is recorded with that skill. A skill
+nobody is recorded as doing cannot be checked and does not refuse, and the
+assignment says so. Like time off, it is checked for work still to come only.
+Booking has no override; assigning does, with `visit:assign_unqualified` and a
+reason the audit log keeps.
+
 **A callback has to point at real work for the same customer.** A parent from
 another company is a cross tenant read; a parent belonging to a different
 customer is the one that slips through, and it is how a callback rate stops
@@ -85,7 +96,8 @@ form, and `/jobs` is the list.
 ### Run the day
 
 `GET /v1/dispatch/board` is the board, `POST /v1/visits/{id}/assign` puts
-somebody on a visit, `POST /v1/visits/{id}/crew` puts a crew on one, and
+somebody on a visit (refused for somebody not qualified for the work, unless
+overridden with a reason by a caller holding `visit:assign_unqualified`), `POST /v1/visits/{id}/crew` puts a crew on one, and
 `POST /v1/dispatch/route` reorders a day. `POST /v1/visits/{id}/on-my-way`
 tells the customer somebody is coming, which needs `message:send` rather than a
 visit permission because it is a message.
@@ -133,6 +145,8 @@ because a technician may finish work and may not re-describe it.
 | `GET /v1/job-types` | `job:read` |
 | `GET /v1/dispatch/board` | `visit:read` |
 | `POST /v1/dispatch/route` | `visit:reschedule` |
+| `GET /v1/dispatch/optimise` | `visit:read` |
+| `GET /v1/dispatch/suggestions` | `visit:read` |
 
 ## Common questions
 
@@ -151,6 +165,8 @@ button on a visit.
 
 `job:delete` is in the catalogue and nothing checks it: a job is cancelled
 rather than deleted, which keeps the visits, the labour and the obligations that
-reference it explicable. Route optimisation is manual reordering, not a solver.
-There is no dispatch map. A job's required skills are declared on the job type
-and checked for crews; for an individual technician the check is not wired.
+reference it explicable. Route optimisation is a proposal per technician that a
+person applies (M09), not an automatic reorder. A job's required skills are
+declared on the job type and nowhere else: a job cannot add a skill of its own
+for one unusual piece of work. Booking with a technician who is refused has no
+override; book the visit unassigned and send them from the board.
