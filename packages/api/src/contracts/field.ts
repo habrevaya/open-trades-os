@@ -252,6 +252,8 @@ export const assignVisit = defineRoute({
   method: "post",
   path: "/v1/visits/{id}/assign",
   summary: "Put a visit on somebody's day",
+  description:
+    "Refused, with a sentence naming the person and the skill, when somebody being sent is not qualified for the work's required skills by their certifications or their recorded skills. A caller holding visit:assign_unqualified may send them anyway by giving a reason, which the audit log keeps beside the refusal it overrode.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
@@ -261,8 +263,21 @@ export const assignVisit = defineRoute({
     leadTechnicianId: Uuid.optional(),
     /** Where in the day it sits. Omitted appends to the end. */
     routeOrder: z.number().int().optional(),
+    /**
+     * Send them although the qualification check refused. Needs
+     * visit:assign_unqualified, and a reason somebody reading the audit log
+     * later would accept.
+     */
+    overrideQualification: z.object({ reason: z.string().trim().min(5).max(500) }).optional(),
   }),
-  output: z.object({ ok: z.literal(true), status: z.string() }),
+  output: z.object({
+    ok: z.literal(true),
+    status: z.string(),
+    /** True when a refusal was overridden to make this assignment. */
+    overridden: z.boolean(),
+    /** Required skills nothing could check for the people sent, said rather than hidden. */
+    unknownSkills: z.array(z.string()),
+  }),
 });
 
 /**

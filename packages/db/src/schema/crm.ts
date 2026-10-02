@@ -1,5 +1,5 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, date, timestamp } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
+import { pk, timestamps, sourceRef, sourceRefIndex, money, geocodeColumns } from "./_shared";
 import { organization } from "./tenancy";
 
 /**
@@ -81,8 +81,13 @@ export const property = pgTable("property", {
   state: text("state").notNull(),
   postalCode: text("postal_code").notNull(),
   country: text("country").notNull().default("US"),
-  latitude: text("latitude"),
-  longitude: text("longitude"),
+  /**
+   * Where it is, how close, and who said so. Filled by the worker from the
+   * company's geocoder, never inline in the request that saved the address,
+   * so a slow geocoder never holds up a customer being added; or placed by
+   * hand from the property page, which then wins. See `geocodeColumns`.
+   */
+  ...geocodeColumns(),
   /** Resolved at save time from the service-area territories. Drives dispatch zoning. */
   territoryId: uuid("territory_id"),
   /** Jurisdiction stack for sales tax. Historical rates live on the invoice line. */

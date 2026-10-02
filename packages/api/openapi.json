@@ -20854,6 +20854,233 @@
         ]
       }
     },
+    "/v1/dispatch/map": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getDispatchMap",
+        "summary": "A day on the map: every visit as a pin, every technician's route as a line",
+        "description": "The same day the board draws, with where each visit is. A visit at an address that is not on the map yet is listed in `unplaced` rather than dropped, so the office can place a pin for it.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A day on the map: every visit as a pin, every technician's route as a line",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetDispatchMapOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
+    "/v1/dispatch/optimise": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getRouteProposal",
+        "summary": "Propose a better order for one technician's day",
+        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "technicianId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Propose a better order for one technician's day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRouteProposalOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
     "/v1/dispatch/route": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -20980,6 +21207,326 @@
         "x-authorization": "session",
         "x-permissions": [
           "visit:reschedule"
+        ]
+      }
+    },
+    "/v1/dispatch/suggestions": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getAssignmentSuggestions",
+        "summary": "Suggest who should take each unassigned visit",
+        "description": "For each unassigned visit on the day, the technician it adds the least driving to without breaking a window, among those whose skills and time off allow it. Every technician considered is listed with their figure or the reason they were ruled out. Accepting one is `POST /v1/visits/{id}/assign`.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suggest who should take each unassigned visit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAssignmentSuggestionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
+    "/v1/dispatch/travel": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getTravelSettings",
+        "summary": "How drive time is estimated",
+        "description": "Requires a session holding: visit:read.",
+        "tags": [
+          "M09"
+        ],
+        "responses": {
+          "200": {
+            "description": "How drive time is estimated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetTravelSettingsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      },
+      "put": {
+        "operationId": "setTravelSettings",
+        "summary": "Change how drive time is estimated",
+        "description": "The average speed and road factor every estimated drive uses, and when a technician's day starts. A route's own declared drive time is used instead wherever two stops are on the same route.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M09"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTravelSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change how drive time is estimated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetTravelSettingsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -26896,6 +27443,104 @@
         ]
       }
     },
+    "/v1/geocoding": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getGeocodingStatus",
+        "summary": "How many addresses are on the map, and which are not",
+        "description": "Counts by how precisely each address is placed, how many are waiting for the geocoder, and the addresses it could not find, which only a pin placed by hand will fix.\n\nRequires a session holding: property:read.",
+        "tags": [
+          "M25"
+        ],
+        "responses": {
+          "200": {
+            "description": "How many addresses are on the map, and which are not",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetGeocodingStatusOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "property:read"
+        ]
+      }
+    },
     "/v1/inspection-deficiencies": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -31759,6 +32404,258 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/locations/{id}/pin": {
+      "description": "Served at this path: DELETE, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "POST"
+      ],
+      "post": {
+        "operationId": "pinLocation",
+        "summary": "Place a branch or yard on the map by hand",
+        "description": "Where technicians' days start. The same rule as a property: a placed pin wins.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinLocationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Place a branch or yard on the map by hand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinLocationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "delete": {
+        "operationId": "unpinLocation",
+        "summary": "Hand a branch or yard back to the geocoder",
+        "description": "Requires a session holding: settings:write.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinLocationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Hand a branch or yard back to the geocoder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnpinLocationOutput"
                 }
               }
             }
@@ -42713,6 +43610,258 @@
         ]
       }
     },
+    "/v1/properties/{id}/pin": {
+      "description": "Served at this path: DELETE, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "POST"
+      ],
+      "post": {
+        "operationId": "pinProperty",
+        "summary": "Place a property on the map by hand",
+        "description": "A pin placed by a person wins over the geocoder from then on: the worker never moves it. Setting the same pin twice leaves the same pin, so a retry is harmless.\n\nRequires a session holding: property:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinPropertyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Place a property on the map by hand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinPropertyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "property:write"
+        ]
+      },
+      "delete": {
+        "operationId": "unpinProperty",
+        "summary": "Hand a property back to the geocoder",
+        "description": "Requires a session holding: property:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinPropertyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Hand a property back to the geocoder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnpinPropertyOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "property:write"
+        ]
+      }
+    },
     "/v1/public/availability": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -52973,6 +54122,233 @@
         ]
       }
     },
+    "/v1/technicians": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTechnicians",
+        "summary": "Technicians, with their skills and where their day starts",
+        "description": "Requires a session holding: visit:read.",
+        "tags": [
+          "M24"
+        ],
+        "responses": {
+          "200": {
+            "description": "Technicians, with their skills and where their day starts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTechniciansOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
+    "/v1/technicians/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateTechnician",
+        "summary": "Record a technician's skills, colour and where their day starts",
+        "description": "Skills recorded here are what assignment checks a person against for any skill no certification type grants. A skill counts against somebody only once at least one person in the company is recorded with it, so recording the first person who does gas work is what starts refusing everybody else.\n\nRequires a session holding: user:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTechnicianInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record a technician's skills, colour and where their day starts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateTechnicianOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write"
+        ]
+      }
+    },
     "/v1/territories": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -54816,7 +56192,7 @@
       "post": {
         "operationId": "assignVisit",
         "summary": "Put a visit on somebody's day",
-        "description": "Requires a session holding: visit:dispatch.",
+        "description": "Refused, with a sentence naming the person and the skill, when somebody being sent is not qualified for the work's required skills by their certifications or their recorded skills. A caller holding visit:assign_unqualified may send them anyway by giving a reason, which the audit log keeps beside the refusal it overrode.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -59500,6 +60876,19 @@
           },
           "routeOrder": {
             "type": "integer"
+          },
+          "overrideQualification": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "reason"
+            ]
           }
         },
         "required": [
@@ -59517,11 +60906,22 @@
           },
           "status": {
             "type": "string"
+          },
+          "overridden": {
+            "type": "boolean"
+          },
+          "unknownSkills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "ok",
-          "status"
+          "status",
+          "overridden",
+          "unknownSkills"
         ]
       },
       "AttachJobToProjectInput": {
@@ -66308,6 +67708,33 @@
               "null"
             ]
           },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "territoryId": {
             "type": [
               "string",
@@ -66388,6 +67815,9 @@
           "address",
           "latitude",
           "longitude",
+          "locationPrecision",
+          "locationSource",
+          "locatedAt",
           "territoryId",
           "squareFeet",
           "yearBuilt",
@@ -70221,6 +71651,140 @@
           "due"
         ]
       },
+      "GetAssignmentSuggestionsOutput": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "position": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "addedDriveMinutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "wouldBeLate": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "visitId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "lateByMinutes": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "visitId",
+                      "lateByMinutes"
+                    ]
+                  }
+                },
+                "unknownSkills": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "considered": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "technicianName": {
+                        "type": "string"
+                      },
+                      "addedDriveMinutes": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "makesLate": {
+                        "type": "boolean"
+                      },
+                      "refused": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "technicianName",
+                      "addedDriveMinutes",
+                      "makesLate",
+                      "refused"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "visitId",
+                "customerName",
+                "technicianId",
+                "technicianName",
+                "position",
+                "addedDriveMinutes",
+                "wouldBeLate",
+                "unknownSkills",
+                "considered"
+              ]
+            }
+          },
+          "unplaced": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "date",
+          "suggestions",
+          "unplaced"
+        ]
+      },
       "GetAvailabilityOutput": {
         "type": "object",
         "properties": {
@@ -72236,6 +73800,295 @@
           "unassigned"
         ]
       },
+      "GetDispatchMapOutput": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "technicians": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timeOff": {
+                  "type": "boolean"
+                },
+                "start": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "locationId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        },
+                        "precision": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "rooftop",
+                            "interpolated",
+                            "street",
+                            "postal_code",
+                            "locality",
+                            "placed"
+                          ]
+                        },
+                        "source": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "lat",
+                        "lng",
+                        "precision",
+                        "source"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "locationId",
+                    "name",
+                    "position"
+                  ]
+                },
+                "startIsCompanyDefault": {
+                  "type": "boolean"
+                },
+                "route": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "displayName",
+                "color",
+                "timeOff",
+                "start",
+                "startIsCompanyDefault",
+                "route"
+              ]
+            }
+          },
+          "visits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "propertyId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "windowStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "windowEnd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "estimatedDurationMinutes": {
+                  "type": "integer"
+                },
+                "routeOrder": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "isLate": {
+                  "type": "boolean"
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "technicianIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "position": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "lat": {
+                      "type": "number"
+                    },
+                    "lng": {
+                      "type": "number"
+                    },
+                    "precision": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "rooftop",
+                        "interpolated",
+                        "street",
+                        "postal_code",
+                        "locality",
+                        "placed"
+                      ]
+                    },
+                    "source": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "lat",
+                    "lng",
+                    "precision",
+                    "source"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "jobId",
+                "jobNumber",
+                "summary",
+                "customerName",
+                "propertyId",
+                "address",
+                "status",
+                "windowStart",
+                "windowEnd",
+                "estimatedDurationMinutes",
+                "routeOrder",
+                "isLate",
+                "technicianId",
+                "technicianIds",
+                "position"
+              ]
+            }
+          },
+          "unplaced": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "travel": {
+            "type": "object",
+            "properties": {
+              "averageKmh": {
+                "type": "number"
+              },
+              "roadFactor": {
+                "type": "number"
+              },
+              "dayStartsAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "averageKmh",
+              "roadFactor",
+              "dayStartsAt"
+            ]
+          },
+          "geocoder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "date",
+          "timezone",
+          "technicians",
+          "visits",
+          "unplaced",
+          "travel",
+          "geocoder"
+        ]
+      },
       "GetEquipmentOutput": {
         "type": "object",
         "properties": {
@@ -73486,6 +75339,66 @@
         },
         "required": [
           "refusals"
+        ]
+      },
+      "GetGeocodingStatusOutput": {
+        "type": "object",
+        "properties": {
+          "geocoder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": "integer"
+          },
+          "byPrecision": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "waiting": {
+            "type": "integer"
+          },
+          "notFound": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "propertyId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "propertyId",
+                "address",
+                "reason"
+              ]
+            }
+          },
+          "failing": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "geocoder",
+          "total",
+          "byPrecision",
+          "waiting",
+          "notFound",
+          "failing"
         ]
       },
       "GetInvoiceOutput": {
@@ -76073,6 +77986,33 @@
               "null"
             ]
           },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "territoryId": {
             "type": [
               "string",
@@ -76185,6 +78125,9 @@
           "address",
           "latitude",
           "longitude",
+          "locationPrecision",
+          "locationSource",
+          "locatedAt",
           "territoryId",
           "squareFeet",
           "yearBuilt",
@@ -76880,6 +78823,188 @@
           "items"
         ]
       },
+      "GetRouteProposalOutput": {
+        "type": "object",
+        "properties": {
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "startKnown": {
+            "type": "boolean"
+          },
+          "startLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current": {
+            "type": "object",
+            "properties": {
+              "order": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "driveMinutes": {
+                "type": "integer"
+              },
+              "waitMinutes": {
+                "type": "integer"
+              },
+              "lateCount": {
+                "type": "integer"
+              },
+              "lateMinutes": {
+                "type": "integer"
+              },
+              "finishAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "order",
+              "driveMinutes",
+              "waitMinutes",
+              "lateCount",
+              "lateMinutes",
+              "finishAt"
+            ]
+          },
+          "proposed": {
+            "type": "object",
+            "properties": {
+              "order": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "driveMinutes": {
+                "type": "integer"
+              },
+              "waitMinutes": {
+                "type": "integer"
+              },
+              "lateCount": {
+                "type": "integer"
+              },
+              "lateMinutes": {
+                "type": "integer"
+              },
+              "finishAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "order",
+              "driveMinutes",
+              "waitMinutes",
+              "lateCount",
+              "lateMinutes",
+              "finishAt"
+            ]
+          },
+          "improved": {
+            "type": "boolean"
+          },
+          "missed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "lateByMinutes": {
+                  "type": "integer"
+                },
+                "unreachable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "visitId",
+                "customerName",
+                "lateByMinutes",
+                "unreachable"
+              ]
+            }
+          },
+          "locked": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "unplaced": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "applyOrder": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "declaredLegs": {
+            "type": "integer"
+          },
+          "travel": {
+            "type": "object",
+            "properties": {
+              "averageKmh": {
+                "type": "number"
+              },
+              "roadFactor": {
+                "type": "number"
+              },
+              "dayStartsAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "averageKmh",
+              "roadFactor",
+              "dayStartsAt"
+            ]
+          }
+        },
+        "required": [
+          "technicianId",
+          "date",
+          "startKnown",
+          "startLabel",
+          "current",
+          "proposed",
+          "improved",
+          "missed",
+          "locked",
+          "unplaced",
+          "applyOrder",
+          "declaredLegs",
+          "travel"
+        ]
+      },
       "GetServiceReportOutput": {
         "type": "object",
         "properties": {
@@ -77554,6 +79679,25 @@
           "weekStart",
           "policy",
           "rows"
+        ]
+      },
+      "GetTravelSettingsOutput": {
+        "type": "object",
+        "properties": {
+          "averageKmh": {
+            "type": "number"
+          },
+          "roadFactor": {
+            "type": "number"
+          },
+          "dayStartsAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "averageKmh",
+          "roadFactor",
+          "dayStartsAt"
         ]
       },
       "GetTrialBalanceOutput": {
@@ -86784,6 +88928,33 @@
                     "null"
                   ]
                 },
+                "locationPrecision": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "rooftop",
+                    "interpolated",
+                    "street",
+                    "postal_code",
+                    "locality",
+                    "placed"
+                  ]
+                },
+                "locationSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "locatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "territoryId": {
                   "type": [
                     "string",
@@ -86893,6 +89064,9 @@
                 "address",
                 "latitude",
                 "longitude",
+                "locationPrecision",
+                "locationSource",
+                "locatedAt",
                 "territoryId",
                 "squareFeet",
                 "yearBuilt",
@@ -88535,6 +90709,59 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "ListTechniciansOutput": {
+        "type": "object",
+        "properties": {
+          "technicians": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "skills": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "homeLocationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "id",
+                "displayName",
+                "color",
+                "active",
+                "skills",
+                "homeLocationId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "technicians"
         ]
       },
       "ListTerritoriesOutput": {
@@ -91305,6 +93532,140 @@
           "materialType",
           "disposalFee",
           "previousRentalId"
+        ]
+      },
+      "PinLocationInput": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
+      "PinLocationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
+        ]
+      },
+      "PinPropertyInput": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
+      "PinPropertyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
         ]
       },
       "PlanProjectDrawInput": {
@@ -100496,6 +102857,44 @@
           "active"
         ]
       },
+      "SetTravelSettingsInput": {
+        "type": "object",
+        "properties": {
+          "averageKmh": {
+            "type": "number",
+            "minimum": 5,
+            "maximum": 130
+          },
+          "roadFactor": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "dayStartsAt": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          }
+        }
+      },
+      "SetTravelSettingsOutput": {
+        "type": "object",
+        "properties": {
+          "averageKmh": {
+            "type": "number"
+          },
+          "roadFactor": {
+            "type": "number"
+          },
+          "dayStartsAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "averageKmh",
+          "roadFactor",
+          "dayStartsAt"
+        ]
+      },
       "SetWorkflowEnabledInput": {
         "type": "object",
         "properties": {
@@ -102022,6 +104421,110 @@
         },
         "required": [
           "movements"
+        ]
+      },
+      "UnpinLocationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "UnpinLocationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
+        ]
+      },
+      "UnpinPropertyInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "UnpinPropertyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "latitude",
+          "longitude",
+          "locationPrecision",
+          "locationSource"
         ]
       },
       "UnpublishServiceReportInput": {
@@ -104771,6 +107274,33 @@
               "null"
             ]
           },
+          "locationPrecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "rooftop",
+              "interpolated",
+              "street",
+              "postal_code",
+              "locality",
+              "placed"
+            ]
+          },
+          "locationSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "territoryId": {
             "type": [
               "string",
@@ -104851,6 +107381,9 @@
           "address",
           "latitude",
           "longitude",
+          "locationPrecision",
+          "locationSource",
+          "locatedAt",
           "territoryId",
           "squareFeet",
           "yearBuilt",
@@ -105100,6 +107633,76 @@
         },
         "required": [
           "id"
+        ]
+      },
+      "UpdateTechnicianInput": {
+        "type": "object",
+        "properties": {
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            "maxItems": 50
+          },
+          "homeLocationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          }
+        }
+      },
+      "UpdateTechnicianOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "homeLocationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "color",
+          "active",
+          "skills",
+          "homeLocationId"
         ]
       },
       "UpdateTerritoryInput": {

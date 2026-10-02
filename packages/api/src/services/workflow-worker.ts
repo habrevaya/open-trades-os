@@ -5,6 +5,7 @@ import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
+import { geocodePending, type GeocodeDeps } from "./geocoding";
 
 /**
  * THE WORKER
@@ -190,6 +191,16 @@ export interface PassOptions {
    */
   schedules?: boolean;
   /**
+   * Whether this pass also puts a few addresses on the map, and with what.
+   *
+   * On by default, for companies that have connected a geocoder and nobody
+   * else, and bounded by its own small time budget so a backfill of a large
+   * customer list against a one-request-a-second service never holds up a
+   * text. `false` turns it off; an object passes the geocoder's dependencies,
+   * which is how a test supplies a fake one.
+   */
+  geocoding?: false | { deps?: GeocodeDeps; budgetMs?: number };
+  /**
    * Runs after each drain, for the organizations that had events.
    *
    * The outbox is separate from the runner on purpose: a workflow queues a
@@ -240,6 +251,24 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.
       console.error("[worker] schedules:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Addresses, before the log, on a budget of their own. Not inside the
+   * schedules block above: a geocoder that is down must not be the reason a
+   * scheduled workflow is late, and the same try for both would make it so.
+   */
+  if (options.geocoding !== false) {
+    try {
+      const geocoding = options.geocoding ?? {};
+      await geocodePending(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(geocoding.deps ? { deps: geocoding.deps } : {}),
+        ...(geocoding.budgetMs !== undefined ? { budgetMs: geocoding.budgetMs } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] geocoding:", (error as Error).message);
     }
   }
 

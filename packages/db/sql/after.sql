@@ -918,6 +918,88 @@ returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
 revoke all on function app.dwell_workflows(int) from public;
 grant execute on function app.dwell_workflows(int) to background;
 
+-- =========================================================================
+-- ADDRESSES WAITING TO BE PUT ON THE MAP
+--
+-- The same shape as the three above: a cross tenant read for the worker,
+-- ids only, and not callable by the role the request path uses.
+--
+-- Only companies that have connected a geocoder. A company that has not has
+-- chosen not to send its customers' addresses anywhere, and the worker
+-- finding their rows anyway would be the first step towards doing it.
+--
+-- Due means: not placed by hand, the stored coordinate does not answer for
+-- the address as it is now, and either the address has not been tried yet or
+-- a failure that might clear has passed its back off. The same rule as
+-- `geo.geocodeDue` in core, which the worker checks again inside the tenant.
+--
+-- Within a company, locations first, because a technician's day cannot be
+-- ordered without where it starts; then properties with work in the coming week, because
+-- those are the pins a dispatcher is about to look for; then the newest,
+-- because a customer added this morning is likelier to be booked than one
+-- from 2019.
+-- =========================================================================
+
+create or replace function app.addresses_to_geocode(p_limit int default 50)
+returns table (organization_id uuid, entity text, entity_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    with geocoding as (
+      select distinct c.organization_id
+      from public.integration_connection c
+      join public.organization o on o.id = c.organization_id
+      where c.capability = 'maps'
+        and c.status = 'connected'
+        and c.deleted_at is null
+        and o.suspended_at is null
+    ),
+    due as (
+      select l.organization_id, 'location'::text as entity, l.id as entity_id,
+             0 as tier, l.created_at
+      from public.location l
+      join geocoding g on g.organization_id = l.organization_id
+      where l.active
+        and coalesce(btrim(l.address_line1), '') <> ''
+        and l.location_source is distinct from 'manual'
+        and l.located_address is distinct from l.address_key
+        and (l.geocode_attempted_address is distinct from l.address_key
+             or (l.geocode_retry_at is not null and l.geocode_retry_at <= now()))
+      union all
+      select p.organization_id, 'property'::text, p.id,
+             case when exists (
+               select 1 from public.job j
+               join public.visit v on v.job_id = j.id
+               where j.property_id = p.id
+                 and v.window_start >= now() - interval '1 day'
+                 and v.window_start < now() + interval '7 days'
+             ) then 1 else 2 end,
+             p.created_at
+      from public.property p
+      join geocoding g on g.organization_id = p.organization_id
+      where p.deleted_at is null
+        and btrim(p.address_line1) <> ''
+        and p.location_source is distinct from 'manual'
+        and p.located_address is distinct from p.address_key
+        and (p.geocode_attempted_address is distinct from p.address_key
+             or (p.geocode_retry_at is not null and p.geocode_retry_at <= now()))
+    )
+    -- Round robin across companies, so one company whose geocoder is broken,
+    -- or who connected one with forty thousand customers on file, cannot
+    -- fill every pass and starve the company that added one customer today.
+    , ranked as (
+      select organization_id, entity, entity_id, tier, created_at,
+             row_number() over (partition by organization_id order by tier, created_at desc, entity_id) as turn
+      from due
+    )
+    select organization_id, entity, entity_id
+    from ranked
+    order by turn, tier, created_at desc, entity_id
+    limit p_limit
+  $$;
+
+revoke all on function app.addresses_to_geocode(int) from public;
+grant execute on function app.addresses_to_geocode(int) to background;
+
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN
 -- sessions, which is right: a policy letting any authenticated role read the

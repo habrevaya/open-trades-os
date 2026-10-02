@@ -13,6 +13,7 @@ import type {
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot,
 } from "../contracts/field";
 import { portalBase } from "../lib/portal-base";
+import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
 
 
 /**
@@ -170,6 +171,25 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       );
     }
 
+    /**
+     * QUALIFIED FOR THE WORK, ONE PERSON AT A TIME.
+     *
+     * The job type's required skills were checked for a crew and never for
+     * a technician, so the commonest way work goes out had no check at all.
+     * Refused here with a sentence naming the person and the skill, and the
+     * board shows that sentence where the card was dropped. Overriding needs
+     * its own permission and a reason, and the audit entry below keeps both
+     * beside what was refused.
+     */
+    const work = await requiredSkillsOf(tx, input.id);
+    const qualified = await qualificationGate(ctx, tx, {
+      technicianIds: input.technicianIds,
+      skills: work.skills,
+      windowStart: work.windowStart,
+      windowEnd: work.windowEnd,
+      override: input.overrideQualification,
+    });
+
     await tx.delete(schema.visitAssignment)
       .where(eq(schema.visitAssignment.visitId, input.id));
 
@@ -201,7 +221,13 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
     await audit(tx, ctx, "visit.assigned", "visit", input.id,
       { status: visit.status }, { status, technicianIds: input.technicianIds });
 
-    return { ok: true as const, status };
+    if (qualified.overridden) {
+      await audit(tx, ctx, "visit.assigned_unqualified", "visit", input.id,
+        { refusals: qualified.refusals },
+        { technicianIds: input.technicianIds, reason: input.overrideQualification!.reason });
+    }
+
+    return { ok: true as const, status, overridden: qualified.overridden, unknownSkills: qualified.unknown };
   });
 }
 

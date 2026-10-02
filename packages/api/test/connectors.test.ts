@@ -38,6 +38,12 @@ import { registeredCallTrackingProviders } from "../src/call-tracking/index";
  * entry either, so the two silences agreed with each other.
  */
 import { registeredProviders as registeredMessagingProviders } from "../src/comms/index";
+/**
+ * The geocoders, which are the first thing on the `maps` seam. Named here for
+ * the reason every registry above is: a sweep that does not know about a
+ * registry stops covering it in both directions at once.
+ */
+import { registeredGeocoders } from "../src/maps/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -74,7 +80,7 @@ describe("the connector catalogue", () => {
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
-      ...registeredMessagingProviders(),
+      ...registeredMessagingProviders(), ...registeredGeocoders(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -98,7 +104,7 @@ describe("the connector catalogue", () => {
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
-      ...registeredMessagingProviders(),
+      ...registeredMessagingProviders(), ...registeredGeocoders(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);
@@ -140,6 +146,8 @@ describe("the connector catalogue", () => {
       "callrail",
       /** And the calendar, which is the capability that sat in the enum with nothing behind it. */
       "ics_feed",
+      /** And maps, which sat there longer: the reason a property's coordinates were never filled. */
+      "nominatim", "mapbox",
     ]) {
       expect(keys.has(needed), `${needed} is not in the catalogue`).toBe(true);
     }

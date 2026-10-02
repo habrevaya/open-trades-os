@@ -18,6 +18,15 @@ export const Property = z.object({
   address: Address,
   latitude: z.string().nullable(),
   longitude: z.string().nullable(),
+  /**
+   * How close to the door the coordinate is, and who said so: `manual` for a
+   * pin a person placed, otherwise the geocoder. A coordinate is never
+   * published without these, because a postcode centroid and a pin on the
+   * gate are both a latitude and only one is worth driving to.
+   */
+  locationPrecision: z.enum(["rooftop", "interpolated", "street", "postal_code", "locality", "placed"]).nullable(),
+  locationSource: z.string().nullable(),
+  locatedAt: z.string().datetime().nullable(),
   territoryId: Uuid.nullable(),
   squareFeet: z.string().nullable(),
   yearBuilt: z.string().nullable(),

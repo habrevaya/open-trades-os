@@ -12,6 +12,7 @@ import {
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
   apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  dispatchMap, geocoding,
 } from "../services/index";
 
 /**
@@ -612,6 +613,20 @@ export const handlers = {
   // KPIs (M21): the numbers the trade packs defined and nothing computed
   getKpiScorecard: kpis.handlers.getKpiScorecard,
   listKpiCatalogue: kpis.handlers.listKpiCatalogue,
+
+  // The dispatch map, the route optimiser and the geocoder (M09, M24, M25)
+  getDispatchMap: dispatchMap.handlers.getDispatchMap,
+  getRouteProposal: dispatchMap.handlers.getRouteProposal,
+  getAssignmentSuggestions: dispatchMap.handlers.getAssignmentSuggestions,
+  getTravelSettings: dispatchMap.handlers.getTravelSettings,
+  setTravelSettings: dispatchMap.handlers.setTravelSettings,
+  listTechnicians: dispatchMap.handlers.listTechnicians,
+  updateTechnician: dispatchMap.handlers.updateTechnician,
+  pinProperty: geocoding.handlers.pinProperty,
+  unpinProperty: geocoding.handlers.unpinProperty,
+  pinLocation: geocoding.handlers.pinLocation,
+  unpinLocation: geocoding.handlers.unpinLocation,
+  getGeocodingStatus: geocoding.handlers.getGeocodingStatus,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

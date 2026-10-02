@@ -66,6 +66,15 @@ const ESCALATES: Record<string, { also: Permission; when: string; service: strin
       + "order back to draft needs approval authority, which it does not.",
     service: "inventory.ts",
   },
+  assignVisit: {
+    also: "visit:assign_unqualified",
+    when:
+      "Only when the caller overrides a qualification refusal with a reason. An ordinary "
+      + "assignment of somebody qualified takes `visit:dispatch` alone, and declaring both "
+      + "would tell an agent it cannot put a qualified technician on a visit without the "
+      + "authority to send an unqualified one.",
+    service: "qualification.ts",
+  },
 };
 
 interface Probe {

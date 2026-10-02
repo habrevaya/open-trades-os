@@ -15,6 +15,7 @@ import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
+import { gate as qualificationGate } from "./qualification";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -277,6 +278,28 @@ async function assertAvailable(
   );
 }
 
+/**
+ * NOBODY IS BOOKED ONTO WORK THEY ARE NOT QUALIFIED FOR.
+ *
+ * The same check the board makes when a card is dropped, asked here because
+ * booking with a technician named is the other way a person ends up on a
+ * visit, and a check on one door and not the other is not a check. There is
+ * no override on this path: booking is not where that decision is made, so a
+ * refusal here says who and why, and the visit can be booked unassigned and
+ * sent from the board by somebody allowed to.
+ */
+async function assertQualified(
+  ctx: ServiceContext, tx: Database, jobTypeId: string | null,
+  technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
+): Promise<void> {
+  if (!jobTypeId || technicianIds.length === 0) return;
+  const [type] = await tx.select({ skills: schema.jobType.requiredSkills })
+    .from(schema.jobType).where(eq(schema.jobType.id, jobTypeId)).limit(1);
+  await qualificationGate(ctx, tx, {
+    technicianIds, skills: type?.skills ?? [], windowStart, windowEnd,
+  });
+}
+
 export async function create(ctx: ServiceContext, input: CreateInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -304,6 +327,10 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     if (input.visit) {
       await assertAvailable(
         tx, ctx.actor.organizationId, input.visit.technicianIds,
+        new Date(input.visit.windowStart), new Date(input.visit.windowEnd),
+      );
+      await assertQualified(
+        ctx, tx, input.jobTypeId ?? null, input.visit.technicianIds,
         new Date(input.visit.windowStart), new Date(input.visit.windowEnd),
       );
     }
@@ -671,6 +698,10 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
     if (input.windowStart && input.windowEnd && input.status !== "cancelled") {
       await assertAvailable(
         tx, ctx.actor.organizationId, input.technicianIds,
+        new Date(input.windowStart), new Date(input.windowEnd),
+      );
+      await assertQualified(
+        ctx, tx, job.jobTypeId, input.technicianIds,
         new Date(input.windowStart), new Date(input.windowEnd),
       );
     }

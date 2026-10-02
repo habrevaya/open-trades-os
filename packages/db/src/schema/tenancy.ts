@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
-import { pk, timestamps } from "./_shared";
+import { pk, timestamps, geocodeColumns } from "./_shared";
 
 /**
  * TENANCY SPINE
@@ -142,6 +142,14 @@ export const location = pgTable("location", {
   timezone: text("timezone"),
   isWarehouse: boolean("is_warehouse").notNull().default(false),
   active: boolean("active").notNull().default(true),
+  /**
+   * Where it is, the same way a property is. A location is where a
+   * technician's day starts and ends (`technician.home_location_id`, or the
+   * company's first location when somebody has none), so the route optimiser
+   * cannot order a day without it. Geocoded by the same worker and pinnable
+   * by hand the same way.
+   */
+  ...geocodeColumns(),
   ...timestamps,
 }, (t) => ({ orgIdx: index("location_org_idx").on(t.organizationId) }));
 

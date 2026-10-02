@@ -54,6 +54,7 @@ import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
 import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
+import { dispatchMapRoutes } from "./dispatch-map";
 
 export * from "./common";
 export * from "./customers";
@@ -102,6 +103,7 @@ export * from "./pricing-authority";
 export * from "./field-assets";
 export * from "./credit-notes";
 export * from "./statements";
+export * from "./dispatch-map";
 
 /**
  * Every route in the product, and the only description of them.
@@ -178,6 +180,7 @@ export const routes = {
   ...exportRoutes,
   ...externalWorkRoutes,
   ...kpiRoutes,
+  ...dispatchMapRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;
