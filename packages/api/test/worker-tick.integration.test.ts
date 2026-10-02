@@ -60,7 +60,16 @@ const tick = (token: string | null, presented = TOKEN, method = "POST") =>
   handleWorkerTick(new Request("https://ots.example.test/api/internal/worker/tick", {
     method,
     headers: { authorization: `Bearer ${presented}` },
-  }), { db: db(), token, afterDrain: async () => {} });
+  }), {
+    db: db(), token, afterDrain: async () => {},
+    /**
+     * This file's company only. Unscoped, the tick ran every company's clock,
+     * parked runs, sweeps and event log in a database shared with every other
+     * test file, and under the full suite that alone outlasted the five
+     * second timeout, besides running other files' workflows under them.
+     */
+    only: [ORG],
+  });
 
 run("the worker tick", () => {
   it("drains the log the way the worker does", async () => {
@@ -89,7 +98,7 @@ run("the worker tick", () => {
     // And a run with no time left at all reaches nothing and moves nothing.
     const spent = await runBounded({
       db: db(), budgetMs: 1, now: (() => { let t = 0; return () => (t += 10); })(),
-      afterDrain: async () => {},
+      afterDrain: async () => {}, only: [ORG],
     });
     expect(spent.stoppedForBudget).toBe(true);
     expect(await cursor()).toBe(1);

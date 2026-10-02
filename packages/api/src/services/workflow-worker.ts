@@ -221,6 +221,11 @@ export interface PassOptions {
    * platform's time limit.
    */
   shouldStop?: () => boolean;
+  /**
+   * Only these companies, for every part of the pass. Never set by the
+   * worker; see `only` on `drainAll` for who it is for.
+   */
+  only?: readonly string[];
 }
 
 /**
@@ -233,6 +238,10 @@ export interface PassOptions {
  */
 export async function runPass(options: PassOptions): Promise<DrainResult[]> {
   const stop = options.shouldStop;
+  const scope = {
+    ...(stop ? { shouldStop: stop } : {}),
+    ...(options.only ? { only: options.only } : {}),
+  };
 
   /**
    * The clock first, so anything it fires is in the log before this pass
@@ -240,11 +249,11 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    */
   if (options.schedules !== false) {
     try {
-      await tick(options.db, stop ? { shouldStop: stop } : {});
+      await tick(options.db, scope);
       // And the runs that are partway through one, waiting on a clock.
-      await resumeDue(options.db, stop ? { shouldStop: stop } : {});
+      await resumeDue(options.db, scope);
       // And the records that have been sitting there too long.
-      await sweep(options.db, stop ? { shouldStop: stop } : {});
+      await sweep(options.db, scope);
     } catch (error) {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.
@@ -252,7 +261,7 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
     }
   }
 
-  const results = await drainAll(options.db, stop ? { shouldStop: stop } : {});
+  const results = await drainAll(options.db, scope);
 
   /**
    * NOT cut short by `shouldStop`. The drain for these organizations has

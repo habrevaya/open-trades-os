@@ -204,12 +204,12 @@ export async function tickOne(db: Database, row: DueRow, now: Date): Promise<Tic
  */
 export async function tick(
   db: Database,
-  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<TickResult[]> {
   const now = options.now ?? new Date();
-  const rows = await db.execute<DueRow>(
+  const rows = within(options.only, await db.execute<DueRow>(
     sql`select * from app.scheduled_workflows(${options.limit ?? 200})`,
-  );
+  ));
 
   const results: TickResult[] = [];
   for (const row of rows) {
@@ -278,12 +278,12 @@ export async function resumeOne(
 
 export async function resumeDue(
   db: Database,
-  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<ResumeResult[]> {
   const now = options.now ?? new Date();
-  const rows = await db.execute<DueRunRow>(
+  const rows = within(options.only, await db.execute<DueRunRow>(
     sql`select * from app.due_workflow_runs(${options.limit ?? 200})`,
-  );
+  ));
 
   const results: ResumeResult[] = [];
   for (const row of rows) {
@@ -306,4 +306,15 @@ export async function resumeDue(
     }
   }
   return results;
+}
+
+/**
+ * The rows that belong to the companies named, or all of them when none are.
+ *
+ * `only` is never set by the worker. It exists for a pass that must not touch
+ * companies it was not asked about, which in practice is a test sharing its
+ * database with every other test file; see `only` on `drainAll`.
+ */
+export function within<T extends { organization_id: string }>(only: readonly string[] | undefined, rows: T[]): T[] {
+  return only ? rows.filter((row) => only.includes(row.organization_id)) : rows;
 }
