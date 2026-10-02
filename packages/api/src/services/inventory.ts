@@ -4,6 +4,7 @@ import { inventory as inv, money as m } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 import { nextNumber } from "./jobs";
 
 /**
@@ -787,13 +788,23 @@ export async function createVendor(
     const name = input.name.trim();
     if (name === "") throw new ConflictError("A vendor needs a name.");
 
-    const [row] = await tx.insert(schema.vendor).values({
-      organizationId: ctx.actor.organizationId,
-      name,
-      accountNumber: input.accountNumber?.trim() || null,
-      email: input.email?.trim() || null,
-      phone: input.phone?.trim() || null,
-    }).returning();
+    /**
+     * One vendor per name, because a purchase order and a bill both find a
+     * supplier by it, and two rows for "Ferguson" split a company's spend in
+     * half on every report. `services/duplicates.ts`.
+     */
+    const [row] = await refusingDuplicate(
+      "vendor_name_idx",
+      `${name} is already a vendor here. Two rows for one supplier split their spend across every `
+      + `report, so open the one that exists rather than adding a second.`,
+      () => tx.insert(schema.vendor).values({
+        organizationId: ctx.actor.organizationId,
+        name,
+        accountNumber: input.accountNumber?.trim() || null,
+        email: input.email?.trim() || null,
+        phone: input.phone?.trim() || null,
+      }).returning(),
+    );
 
     await audit(tx, ctx, "vendor.created", "vendor", row!.id, null, row!);
     return { id: row!.id, name: row!.name };

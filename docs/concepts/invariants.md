@@ -119,6 +119,13 @@ further and required the raw message `/duplicate key/`, which wrote the defect
 down as the expected behaviour. A refusal is asserted on its class and on the
 words a person reads.
 
+**Every unique index is classified.** `duplicate-refusals.test.ts` holds a census:
+each `uniqueIndex` in the schema is either refused in words, naming the service
+and the text that has to be there, or left to the database with a reason. Both
+directions fail, so a new index has to be decided rather than discovered, and a
+refusal cannot be deleted without the test naming it. Eight of them were wrong
+when the census was first taken, which is why it exists.
+
 ## Boundaries
 
 **`packages/core` never imports from `packages/api` or any app.** Domain logic

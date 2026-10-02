@@ -7,6 +7,7 @@ import {
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 
 /**
  * CUSTOM ROLES
@@ -108,15 +109,25 @@ export async function create(ctx: ServiceContext, input: RoleInput) {
   return guardedWrite(ctx, "role:write", async (tx) => {
     assertWithinAuthority(ctx, definition);
 
-    const [created] = await tx.insert(schema.role).values({
-      organizationId: ctx.actor.organizationId,
-      name: input.name,
-      description: input.description ?? null,
-      basedOn: basedOn(input.basedOn),
-      permissions: [...definition.permissions],
-      scopes: (definition.scopes ?? {}) as Record<string, string>,
-      createdByUserId: ctx.actor.userId,
-    }).returning();
+    /**
+     * One role per name. Two roles called "Senior tech" is a screen where
+     * somebody assigns a person to the wrong set of permissions and cannot see
+     * that they did. `services/duplicates.ts`.
+     */
+    const [created] = await refusingDuplicate(
+      "role_name_idx",
+      `There is already a role called "${input.name}". Two roles with one name is how somebody `
+      + `grants the wrong permissions and cannot see that they did.`,
+      () => tx.insert(schema.role).values({
+        organizationId: ctx.actor.organizationId,
+        name: input.name,
+        description: input.description ?? null,
+        basedOn: basedOn(input.basedOn),
+        permissions: [...definition.permissions],
+        scopes: (definition.scopes ?? {}) as Record<string, string>,
+        createdByUserId: ctx.actor.userId,
+      }).returning(),
+    );
 
     await audit(tx, ctx, "role.created", "role", created!.id, null, created);
     return created!;

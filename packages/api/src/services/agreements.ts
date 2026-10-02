@@ -4,6 +4,7 @@ import { ledger, money as m, time, recurrence } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 import { nextNumber } from "./jobs";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
@@ -186,23 +187,33 @@ export async function createPlan(ctx: ServiceContext, input: PlanInput) {
       throw new ConflictError("A plan cannot include a negative number of visits.");
     }
 
-    const [plan] = await tx.insert(schema.agreementPlan).values({
-      organizationId: ctx.actor.organizationId,
-      name: input.name.trim(),
-      code: input.code ?? null,
-      description: input.description ?? null,
-      price: m.toString(usd(input.price)),
-      billingFrequency: input.billingFrequency,
-      termMonths: input.termMonths,
-      autoRenews: input.autoRenews ?? true,
-      includedVisitsPerTerm: input.includedVisitsPerTerm,
-      visitAnchorMonths: input.visitAnchorMonths ?? [],
-      visitIntervalDays: input.visitIntervalDays ?? null,
-      discountRate: input.discountRate ?? null,
-      priorityDispatch: input.priorityDispatch ?? false,
-      waivesDiagnosticFee: input.waivesDiagnosticFee ?? false,
-      benefits: input.benefits ?? [],
-    }).returning();
+    /**
+     * The plan code is unique per company and is a thing somebody types. A
+     * second plan on one code means which price a member is on is decided by
+     * whichever row a query read first. `services/duplicates.ts`.
+     */
+    const [plan] = await refusingDuplicate(
+      "agreement_plan_code_idx",
+      `"${input.code ?? ""}" is already the code of another plan. One code is one plan, because `
+      + `the code is what an invoice line and a renewal both look it up by.`,
+      () => tx.insert(schema.agreementPlan).values({
+        organizationId: ctx.actor.organizationId,
+        name: input.name.trim(),
+        code: input.code ?? null,
+        description: input.description ?? null,
+        price: m.toString(usd(input.price)),
+        billingFrequency: input.billingFrequency,
+        termMonths: input.termMonths,
+        autoRenews: input.autoRenews ?? true,
+        includedVisitsPerTerm: input.includedVisitsPerTerm,
+        visitAnchorMonths: input.visitAnchorMonths ?? [],
+        visitIntervalDays: input.visitIntervalDays ?? null,
+        discountRate: input.discountRate ?? null,
+        priorityDispatch: input.priorityDispatch ?? false,
+        waivesDiagnosticFee: input.waivesDiagnosticFee ?? false,
+        benefits: input.benefits ?? [],
+      }).returning(),
+    );
 
     await audit(tx, ctx, "agreement_plan.created", "agreement_plan", plan!.id, null, plan);
     return plan!;

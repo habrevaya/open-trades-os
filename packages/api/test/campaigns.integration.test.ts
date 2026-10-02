@@ -280,6 +280,22 @@ run("who the rules select", () => {
       .rejects.toThrow(/at least one rule/);
   });
 
+  it("refuses two live campaigns on one tag as a refusal, not as a crash", async () => {
+    /**
+     * `marketing_campaign_utm_idx` enforced it and nothing turned Postgres's
+     * 23505 into a refusal. The tag is derived from the name unless somebody
+     * supplies one, so a second campaign named like the first collides without
+     * anybody typing a tag at all, and attribution is the whole point of it: two
+     * campaigns sharing one means the booked job six weeks later names neither.
+     * `services/duplicates.ts` has why it is caught rather than pre-checked.
+     */
+    await campaigns.create(owner(), sms({ utmCampaign: "spring-tune-up" }));
+    await expect(campaigns.create(owner(), sms({ utmCampaign: "spring-tune-up" })))
+      .rejects.toThrow(ConflictError);
+    await expect(campaigns.create(owner(), sms({ utmCampaign: "spring-tune-up" })))
+      .rejects.toThrow(/already the tag of a live campaign/);
+  });
+
   it("selects a win back audience and leaves out somebody never served", async () => {
     /**
      * The sharp distinction in `no_job_since`. Read literally, "no completed

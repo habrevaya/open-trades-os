@@ -253,6 +253,14 @@ export async function setMembers(
 
     await tx.delete(schema.crewMember).where(eq(schema.crewMember.crewId, crew.id));
     if (input.members.length > 0) {
+      /**
+       * No duplicate guard here, deliberately. The check above already refuses a
+       * list with the same technician in it twice, with a comment saying exactly
+       * why: "the unique index would refuse this with a message about an index,
+       * a person reads this one". Wrapping the insert as well would be an
+       * unreachable guard, which reads as the reason the insert is safe and is
+       * worse than nothing.
+       */
       await tx.insert(schema.crewMember).values(input.members.map((m) => ({
         organizationId: ctx.actor.organizationId,
         crewId: crew.id,

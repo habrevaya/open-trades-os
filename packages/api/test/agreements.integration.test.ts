@@ -91,6 +91,29 @@ const PLAN = {
   includedVisitsPerTerm: 2,
 };
 
+run("defining a plan", () => {
+  it("refuses a second plan on one code as a refusal, not as a crash", async () => {
+    /**
+     * `agreement_plan_code_idx` enforced it and nothing turned Postgres's 23505
+     * into a refusal, so the caller got a server error. The code is what an
+     * invoice line and a renewal both look a plan up by, so two plans sharing one
+     * means which price a member is on is decided by whichever row was read
+     * first. `services/duplicates.ts` has why it is caught rather than checked.
+     */
+    await agreements.createPlan(owner(), { ...PLAN, code: "COMFORT" });
+    await expect(agreements.createPlan(owner(), {
+      ...PLAN, name: "Comfort Club II", code: "COMFORT",
+    })).rejects.toThrow(ConflictError);
+    await expect(agreements.createPlan(owner(), {
+      ...PLAN, name: "Comfort Club III", code: "COMFORT",
+    })).rejects.toThrow(/already the code of another plan/);
+
+    /** A plan with no code at all is unaffected: most companies never set one. */
+    await agreements.createPlan(owner(), { ...PLAN, name: "Basic" });
+    await agreements.createPlan(owner(), { ...PLAN, name: "Basic too" });
+  });
+});
+
 const sellOne = async (over: Partial<Parameters<typeof agreements.sell>[1]> = {}) => {
   const plan = await agreements.createPlan(owner(), PLAN);
   return agreements.sell(owner(), {

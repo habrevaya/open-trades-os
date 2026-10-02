@@ -7,6 +7,7 @@ import * as email from "./email";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { refusingDuplicate } from "./duplicates";
 
 /**
  * SENDING TO THE LIST THE COMPANY ALREADY OWNS
@@ -346,17 +347,29 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
       await assertCarrierCampaign(tx, ctx.actor.organizationId, input.messagingCampaignId);
     }
 
-    const [row] = await tx.insert(schema.marketingCampaign).values({
-      organizationId: ctx.actor.organizationId,
-      name,
-      channel: input.channel,
-      audience: verdict.rules as unknown as Record<string, unknown>[],
-      body: input.body.trim(),
-      subject: input.channel === "email" ? (input.subject?.trim() ?? null) : null,
-      utmCampaign,
-      messagingCampaignId: input.messagingCampaignId ?? null,
-      createdByUserId: ctx.actor.userId === NIL ? null : ctx.actor.userId,
-    }).returning();
+    /**
+     * The UTM tag is unique among live campaigns, and it is derived from the name
+     * unless somebody supplies one, so a second campaign named like the first
+     * collides without anybody typing a tag at all. Attribution is the whole
+     * point of the tag: two campaigns sharing one means the booked job six weeks
+     * later names neither. `services/duplicates.ts`.
+     */
+    const [row] = await refusingDuplicate(
+      "marketing_campaign_utm_idx",
+      `"${utmCampaign}" is already the tag of a live campaign. Two campaigns on one tag means a `
+      + `booked job can be attributed to neither, so give this one a different name or set its tag.`,
+      () => tx.insert(schema.marketingCampaign).values({
+        organizationId: ctx.actor.organizationId,
+        name,
+        channel: input.channel,
+        audience: verdict.rules as unknown as Record<string, unknown>[],
+        body: input.body.trim(),
+        subject: input.channel === "email" ? (input.subject?.trim() ?? null) : null,
+        utmCampaign,
+        messagingCampaignId: input.messagingCampaignId ?? null,
+        createdByUserId: ctx.actor.userId === NIL ? null : ctx.actor.userId,
+      }).returning(),
+    );
 
     await audit(tx, ctx, "campaign.create", "marketing_campaign", row!.id, null, row);
     return viewWithin(tx, row!);

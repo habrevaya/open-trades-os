@@ -242,6 +242,18 @@ run("a custom role", () => {
     })).rejects.toThrow(/Unknown permissions/);
   });
 
+  it("refuses a second role on one name as a refusal, not as a crash", async () => {
+    /**
+     * `role_name_idx` enforced it and nothing turned Postgres's 23505 into a
+     * refusal. Two roles called "Senior tech" is a screen where somebody assigns
+     * a person to the wrong set of permissions and cannot see that they did.
+     * `services/duplicates.ts` has why it is caught rather than pre-checked.
+     */
+    await roles.create(owner(), { name: "Yard Lead", permissions: ["job:read"] });
+    await expect(roles.create(owner(), { name: "Yard Lead", permissions: ["customer:read"] }))
+      .rejects.toThrow(/already a role called "Yard Lead"/);
+  });
+
   it("is created by an owner and replaces the preset when assigned", async () => {
     const created = await roles.create(owner(), {
       name: "Branch Manager",

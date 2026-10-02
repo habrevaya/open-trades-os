@@ -365,6 +365,19 @@ run("buying more of it", () => {
     vendorId = vendor.id;
   });
 
+  it("refuses a second vendor on one name as a refusal, not as a crash", async () => {
+    /**
+     * `vendor_name_idx` enforced it and nothing turned Postgres's 23505 into a
+     * refusal. Two rows for "Ferguson" split that supplier's spend across every
+     * report, which is the kind of wrong somebody finds at year end.
+     * `services/duplicates.ts` has why it is caught rather than pre-checked.
+     */
+    await expect(inventory.createVendor(owner(), { name: "Gulf Coast Supply" }))
+      .rejects.toThrow(ConflictError);
+    await expect(inventory.createVendor(owner(), { name: "Gulf Coast Supply" }))
+      .rejects.toThrow(/is already a vendor here/);
+  });
+
   it("creates an order a vendor could actually be sent", async () => {
     const order = await inventory.createPurchaseOrder(owner(), {
       vendorId, defaultLocationId: warehouse,
