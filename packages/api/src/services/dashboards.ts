@@ -37,6 +37,13 @@ export interface TileResult {
   dimension?: { key: string; label: string; type: string; sortPrefix?: boolean };
   result?: ReportResult;
   /**
+   * The report the tile drew, so a bar or a number can open the records
+   * behind it. Carried on the result rather than looked up again by the
+   * screen, because a saved dashboard's tile points at a report somebody may
+   * have edited since, and the drill has to open what was DRAWN.
+   */
+  definition?: reporting.ReportDefinition;
+  /**
    * Why this tile has nothing on it.
    *
    * Only ever a broken tile. A tile the reader may not run is gone from the
@@ -121,6 +128,7 @@ async function drawTile(
           }
         : {}),
       result,
+      definition: entry.tile.definition,
     };
   } catch (error) {
     /**

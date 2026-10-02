@@ -302,7 +302,23 @@ export interface QueueEmailInput {
    */
   unsubscribeUrl?: string | undefined;
   headers?: Record<string, string> | undefined;
+  /**
+   * Files that go with it, kept beside the message so a retry sends the same
+   * file the first attempt would have. A few hundred kilobytes at most: this
+   * is a report's CSV, not a photograph library.
+   */
+  attachments?: { filename: string; contentType: string; content: Buffer }[] | undefined;
 }
+
+/**
+ * A ceiling on what one email carries, well under what every provider takes.
+ *
+ * Resend refuses a message over 40MB and most receiving servers refuse far
+ * less; a spreadsheet of a thousand report rows is tens of kilobytes. Anything
+ * near this is a mistake in the calling code, and saying so here is better
+ * than a provider refusing it at three in the morning.
+ */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 export type QueueOutcome =
   | { queued: true; messageId: string; conversationId: string }
@@ -356,6 +372,16 @@ export function queue(ctx: ServiceContext, input: QueueEmailInput): Promise<Queu
         + "and is what anyone reading in plain text receives.",
       );
     }
+    const files = input.attachments ?? [];
+    const bytes = files.reduce((total, file) => total + file.content.length, 0);
+    if (bytes > MAX_ATTACHMENT_BYTES) {
+      throw new ConflictError("The files on this email are too large to send. Keep them under 5MB together.");
+    }
+    if (files.some((file) => file.filename.trim() === "" || /[\\/]/.test(file.filename))) {
+      // A path in a filename is a file somebody's mail client saves somewhere it should not.
+      throw new ConflictError("An attachment needs a plain file name.");
+    }
+
     if (purpose === "marketing" && !input.unsubscribeUrl) {
       /**
        * Not a style rule. CAN-SPAM requires a working opt out on commercial
@@ -421,6 +447,17 @@ export function queue(ctx: ServiceContext, input: QueueEmailInput): Promise<Queu
     }).returning({ id: schema.message.id });
 
     const message = row!;
+
+    if (files.length > 0) {
+      await tx.insert(schema.messageAttachment).values(files.map((file) => ({
+        organizationId: ctx.actor.organizationId,
+        messageId: message.id,
+        fileName: file.filename.trim(),
+        contentType: file.contentType,
+        content: file.content,
+        sizeBytes: file.content.length,
+      })));
+    }
 
     await tx.update(schema.conversation).set({
       lastMessageAt: new Date(),
@@ -582,6 +619,15 @@ export async function flush(
     const replyTo = stored["Reply-To"];
     delete stored["Reply-To"];
 
+    const files = await guardedRead(ctx, "message:read", async (tx) =>
+      tx.select({
+        filename: schema.messageAttachment.fileName,
+        contentType: schema.messageAttachment.contentType,
+        content: schema.messageAttachment.content,
+      }).from(schema.messageAttachment)
+        .where(eq(schema.messageAttachment.messageId, row.id))
+        .orderBy(asc(schema.messageAttachment.createdAt)));
+
     const result = await deps.provider.send({
       to: row.to,
       from: row.from,
@@ -590,6 +636,7 @@ export async function flush(
       ...(row.bodyHtml ? { html: row.bodyHtml } : {}),
       ...(replyTo ? { replyTo } : {}),
       ...(Object.keys(stored).length > 0 ? { headers: stored } : {}),
+      ...(files.length > 0 ? { attachments: files } : {}),
       reference: row.id,
     });
 

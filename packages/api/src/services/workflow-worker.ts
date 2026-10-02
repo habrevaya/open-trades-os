@@ -5,6 +5,7 @@ import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
+import { deliverDue } from "./delivery-schedules";
 
 /**
  * THE WORKER
@@ -229,6 +230,14 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * The clock first, so anything it fires is in the log before this pass
    * reads it and goes out on the same pass rather than the next.
    */
+  /**
+   * Companies whose scheduled reports or statements went into the outbox on
+   * this pass. They may have had no events, and the hook below only runs for
+   * companies that did, so without this a Monday report would sit queued
+   * until that company next did something.
+   */
+  const delivered = new Set<string>();
+
   if (options.schedules !== false) {
     try {
       await tick(options.db, stop ? { shouldStop: stop } : {});
@@ -241,6 +250,17 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       // every automation in the product.
       console.error("[worker] schedules:", (error as Error).message);
     }
+    /**
+     * Reports and statements on a clock. Its own try, so a broken workflow
+     * schedule cannot hold up the Monday reports, and the other way round.
+     */
+    try {
+      for (const tick of await deliverDue(options.db, stop ? { shouldStop: stop } : {})) {
+        if (tick.queued) delivered.add(tick.organizationId);
+      }
+    } catch (error) {
+      console.error("[worker] deliveries:", (error as Error).message);
+    }
   }
 
   const results = await drainAll(options.db, stop ? { shouldStop: stop } : {});
@@ -252,14 +272,17 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * in the outbox until that company happens to produce another event, which
    * on a quiet afternoon is hours. The budget is set with room for it.
    */
-  for (const result of results) {
-    if (result.events === 0) continue;
+  const sending = new Set([
+    ...results.filter((result) => result.events > 0).map((result) => result.organizationId),
+    ...delivered,
+  ]);
+  for (const organizationId of sending) {
     try {
-      await options.afterDrain?.(result.organizationId);
+      await options.afterDrain?.(organizationId);
     } catch (error) {
       // One organization's carrier being down must not stop the loop for
       // everybody else. The messages stay queued and go on the next pass.
-      console.error(`[worker] outbox ${result.organizationId}:`, (error as Error).message);
+      console.error(`[worker] outbox ${organizationId}:`, (error as Error).message);
     }
   }
 
