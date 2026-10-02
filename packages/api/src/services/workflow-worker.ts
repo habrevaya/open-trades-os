@@ -162,10 +162,19 @@ export async function drainAll(db: Database, options: {
   organizations?: number;
   perOrganization?: number;
   shouldStop?: () => boolean;
+  /**
+   * Only these companies, still discovered rather than assumed: the ones
+   * named that have nothing unread are skipped exactly as they would be in a
+   * full pass. The worker never sets it. It is for a pass that must not touch
+   * tenants it was not asked about, which in practice is a test sharing its
+   * database with every other test file.
+   */
+  only?: readonly string[];
 } = {}): Promise<DrainResult[]> {
+  const only = options.only ? sql`${`{${options.only.join(",")}}`}::uuid[]` : sql`null::uuid[]`;
   const rows = await db.execute<{ organization_id: string }>(
     sql`select organization_id from app.pending_event_organizations(
-          ${CONSUMER}, ${options.organizations ?? 50})`,
+          ${CONSUMER}, ${options.organizations ?? 50}, ${only})`,
   );
 
   const results: DrainResult[] = [];

@@ -787,8 +787,21 @@ $$;
 
 grant authenticated to background;
 
+-- `p_only` narrows the search to the companies named, and null (the default,
+-- and what the worker passes) searches all of them. It exists for a pass that
+-- must not touch tenants it was not asked about: a test sharing its database
+-- with a hundred others, or an operator draining one company by hand. Without
+-- it, the only way to prove discovery was to drain every company in the
+-- database, which in a shared test database ran other files' workflows under
+-- them and took most of five seconds doing it.
+--
+-- The two argument version is dropped first because adding a defaulted
+-- argument with `create or replace` makes an overload rather than a
+-- replacement, and a call with two arguments is then ambiguous.
+drop function if exists app.pending_event_organizations(text, int);
+
 create or replace function app.pending_event_organizations(
-  p_consumer text, p_limit int default 50
+  p_consumer text, p_limit int default 50, p_only uuid[] default null
 ) returns table (organization_id uuid, pending integer)
   language sql stable security definer set search_path = public, pg_temp
   as $$
@@ -797,6 +810,7 @@ create or replace function app.pending_event_organizations(
     left join public.event_cursor c
       on c.organization_id = e.organization_id and c.consumer = p_consumer
     where e.sequence > coalesce(c.last_sequence, 0)
+      and (p_only is null or e.organization_id = any(p_only))
       -- A suspended company's events wait, unread, rather than being skipped
       -- past. See docs/self-hosting/operator-api.md for what that means when
       -- it is resumed.
@@ -811,8 +825,8 @@ create or replace function app.pending_event_organizations(
     limit p_limit
   $$;
 
-revoke all on function app.pending_event_organizations(text, int) from public;
-grant execute on function app.pending_event_organizations(text, int) to background;
+revoke all on function app.pending_event_organizations(text, int, uuid[]) from public;
+grant execute on function app.pending_event_organizations(text, int, uuid[]) to background;
 
 -- =========================================================================
 -- WHICH COMPANIES HAVE SECRETS UNDER AN OLD KEY
