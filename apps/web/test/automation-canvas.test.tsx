@@ -22,6 +22,27 @@ const cond = { all: [{ path: "invoice.total", op: "gt", value: 1000 }] };
  * what it posts, and the browser test walks the editing.
  */
 describe("the automation canvas", () => {
+  it("offers the company's reports and people on a step that emails a report", () => {
+    const report: StepOption = {
+      kind: "email_report", label: "Run and email a report", description: "Emails a report.",
+      permissions: ["report:read", "message:send"], allowed: true,
+      choices: {
+        reports: [{ value: "builtIn:ar-aging", label: "Receivables by age" }],
+        people: [{ userId: "u1", name: "Rosa Owner" }],
+        periods: [{ key: "last_month", label: "The month before" }],
+      },
+    };
+    const html = renderToStaticMarkup(
+      <Canvas steps={[...steps, report]} triggerSummary="On a clock"
+              initial={[{ kind: "email_report", config: { report: "builtIn:ar-aging", userIds: ["u1"], addresses: ["books@acct.test"] } }]} />,
+    );
+    for (const text of ["Run and email a report", "Receivables by age", "Rosa Owner", "The month before", "books@acct.test"]) {
+      expect(html).toContain(text);
+    }
+    expect(html).toMatch(/<option value="builtIn:ar-aging" selected="">/);
+    expect(html).toContain('aria-label="step 1, Run and email a report, outside addresses"');
+  });
+
   it("draws the trigger at the top, so the flow starts somewhere", () => {
     const html = renderToStaticMarkup(
       <Canvas steps={steps} triggerSummary="When something happens" />,

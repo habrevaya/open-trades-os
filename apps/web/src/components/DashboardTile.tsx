@@ -2,6 +2,7 @@ import { Money } from "@opentradesos/ui";
 import { dashboard } from "@opentradesos/core";
 import type { dashboards } from "@opentradesos/api/services";
 import { enumText } from "@/lib/labels";
+import { drillHref } from "@/lib/drill";
 
 type TileResult = dashboards.TileResult;
 
@@ -59,19 +60,42 @@ export function tileSpan(width: number): string {
     ?? "lg:col-span-6";
 }
 
-export function DashboardTile({ tile }: { tile: TileResult }) {
+/** Where one row of a tile opens, or nothing when the tile carries no report. */
+type Drill = ((row: Row) => string) | null;
+type Row = NonNullable<TileResult["result"]>["rows"][number];
+
+export function DashboardTile({ tile, back }: {
+  tile: TileResult;
+  /**
+   * The dashboard this tile is on, which the records behind a number link
+   * back to. A tile is a report, so every number on it opens the records that
+   * make it, the same as on the reports screen.
+   */
+  back: string;
+}) {
+  const drill: Drill = tile.definition
+    ? (row) => drillHref(tile.definition!, row, { title: tile.title, back })
+    : null;
   return (
     <section className="h-full rounded-lg border border-steel-200 bg-canvas p-4">
       <h2 className="text-sm font-medium text-ink-700">{tile.title}</h2>
       {tile.caption && <p className="mt-0.5 text-xs text-ink-500">{tile.caption}</p>}
       <div className="mt-3">
-        <Body tile={tile} />
+        <Body tile={tile} drill={drill} />
       </div>
     </section>
   );
 }
 
-function Body({ tile }: { tile: TileResult }) {
+/** A link when there is somewhere to go, and the plain content when there is not. */
+function Open({ href, label, className, children }: {
+  href: string | null; label: string; className?: string; children: React.ReactNode;
+}) {
+  if (!href) return <>{children}</>;
+  return <a href={href} aria-label={label} className={className ?? "hover:underline"}>{children}</a>;
+}
+
+function Body({ tile, drill }: { tile: TileResult; drill: Drill }) {
   if (tile.problem) {
     /**
      * A broken tile says so in its own place rather than disappearing. It
@@ -99,7 +123,9 @@ function Body({ tile }: { tile: TileResult }) {
     const value = rows[0]?.[measure.key] ?? (measure.type === "money" ? "0" : 0);
     return (
       <p className="text-3xl font-semibold tracking-[-0.02em]">
-        <Value type={measure.type} value={value} />
+        <Open href={drill ? drill(rows[0] ?? {}) : null} label={`Open the records behind ${tile.title}`}>
+          <Value type={measure.type} value={value} />
+        </Open>
       </p>
     );
   }
@@ -109,26 +135,29 @@ function Body({ tile }: { tile: TileResult }) {
   const values = rows.map((row) => Math.abs(Number(row[measure.key] ?? 0)));
   const peak = Math.max(...values, 0);
 
-  if (tile.kind === "trend") return <Trend tile={tile} peak={peak} />;
-  return <Bars tile={tile} peak={peak} />;
+  if (tile.kind === "trend") return <Trend tile={tile} peak={peak} drill={drill} />;
+  return <Bars tile={tile} peak={peak} drill={drill} />;
 }
 
 function Nothing() {
   return <p className="py-2 text-sm text-ink-500">Nothing to show yet.</p>;
 }
 
-function Bars({ tile, peak }: { tile: TileResult; peak: number }) {
+function Bars({ tile, peak, drill }: { tile: TileResult; peak: number; drill: Drill }) {
   const measure = tile.measure!;
   return (
     <ul className="space-y-2">
       {(tile.result?.rows ?? []).map((row, index) => {
         const value = Number(row[measure.key] ?? 0);
         const width = dashboard.proportion(Math.abs(value), peak) * 100;
+        const name = label(tile, row[tile.dimension?.key ?? ""] ?? null);
         return (
           <li key={index}>
             <div className="flex items-baseline justify-between gap-3 text-sm">
               <span className="truncate text-ink-700">
-                {label(tile, row[tile.dimension?.key ?? ""] ?? null)}
+                <Open href={drill ? drill(row) : null} label={`Open the records behind ${tile.title}, ${name}`}>
+                  {name}
+                </Open>
               </span>
               <span className="shrink-0 text-ink-900">
                 <Value type={measure.type} value={row[measure.key] ?? null} />
@@ -144,7 +173,7 @@ function Bars({ tile, peak }: { tile: TileResult; peak: number }) {
   );
 }
 
-function Trend({ tile, peak }: { tile: TileResult; peak: number }) {
+function Trend({ tile, peak, drill }: { tile: TileResult; peak: number; drill: Drill }) {
   const measure = tile.measure!;
   const rows = tile.result?.rows ?? [];
   return (
@@ -196,8 +225,15 @@ function Trend({ tile, peak }: { tile: TileResult; peak: number }) {
               Every label, and let them truncate. Showing only the first and
               last is tidier and makes the middle of the chart unreadable,
               which is where somebody points and asks "what month is that".
+              The label is the link to that month's records, because a column
+              a few pixels wide is a poor thing to have to hit with a finger.
             */}
-            {label(tile, row[tile.dimension?.key ?? ""] ?? null)}
+            <Open
+              href={drill ? drill(row) : null}
+              label={`Open the records behind ${tile.title}, ${label(tile, row[tile.dimension?.key ?? ""] ?? null)}`}
+            >
+              {label(tile, row[tile.dimension?.key ?? ""] ?? null)}
+            </Open>
           </span>
         ))}
       </div>

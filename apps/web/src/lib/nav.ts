@@ -135,6 +135,13 @@ export const NAV: NavGroup[] = [
         children: [
           { href: "/invoices", label: "Invoices" },
           { href: "/invoices/credit-notes", label: "Credit notes" },
+          /**
+           * Statements sent, and the monthly run that sends them. Under
+           * Invoices because a statement is the invoices a customer owes on,
+           * added up, and the person who sends one is the person who sends
+           * those.
+           */
+          { href: "/invoices/statements", label: "Statements" },
         ],
       },
       { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
@@ -201,6 +208,12 @@ export const NAV: NavGroup[] = [
            * shows the numbers your trade already said it runs on.
            */
           { href: "/reports/scorecard", label: "Trade scorecard" },
+          /**
+           * Reports that arrive on their own. A child rather than a tab on
+           * each report, because "what am I sending, to whom, and did it go"
+           * is a question about all of them at once.
+           */
+          { href: "/reports/schedules", label: "Schedules" },
           { href: "/reports/new", label: "Build one" },
         ],
       },

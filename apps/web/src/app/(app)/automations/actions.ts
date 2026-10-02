@@ -62,6 +62,20 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
       };
     case "wait":
       return { days: numeric(raw["days"]), hours: numeric(raw["hours"]) };
+    case "email_report": {
+      /**
+       * Which report, to whom, and over which days. People are user ids from the
+       * ticked boxes; outside addresses are one box, split the way people paste
+       * a list. The service checks every one of them against the publisher.
+       */
+      const ids = Array.isArray(raw["userIds"]) ? raw["userIds"] : [];
+      return {
+        report: text("report"),
+        userIds: ids.map((id) => String(id).trim()).filter((id) => id !== ""),
+        addresses: text("addresses").split(/[\s,;]+/).filter((a) => a !== ""),
+        period: text("period") || "all",
+      };
+    }
     case "branch": {
       /**
        * The conditions, rebuilt condition by condition. `all` only, which is what

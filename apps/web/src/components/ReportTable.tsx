@@ -80,9 +80,44 @@ function Cell({
   return <span>{column.sortPrefix ? text.replace(/^\d+\s+/, "") : text}</span>;
 }
 
+/**
+ * The row in words, for the link's accessible name: ", Over 90 days".
+ *
+ * A screen reader on a report hears a column of links, and twelve links all
+ * called "Open the records behind Outstanding" are twelve it cannot tell
+ * apart. Plain text rather than the formatted cell, so a month reads as the
+ * month and a status as its words.
+ */
+export function describeRow(
+  dimensions: ReportResult["columns"],
+  row: ReportResult["rows"][number],
+): string {
+  if (dimensions.length === 0) return "";
+  const parts = dimensions.map((c) => {
+    const value = row[c.key];
+    if (value === null || value === undefined || value === "") return "Not set";
+    const text = String(value);
+    if (c.type === "status") return enumText(text);
+    if (c.type === "date" && /^\d{4}-\d{2}$/.test(text)) return formatMonth(text);
+    return c.sortPrefix ? text.replace(/^\d+\s+/, "") : text;
+  });
+  return `, ${parts.join(", ")}`;
+}
+
 export function ReportTable({
-  result, timezone,
-}: { result: ReportResult; timezone: string }) {
+  result, timezone, drill,
+}: {
+  result: ReportResult;
+  timezone: string;
+  /**
+   * Where each row's records are. Every number on a report is a link to the
+   * records that make it, because a total nobody can open is a total nobody
+   * can check, and an owner who cannot check one opens the invoice list and
+   * adds it up by hand. Absent only where there is no definition to drill
+   * with, which no report screen is.
+   */
+  drill?: ((row: ReportResult["rows"][number]) => string) | undefined;
+}) {
   if (result.rows.length === 0) {
     return (
       <Empty title="Nothing matched">
@@ -126,7 +161,17 @@ export function ReportTable({
               ))}
               {measures.map((c) => (
                 <Td key={c.key} className="text-right">
-                  <Cell column={c} value={row[c.key] ?? null} timezone={timezone} />
+                  {drill ? (
+                    <a
+                      href={drill(row)}
+                      className="underline decoration-steel-300 underline-offset-2 hover:decoration-ink-700"
+                      aria-label={`Open the records behind ${c.label}${describeRow(dimensions, row)}`}
+                    >
+                      <Cell column={c} value={row[c.key] ?? null} timezone={timezone} />
+                    </a>
+                  ) : (
+                    <Cell column={c} value={row[c.key] ?? null} timezone={timezone} />
+                  )}
                 </Td>
               ))}
               {primary && peak > 0 ? (

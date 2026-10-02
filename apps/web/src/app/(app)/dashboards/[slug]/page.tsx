@@ -61,7 +61,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ slug
       <div className="mt-5 grid grid-cols-12 items-start gap-4">
         {tiles.map((tile) => (
           <div key={tile.key} className={`col-span-12 ${tileSpan(tile.width)}`}>
-            <DashboardTile tile={tile} />
+            <DashboardTile tile={tile} back={`/dashboards/${slug}`} />
           </div>
         ))}
       </div>

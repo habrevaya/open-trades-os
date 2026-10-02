@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { reports } from "@opentradesos/api/services";
 import { can, type reporting } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
-import { queryFor } from "@/lib/report-params";
+import { queryFor, rangeQuery } from "@/lib/report-params";
 import { RunView } from "../../RunView";
 
 export const dynamic = "force-dynamic";
@@ -53,12 +53,24 @@ export default async function SavedReportPage({
         <PageHeader
           title={saved.name}
           action={can(user.actor, "report:build") ? (
-            <a
-              href={`/reports/new?${queryFor(definition)}`}
-              className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
-            >
-              Edit a copy
-            </a>
+            <div className="flex flex-wrap gap-2">
+              {/*
+                Beside the report it sends, because "send me this every
+                Monday" is a thought somebody has while looking at it.
+              */}
+              <a
+                href={`/reports/schedules/new?report=${encodeURIComponent(`saved:${id}`)}`}
+                className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
+              >
+                Email on a schedule
+              </a>
+              <a
+                href={`/reports/new?${queryFor(definition)}`}
+                className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100"
+              >
+                Edit a copy
+              </a>
+            </div>
           ) : null}
         />
       </div>
@@ -69,6 +81,8 @@ export default async function SavedReportPage({
         definition={definition}
         action={`/reports/saved/${id}`}
         timezone={user.organizationTimezone}
+        title={saved.name}
+        back={`/reports/saved/${id}${rangeQuery(definition)}`}
       />
     </div>
   );

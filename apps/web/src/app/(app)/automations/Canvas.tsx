@@ -33,6 +33,17 @@ export interface StepOption {
   description: string;
   permissions: string[];
   allowed: boolean;
+  /**
+   * What a step's fields offer, for a step that picks from the company's own
+   * records: the reports and the people a report can be emailed to. Carried on
+   * the option rather than threaded through every lane, because it is a fact
+   * about the step and not about where it sits.
+   */
+  choices?: {
+    reports: { value: string; label: string }[];
+    people: { userId: string; name: string }[];
+    periods: { key: string; label: string }[];
+  } | undefined;
 }
 
 /** A node on the canvas, with an id so React can keep track of a lane. */
@@ -318,6 +329,9 @@ function Card({
       {node.kind === "send_message" && <MessageFields config={node.config} set={set} />}
       {node.kind === "create_task" && <TaskFields config={node.config} set={set} />}
       {node.kind === "wait" && <WaitFields config={node.config} set={set} />}
+      {node.kind === "email_report" && (
+        <ReportFields config={node.config} set={set} choices={option?.choices} name={titled} />
+      )}
 
       {node.kind === "branch" && (
         <div className="mt-3">
@@ -492,6 +506,93 @@ function WaitFields({
         />
       </label>
       <p className="pb-2 text-xs text-ink-500">Stored on the run, so it survives a restart.</p>
+    </div>
+  );
+}
+
+/**
+ * Which report, to whom, over which days.
+ *
+ * The people are everybody in the company, ticked; anybody who could not open
+ * the report themselves is refused by name when the automation is saved,
+ * rather than missing from this list with no explanation. Outside addresses
+ * are one box. The report runs as whoever publishes the automation.
+ */
+function ReportFields({
+  config, set, choices, name,
+}: {
+  config: Record<string, unknown>;
+  set: (c: Record<string, unknown>) => void;
+  choices: StepOption["choices"];
+  name: string;
+}) {
+  const reports = choices?.reports ?? [];
+  const people = choices?.people ?? [];
+  const ticked = Array.isArray(config["userIds"]) ? (config["userIds"] as string[]) : [];
+  const addresses = Array.isArray(config["addresses"])
+    ? (config["addresses"] as string[]).join(", ")
+    : String(config["addresses"] ?? "");
+  return (
+    <div className="mt-3 space-y-3 text-sm">
+      <div className="flex flex-wrap gap-3">
+        <label>
+          <span className="block text-ink-700">Report</span>
+          <select
+            value={String(config["report"] ?? "")}
+            onChange={(e) => set({ ...config, report: e.target.value })}
+            aria-label={`${name}, report`}
+            className={`${FIELD} w-64`}
+          >
+            <option value="">Pick a report</option>
+            {reports.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="block text-ink-700">Which days it covers</span>
+          <select
+            value={String(config["period"] ?? "all")}
+            onChange={(e) => set({ ...config, period: e.target.value })}
+            aria-label={`${name}, which days it covers`}
+            className={`${FIELD} w-56`}
+          >
+            {(choices?.periods ?? []).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <fieldset>
+        <legend className="text-ink-700">Email it to</legend>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+          {people.map((person) => (
+            <label key={person.userId} className="inline-flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={ticked.includes(person.userId)}
+                onChange={(e) => set({
+                  ...config,
+                  userIds: e.target.checked
+                    ? [...ticked, person.userId]
+                    : ticked.filter((id) => id !== person.userId),
+                })}
+              />
+              {person.name}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label className="block">
+        <span className="block text-ink-700">And outside the company</span>
+        <input
+          value={addresses}
+          onChange={(e) => set({ ...config, addresses: e.target.value })}
+          placeholder="books@youraccountant.com"
+          aria-label={`${name}, outside addresses`}
+          className={`${FIELD} w-80`}
+        />
+      </label>
+      <p className="text-xs text-ink-500">
+        It runs as whoever publishes this automation, with what they can see, and goes with a spreadsheet of
+        every row. Each run sends it once.
+      </p>
     </div>
   );
 }
