@@ -143,13 +143,48 @@ describe("money routes are idempotent", () => {
    * retries, and the first version of this test was loose enough to miss a
    * route that could have created a duplicate link on a retry.
    */
+  /**
+   * The one POST whose response cannot be replayed, with the reason.
+   *
+   * Issuing an app token returns a secret and stores only its hash, so there is
+   * nothing on the server to hand back on a retry. The honest options were a
+   * route that lies about being idempotent and a route that says it is not, and
+   * this is the second one. A retry leaves a second token, which an operator can
+   * see in the list by its label and last four characters and revoke; the
+   * alternative, storing the plaintext so a replay could return it, would be a
+   * token a support engineer could read out of a table, which is the property the
+   * whole module is built to avoid.
+   */
+  const NOT_REPLAYABLE: Record<string, string> = {
+    "/v1/apps/{appId}/tokens":
+      "The response is a secret and only its hash is stored, so a replay has "
+      + "nothing to return. A retry leaves a second token, visible in the list "
+      + "by its label and revocable.",
+  };
+
   it("every POST is idempotent, because clients on bad connections retry", () => {
     for (const route of routeList) {
       if (route.method !== "post") continue;
+      if (route.path in NOT_REPLAYABLE) continue;
       expect(
         route.idempotent,
         `POST ${route.path} is not idempotent, so a retry duplicates it`,
       ).toBe(true);
+    }
+  });
+
+  it("every POST excused from that is a real route with a real reason", () => {
+    /**
+     * Both directions, so the list cannot go stale in the reassuring one: an
+     * excused path that is not a route any more, or one that has since been made
+     * idempotent and left here, are each a note the next reader will believe.
+     */
+    for (const [path, reason] of Object.entries(NOT_REPLAYABLE)) {
+      const route = routeList.find((r) => r.path === path && r.method === "post");
+      expect(route, `${path} is a POST route`).toBeDefined();
+      expect(route?.idempotent, `${path} is excused and also claims to be idempotent`)
+        .not.toBe(true);
+      expect(reason.length, `${path} says why`).toBeGreaterThan(60);
     }
   });
 });

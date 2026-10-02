@@ -230,6 +230,14 @@ export const NAV: NavGroup[] = [
           { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
+           * The applications a company has let in, which is a different list from
+           * the integrations this product ships: one is somebody else's software
+           * acting with a grant, the other is an adapter written here. Keeping
+           * them apart matters because the question asked of this one is "what is
+           * reading my customer list", and that is not a question about Stripe.
+           */
+          { href: "/settings/apps", label: "Applications" },
+          /**
            * The group this company is in, and what it has agreed to let the
            * group's operator see. Under Settings because it is a standing
            * decision rather than something anybody opens weekly, and it is the

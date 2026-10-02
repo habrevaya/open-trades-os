@@ -47,6 +47,23 @@ export function ActionForm({
           ? <span role="status" className="text-sm text-ink-700">{state.message ?? done}</span>
           : null}
       </div>
+      {state?.secret ? (
+        <div className="rounded border border-amber-700 bg-amber-tint p-3">
+          <p className="text-sm font-medium text-ink-900">{state.secret.caption}</p>
+          {/*
+            Selectable text rather than a link. An anchor whose href is a
+            credential leaks it into history, into a `Referer` and into every
+            prefetcher that walks the page, and `aria-label` names it so a screen
+            reader does not read a wall of base64 with no idea what it is.
+          */}
+          <code
+            aria-label="The token, which is not shown again"
+            className="mt-1.5 block break-all select-all font-mono text-sm text-ink-900"
+          >
+            {state.secret.value}
+          </code>
+        </div>
+      ) : null}
       {state?.link ? (
         <p className="text-sm">
           <span className="text-ink-500">Link: </span>

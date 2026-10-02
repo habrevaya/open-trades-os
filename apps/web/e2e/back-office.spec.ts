@@ -773,3 +773,64 @@ test("Service area: a territory is declared, an overlapping one is refused, and 
   await create.click();
   await expect(table.getByRole("row").filter({ hasText: `South ${run}` })).toContainText(code);
 });
+
+test("Applications: an app is let in, issued a credential once, and revoked", async ({ owner }) => {
+  /**
+   * The service could do all of this and nothing could reach it, so this walks the
+   * surface rather than the arithmetic. Three things it proves that a render test
+   * cannot: the multiple select posts a grant the service accepts, the token comes
+   * back in the response and is shown exactly once, and the list afterwards says
+   * the app is connected rather than merely active.
+   */
+  const name = `Neighbrium ${run}`;
+
+  await owner.goto("/settings/apps");
+  await expect(owner.getByRole("heading", { level: 1, name: "Applications" })).toBeVisible();
+
+  await owner.getByLabel("Name", { exact: true }).fill(name);
+  await owner.getByLabel("Publisher").fill("Neighbrium, Inc.");
+  await owner.getByLabel("What it may do").selectOption(["customer:read", "booking:read"]);
+  await owner.getByLabel("Scope for customer").selectOption("all");
+  await owner.getByRole("button", { name: "Install and approve" }).click();
+
+  const card = owner.locator("section").filter({ hasText: name }).first();
+  await expect(card).toContainText("No credential");
+  await expect(card).toContainText("Approved, and nothing can call us as it yet");
+  /** The grant in full, which is what somebody would object to. */
+  await expect(card).toContainText("customer:read");
+  await expect(card).toContainText("booking:read");
+
+  /** A credential, shown once, as text rather than as a link. */
+  await owner.getByLabel(`Label for a new credential for ${name}`).fill("nightly sync");
+  await owner.getByLabel(`Days a new credential for ${name} lasts`).fill("30");
+  await owner.locator("form").filter({ has: owner.getByLabel(`Label for a new credential for ${name}`) })
+    .getByRole("button", { name: "Issue a credential" }).click();
+
+  const secret = owner.getByLabel("The token, which is not shown again");
+  await expect(secret).toBeVisible();
+  const token = (await secret.textContent()) ?? "";
+  expect(token).toMatch(/^ots_/);
+  await expect(owner.getByText(/Copy this now/)).toBeVisible();
+  /**
+   * And it is not an anchor anywhere on the page. An href carrying a credential
+   * leaks it into history and into a Referer.
+   */
+  await expect(owner.locator(`a[href*="${token}"]`)).toHaveCount(0);
+
+  /** The list now says connected, and shows the last four rather than the token. */
+  await owner.reload();
+  const again = owner.locator("section").filter({ hasText: name }).first();
+  await expect(again).toContainText("Connected");
+  await expect(again).toContainText("nightly sync");
+  await expect(again).toContainText(token.slice(-4));
+  await expect(owner.getByText(token, { exact: true })).toHaveCount(0);
+
+  /** Turning it off keeps the row and the reason. */
+  await again.getByLabel(`Why ${name} is being turned off`).fill("Trial over");
+  await again.getByRole("button", { name: "Turn off" }).click();
+  const off = owner.locator("section").filter({ hasText: name }).first();
+  await expect(off).toContainText("Revoked");
+  await expect(off).toContainText("Trial over");
+  /** And its credential went with it. */
+  await expect(off).toContainText("Revoked", { timeout: 5000 });
+});

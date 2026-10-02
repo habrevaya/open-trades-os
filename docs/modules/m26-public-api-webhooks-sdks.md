@@ -156,10 +156,13 @@ to retry.
 There is no SDK in any language, despite the module's name: what exists is the
 OpenAPI document a generator can be pointed at.
 
-More seriously, a connected app cannot be installed. The service has install,
-update, revoke, token issue and token revoke, all guarded and tested, and none of
-them has a route or a screen, so the only app route is the one an app calls to
-describe itself. An owner cannot approve an app, issue it a token, see which apps
-hold one or revoke one. `docs/concepts/connected-apps.md` describes this as the way a
-third party integrates and that path is currently unreachable, which makes it the
-largest single gap in this module.
+An app cannot ask to be installed. Installing and approving are one call made by
+the operator, and the pending status the schema carries is written by nothing, so
+there is no consent flow where a third party requests a grant and somebody
+approves it. That is the half of `docs/concepts/connected-apps.md` that is still
+a design.
+
+A webhook's delivery history is not readable. An endpoint reports its position in
+the event log and how many times it has failed in a row, and the individual
+attempts and their responses are not kept, so an integrator debugging a receiver
+is reading their own logs rather than ours. Nothing replays a delivery.

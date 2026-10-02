@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
   canDefineRole, isScope, ALL_PERMISSIONS, SCOPED_RESOURCES, effectiveScope, permissionsFor,
@@ -89,9 +89,99 @@ function assertWithinAuthority(ctx: ServiceContext, definition: RoleDefinition):
 export const hashToken = (token: string): string =>
   createHash("sha256").update(token).digest("hex");
 
-export async function list(ctx: ServiceContext) {
-  return guardedRead(ctx, "settings:read", async (tx) =>
-    tx.select().from(schema.connectedApp).orderBy(schema.connectedApp.name));
+export interface TokenView {
+  id: string;
+  label: string | null;
+  /** The last four characters. Enough to tell two apart, not enough to use. */
+  hint: string | null;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  /** Computed against the clock, never stored. See `AppView.live`. */
+  expired: boolean;
+}
+
+export interface AppView {
+  id: string;
+  name: string;
+  publisher: string | null;
+  description: string | null;
+  homepageUrl: string | null;
+  status: string;
+  permissions: string[];
+  scopes: Record<string, string>;
+  approvedAt: string | null;
+  revokedAt: string | null;
+  revokedReason: string | null;
+  tokens: TokenView[];
+  /**
+   * Whether anything can actually call us as this app right now.
+   *
+   * DERIVED, and the alternative is the failure this answer exists to prevent.
+   * An app is reachable when its status is active AND it holds a token that is
+   * neither revoked nor past its expiry, and expiry moves on its own: a screen
+   * reading `status = 'active'` would tell an operator an integration is
+   * connected on the morning its last token lapsed, which is the morning
+   * somebody's nightly sync stopped and nobody was told.
+   */
+  live: boolean;
+}
+
+const asDay = (value: Date | null): string | null => value?.toISOString() ?? null;
+
+/**
+ * Every app, with its credentials.
+ *
+ * One query per table rather than a join, because an app with four tokens would
+ * otherwise arrive as four rows the caller has to fold, and the fold is where a
+ * screen loses a token.
+ */
+export async function list(ctx: ServiceContext): Promise<AppView[]> {
+  return guardedRead(ctx, "settings:read", async (tx) => {
+    const apps = await tx.select().from(schema.connectedApp)
+      .orderBy(schema.connectedApp.name);
+    if (apps.length === 0) return [];
+
+    const tokens = await tx.select().from(schema.appToken)
+      .where(inArray(schema.appToken.appId, apps.map((app) => app.id)))
+      .orderBy(desc(schema.appToken.createdAt));
+
+    const now = Date.now();
+    const byApp = new Map<string, TokenView[]>();
+    for (const token of tokens) {
+      const view: TokenView = {
+        id: token.id,
+        label: token.label,
+        hint: token.hint,
+        expiresAt: token.expiresAt.toISOString(),
+        lastUsedAt: asDay(token.lastUsedAt),
+        revokedAt: asDay(token.revokedAt),
+        expired: token.expiresAt.getTime() <= now,
+      };
+      const held = byApp.get(token.appId);
+      if (held) held.push(view); else byApp.set(token.appId, [view]);
+    }
+
+    return apps.map((app) => {
+      const held = byApp.get(app.id) ?? [];
+      return {
+        id: app.id,
+        name: app.name,
+        publisher: app.publisher,
+        description: app.description,
+        homepageUrl: app.homepageUrl,
+        status: app.status,
+        permissions: [...app.permissions],
+        scopes: { ...(app.scopes as Record<string, string>) },
+        approvedAt: asDay(app.approvedAt),
+        revokedAt: asDay(app.revokedAt),
+        revokedReason: app.revokedReason,
+        tokens: held,
+        live: app.status === "active"
+          && held.some((token) => token.revokedAt === null && !token.expired),
+      };
+    });
+  });
 }
 
 /**
@@ -104,6 +194,31 @@ export async function list(ctx: ServiceContext) {
 export async function install(ctx: ServiceContext, input: AppInput) {
   const definition = parse(input);
   return guardedWrite(ctx, "integration:write", async (tx) => {
+    /**
+     * A RETRY INSTALLS NOTHING, which is what the route's `idempotent` flag
+     * claims and what a client on a bad connection does.
+     *
+     * The same shape `billing.create` uses, deliberately rather than a second
+     * invention: a succeeded `integration_event` carrying the key names the row
+     * the first attempt produced, and the replay hands that back. Two answers in
+     * this codebase to "have I already done this" is two chances to get it
+     * wrong, and a duplicate here is a second app with a second grant that an
+     * operator approved once.
+     */
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
+        .from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+          eq(schema.integrationEvent.entityType, "connectedApp"),
+        )).limit(1);
+      if (seen?.entityId) {
+        const [already] = await tx.select().from(schema.connectedApp)
+          .where(eq(schema.connectedApp.id, seen.entityId)).limit(1);
+        if (already) return already;
+      }
+    }
+
     assertWithinAuthority(ctx, definition);
 
     const [app] = await tx.insert(schema.connectedApp).values({
@@ -119,6 +234,15 @@ export async function install(ctx: ServiceContext, input: AppInput) {
       approvedByUserId: ctx.actor.userId,
       approvedAt: new Date(),
     }).returning();
+
+    if (ctx.idempotencyKey) {
+      await tx.insert(schema.integrationEvent).values({
+        organizationId: ctx.actor.organizationId,
+        direction: "inbound", provider: "api", eventType: "app.install",
+        idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+        entityType: "connectedApp", entityId: app!.id,
+      });
+    }
 
     await audit(tx, ctx, "app.installed", "connectedApp", app!.id, null, app);
     return app!;
@@ -174,6 +298,17 @@ export async function revoke(ctx: ServiceContext, input: { id: string; reason?: 
     const [before] = await tx.select().from(schema.connectedApp)
       .where(eq(schema.connectedApp.id, input.id)).limit(1);
     if (!before) throw new NotFoundError("App");
+
+    /**
+     * ALREADY OFF IS A SUCCESS, NOT A CONFLICT.
+     *
+     * A retry after a lost response is the common case, and refusing it reports
+     * a failure for something that worked, which is how an operator ends up
+     * believing an app they revoked is still live. The second call changes
+     * nothing, writes no audit line and does not move `revoked_at`, so the record
+     * keeps saying when it was actually turned off and by whom.
+     */
+    if (before.status === "revoked") return before;
 
     const now = new Date();
     await tx.update(schema.appToken).set({ revokedAt: now })
@@ -254,7 +389,23 @@ export async function revokeToken(ctx: ServiceContext, input: { tokenId: string 
       .set({ revokedAt: new Date() })
       .where(and(eq(schema.appToken.id, input.tokenId), isNull(schema.appToken.revokedAt)))
       .returning({ id: schema.appToken.id });
-    if (revoked.length === 0) throw new NotFoundError("Token");
+
+    if (revoked.length === 0) {
+      /**
+       * NOTHING UPDATED MEANS ONE OF TWO THINGS and they are not the same answer.
+       *
+       * The row does not exist, which is a 404. Or it exists and was already
+       * revoked, which is a retry after a lost response and has to succeed: a
+       * second call reporting failure is how somebody concludes a leaked
+       * credential is still live. The first version of this threw on both,
+       * because the `where` clause could not tell them apart.
+       */
+      const [exists] = await tx.select({ id: schema.appToken.id })
+        .from(schema.appToken).where(eq(schema.appToken.id, input.tokenId)).limit(1);
+      if (!exists) throw new NotFoundError("Token");
+      return;
+    }
+
     await audit(tx, ctx, "app.token_revoked", "appToken", input.tokenId, null, null);
   });
 }
@@ -380,4 +531,50 @@ export async function me(ctx: ServiceContext) {
 
 export const handlers = {
   getAppSelf: (ctx: ServiceContext) => me(ctx),
+
+  listApps: async (ctx: ServiceContext) => ({ apps: await list(ctx) }),
+
+  installApp: async (ctx: ServiceContext, input: AppInput) => ({
+    app: (await install(ctx, input)).id,
+  }),
+
+  updateApp: async (
+    ctx: ServiceContext,
+    input: { id: string; name?: string | undefined; permissions?: string[] | undefined; scopes?: Record<string, string> | undefined },
+  ) => ({
+    app: (await update(ctx, {
+      id: input.id,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.permissions !== undefined ? { permissions: input.permissions } : {}),
+      ...(input.scopes !== undefined ? { scopes: input.scopes } : {}),
+    })).id,
+  }),
+
+  revokeApp: async (ctx: ServiceContext, input: { id: string; reason?: string | undefined }) => {
+    const after = await revoke(ctx, { id: input.id, ...(input.reason ? { reason: input.reason } : {}) });
+    return { app: after.id, status: after.status };
+  },
+
+  /**
+   * The one route in this module whose response is a secret.
+   *
+   * It is returned here and nowhere else, because only the hash is stored. The
+   * contract names it `token` rather than something coy, so nobody writes it to
+   * a log believing it is an identifier.
+   */
+  issueAppToken: (
+    ctx: ServiceContext,
+    input: { appId: string; label?: string | undefined; expiresInDays?: number | undefined },
+  ) => issueToken(ctx, {
+    appId: input.appId,
+    ...(input.label ? { label: input.label } : {}),
+    ...(input.expiresInDays ? { expiresInDays: input.expiresInDays } : {}),
+  }).then(({ token, id, expiresAt }) => ({
+    token, id, expiresAt: expiresAt.toISOString(),
+  })),
+
+  revokeAppToken: async (ctx: ServiceContext, input: { tokenId: string }) => {
+    await revokeToken(ctx, input);
+    return { revoked: true as const };
+  },
 } as const;

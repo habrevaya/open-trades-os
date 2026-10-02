@@ -17,6 +17,20 @@ export type FormState = {
   message?: string;
   /** A link the person is meant to copy and hand on, shown once. */
   link?: string;
+  /**
+   * A SECRET the person has to copy now, because nothing can show it again.
+   *
+   * Separate from `link` and not a shortcut: `link` is rendered as an anchor, and
+   * an anchor whose href is a credential puts that credential in the browser's
+   * history, in the `Referer` header of whatever it is clicked through to, and in
+   * front of every link prefetcher and extension that walks a page. A token is
+   * text to copy, so it is rendered as text.
+   *
+   * `caption` says what it is and that it will not be shown again, beside the
+   * value rather than in a help article, because the one moment somebody will
+   * read that sentence is while the value is on the screen.
+   */
+  secret?: { value: string; caption: string };
 } | null;
 
 /**
@@ -81,8 +95,8 @@ export function refused(form: FormData, error: string): NonNullable<FormState> {
 export async function attempt(form: FormData, run: () => Promise<unknown>): Promise<FormState> {
   try {
     const said = await run();
-    if (said && typeof said === "object" && ("message" in said || "link" in said)) {
-      return { done: true, ...(said as { message?: string; link?: string }) };
+    if (said && typeof said === "object" && ("message" in said || "link" in said || "secret" in said)) {
+      return { done: true, ...(said as { message?: string; link?: string; secret?: { value: string; caption: string } }) };
     }
   } catch (error) {
     const message = refusalOf(error);

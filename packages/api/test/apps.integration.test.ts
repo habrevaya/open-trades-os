@@ -567,3 +567,133 @@ run("an app asking what its token may do", () => {
     expect(status).toBe(401);
   });
 });
+
+/**
+ * THE OPERATOR'S SIDE, WHICH HAD NO ROUTES AND NO SCREEN
+ *
+ * Every test above drives the service directly, which is how this module got to
+ * be complete and unreachable: install, revoke, issue and revoke a token were all
+ * written, guarded and tested, and a company had no way to let an app in. These
+ * are about the surface, and about the three claims it makes that were not true
+ * when the routes were added: a retried install installs once, a second revoke
+ * succeeds, and `live` means somebody can actually call us.
+ */
+run("the list an operator reads", () => {
+  it("shows a credential by label and last four, and never the token", async () => {
+    const app = await install();
+    const { token } = await apps.issueToken(owner(), { appId: app.id, label: "nightly sync" });
+
+    const [view] = await apps.list(owner());
+    expect(view?.name).toBe("Neighbrium");
+    expect(view?.tokens).toHaveLength(1);
+    expect(view?.tokens[0]?.label).toBe("nightly sync");
+    expect(view?.tokens[0]?.hint).toBe(token.slice(-4));
+    /**
+     * The property the whole module is built for. Serialise the view and the
+     * token must not be in it anywhere: not under a key somebody forgot, not
+     * inside the hint, not in a nested row.
+     */
+    expect(JSON.stringify(view)).not.toContain(token);
+  });
+
+  it("says an app with no token is not live, though its status is active", async () => {
+    /**
+     * `status` and reachability are different facts and this is the one that
+     * misleads: an app approved and never issued a credential reads as connected
+     * on a screen that shows the status alone.
+     */
+    const app = await install();
+    const [view] = await apps.list(owner());
+    expect(view?.status).toBe("active");
+    expect(view?.live).toBe(false);
+    expect(app.status).toBe("active");
+  });
+
+  it("says an app whose only token has lapsed is not live", async () => {
+    const app = await install();
+    const { id } = await apps.issueToken(owner(), { appId: app.id });
+    await raw`update public.app_token set expires_at = now() - interval '1 day' where id = ${id}`;
+
+    const [view] = await apps.list(owner());
+    expect(view?.tokens[0]?.expired).toBe(true);
+    expect(view?.tokens[0]?.revokedAt).toBeNull();
+    /** Expiry moves on its own, which is why this is computed and not stored. */
+    expect(view?.live).toBe(false);
+  });
+
+  it("says an app is live once it holds one token that is neither revoked nor lapsed", async () => {
+    const app = await install();
+    await apps.issueToken(owner(), { appId: app.id });
+    const [view] = await apps.list(owner());
+    expect(view?.live).toBe(true);
+  });
+
+  it("keeps a revoked app in the list with its reason", async () => {
+    const app = await install();
+    await apps.revoke(owner(), { id: app.id, reason: "Contract ended" });
+    const [view] = await apps.list(owner());
+    expect(view?.status).toBe("revoked");
+    expect(view?.revokedReason).toBe("Contract ended");
+    expect(view?.live).toBe(false);
+  });
+});
+
+run("retrying a write", () => {
+  it("installs once for one idempotency key", async () => {
+    const key = `install-${Date.now()}`;
+    const ctx = { ...owner(), idempotencyKey: key };
+    const first = await apps.install(ctx, { name: "Retried", permissions: ["customer:read"] });
+    const second = await apps.install(ctx, { name: "Retried", permissions: ["customer:read"] });
+    expect(second.id).toBe(first.id);
+    expect(await apps.list(owner())).toHaveLength(1);
+  });
+
+  it("installs twice under two keys, because those are two decisions", async () => {
+    const a = await apps.install(
+      { ...owner(), idempotencyKey: "one" }, { name: "A", permissions: ["customer:read"] },
+    );
+    const b = await apps.install(
+      { ...owner(), idempotencyKey: "two" }, { name: "B", permissions: ["customer:read"] },
+    );
+    expect(b.id).not.toBe(a.id);
+  });
+
+  it("succeeds on a second revoke rather than reporting a failure", async () => {
+    /**
+     * A retry after a lost response is the common case. Refusing it is how an
+     * operator concludes an app they revoked is still live.
+     */
+    const app = await install();
+    const first = await apps.revoke(owner(), { id: app.id, reason: "Leaked" });
+    const again = await apps.revoke(owner(), { id: app.id });
+    expect(again.status).toBe("revoked");
+    /** And it did not move when it was turned off, or lose why. */
+    expect(again.revokedAt?.toISOString()).toBe(first.revokedAt?.toISOString());
+    expect(again.revokedReason).toBe("Leaked");
+  });
+
+  it("succeeds on a second token revoke, and still 404s for a token that never existed", async () => {
+    const app = await install();
+    const { id } = await apps.issueToken(owner(), { appId: app.id });
+    await apps.revokeToken(owner(), { tokenId: id });
+    await expect(apps.revokeToken(owner(), { tokenId: id })).resolves.toBeUndefined();
+    await expect(apps.revokeToken(owner(), { tokenId: fixtureId("app:nothing") }))
+      .rejects.toThrow(/Token/);
+  });
+
+  it("leaves a second token on a retried issue, because the response is a secret", async () => {
+    /**
+     * The one write here that is not idempotent, and `contracts.test.ts` carries
+     * the reason: only the hash is stored, so a replay has nothing to hand back.
+     * The cost is a second token the operator can see and revoke, which is a far
+     * better one than storing a plaintext token so a replay could return it.
+     */
+    const app = await install();
+    const ctx = { ...owner(), idempotencyKey: "same-key" };
+    const first = await apps.issueToken(ctx, { appId: app.id, label: "one" });
+    const second = await apps.issueToken(ctx, { appId: app.id, label: "one" });
+    expect(second.token).not.toBe(first.token);
+    const [view] = await apps.list(owner());
+    expect(view?.tokens).toHaveLength(2);
+  });
+});
