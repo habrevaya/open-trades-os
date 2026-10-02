@@ -1311,3 +1311,358 @@ exception
   when duplicate_object then null;
   when duplicate_table then null;
 end $$;
+
+-- -------------------------------------------------------------------------
+-- THE ONE PLACE A NETWORK LOOKS ACROSS THE TENANT BOUNDARY
+--
+-- `network` and `network_grant` have been in this schema since the first
+-- migration with no reader and no writer anywhere. They describe a franchise
+-- or a holding group: several organizations, each a real tenant with its own
+-- customers, under one operator that is entitled to a roll up.
+--
+-- Row level security is FORCED on every table carrying organization_id, which
+-- is the property this whole product rests on, and a roll up is by definition
+-- a read across it. So it happens here, in one security definer function, and
+-- the rules it enforces are the whole feature:
+--
+--   THE CALLER MUST BE THE NETWORK'S OPERATOR. Not a member of the network, the
+--   operator of it. A franchisee must not be able to read its neighbour's
+--   numbers by naming the network it also belongs to, and that is the first
+--   thing anybody would try.
+--
+--   THE MEMBER MUST HAVE GRANTED THIS AGGREGATE. Per aggregate, not per
+--   network: a franchisor entitled to revenue under the agreement is not
+--   therefore entitled to the general ledger. A member with no grant
+--   contributes nothing, silently, because the operator already knows who its
+--   members are and the thing being protected is the data rather than the
+--   membership.
+--
+--   A REVOCATION TAKES EFFECT IMMEDIATELY. `revoked_at is null` is checked on
+--   every call rather than cached anywhere.
+--
+--   AGGREGATES ONLY, NEVER ROWS. The return shape is (organization, period,
+--   metric, value) and there is no path through it to a customer name, an
+--   address, a job description or an invoice number. That is a property of the
+--   function body rather than of a convention: every branch below is a GROUP BY.
+--
+-- A suspended organization contributes nothing either, for the same reason it
+-- cannot sign in: whoever runs the deployment has turned it off.
+create or replace function app.network_rollup(
+  p_network_id uuid,
+  p_aggregate text,
+  p_from date,
+  p_to date
+)
+  returns table (
+    organization_id uuid,
+    member_code text,
+    period text,
+    metric text,
+    value numeric
+  )
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    with operator as (
+      -- The caller is the operator of this network, or there is nothing to see.
+      select n.id
+      from public.network n
+      where n.id = p_network_id
+        and n.operator_organization_id = (select app.current_organization_id())
+        and n.deleted_at is null
+    ),
+    members as (
+      select o.id, o.network_member_code
+      from public.organization o
+      join operator on true
+      join public.network_grant g
+        on g.organization_id = o.id
+       and g.network_id = p_network_id
+       and g.aggregate = p_aggregate
+       and g.revoked_at is null
+      where o.network_id = p_network_id
+        and o.deleted_at is null
+        and o.suspended_at is null
+    )
+    -- Jobs completed, per member per month.
+    select m.id, m.network_member_code,
+           to_char(j.completed_at, 'YYYY-MM'), 'jobs_completed', count(*)::numeric
+    from members m
+    join public.job j on j.organization_id = m.id
+    where p_aggregate = 'job_counts'
+      and j.deleted_at is null
+      and j.completed_at is not null
+      and j.completed_at >= p_from::timestamptz
+      and j.completed_at < (p_to + 1)::timestamptz
+    group by m.id, m.network_member_code, to_char(j.completed_at, 'YYYY-MM')
+
+    union all
+
+    -- Invoiced and collected, per member per month. Two metrics rather than
+    -- one, because a franchisor looking at a bad month needs to know whether
+    -- the work stopped or the money did.
+    select m.id, m.network_member_code,
+           to_char(i.issued_on, 'YYYY-MM'), 'invoiced', coalesce(sum(i.total), 0)
+    from members m
+    join public.invoice i on i.organization_id = m.id
+    where p_aggregate in ('revenue_summary', 'kpi_scorecard')
+      and i.deleted_at is null
+      and i.status <> 'draft'
+      and i.voided_at is null
+      and i.issued_on is not null
+      and i.issued_on between p_from and p_to
+    group by m.id, m.network_member_code, to_char(i.issued_on, 'YYYY-MM')
+
+    union all
+
+    select m.id, m.network_member_code,
+           to_char(i.issued_on, 'YYYY-MM'), 'collected', coalesce(sum(i.amount_paid), 0)
+    from members m
+    join public.invoice i on i.organization_id = m.id
+    where p_aggregate in ('revenue_summary', 'kpi_scorecard')
+      and i.deleted_at is null
+      and i.status <> 'draft'
+      and i.voided_at is null
+      and i.issued_on is not null
+      and i.issued_on between p_from and p_to
+    group by m.id, m.network_member_code, to_char(i.issued_on, 'YYYY-MM')
+
+    union all
+
+    -- The count of issued invoices, so an average ticket can be worked out by
+    -- the reader rather than divided here. A ratio computed inside an aggregate
+    -- cannot be summed across members afterwards, and a franchisor comparing
+    -- six brands will try.
+    select m.id, m.network_member_code,
+           to_char(i.issued_on, 'YYYY-MM'), 'invoices', count(*)::numeric
+    from members m
+    join public.invoice i on i.organization_id = m.id
+    where p_aggregate = 'kpi_scorecard'
+      and i.deleted_at is null
+      and i.status <> 'draft'
+      and i.voided_at is null
+      and i.issued_on is not null
+      and i.issued_on between p_from and p_to
+    group by m.id, m.network_member_code, to_char(i.issued_on, 'YYYY-MM')
+
+    union all
+
+    -- The ledger, by account CLASS and never by account code. A class is
+    -- revenue, expense, asset, liability or equity, which is what a consolidated
+    -- view needs. The code is the member's own chart of accounts and naming one
+    -- would let an operator ask about a single account, which is a row read
+    -- wearing an aggregate's clothes.
+    --
+    -- Signed to the account's normal balance, the same rule core/ledger holds:
+    -- revenue, liability and equity are credit balances, asset and expense are
+    -- debit balances. A sum of raw amounts with the directions mixed is a
+    -- number that means nothing.
+    select m.id, m.network_member_code,
+           to_char(e.occurred_at, 'YYYY-MM'),
+           case substr(e.account_code, 1, 1)
+             when '1' then 'asset' when '2' then 'liability'
+             when '3' then 'equity' when '4' then 'revenue'
+             else 'expense'
+           end,
+           sum(
+             case
+               when substr(e.account_code, 1, 1) in ('1', '5', '6', '7', '8', '9')
+                 then case when e.direction = 'debit' then e.amount else -e.amount end
+               else case when e.direction = 'credit' then e.amount else -e.amount end
+             end
+           )
+    from members m
+    join public.ledger_entry e on e.organization_id = m.id
+    where p_aggregate = 'gl_summary'
+      and e.occurred_at >= p_from::timestamptz
+      and e.occurred_at < (p_to + 1)::timestamptz
+    group by m.id, m.network_member_code, to_char(e.occurred_at, 'YYYY-MM'),
+             substr(e.account_code, 1, 1)
+  $$;
+
+revoke all on function app.network_rollup(uuid, text, date, date) from public;
+grant execute on function app.network_rollup(uuid, text, date, date) to authenticated;
+
+-- ---- Who is in the network, and what each has agreed to share -------------
+-- The operator's own roster. Separate from the roll up because it answers a
+-- different question and must answer it even for a member that has granted
+-- nothing: "we have six franchisees and two of them have not turned sharing on"
+-- is the thing an operator needs to see, and a roster that hid them would make
+-- the missing numbers look like zeros.
+--
+-- Name and member code only. Not the address, not the owner, not the EIN.
+create or replace function app.network_members(p_network_id uuid)
+  returns table (
+    organization_id uuid,
+    name text,
+    member_code text,
+    suspended boolean,
+    aggregates text[]
+  )
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id, o.name, o.network_member_code, o.suspended_at is not null,
+           coalesce(array_agg(g.aggregate order by g.aggregate)
+                    filter (where g.aggregate is not null), '{}')
+    from public.organization o
+    left join public.network_grant g
+      on g.organization_id = o.id
+     and g.network_id = p_network_id
+     and g.revoked_at is null
+    where o.network_id = p_network_id
+      and o.deleted_at is null
+      and exists (
+        select 1 from public.network n
+        where n.id = p_network_id
+          and n.operator_organization_id = (select app.current_organization_id())
+          and n.deleted_at is null
+      )
+    group by o.id, o.name, o.network_member_code, o.suspended_at
+  $$;
+
+revoke all on function app.network_members(uuid) from public;
+grant execute on function app.network_members(uuid) to authenticated;
+
+-- -------------------------------------------------------------------------
+-- SETTING UP A NETWORK, FROM OUTSIDE EVERY TENANT
+--
+-- A network spans organizations, so none of this can be done from inside one.
+-- `platform_operator` inherits `authenticated` and is therefore subject to the
+-- same policies, which is deliberate: it means every crossing it makes is a
+-- named function somebody can read, rather than a role that sees everything.
+--
+-- These four are the whole surface. Each is granted to `platform_operator`
+-- alone, so a tenant session cannot reach them even by name.
+--
+-- WHAT IS NOT HERE, and will not be: a function that grants an aggregate on a
+-- member's behalf. The consent is the member's and is written by the member's
+-- own session. An operator that could grant it would be consenting for
+-- somebody else.
+
+create or replace function app.operator_network_by_slug(p_slug text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select id from public.network where slug = p_slug and deleted_at is null limit 1
+  $$;
+
+revoke all on function app.operator_network_by_slug(text) from public;
+grant execute on function app.operator_network_by_slug(text) to platform_operator;
+
+create or replace function app.operator_create_network(
+  p_kind text, p_name text, p_slug text, p_operator_organization_id uuid
+)
+  returns uuid
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_id uuid;
+  begin
+    -- A named organization has to exist, and this is the only place that can
+    -- check it: the caller's own tenant context names at most one company, and
+    -- a network's operator may not be it.
+    if p_operator_organization_id is not null
+      and not exists (
+        select 1 from public.organization
+        where id = p_operator_organization_id and deleted_at is null
+      )
+    then
+      raise exception 'organization % does not exist', p_operator_organization_id
+        using errcode = 'no_data_found';
+    end if;
+
+    insert into public.network (kind, name, slug, operator_organization_id)
+    values (p_kind::network_kind, p_name, p_slug, p_operator_organization_id)
+    returning id into v_id;
+
+    -- THE OPERATOR IS A MEMBER OF ITS OWN NETWORK, and has to be: the policy on
+    -- `network` admits the network a session's own organization belongs to, so
+    -- an operator that was not a member could not read the row describing the
+    -- network it operates. It is also right on its own terms, because a
+    -- franchisor with company owned branches wants them in the roll up.
+    if p_operator_organization_id is not null then
+      update public.organization
+      set network_id = v_id,
+          network_member_code = coalesce(network_member_code, 'operator'),
+          updated_at = now()
+      where id = p_operator_organization_id;
+    end if;
+
+    return v_id;
+  end;
+  $$;
+
+revoke all on function app.operator_create_network(text, text, text, uuid) from public;
+grant execute on function app.operator_create_network(text, text, text, uuid)
+  to platform_operator;
+
+-- ---- One network and its members, for the control plane -------------------
+-- Name and member code only, the same as the in-product roster. An operator
+-- API that handed back addresses and EINs would be a cross tenant read with a
+-- deployment's token in front of it.
+create or replace function app.operator_network(p_network_id uuid)
+  returns table (
+    id uuid, kind text, name text, slug text,
+    operator_organization_id uuid,
+    member_organization_id uuid, member_name text, member_code text
+  )
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select n.id, n.kind::text, n.name, n.slug, n.operator_organization_id,
+           o.id, o.name, o.network_member_code
+    from public.network n
+    left join public.organization o
+      on o.network_id = n.id and o.deleted_at is null
+    where n.id = p_network_id and n.deleted_at is null
+    order by o.network_member_code nulls last, o.name
+  $$;
+
+revoke all on function app.operator_network(uuid) from public;
+grant execute on function app.operator_network(uuid) to platform_operator;
+
+-- ---- Putting a company in a network, or taking it out ---------------------
+-- Taking it out REVOKES EVERY GRANT on the way. A franchisee who leaves has not
+-- agreed to keep sharing their revenue with their former franchisor, and a
+-- grant row left behind with the membership gone would start sharing again the
+-- day somebody put them back in.
+create or replace function app.operator_set_membership(
+  p_organization_id uuid, p_network_id uuid, p_member_code text
+)
+  returns table (network_id uuid, member_code text)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  begin
+    if not exists (
+      select 1 from public.organization
+      where id = p_organization_id and deleted_at is null
+    ) then
+      raise exception 'organization % does not exist', p_organization_id
+        using errcode = 'no_data_found';
+    end if;
+
+    if p_network_id is not null and not exists (
+      select 1 from public.network where id = p_network_id and deleted_at is null
+    ) then
+      raise exception 'network % does not exist', p_network_id
+        using errcode = 'no_data_found';
+    end if;
+
+    if p_network_id is null then
+      update public.network_grant
+      set revoked_at = now(), updated_at = now()
+      where organization_id = p_organization_id and revoked_at is null;
+    end if;
+
+    update public.organization
+    set network_id = p_network_id,
+        network_member_code = case when p_network_id is null then null else p_member_code end,
+        updated_at = now()
+    where id = p_organization_id;
+
+    return query
+      select o.network_id, o.network_member_code
+      from public.organization o where o.id = p_organization_id;
+  end;
+  $$;
+
+revoke all on function app.operator_set_membership(uuid, uuid, text) from public;
+grant execute on function app.operator_set_membership(uuid, uuid, text) to platform_operator;

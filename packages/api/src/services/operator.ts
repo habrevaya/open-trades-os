@@ -449,3 +449,223 @@ export async function usage(
     return result;
   });
 }
+
+/* ---------------------------------------------------------------- networks */
+
+/**
+ * A FRANCHISE OR A HOLDING GROUP, WHICH IS A DEPLOYMENT LEVEL FACT
+ *
+ * `network` and `network_grant` have been in this schema since the first
+ * migration with no reader and no writer anywhere. They describe several
+ * organizations, each a real tenant with its own customers, under one operator
+ * entitled to a roll up: a franchisor with thirty franchisees, a holding group
+ * with six acquired brands, a firm keeping the books for a dozen contractors.
+ *
+ * MEMBERSHIP IS SET HERE AND NOT IN THE PRODUCT, and that is the important
+ * decision. An organization must not be able to put another organization into
+ * its network: joining is harmless on its own, because nothing is shared until
+ * the member grants it, but a franchisor who can add companies to a network
+ * can create the thing the member is then asked to consent to, and the consent
+ * dialogue would be about a relationship the member never agreed to. Whoever
+ * runs the deployment knows which companies are franchisees of which
+ * franchisor, because they set them up.
+ *
+ * What stays inside the product, under the member's own permissions: granting
+ * and revoking each aggregate. See `services/network.ts`.
+ */
+
+/**
+ * Exactly the `network_kind` enum, and no more.
+ *
+ * A first draft of this list carried `buying_group` and `referral`, neither of
+ * which is in the enum, so either would have been accepted by the API and
+ * refused by Postgres as an invalid input value for the type. A list of strings
+ * that has to agree with a database enum, with nothing making them agree, is
+ * how that happens.
+ */
+export const NETWORK_KINDS = ["franchise", "holding", "cooperative"] as const;
+export type NetworkKind = (typeof NETWORK_KINDS)[number];
+
+export interface NetworkInput {
+  name: string;
+  slug: string;
+  kind?: NetworkKind | undefined;
+  /**
+   * The organization that operates the network, when one does. A buying group
+   * with no operating company has none, and nobody can read a roll up of it.
+   */
+  operatorOrganizationId?: string | null | undefined;
+}
+
+export interface NetworkView {
+  id: string;
+  kind: string;
+  name: string;
+  slug: string;
+  operatorOrganizationId: string | null;
+  members: { organizationId: string; name: string; memberCode: string | null }[];
+}
+
+/**
+ * EVERY READ AND WRITE HERE GOES THROUGH A DEFINER FUNCTION, and it has to.
+ *
+ * `platform_operator` inherits `authenticated` and is therefore subject to the
+ * same row level security policies. That is deliberate rather than an oversight:
+ * it means an operator's every crossing of the tenant boundary is a named
+ * function in `sql/after.sql` that somebody can read, instead of a role that
+ * sees everything.
+ *
+ * It also means a plain `select` on `organization` outside any tenant context
+ * returns nothing, and a plain `insert` into `network` fails the policy's check
+ * because the row's id is not yet the caller's network. The first draft of this
+ * file did both and every test said "Organization not found", which is exactly
+ * what forced RLS is supposed to say.
+ */
+export async function createNetwork(
+  db: Database,
+  input: NetworkInput,
+  meta: OperatorMeta = {},
+): Promise<NetworkView> {
+  return asOperator(db, "", async (tx) => {
+    const slug = input.slug.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) {
+      throw new ConflictError(
+        `"${input.slug}" is not a slug. Lower case letters, digits and hyphens, starting with a `
+        + "letter or a digit.",
+      );
+    }
+    const kind = input.kind ?? "holding";
+    if (!(NETWORK_KINDS as readonly string[]).includes(kind)) {
+      throw new ConflictError(
+        `"${kind}" is not a kind of network. One of: ${NETWORK_KINDS.join(", ")}.`,
+      );
+    }
+
+    const [existing] = await tx.execute<{ id: string | null }>(
+      sql`select app.operator_network_by_slug(${slug}) as id`,
+    );
+    if (existing?.id) {
+      /**
+       * A replay rather than a conflict, for the same reason `create` replays on
+       * `externalRef`: a control plane that creates a network and loses the
+       * response has to be able to ask again, and the only thing it can ask with
+       * is the slug it chose.
+       */
+      return readNetwork(tx, existing.id);
+    }
+
+    const [created] = await tx.execute<{ id: string }>(sql`
+      select app.operator_create_network(
+        ${kind}, ${input.name.trim()}, ${slug}, ${input.operatorOrganizationId ?? null}
+      ) as id
+    `).catch(noSuchOrganization);
+
+    if (input.operatorOrganizationId) {
+      /**
+       * INTO THE OPERATOR'S TENANT CONTEXT BEFORE THE AUDIT LINE, because the
+       * policy on `audit_log` admits only a row whose organization matches the
+       * context, and this transaction opened with no context at all: a network
+       * is created from outside every tenant. Without this the whole call fails
+       * with "new row violates row-level security policy for audit_log", which
+       * is the policy working.
+       *
+       * The line belongs in the operator company's own log rather than nowhere.
+       * "When were we made the operator of a network" is a question that company
+       * is entitled to answer from its own records.
+       */
+      await enterOperator(tx, input.operatorOrganizationId);
+      await audit(tx, input.operatorOrganizationId, "operator.network.create", null,
+        { networkId: created!.id, slug }, meta);
+    }
+
+    return readNetwork(tx, created!.id);
+  });
+}
+
+/**
+ * `no_data_found` from a definer function means the id named nothing.
+ *
+ * Raised in SQL rather than checked in TypeScript first, because the check and
+ * the write have to be in the same statement: a caller that read "it exists"
+ * and then wrote would be relying on nothing having deleted it in between, and
+ * the function is the only place that can see across tenants to do either.
+ */
+function noSuchOrganization(error: unknown): never {
+  const code = (error as { code?: string } | null)?.code;
+  if (code === "P0002" || code === "02000") throw new NotFoundError("Organization");
+  throw error;
+}
+
+async function readNetwork(tx: Database, id: string): Promise<NetworkView> {
+  const rows = await tx.execute<{
+    id: string; kind: string; name: string; slug: string;
+    operator_organization_id: string | null;
+    member_organization_id: string | null; member_name: string | null; member_code: string | null;
+  }>(sql`select * from app.operator_network(${id})`);
+
+  const first = rows[0];
+  if (!first) throw new NotFoundError("Network");
+
+  return {
+    id: first.id,
+    kind: first.kind,
+    name: first.name,
+    slug: first.slug,
+    operatorOrganizationId: first.operator_organization_id,
+    /**
+     * A left join, so a network with no members yet comes back as one row with
+     * nulls in the member columns rather than as nothing at all. Filtering on the
+     * id rather than on the name, because a company is allowed to be called "".
+     */
+    members: rows
+      .filter((row) => row.member_organization_id !== null)
+      .map((row) => ({
+        organizationId: row.member_organization_id!,
+        name: row.member_name ?? "",
+        memberCode: row.member_code,
+      })),
+  };
+}
+
+export async function getNetwork(
+  db: Database, id: string, meta: OperatorMeta = {},
+): Promise<NetworkView> {
+  void meta;
+  return asOperator(db, "", (tx) => readNetwork(tx, id));
+}
+
+/**
+ * Put a company in a network, or take it out.
+ *
+ * `networkId: null` removes it, and REVOKES EVERY GRANT ON THE WAY OUT. A
+ * franchisee who leaves the franchise has not agreed to keep sharing their
+ * revenue with their former franchisor, and a grant row left behind with the
+ * membership gone would start sharing again the day somebody put them back in.
+ */
+export async function setNetworkMembership(
+  db: Database,
+  organizationId: string,
+  input: { networkId: string | null; memberCode?: string | null | undefined },
+  meta: OperatorMeta = {},
+): Promise<{ organizationId: string; networkId: string | null; memberCode: string | null }> {
+  return asOperator(db, organizationId, async (tx) => {
+    const before = await statusRow(tx, organizationId);
+
+    const [after] = await tx.execute<{
+      network_id: string | null; member_code: string | null;
+    }>(sql`
+      select * from app.operator_set_membership(
+        ${organizationId}, ${input.networkId ?? null}, ${input.memberCode?.trim() || null}
+      )
+    `).catch(noSuchOrganization);
+
+    await audit(tx, organizationId, "operator.network.membership", { name: before.name },
+      { networkId: after?.network_id ?? null, memberCode: after?.member_code ?? null }, meta);
+
+    return {
+      organizationId,
+      networkId: after?.network_id ?? null,
+      memberCode: after?.member_code ?? null,
+    };
+  });
+}

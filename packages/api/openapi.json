@@ -28882,6 +28882,623 @@
         ]
       }
     },
+    "/v1/network": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getNetworkMembership",
+        "summary": "What network this company is in, and what it shares",
+        "description": "Returns what is shared AND what is not, so the screen is a list of choices rather than a list of facts. A company in no network gets the full list under notSharing and a null network, because 'you are not in one' is the answer rather than an error.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What network this company is in, and what it shares",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetNetworkMembershipOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/network/members": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listNetworkMembers",
+        "summary": "The roster, for the network's operator",
+        "description": "INCLUDES THE MEMBERS SHARING NOTHING, which is the point: 'we have six franchisees and two have not turned sharing on' is what an operator needs to see, and a roster listing only the sharing ones makes the missing numbers look like zeros. That is the difference between chasing a franchisee and writing off a market. Name and member code only, never the address or the EIN. A member of the network that does not operate it is told the network does not exist, rather than told there is something it may not have.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The roster, for the network's operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListNetworkMembersOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
+        ]
+      }
+    },
+    "/v1/network/rollup": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getNetworkRollup",
+        "summary": "The consolidated numbers, from the members who agreed to share them",
+        "description": "AGGREGATES ONLY. The shape is (organization, period, metric, value) and there is no path through it to a customer, an address, a job or an invoice number, which is a property of the SQL function body rather than of a convention: every branch of it is a GROUP BY. `gl_summary` reports by account CLASS and never by account code, because the code is the member's own chart of accounts and naming one would let an operator ask about a single account, which is a row read wearing an aggregate's clothes. A member who has not granted contributes nothing, SILENTLY, and is named in notContributing instead: raising an error would let an operator lean on a member by making the whole report fail until they consent. Values are strings, because money that has been through a JSON parser as a float is not money.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "aggregate",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "job_counts",
+                "revenue_summary",
+                "kpi_scorecard",
+                "gl_summary"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The consolidated numbers, from the members who agreed to share them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetNetworkRollupOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
+        ]
+      }
+    },
+    "/v1/network/share": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "shareWithNetwork",
+        "summary": "Start sharing one aggregate with the network's operator",
+        "description": "The MEMBER grants, per aggregate, and there is no shape of call in which an operator grants on a member's behalf: the row is written by the member's own session. Per aggregate rather than per network, because a franchisor entitled to revenue under the agreement is not therefore entitled to the general ledger. `settings:write`, which is the owner and the administrator: the decision to show another company your revenue should not be available to somebody who does not sign the franchise agreement. Re-granting is a no-op, which is the right shape for a checkbox.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareWithNetworkInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Start sharing one aggregate with the network's operator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareWithNetworkOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/network/stop-sharing": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "stopSharingWithNetwork",
+        "summary": "Stop sharing one aggregate",
+        "description": "Takes effect immediately: the roll up checks for a live grant on every call and caches nothing. Revoked rather than deleted, because 'they used to see our revenue and we stopped letting them in March' is a fact a member may need to prove, and a deleted row proves nothing.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopSharingWithNetworkInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop sharing one aggregate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopSharingWithNetworkOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/obligations": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -64879,6 +65496,192 @@
           "entries"
         ]
       },
+      "GetNetworkMembershipOutput": {
+        "type": "object",
+        "properties": {
+          "networkId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "networkName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "networkKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memberCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isOperator": {
+            "type": "boolean"
+          },
+          "sharing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "aggregate": {
+                  "type": "string",
+                  "enum": [
+                    "job_counts",
+                    "revenue_summary",
+                    "kpi_scorecard",
+                    "gl_summary"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "grantedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "aggregate",
+                "description",
+                "grantedAt"
+              ]
+            }
+          },
+          "notSharing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "aggregate": {
+                  "type": "string",
+                  "enum": [
+                    "job_counts",
+                    "revenue_summary",
+                    "kpi_scorecard",
+                    "gl_summary"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "aggregate",
+                "description"
+              ]
+            }
+          }
+        },
+        "required": [
+          "networkId",
+          "networkName",
+          "networkKind",
+          "memberCode",
+          "isOperator",
+          "sharing",
+          "notSharing"
+        ]
+      },
+      "GetNetworkRollupOutput": {
+        "type": "object",
+        "properties": {
+          "networkId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aggregate": {
+            "type": "string",
+            "enum": [
+              "job_counts",
+              "revenue_summary",
+              "kpi_scorecard",
+              "gl_summary"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "organizationId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "memberCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "period": {
+                  "type": "string"
+                },
+                "metric": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId",
+                "memberCode",
+                "period",
+                "metric",
+                "value"
+              ]
+            }
+          },
+          "notContributing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "organizationId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sharesThis": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "organizationId",
+                "name",
+                "sharesThis"
+              ]
+            }
+          }
+        },
+        "required": [
+          "networkId",
+          "aggregate",
+          "from",
+          "to",
+          "data",
+          "notContributing"
+        ]
+      },
       "GetOnCallNowOutput": {
         "type": "object",
         "properties": {
@@ -73742,6 +74545,62 @@
         },
         "required": [
           "brands"
+        ]
+      },
+      "ListNetworkMembersOutput": {
+        "type": "object",
+        "properties": {
+          "networkId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "organizationId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "memberCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "suspended": {
+                  "type": "boolean"
+                },
+                "aggregates": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "job_counts",
+                      "revenue_summary",
+                      "kpi_scorecard",
+                      "gl_summary"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "organizationId",
+                "name",
+                "memberCode",
+                "suspended",
+                "aggregates"
+              ]
+            }
+          }
+        },
+        "required": [
+          "networkId",
+          "data"
         ]
       },
       "ListObligationsOutput": {
@@ -86929,6 +87788,120 @@
           "parts"
         ]
       },
+      "ShareWithNetworkInput": {
+        "type": "object",
+        "properties": {
+          "aggregate": {
+            "type": "string",
+            "enum": [
+              "job_counts",
+              "revenue_summary",
+              "kpi_scorecard",
+              "gl_summary"
+            ]
+          }
+        },
+        "required": [
+          "aggregate"
+        ]
+      },
+      "ShareWithNetworkOutput": {
+        "type": "object",
+        "properties": {
+          "networkId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "networkName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "networkKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memberCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isOperator": {
+            "type": "boolean"
+          },
+          "sharing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "aggregate": {
+                  "type": "string",
+                  "enum": [
+                    "job_counts",
+                    "revenue_summary",
+                    "kpi_scorecard",
+                    "gl_summary"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "grantedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "aggregate",
+                "description",
+                "grantedAt"
+              ]
+            }
+          },
+          "notSharing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "aggregate": {
+                  "type": "string",
+                  "enum": [
+                    "job_counts",
+                    "revenue_summary",
+                    "kpi_scorecard",
+                    "gl_summary"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "aggregate",
+                "description"
+              ]
+            }
+          }
+        },
+        "required": [
+          "networkId",
+          "networkName",
+          "networkKind",
+          "memberCode",
+          "isOperator",
+          "sharing",
+          "notSharing"
+        ]
+      },
       "StartConversationInput": {
         "type": "object",
         "properties": {
@@ -86962,6 +87935,120 @@
         "required": [
           "conversationId",
           "messageId"
+        ]
+      },
+      "StopSharingWithNetworkInput": {
+        "type": "object",
+        "properties": {
+          "aggregate": {
+            "type": "string",
+            "enum": [
+              "job_counts",
+              "revenue_summary",
+              "kpi_scorecard",
+              "gl_summary"
+            ]
+          }
+        },
+        "required": [
+          "aggregate"
+        ]
+      },
+      "StopSharingWithNetworkOutput": {
+        "type": "object",
+        "properties": {
+          "networkId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "networkName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "networkKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memberCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isOperator": {
+            "type": "boolean"
+          },
+          "sharing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "aggregate": {
+                  "type": "string",
+                  "enum": [
+                    "job_counts",
+                    "revenue_summary",
+                    "kpi_scorecard",
+                    "gl_summary"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "grantedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "aggregate",
+                "description",
+                "grantedAt"
+              ]
+            }
+          },
+          "notSharing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "aggregate": {
+                  "type": "string",
+                  "enum": [
+                    "job_counts",
+                    "revenue_summary",
+                    "kpi_scorecard",
+                    "gl_summary"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "aggregate",
+                "description"
+              ]
+            }
+          }
+        },
+        "required": [
+          "networkId",
+          "networkName",
+          "networkKind",
+          "memberCode",
+          "isOperator",
+          "sharing",
+          "notSharing"
         ]
       },
       "StoreUploadInput": {

@@ -59,13 +59,49 @@ const CreateOrganization = z.object({
 
 const Suspend = z.object({ reason: z.string().trim().min(1).max(1000) });
 
+const CreateNetwork = z.object({
+  name: z.string().trim().min(1).max(200),
+  slug: z.string().trim().min(2).max(63),
+  kind: z.enum(operator.NETWORK_KINDS).optional(),
+  operatorOrganizationId: z.string().uuid().nullable().optional(),
+});
+
+/**
+ * `networkId: null` takes a company out, and revokes every grant on the way.
+ * A franchisee who leaves has not agreed to keep sharing their revenue with
+ * their former franchisor, and a grant left behind would start sharing again
+ * the day somebody put them back in.
+ */
+const SetMembership = z.object({
+  networkId: z.string().uuid().nullable(),
+  memberCode: z.string().trim().max(100).nullable().optional(),
+});
+
 type Route =
   | { kind: "create" }
-  | { kind: "get" | "usage" | "suspend" | "resume"; id: string };
+  | { kind: "get" | "usage" | "suspend" | "resume" | "membership"; id: string }
+  | { kind: "createNetwork" }
+  | { kind: "getNetwork"; id: string };
 
 /** The route for a path, the methods it accepts, or nothing. */
 function route(path: string): { route: Route; method: "GET" | "POST" } | null {
   const parts = path.slice(PREFIX.length).split("/").filter(Boolean);
+
+  /**
+   * A FRANCHISE OR HOLDING GROUP IS SET UP FROM HERE, not from inside the
+   * product. An organization must not be able to put another organization into
+   * its network: joining is harmless on its own, because nothing is shared
+   * until the member grants it, but it is what creates the relationship the
+   * member is then asked to consent to. Whoever runs the deployment already
+   * knows which companies are franchisees of which franchisor, because they set
+   * them up.
+   */
+  if (parts[0] === "networks") {
+    if (parts.length === 1) return { route: { kind: "createNetwork" }, method: "POST" };
+    if (parts.length === 2) return { route: { kind: "getNetwork", id: parts[1]! }, method: "GET" };
+    return null;
+  }
+
   if (parts[0] !== "organizations") return null;
   if (parts.length === 1) return { route: { kind: "create" }, method: "POST" };
   const id = parts[1]!;
@@ -74,6 +110,7 @@ function route(path: string): { route: Route; method: "GET" | "POST" } | null {
     if (parts[2] === "usage") return { route: { kind: "usage", id }, method: "GET" };
     if (parts[2] === "suspend") return { route: { kind: "suspend", id }, method: "POST" };
     if (parts[2] === "resume") return { route: { kind: "resume", id }, method: "POST" };
+    if (parts[2] === "network") return { route: { kind: "membership", id }, method: "POST" };
   }
   return null;
 }
@@ -119,8 +156,10 @@ export async function handleOperator(
 
   // An id that is not a uuid cannot name a company, and passing it on would
   // be a cast error from Postgres reported as a 500.
-  if (found.route.kind !== "create" && !UUID.test(found.route.id)) {
-    return problem(404, "Organization not found");
+  if (found.route.kind !== "create" && found.route.kind !== "createNetwork"
+    && !UUID.test(found.route.id)) {
+    return problem(404, found.route.kind === "getNetwork" ? "Network not found"
+      : "Organization not found");
   }
 
   const meta: operator.OperatorMeta = {
@@ -185,6 +224,36 @@ export async function handleOperator(
 
       case "resume":
         return json(await operator.resume(deps.db, r.id, meta), 200);
+
+      case "createNetwork": {
+        let raw: unknown;
+        try {
+          raw = await body(request);
+        } catch {
+          return problem(400, "Request body is not valid JSON");
+        }
+        const parsed = CreateNetwork.safeParse(raw);
+        if (!parsed.success) return invalid(parsed.error);
+        return json(await operator.createNetwork(deps.db, parsed.data, meta), 200);
+      }
+
+      case "getNetwork":
+        return json(await operator.getNetwork(deps.db, r.id, meta), 200);
+
+      case "membership": {
+        let raw: unknown;
+        try {
+          raw = await body(request);
+        } catch {
+          return problem(400, "Request body is not valid JSON");
+        }
+        const parsed = SetMembership.safeParse(raw);
+        if (!parsed.success) return invalid(parsed.error);
+        return json(
+          await operator.setNetworkMembership(deps.db, r.id, parsed.data, meta),
+          200,
+        );
+      }
     }
   } catch (error) {
     return errorResponse(error);
