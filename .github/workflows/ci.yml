@@ -1,7 +1,11 @@
 name: CI
 
+# Every push to the two long lived branches, and every pull request whatever
+# it targets (feature branch -> develop -> main, so that includes both).
+# Unrestricted on pull_request on purpose: a pull request into a feature
+# branch is still code somebody is about to rely on.
 on:
-  push: { branches: [main] }
+  push: { branches: [main, develop] }
   pull_request:
 
 concurrency:
@@ -191,7 +195,7 @@ jobs:
           docker run -d --name ots-web-ci -p 3000:3000 \
             -e DATABASE_URL=postgresql://nobody:nobody@127.0.0.1:5432/none \
             ots-web:ci
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             # The sign in page needs no database, which is the point: this
             # checks the server booted, not that Postgres is reachable.
             if curl -sf -o /dev/null http://localhost:3000/login; then

@@ -8,6 +8,7 @@ import type { branding } from "@opentradesos/api/services";
 import { railCollapsed } from "@/lib/rail";
 import { NAV, isActive, isOpen, activeChild, type NavGroup, type NavItem } from "@/lib/nav";
 import { can } from "@opentradesos/core";
+import { DemoBanner } from "./DemoBanner";
 
 /**
  * THE SHELL
@@ -199,6 +200,7 @@ export async function AppShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {user.demo && <DemoBanner />}
         {/*
           On a phone the rail becomes a disclosure under the header. `details`
           rather than a state hook, so the shell stays a server component and

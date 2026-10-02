@@ -19,17 +19,23 @@ Netlify has no database of its own that this can use, and a function is the
 wrong place to run migrations: it has a time limit, it runs once per
 instance, and it would run against production from every deploy preview.
 
-## Putting the template in place
+## The configuration is already in the app
 
-This directory is a template, not a live configuration, so that a deployment
-on Docker or anywhere else is not carrying Netlify's. Copy it into the app:
+Netlify reads its configuration from the package directory of a monorepo, so
+the two files it needs are committed there:
 
-```
-cp deploy/templates/netlify/netlify.toml apps/web/netlify.toml
-cp -r deploy/templates/netlify/netlify apps/web/netlify
-```
+| File | What |
+|---|---|
+| `apps/web/netlify.toml` | Build command, publish directory, functions directory, Node and pnpm versions, and when a push builds (below) |
+| `apps/web/netlify/functions/worker-tick.mts` | The scheduled function that calls the worker tick once a minute |
 
-Commit both in your fork, then create the site in Netlify with:
+**A deployment that is not on Netlify is unaffected by them.** Nothing in the
+app, the Docker images or the worker reads either file; they are inert unless
+Netlify is the one building. They used to live in this directory as a
+template to copy, and two copies of a configuration drift, so there is one,
+where Netlify looks for it, and this page documents it.
+
+Create the site in Netlify from your fork with:
 
 | Setting | Value |
 |---|---|
@@ -41,6 +47,17 @@ The build command, publish directory and functions directory come from
 though the file sits in `apps/web`: that is Netlify's rule for monorepos.
 Netlify finds `pnpm-lock.yaml` at the root, installs with pnpm, and its
 Next.js adapter does the rest. There is no plugin to add.
+
+### When a push builds
+
+By default every git push builds, which is what somebody deploying their own
+fork expects. Set `BUILD_HOOK_ONLY=true` in the site's environment and the
+`ignore` command in `netlify.toml` skips every build a build hook did not
+start (production, branch deploys and deploy previews alike), so the only way
+a deploy starts is the hook. That is how the hosted deployment runs, because
+its hook is called after the database is migrated (see
+[Hosted release](#hosted-release)); a self hoster can do the same from their
+own CI, or leave it unset and run migrations by hand before merging.
 
 ## Environment
 
@@ -57,6 +74,9 @@ noted.
 | `AUTH_URL`, `AUTH_SECRET` | As in `.env.example` |
 | `OPERATOR_TOKEN` | Only if a control plane will call [the operator API](../../../docs/self-hosting/operator-api.md) |
 | `SECRET_STORE`, `SECRETS_MASTER_KEY` | `database` and `openssl rand -base64 32`, on any site that serves more than one company: required, not optional. Each company then pastes its own Stripe, Twilio or QuickBooks secret on Settings → Integrations. See [provider secrets](../../../docs/self-hosting/secrets.md) |
+
+| `BUILD_HOOK_ONLY` | `true` to build only from a build hook. See [When a push builds](#when-a-push-builds). Builds only |
+| `DEMO_ORGANIZATION_ID` | Only on a site that offers the read-only [demo](../../../docs/self-hosting/demo.md) |
 
 Never set `ALLOW_PROVIDER_BASE_URL` on a site. It exists for the test suites,
 and with it any company admin can send the server's copy of a provider
@@ -116,9 +136,142 @@ and point the container's `WORKER_DATABASE_URL` at the same database. Running
 both for a while is safe: two workers are a capacity decision rather than a
 duplicate message incident, for the reasons in the worker doc.
 
-## What this template does not do
+## Hosted release
 
-It has not been deployed by CI. The configuration follows Netlify's current
+This is how the hosted deployment of this repository (`habrevaya/open-trades-os`)
+is released, and the order a fork that wants the same would copy. It is driven
+by `.github/workflows/deploy.yml`, which does nothing at all in any other
+repository, and nothing in this one until the secrets below exist: a fork, or
+a contributor's push, gets a green run that skipped every step.
+
+### The branch model
+
+```
+feature branch ──PR──▶ develop ──PR──▶ main
+                         │               │
+                         ▼               ▼
+                 development site   production site
+```
+
+Work lands on `develop` by pull request and is released by a pull request from
+`develop` into `main`. CI (`.github/workflows/ci.yml`) runs on every pull
+request and on every push to either branch.
+
+Every push to `develop` or `main` runs the Deploy workflow:
+
+1. **migrate**, in the GitHub environment `development` (for `develop`) or
+   `production` (for `main`): `pnpm db:migrate` over that environment's
+   `DATABASE_URL_DIRECT`. It refuses a port 6543 address.
+2. **deploy**, after migrate succeeds: POSTs that environment's
+   `NETLIFY_BUILD_HOOK`, and Netlify builds and publishes. If the branch has
+   moved on since step 1 it stands down, and the newer commit's own run
+   deploys instead, because a build hook builds the branch head, which might
+   need a migration that has not run yet.
+
+Runs for one environment never overlap and are never cancelled part way (a
+half finished migration is worse than a queued one). *Actions → Deploy → Run
+workflow* re-runs a release by hand for either environment, from the head of
+its branch; use that rather than Netlify's *Trigger deploy*, which the
+`ignore` command skips.
+
+Migrations therefore always land before the code that needs them. They must
+also be safe for the code still running until the new deploy is published (a
+minute or two): add columns and tables freely, but drop or rename only in a
+later release, once nothing reads the old shape.
+
+### 1. Postgres: one database per environment
+
+One Supabase project for production and a separate one for development. From
+each, take two connection strings:
+
+- the **transaction pooler** (port 6543), for the site's `DATABASE_URL`;
+- the **session pooler** (pooler host, port 5432), for GitHub's
+  `DATABASE_URL_DIRECT`. Not the direct host: GitHub's runners have no IPv6.
+
+The first workflow run migrates the empty database. Then, once per database,
+from the SQL editor, the two roles the hosted deployment needs:
+
+```sql
+-- The worker's own login: the one role allowed to ask which companies have
+-- work. Without it the tick falls back to the app's connection.
+alter role background login password '<a long random password>';
+
+-- The operator API's role. The migrations grant it to whichever account ran
+-- them (postgres); this grants it to the account the SITE connects as, if
+-- that is a different one. Skip it when the site connects as postgres.
+grant platform_operator to <the site's database user>;
+```
+
+Through Supavisor the worker's user name carries the project reference:
+`WORKER_DATABASE_URL=postgresql://background.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`.
+See [Supabase](../../../docs/self-hosting/supabase.md#the-roles) for what
+each role may do, and [the operator API](../../../docs/self-hosting/operator-api.md)
+for creating the first company.
+
+### 2. Netlify: one site per environment
+
+Two sites from the same repository, rather than one site with a branch
+deploy, because **scheduled functions run only on a site's published
+deploy**: a `develop` branch deploy would have no worker, and every
+automation on the development site would sit still.
+
+| Site | Production branch | Build hook (*Site configuration → Build & deploy → Build hooks*) |
+|---|---|---|
+| production | `main` | `GitHub Deploy (production)`, building `main` |
+| development | `develop` | `GitHub Deploy (development)`, building `develop` |
+
+On both: base directory empty, package directory `apps/web`; *Deploy
+Previews*: **Don't deploy pull requests**; *Branch deploys*: **none**. Leave
+*Stop builds* **off**: it stops the build hooks too.
+
+Each site's environment, with its own database's values (Builds and
+Functions both, unless noted):
+
+| Variable | Value |
+|---|---|
+| `BUILD_HOOK_ONLY` | `true` |
+| `DATABASE_URL` | The transaction pooler, port 6543 |
+| `DATABASE_POOL_MAX` | `3` |
+| `WORKER_DATABASE_URL` | The pooler string for `background`, above |
+| `SECRET_STORE` | `database`. Required: the hosted site serves many companies |
+| `SECRETS_MASTER_KEY` | `openssl rand -base64 32`, a different one per site, kept somewhere other than the database |
+| `AUTH_SECRET` | `openssl rand -base64 48`, a different one per site |
+| `AUTH_URL`, `PUBLIC_URL` | The site's own address |
+| `OPERATOR_TOKEN` | `openssl rand -base64 48`; the control plane holds the same value |
+| `WORKER_TICK_TOKEN` | `openssl rand -base64 48`, Functions and the app both |
+| `DEMO_ORGANIZATION_ID` | Optional: the id `demo:seed` printed, to offer the [read-only demo](../../../docs/self-hosting/demo.md) |
+
+And never `ALLOW_PROVIDER_BASE_URL`, on either site. `DATABASE_URL_DIRECT`
+stays off Netlify: migrations run in GitHub.
+
+### 3. GitHub: two environments
+
+*Repository → Settings → Environments → New environment*:
+
+| Environment | Deployment branches and tags | Protection | Secrets |
+|---|---|---|---|
+| `development` | *Selected branches*: `develop` | none | `DATABASE_URL_DIRECT` (development database, session pooler, port 5432), `NETLIFY_BUILD_HOOK` (the development site's hook) |
+| `production` | *Selected branches*: `main` | **Required reviewers**: the owner. Tick *Prevent self-review* only if someone else can approve | `DATABASE_URL_DIRECT` (production database, session pooler, port 5432), `NETLIFY_BUILD_HOOK` (the production site's hook) |
+
+The required reviewer is a GitHub setting, not code: with it, every
+production release waits in *Actions* until it is approved. Both jobs use the
+environment, so GitHub asks twice: approve **migrate**, read its log, then
+approve **deploy**. Rejecting deploy after a clean migration leaves
+production running the previous code on the new schema, which the rule above
+(additive migrations) makes safe.
+
+Restricting each environment to its branch means a workflow started from any
+other branch cannot read its secrets. *Run workflow* is offered only once
+`deploy.yml` is on the default branch.
+
+Until the secrets exist the workflow is green and does nothing, which is also
+what happens in every fork: the jobs are conditioned on this repository's
+name and on the secrets being set, so nobody else's push ever touches a
+database or calls a hook.
+
+## What this does not do
+
+CI does not deploy a self hoster's site, and the configuration follows Netlify's current
 documentation for monorepos, Next.js and scheduled functions, and nothing in
 this repository checks it against a live Netlify account. If a key has moved,
 that page is the authority and a pull request fixing this one is welcome.

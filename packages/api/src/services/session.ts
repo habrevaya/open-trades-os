@@ -30,6 +30,12 @@ export interface ResolvedSession {
   organizationSlug: string;
   organizationTimezone: string;
   setupCompleted: boolean;
+  /**
+   * The public demo's shared, read only user (docs/self-hosting/demo.md).
+   * Its actor is `readonly` with `readOnly` set, whatever the membership
+   * row says, and the app shows the demo banner.
+   */
+  demo: boolean;
 }
 
 interface SessionRow extends Record<string, unknown> {
@@ -51,6 +57,7 @@ interface SessionRow extends Record<string, unknown> {
   crew_ids: string[] | null;
   custom_role_permissions: string[] | null;
   custom_role_scopes: Record<string, string> | null;
+  demo: boolean | null;
 }
 
 /**
@@ -95,6 +102,38 @@ export async function resolveSession(
   }
 
   const role = row.role as RoleId;
+
+  /**
+   * THE DEMO'S USER IS READ ONLY, AND NOTHING ON ITS MEMBERSHIP CAN CHANGE
+   * THAT.
+   *
+   * The preset is forced to `readonly` and the grants, the custom role and
+   * the scope overrides are ignored, so an administrator of the demo company
+   * (there should be none) adding a grant to its row widens nothing, and
+   * `readOnly` drops anything but a read and makes every transaction read
+   * only. The flag comes from SQL and is derived from the user, not from the
+   * session, so there is no way to hold a writable session as this user.
+   */
+  if (row.demo) {
+    const actor: Actor = {
+      userId: row.user_id,
+      organizationId: row.organization_id,
+      roles: ["readonly"],
+      readOnly: true,
+    };
+    return {
+      actor,
+      userId: row.user_id,
+      email: row.email,
+      name: row.name,
+      organizationId: row.organization_id,
+      organizationName: row.organization_name,
+      organizationSlug: row.organization_slug,
+      organizationTimezone: row.organization_timezone ?? "America/Chicago",
+      setupCompleted: row.setup_completed_at != null,
+      demo: true,
+    };
+  }
 
   /**
    * A custom role REPLACES the preset. The membership's own grants and
@@ -179,6 +218,7 @@ export async function resolveSession(
     // is at least stable across a hydration, and setup asks for a real one.
     organizationTimezone: row.organization_timezone ?? "America/Chicago",
     setupCompleted: row.setup_completed_at != null,
+    demo: false,
   };
 }
 

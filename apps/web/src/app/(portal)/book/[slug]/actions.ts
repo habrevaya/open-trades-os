@@ -71,6 +71,10 @@ export async function submitBooking(input: {
     if (error instanceof ConflictError) {
       return { ok: false, message: error.message, retry: true };
     }
+    // The demo company's booking page books nothing, and says so.
+    if (error instanceof Error && error.name === "DemoReadOnlyError") {
+      return { ok: false, message: error.message, retry: false };
+    }
     return {
       ok: false,
       message: "Something went wrong booking that. Please give us a call.",

@@ -18,8 +18,8 @@ export const E2E_STRIPE_ENV = {
  * The seeded company's id, derived exactly as packages/api/src/seed derives
  * it. Copied rather than imported because importing the seed runs it.
  */
-function seedId(name: string): string {
-  const h = createHash("sha256").update(`opentradesos:seed:${name}`).digest("hex");
+function seedId(name: string, namespace: "seed" | "demo" = "seed"): string {
+  const h = createHash("sha256").update(`opentradesos:${namespace}:${name}`).digest("hex");
   return [
     h.slice(0, 8), h.slice(8, 12), `4${h.slice(13, 16)}`,
     ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
@@ -28,6 +28,13 @@ function seedId(name: string): string {
 }
 
 export const E2E_ORGANIZATION_ID = seedId("org");
+
+/**
+ * The public demo's company, which global setup creates with `demo:seed`
+ * beside the seeded one, and which the server is told about the way a
+ * deployment offering the demo is (docs/self-hosting/demo.md).
+ */
+export const E2E_DEMO_ORGANIZATION_ID = seedId("org", "demo");
 
 /**
  * `connectors.environmentVariableFor` in core, spelled out because this file
@@ -57,4 +64,5 @@ export const E2E_SERVER_ENV: Record<string, string> = {
     variableFor(E2E_ORGANIZATION_ID, name), value,
   ])),
   ALLOW_PROVIDER_BASE_URL: "1",
+  DEMO_ORGANIZATION_ID: E2E_DEMO_ORGANIZATION_ID,
 };

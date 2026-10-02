@@ -45,7 +45,7 @@ export async function startPaymentFor(
     if (error instanceof portal.InvalidGrantError) {
       return { ok: false, message: "This link is no longer active. Please ask for a new one." };
     }
-    if (error instanceof Error && error.name === "ConflictError") {
+    if (error instanceof Error && (error.name === "ConflictError" || error.name === "DemoReadOnlyError")) {
       return { ok: false, message: error.message };
     }
     return {

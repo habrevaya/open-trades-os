@@ -22,6 +22,9 @@ export default function globalSetup(): void {
 
   run(["--filter", "@opentradesos/db", "migrate"]);
   const output = run(["--filter", "@opentradesos/api", "seed"]);
+  // The public demo, as a second company. Idempotent and deletes nothing, so
+  // a rerun finds it in place; demo.spec.ts asserts nothing it does is kept.
+  run(["--filter", "@opentradesos/api", "demo:seed"]);
 
   const seed = parseSeed(output);
   const dir = join(__dirname, ".state");

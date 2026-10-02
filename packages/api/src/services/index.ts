@@ -39,6 +39,7 @@ export * as creditNotes from "./credit-notes";
 export * as reports from "./reports";
 export * as dashboards from "./dashboards";
 export * as roles from "./roles";
+export * as demo from "./demo";
 export * as tasks from "./tasks";
 export * as session from "./session";
 export { resolveSession, type ResolvedSession } from "./session";

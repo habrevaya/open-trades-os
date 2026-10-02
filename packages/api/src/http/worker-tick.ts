@@ -37,6 +37,11 @@ export interface WorkerTickDeps {
   budgetMs?: number | undefined;
   /** Defaults to the same hooks the worker process uses. */
   afterDrain?: ((organizationId: string) => Promise<void>) | undefined;
+  /**
+   * Only these companies. Never set by the route a deployment mounts, and not
+   * readable from the request: it is for a test that shares its database.
+   */
+  only?: readonly string[] | undefined;
 }
 
 export async function handleWorkerTick(request: Request, deps: WorkerTickDeps): Promise<Response> {
@@ -59,6 +64,7 @@ export async function handleWorkerTick(request: Request, deps: WorkerTickDeps): 
       db: deps.db,
       budgetMs,
       afterDrain: deps.afterDrain ?? backgroundHooks(deps.db),
+      ...(deps.only ? { only: deps.only } : {}),
     });
     if (summary.events > 0) {
       console.info(`[worker tick] ${summary.events} events across ${summary.organizations} organizations`);

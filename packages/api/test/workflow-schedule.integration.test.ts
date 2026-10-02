@@ -122,7 +122,7 @@ run("planning", () => {
      */
     const id = await defineScheduled({ expression: "0 23 * * *" });
 
-    const [result] = ours(await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") }));
+    const [result] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") }));
     expect(result!.action).toBe("planned");
 
     const state = await stateOf(id);
@@ -138,11 +138,11 @@ run("planning", () => {
      * detectable without reading the workflow on every tick.
      */
     const id = await defineScheduled({ expression: "0 23 * * *" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
 
     await raw`update public.workflow set schedule = '0 9 * * 1' where id = ${id}`;
     // Long past the old due time, so a tick that ignored the change would fire.
-    const [result] = ours(await schedule.tick(db(), { now: at("2026-09-24T17:00:00Z") }));
+    const [result] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-24T17:00:00Z") }));
 
     expect(result!.action).toBe("planned");
     const state = await stateOf(id);
@@ -159,7 +159,7 @@ run("planning", () => {
      * screen that lists workflows can show it.
      */
     const id = await defineScheduled({ expression: "every tuesday plz" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
 
     const state = await stateOf(id);
     expect(state!.next_run_at).toBeNull();
@@ -170,9 +170,9 @@ run("planning", () => {
 run("firing", () => {
   it("runs the workflow when its time comes, and moves to the next", async () => {
     const id = await defineScheduled({ expression: "0 23 * * *" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
 
-    const [result] = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    const [result] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
     expect(result!.action).toBe("fired");
     expect(result!.run!.status).toBe("succeeded");
 
@@ -186,9 +186,9 @@ run("firing", () => {
 
   it("does not fire before its time", async () => {
     await defineScheduled({ expression: "0 23 * * *" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
 
-    const [result] = ours(await schedule.tick(db(), { now: at("2026-09-23T03:59:00Z") }));
+    const [result] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T03:59:00Z") }));
     expect(result!.action).toBe("skipped");
     expect(result!.reason).toBe("not_due");
     const tasks = await raw`select id from public.task where organization_id = ${ORG}`;
@@ -205,7 +205,7 @@ run("firing", () => {
      * both read this row as due exactly one proceeds.
      */
     const id = await defineScheduled({ expression: "0 23 * * *" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
 
     const now = at("2026-09-23T04:00:30Z");
     const row = await dueRow(id);
@@ -228,8 +228,8 @@ run("firing", () => {
      * hour records the occurrence rather than its own lateness.
      */
     await defineScheduled({ expression: "0 23 * * *" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-23T05:30:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T05:30:00Z") });
 
     const [event] = await raw<{ name: string; payload: Record<string, unknown> }[]>`
       select name, payload from public.domain_event where organization_id = ${ORG}`;
@@ -244,8 +244,8 @@ run("firing", () => {
      * which is worse than missing them: the customer sees the outage.
      */
     const id = await defineScheduled({ expression: "0 23 * * *" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-26T12:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-26T12:00:00Z") });
 
     const tasks = await raw`select id from public.task where organization_id = ${ORG}`;
     expect(tasks).toHaveLength(1);
@@ -264,8 +264,8 @@ run("firing", () => {
       expression: "0 23 * * *",
       conditions: { all: [{ path: "workflowId", op: "eq", value: "not-this-one" }] },
     });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    const [result] = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    const [result] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
 
     expect(result!.action).toBe("fired");
     expect(result!.run!.status).toBe("skipped");
@@ -281,8 +281,8 @@ run("firing", () => {
      * publish time.
      */
     await defineScheduled({ expression: "0 23 * * *", permissions: ["message:send"] });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    const [result] = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    const [result] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
 
     expect(result!.run!.status).toBe("failed");
     expect(result!.run!.reason).toMatch(/task:write/);
@@ -292,7 +292,7 @@ run("firing", () => {
 run("what the clock leaves alone", () => {
   it("ignores a workflow that is switched off", async () => {
     await defineScheduled({ expression: "* * * * *", enabled: false });
-    const results = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    const results = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
     expect(results).toHaveLength(0);
   });
 
@@ -301,7 +301,7 @@ run("what the clock leaves alone", () => {
     // is nullable in the first place.
     const id = await defineScheduled({ expression: "0 23 * * *" });
     await raw`update public.workflow set active_version_id = null where id = ${id}`;
-    const results = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    const results = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
     expect(results.filter((r) => r.workflowId === id)).toHaveLength(0);
   });
 
@@ -311,15 +311,15 @@ run("what the clock leaves alone", () => {
     // schedule in the column.
     const id = await defineScheduled({ expression: "0 23 * * *" });
     await raw`update public.workflow set trigger_kind = 'event' where id = ${id}`;
-    const results = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    const results = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
     expect(results.filter((r) => r.workflowId === id)).toHaveLength(0);
   });
 
   it("stops firing a workflow that was deleted", async () => {
     const id = await defineScheduled({ expression: "0 23 * * *" });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
     await raw`update public.workflow set deleted_at = now() where id = ${id}`;
-    const results = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    const results = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
     expect(results.filter((r) => r.workflowId === id)).toHaveLength(0);
   });
 });
@@ -366,8 +366,8 @@ run("waiting, mid run", () => {
 
   it("parks the run rather than finishing it, and does the rest later", async () => {
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    const [fired] = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    const [fired] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
 
     expect(fired!.run!.status).toBe("waiting");
     expect(await titles()).toEqual(["Before"]);
@@ -381,13 +381,13 @@ run("waiting, mid run", () => {
     // A pass before it is due does nothing.
     await raw`update public.workflow_run set resume_at = now() + interval '1 hour'
               where workflow_id = ${id}`;
-    expect(ours(await schedule.resumeDue(db()))).toHaveLength(0);
+    expect(ours(await schedule.resumeDue(db(), { only: [ORG] }))).toHaveLength(0);
     expect(await titles()).toEqual(["Before"]);
 
     // And then it is due.
     await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
               where workflow_id = ${id}`;
-    const [resumed] = ours(await schedule.resumeDue(db()));
+    const [resumed] = ours(await schedule.resumeDue(db(), { only: [ORG] }));
     expect(resumed!.run.status).toBe("succeeded");
     expect(await titles()).toEqual(["Before", "After"]);
   });
@@ -412,8 +412,8 @@ run("waiting, mid run", () => {
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
 
     const DUE = "2026-09-09T04:00:00Z";
-    await schedule.tick(db(), { now: at("2026-09-08T17:00:00Z") });
-    const [fired] = ours(await schedule.tick(db(), { now: at(DUE) }));
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-08T17:00:00Z") });
+    const [fired] = ours(await schedule.tick(db(), { only: [ORG], now: at(DUE) }));
     expect(fired!.run!.status).toBe("waiting");
 
     const parked = await runRow(id);
@@ -436,11 +436,11 @@ run("waiting, mid run", () => {
      * The step rows say what happened, and a resume skips what succeeded.
      */
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") });
     await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
               where workflow_id = ${id}`;
-    await schedule.resumeDue(db());
+    await schedule.resumeDue(db(), { only: [ORG] });
 
     expect(await titles()).toEqual(["Before", "After"]);
     const steps = await raw`select step_index from public.workflow_step_run
@@ -453,12 +453,12 @@ run("waiting, mid run", () => {
     // The steps after a wait are the ones that message the customer, so this
     // matters more here than almost anywhere else.
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") });
     await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
               where workflow_id = ${id}`;
 
-    const both = await Promise.all([schedule.resumeDue(db()), schedule.resumeDue(db())]);
+    const both = await Promise.all([schedule.resumeDue(db(), { only: [ORG] }), schedule.resumeDue(db(), { only: [ORG] })]);
     const statuses = ours(both.flat()).map((r) => r.run.status);
     expect(statuses.filter((s) => s === "succeeded")).toHaveLength(1);
     /**
@@ -485,8 +485,8 @@ run("waiting, mid run", () => {
      * passes, never overlapped, and passed with the claim removed.
      */
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") });
 
     const [run] = await raw<{ id: string }[]>`
       select id from public.workflow_run where workflow_id = ${id}`;
@@ -508,8 +508,8 @@ run("waiting, mid run", () => {
      * same no.
      */
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") });
 
     const [run] = await raw<{ id: string }[]>`
       select id from public.workflow_run where workflow_id = ${id}`;
@@ -529,13 +529,13 @@ run("waiting, mid run", () => {
      * the index alone was carrying the whole thing.
      */
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") });
 
     await raw`update public.workflow_run
               set resume_at = now() - interval '1 minute', resume_step_index = null
               where workflow_id = ${id}`;
-    const [resumed] = ours(await schedule.resumeDue(db()));
+    const [resumed] = ours(await schedule.resumeDue(db(), { only: [ORG] }));
 
     expect(resumed!.run.status).toBe("succeeded");
     expect(await titles()).toEqual(["Before", "After"]);
@@ -552,8 +552,8 @@ run("waiting, mid run", () => {
      * permissions were never approved against it.
      */
     const id = await defineScheduled({ expression: "0 23 * * *", steps: CHASE });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") });
 
     const v2 = fixtureId(`ws:v2:${Math.random()}`);
     await raw`insert into public.workflow_version
@@ -565,7 +565,7 @@ run("waiting, mid run", () => {
 
     await raw`update public.workflow_run set resume_at = now() - interval '1 minute'
               where workflow_id = ${id}`;
-    await schedule.resumeDue(db());
+    await schedule.resumeDue(db(), { only: [ORG] });
 
     expect(await titles()).toEqual(["Before", "After"]);
   });
@@ -580,8 +580,8 @@ run("waiting, mid run", () => {
       expression: "0 23 * * *",
       steps: [{ kind: "wait", config: { days: "three" } }],
     });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    const [fired] = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    const [fired] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
 
     expect(fired!.run!.status).toBe("failed");
     expect(fired!.run!.reason).toMatch(/must be a number/);
@@ -599,8 +599,8 @@ run("waiting, mid run", () => {
         { kind: "create_task", config: { title: "Straight through", queue: "office" } },
       ],
     });
-    await schedule.tick(db(), { now: at("2026-09-22T17:00:00Z") });
-    const [fired] = ours(await schedule.tick(db(), { now: at("2026-09-23T04:00:30Z") }));
+    await schedule.tick(db(), { only: [ORG], now: at("2026-09-22T17:00:00Z") });
+    const [fired] = ours(await schedule.tick(db(), { only: [ORG], now: at("2026-09-23T04:00:30Z") }));
 
     expect(fired!.run!.status).toBe("succeeded");
     expect(await titles()).toEqual(["Straight through"]);

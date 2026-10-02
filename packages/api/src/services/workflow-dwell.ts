@@ -4,6 +4,7 @@ import { events, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
 import { fire, type RunSummary } from "./workflow-runner";
+import { within } from "./workflow-schedule";
 
 /**
  * WORK THAT HAS BEEN SITTING THERE TOO LONG
@@ -233,12 +234,12 @@ export async function sweepOne(
  */
 export async function sweep(
   db: Database,
-  options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
 ): Promise<DwellResult[]> {
   const now = options.now ?? new Date();
-  const rows = await db.execute<DwellWorkflowRow>(
+  const rows = within(options.only, await db.execute<DwellWorkflowRow>(
     sql`select * from app.dwell_workflows(${options.limit ?? 100})`,
-  );
+  ));
 
   const results: DwellResult[] = [];
   for (const row of rows) {

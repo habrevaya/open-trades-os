@@ -161,7 +161,7 @@ that looks like "since" and is not is how a bill comes out wrong:
 
 | Field | Counts |
 |---|---|
-| `activeUsers` | People who held a live session at any point since `since`. Not sign-ins: a session lasts thirty days, and somebody who signed in five weeks ago and works in it daily is active |
+| `activeUsers` | People who held a live session at any point since `since`. Not sign-ins: a session lasts thirty days, and somebody who signed in five weeks ago and works in it daily is active. The public [demo](demo.md)'s visitors are never counted |
 | `technicians` | **A headcount, not a flow.** Active technicians on the books right now |
 | `jobsCreated` | Jobs created since `since` |
 | `invoicesCreated` | Invoices created since `since`, voided ones included |

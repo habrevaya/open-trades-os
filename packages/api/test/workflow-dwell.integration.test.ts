@@ -105,7 +105,7 @@ run("waiting for something not to happen", () => {
     await defineDwell({ afterDays: 5 });
     await quietEstimate(7, 4001);
 
-    const [result] = ours(await dwell.sweep(db()));
+    const [result] = ours(await dwell.sweep(db(), { only: [ORG] }));
     expect(result!.matched).toBe(1);
     expect(result!.runs[0]!.status).toBe("succeeded");
 
@@ -120,7 +120,7 @@ run("waiting for something not to happen", () => {
     await defineDwell({ afterDays: 5 });
     await quietEstimate(2);
 
-    const [result] = ours(await dwell.sweep(db()));
+    const [result] = ours(await dwell.sweep(db(), { only: [ORG] }));
     expect(result!.matched).toBe(0);
     expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(0);
   });
@@ -136,9 +136,9 @@ run("waiting for something not to happen", () => {
     await defineDwell({ afterDays: 5 });
     await quietEstimate(7);
 
-    await dwell.sweep(db());
-    await dwell.sweep(db());
-    await dwell.sweep(db());
+    await dwell.sweep(db(), { only: [ORG] });
+    await dwell.sweep(db(), { only: [ORG] });
+    await dwell.sweep(db(), { only: [ORG] });
 
     expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(1);
     expect(await raw`select id from public.workflow_run where organization_id = ${ORG}`).toHaveLength(1);
@@ -150,7 +150,7 @@ run("waiting for something not to happen", () => {
     const id = await quietEstimate(7);
     await raw`update public.estimate set status = 'approved' where id = ${id}`;
 
-    const [result] = ours(await dwell.sweep(db()));
+    const [result] = ours(await dwell.sweep(db(), { only: [ORG] }));
     expect(result!.matched).toBe(0);
   });
 
@@ -166,7 +166,7 @@ run("waiting for something not to happen", () => {
     await raw`update public.estimate set status = 'viewed', viewed_at = now(),
               updated_at = now() where id = ${id}`;
 
-    const [result] = ours(await dwell.sweep(db()));
+    const [result] = ours(await dwell.sweep(db(), { only: [ORG] }));
     expect(result!.matched).toBe(1);
   });
 });
@@ -208,7 +208,7 @@ run("what it will and will not wait on", () => {
     const id = await defineDwell();
     await raw`update public.workflow set dwell = '{"shape":"gone","afterDays":5}'::jsonb
               where id = ${id}`;
-    const [result] = ours(await dwell.sweep(db()));
+    const [result] = ours(await dwell.sweep(db(), { only: [ORG] }));
     expect(result!.reason).toBe("unknown_shape");
   });
 
@@ -222,6 +222,6 @@ run("what it will and will not wait on", () => {
     const id = await defineDwell({ afterDays: 5 });
     await workflows.setEnabled(owner(), { id, enabled: false });
     await quietEstimate(7);
-    expect(ours(await dwell.sweep(db()))).toHaveLength(0);
+    expect(ours(await dwell.sweep(db(), { only: [ORG] }))).toHaveLength(0);
   });
 });
