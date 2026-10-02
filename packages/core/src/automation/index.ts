@@ -286,3 +286,319 @@ export function canPublish(
   }
   return { ok: true, required };
 }
+
+/* ------------------------------------------------------------------ branching */
+
+/**
+ * BRANCHING, AS A FLAT LIST RATHER THAN A TREE
+ *
+ * `branch` has been in `STEP_PERMISSIONS` since that table was written, with no
+ * executor behind it and no shape anybody could author. What a contractor wants
+ * from it is ordinary: if the invoice is over a thousand dollars ring them,
+ * otherwise send the text.
+ *
+ * The obvious model is a tree: a branch holding two lists of steps. It is wrong
+ * HERE, and not because a tree is hard. The runner records one row per step with
+ * an integer index, parks a waiting run on `resume_step_index`, and resumes by
+ * reading which indices already succeeded. Every one of those is an integer, so a
+ * tree means a path, which means a new resume model, a new unique index on the
+ * step run table and a migration, to express something the flat form expresses
+ * exactly.
+ *
+ * So a branch COUNTS the steps that follow it. `thenCount` of them belong to the
+ * arm that runs when the condition holds, the next `elseCount` to the arm that
+ * runs when it does not, and the other arm is written down as skipped. The step
+ * list stays flat, the indices stay integers, resume keeps working, and the run
+ * reads as a list on the screen that answers "why did this customer get that
+ * text", which is the screen that matters.
+ *
+ * NESTING FALLS OUT OF IT rather than being a second feature. A branch inside an
+ * arm is a branch whose own counts sit inside the enclosing count, and
+ * `checkBranches` below is a bracket match: every arm has to close inside the arm
+ * that contains it. That is the same check a parser does for parentheses, and it
+ * is the whole of what makes the flat form unambiguous.
+ *
+ * WHAT A FLAT LIST CANNOT DO, said here rather than discovered: an arm cannot
+ * jump backwards, so there are no loops. That is deliberate and it is the second
+ * loop guard: a workflow that can jump back is a workflow that can send ten
+ * thousand texts overnight, and the two guards upstream only catch a workflow
+ * re-triggering itself, not one looping inside a single run.
+ */
+export interface BranchShape {
+  conditions: ConditionGroup;
+  /** Steps immediately after the branch that run when the condition holds. */
+  thenCount: number;
+  /** Steps after those that run when it does not. Zero means no otherwise arm. */
+  elseCount: number;
+}
+
+export type BranchProblem =
+  | { reason: "not_a_branch" }
+  | { reason: "no_arms" }
+  | { reason: "negative_arm" }
+  | { reason: "runs_past_the_end"; needs: number; has: number };
+
+/**
+ * Read a stored config into a shape, or say what is wrong with it.
+ *
+ * A config is jsonb written by an older build or by a caller, so nothing about it
+ * is guaranteed. `undefined` counts as zero for an arm, because an author who set
+ * only `thenCount` meant "and nothing otherwise", and refusing that would make the
+ * common case the verbose one.
+ */
+export function readBranch(
+  config: Record<string, unknown> | undefined,
+  /** How many steps follow this one. Used to refuse an arm that runs off the end. */
+  following?: number,
+): { ok: true; shape: BranchShape } | { ok: false; problem: BranchProblem } {
+  const raw = config ?? {};
+  const thenCount = raw["thenCount"] === undefined ? 0 : Number(raw["thenCount"]);
+  const elseCount = raw["elseCount"] === undefined ? 0 : Number(raw["elseCount"]);
+
+  if (!Number.isInteger(thenCount) || !Number.isInteger(elseCount)) {
+    return { ok: false, problem: { reason: "not_a_branch" } };
+  }
+  if (thenCount < 0 || elseCount < 0) {
+    return { ok: false, problem: { reason: "negative_arm" } };
+  }
+  /**
+   * A branch with no arms at all decides nothing: both outcomes run the same
+   * steps, which are whatever happens to come next. That is not a branch, it is a
+   * condition somebody wrote and then did not use, and it is worth refusing at the
+   * save because at run time it is invisible.
+   */
+  if (thenCount === 0 && elseCount === 0) {
+    return { ok: false, problem: { reason: "no_arms" } };
+  }
+  if (following !== undefined && thenCount + elseCount > following) {
+    return {
+      ok: false,
+      problem: { reason: "runs_past_the_end", needs: thenCount + elseCount, has: following },
+    };
+  }
+
+  const conditions = (raw["conditions"] ?? {}) as ConditionGroup;
+  return { ok: true, shape: { conditions, thenCount, elseCount } };
+}
+
+export interface BranchDecision {
+  /** Which arm ran. `otherwise` even when that arm is empty, so the log says so. */
+  taken: "then" | "otherwise";
+  /** Offsets from the branch step, of the steps that are NOT to run. */
+  skipOffsets: number[];
+}
+
+/**
+ * Which arm, and what to write off.
+ *
+ * Offsets rather than absolute indices, so this stays a pure function of the
+ * shape: the caller knows where the branch sits and this does not need to.
+ */
+export function decideBranch(shape: BranchShape, ctx: EvalContext): BranchDecision {
+  const held = evaluateGroup(shape.conditions, ctx);
+  const offsets: number[] = [];
+
+  if (held) {
+    // The otherwise arm sits after the then arm.
+    for (let i = 0; i < shape.elseCount; i += 1) offsets.push(1 + shape.thenCount + i);
+    return { taken: "then", skipOffsets: offsets };
+  }
+  for (let i = 0; i < shape.thenCount; i += 1) offsets.push(1 + i);
+  return { taken: "otherwise", skipOffsets: offsets };
+}
+
+export type BranchListProblem =
+  | { at: number; problem: BranchProblem }
+  /**
+   * An arm that ends outside the arm containing it.
+   *
+   * The flat form is only unambiguous while the arms bracket properly. A branch at
+   * index 2 whose then arm covers 3 to 6, holding a branch at 4 whose arms cover 5
+   * to 8, describes two overlapping regions and there is no reading of it that both
+   * authors would agree with.
+   */
+  | { at: number; problem: { reason: "crosses_an_arm"; endsAt: number; armEndsAt: number } };
+
+/**
+ * Every branch in a step list, bracket matched.
+ *
+ * Called at publish rather than at run time, which is the only moment anybody can
+ * fix it: a workflow whose arms overlap saves, enables, and then does something
+ * no reading of the definition predicts.
+ */
+export function checkBranches(
+  steps: readonly { kind: string; config?: Record<string, unknown> | undefined }[],
+): BranchListProblem[] {
+  const problems: BranchListProblem[] = [];
+  /** The last index of each arm still open, innermost last. */
+  const open: number[] = [];
+
+  for (const [index, step] of steps.entries()) {
+    while (open.length > 0 && open[open.length - 1]! < index) open.pop();
+
+    if (step.kind !== "branch") continue;
+
+    const read = readBranch(step.config, steps.length - index - 1);
+    if (!read.ok) {
+      problems.push({ at: index, problem: read.problem });
+      continue;
+    }
+
+    const endsAt = index + read.shape.thenCount + read.shape.elseCount;
+    const enclosing = open[open.length - 1];
+    if (enclosing !== undefined && endsAt > enclosing) {
+      problems.push({
+        at: index,
+        problem: { reason: "crosses_an_arm", endsAt, armEndsAt: enclosing },
+      });
+      continue;
+    }
+    open.push(endsAt);
+  }
+
+  return problems;
+}
+
+/** A branch problem as a sentence somebody can act on. */
+export function explainBranch(problem: BranchListProblem): string {
+  const at = `Step ${problem.at + 1}`;
+  switch (problem.problem.reason) {
+    case "not_a_branch":
+      return `${at} is a branch with arm sizes that are not whole numbers.`;
+    case "negative_arm":
+      return `${at} is a branch with a negative arm.`;
+    case "no_arms":
+      return `${at} is a branch with nothing in either arm, so both answers do the same thing.`;
+    case "runs_past_the_end":
+      return `${at} is a branch covering ${problem.problem.needs} steps and only `
+        + `${problem.problem.has} follow it.`;
+    case "crosses_an_arm":
+      return `${at} is a branch that ends at step ${problem.problem.endsAt + 1}, outside the `
+        + `branch it sits in, which ends at step ${problem.problem.armEndsAt + 1}.`;
+  }
+}
+
+/* ------------------------------------------------------- the shape on a canvas */
+
+/**
+ * A STEP AS A PERSON DRAWS IT, WHICH IS A TREE
+ *
+ * The engine runs a flat list with counts, for the reasons above. Nobody authors
+ * one: "if the invoice is over a thousand, ring them, otherwise text them" is two
+ * nested lanes on a screen, and asking somebody to write `thenCount: 2` is asking
+ * them to do the compiler's job.
+ *
+ * So the canvas holds a tree and this is the pair of functions between them. Both
+ * are here rather than in the screen because the SERVER has to do the same
+ * translation when it parses what the form posted, and two implementations of a
+ * translation disagree eventually: the one that would be wrong is the server's,
+ * which is the one that decides what actually runs.
+ *
+ * `nest` is the inverse, so opening an existing automation rebuilds the lanes
+ * somebody drew. A round trip is asserted in the tests, which is the only way to
+ * be sure a definition saved today opens tomorrow as the same picture.
+ */
+export interface PlanNode {
+  kind: string;
+  config?: Record<string, unknown> | undefined;
+  /** Present only on a branch. The steps that run when the condition holds. */
+  then?: PlanNode[] | undefined;
+  /** Present only on a branch. The steps that run when it does not. */
+  otherwise?: PlanNode[] | undefined;
+}
+
+export interface FlatStep {
+  kind: string;
+  config?: Record<string, unknown> | undefined;
+}
+
+/** How many steps a subtree occupies in the flat list, including itself. */
+function spanOf(nodes: readonly PlanNode[]): number {
+  let span = 0;
+  for (const node of nodes) {
+    span += 1;
+    if (node.kind === "branch") span += spanOf(node.then ?? []) + spanOf(node.otherwise ?? []);
+  }
+  return span;
+}
+
+/**
+ * The tree as the list the engine runs.
+ *
+ * Pre-order, with each branch's counts computed from the spans of its arms, which
+ * is the one piece of arithmetic nobody should be asked to do by hand. The arms
+ * are emitted in the order the counts describe: the then arm first, then the
+ * otherwise arm, which is what `decideBranch` assumes.
+ */
+export function flattenPlan(nodes: readonly PlanNode[]): FlatStep[] {
+  const out: FlatStep[] = [];
+  for (const node of nodes) {
+    if (node.kind !== "branch") {
+      out.push({ kind: node.kind, ...(node.config ? { config: node.config } : {}) });
+      continue;
+    }
+    const then = node.then ?? [];
+    const otherwise = node.otherwise ?? [];
+    out.push({
+      kind: "branch",
+      config: {
+        ...(node.config ?? {}),
+        thenCount: spanOf(then),
+        elseCount: spanOf(otherwise),
+      },
+    });
+    out.push(...flattenPlan(then), ...flattenPlan(otherwise));
+  }
+  return out;
+}
+
+/**
+ * The list as the tree somebody drew.
+ *
+ * Reads the counts and takes that many steps for each arm, recursively. A list
+ * whose counts do not add up is not repaired: it comes back with the branch's arms
+ * empty and the steps that followed as siblings, which is the honest reading of a
+ * definition `checkBranches` would have refused, and it means opening a broken
+ * workflow shows something rather than throwing.
+ */
+export function nestSteps(steps: readonly FlatStep[]): PlanNode[] {
+  const [nodes] = takeNodes(steps, 0, steps.length);
+  return nodes;
+}
+
+function takeNodes(
+  steps: readonly FlatStep[],
+  from: number,
+  count: number,
+): [PlanNode[], number] {
+  const out: PlanNode[] = [];
+  let at = from;
+  const end = Math.min(from + count, steps.length);
+
+  while (at < end) {
+    const step = steps[at]!;
+    if (step.kind !== "branch") {
+      out.push({ kind: step.kind, ...(step.config ? { config: step.config } : {}) });
+      at += 1;
+      continue;
+    }
+
+    const read = readBranch(step.config, steps.length - at - 1);
+    const { thenCount, elseCount } = read.ok
+      ? read.shape
+      : { thenCount: 0, elseCount: 0 };
+    const { thenCount: _t, elseCount: _e, ...rest } = (step.config ?? {}) as Record<string, unknown>;
+
+    const [then, afterThen] = takeNodes(steps, at + 1, thenCount);
+    const [otherwise, afterElse] = takeNodes(steps, afterThen, elseCount);
+    out.push({
+      kind: "branch",
+      ...(Object.keys(rest).length > 0 ? { config: rest } : {}),
+      then,
+      otherwise,
+    });
+    at = afterElse;
+  }
+
+  return [out, at];
+}

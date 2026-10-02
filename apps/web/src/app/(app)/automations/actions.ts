@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { workflows, ConflictError } from "@opentradesos/api/services";
-import type { automation } from "@opentradesos/core";
+import { automation } from "@opentradesos/core";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -26,37 +26,110 @@ export async function setEnabled(_previous: unknown, form: FormData) {
 }
 
 /**
- * The definition the form describes.
+ * THE STEPS THE CANVAS DREW.
  *
- * Only the steps this build can actually perform, and only the fields each
- * one needs. A JSON textarea would be more expressive and would also be a way
- * to write a definition naming a step that does nothing, which is the failure
- * this whole screen exists to stop.
+ * The screen posts a tree, because that is what somebody draws, and the engine runs
+ * a flat list with arm counts. `automation.flattenPlan` is the translation and it is
+ * the SAME function the canvas uses to show the step count and to check the arms. A
+ * second implementation here would be the one that decides what actually runs, and
+ * therefore the one whose disagreement matters.
+ *
+ * It used to read a set of checkboxes: one of each kind, in a fixed order, so there
+ * was no way to send two messages, no way to order them and no way to branch at all.
+ *
+ * NOTHING HERE TRUSTS THE SHAPE. The field is a string a browser posted, so a
+ * malformed one is an empty plan rather than a throw, and the service refuses an
+ * automation with no steps with a sentence somebody can act on. Each step's config
+ * is then rebuilt from named fields rather than passed through, so a caller cannot
+ * put a key in a step config that this build does not expect: a step is as narrow as
+ * the screen that draws it.
  */
-function definitionFrom(form: FormData) {
-  const kinds = form.getAll("step").map(String).filter(Boolean);
-  const steps = kinds.map((kind, index) => {
-    const at = (field: string) => String(form.get(`${kind}.${field}`) ?? "").trim();
-    if (kind === "send_message") {
-      return { kind, config: { channel: "sms", purpose: "transactional", body: at("body") } };
-    }
-    if (kind === "create_task") {
+const numeric = (value: unknown): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
+function configFor(kind: string, raw: Record<string, unknown>): Record<string, unknown> {
+  const text = (field: string) => String(raw[field] ?? "").trim();
+  switch (kind) {
+    case "send_message":
+      return { channel: "sms", purpose: "transactional", body: text("body") };
+    case "create_task":
       return {
-        kind,
-        config: {
-          title: at("title"),
-          ...(at("queue") ? { queue: at("queue") } : {}),
-          ...(at("dueInHours") ? { dueInHours: Number(at("dueInHours")) } : {}),
-        },
+        title: text("title"),
+        ...(text("queue") ? { queue: text("queue") } : {}),
+        ...(text("dueInHours") ? { dueInHours: numeric(raw["dueInHours"]) } : {}),
       };
+    case "wait":
+      return { days: numeric(raw["days"]), hours: numeric(raw["hours"]) };
+    case "branch": {
+      /**
+       * The conditions, rebuilt condition by condition. `all` only, which is what
+       * the canvas offers; `any` and `none` are evaluated by the engine and reachable
+       * through the API, and a screen offering them needs a nested group editor.
+       *
+       * A condition with no path is dropped rather than saved: it is a row somebody
+       * added and did not fill in, and keeping it would make the branch compare
+       * against nothing and silently always hold.
+       */
+      const group = (raw["conditions"] ?? {}) as { all?: unknown };
+      const all = Array.isArray(group.all) ? group.all : [];
+      const conditions = all
+        .map((entry) => (entry ?? {}) as Record<string, unknown>)
+        .filter((entry) => String(entry["path"] ?? "").trim() !== "")
+        .map((entry) => {
+          const op = String(entry["op"] ?? "eq");
+          const base = { path: String(entry["path"]).trim(), op };
+          if (op === "exists" || op === "not_exists") return base;
+          const given = String(entry["value"] ?? "");
+          /**
+           * A numeric comparator gets a number. The browser posts every value as a
+           * string, and `"1000" > 1000` is false for a string comparison, so a
+           * branch on an invoice total would read as never holding.
+           */
+          const numericOp = op === "gt" || op === "gte" || op === "lt" || op === "lte";
+          return { ...base, value: numericOp && given !== "" ? Number(given) : given };
+        });
+      return { conditions: { all: conditions } };
     }
-    if (kind === "wait") {
-      const days = Number(at("days") || 0);
-      const hours = Number(at("hours") || 0);
-      return { kind, config: { days, hours } };
-    }
-    return { kind, config: {} as Record<string, unknown>, index };
-  });
+    default:
+      return {};
+  }
+}
+
+function planFrom(form: FormData): automation.PlanNode[] {
+  const posted = String(form.get("plan") ?? "");
+  if (posted === "") return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(posted);
+  } catch {
+    return [];
+  }
+
+  const clean = (nodes: unknown): automation.PlanNode[] => {
+    if (!Array.isArray(nodes)) return [];
+    return nodes.flatMap((entry): automation.PlanNode[] => {
+      const node = (entry ?? {}) as Record<string, unknown>;
+      const kind = String(node["kind"] ?? "");
+      if (kind === "") return [];
+      const raw = (node["config"] ?? {}) as Record<string, unknown>;
+      if (kind !== "branch") return [{ kind, config: configFor(kind, raw) }];
+      return [{
+        kind,
+        config: configFor(kind, raw),
+        then: clean(node["then"]),
+        otherwise: clean(node["otherwise"]),
+      }];
+    });
+  };
+
+  return clean(parsed);
+}
+
+function definitionFrom(form: FormData) {
+  const steps = automation.flattenPlan(planFrom(form));
 
   const chosen = String(form.get("triggerKind") ?? "event");
   const triggerKind = chosen === "schedule" || chosen === "dwell"

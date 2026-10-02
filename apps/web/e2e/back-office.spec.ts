@@ -880,3 +880,69 @@ test("Duplicates: the merge candidate list is the records that match, and the me
   /** And afterwards there is nothing left to merge, because the duplicate is gone. */
   await expect(owner.getByText(/No other record shares this phone number or email/)).toBeVisible();
 });
+
+test("The automation canvas: a branch is drawn with two lanes and the saved automation opens as the same picture", async ({ owner }) => {
+  /**
+   * `branch` was in the engine's permission table from the start with no shape
+   * anybody could author, so every automation was a straight line while the first
+   * thing a contractor asks for is "only if". The arithmetic that turns lanes into
+   * the engine's flat list is pure and tested in core; what needs a browser is that
+   * the lanes can be built, that what is posted is what was drawn, and that opening
+   * it again shows the same picture rather than the flattened steps.
+   */
+  const name = `Chase the big ones ${run}`;
+
+  await owner.goto("/automations/new");
+  await owner.getByRole("textbox", { name: "Name" }).fill(name);
+
+  /** One step to start with, and the canvas says what the engine will see. */
+  await expect(owner.getByText("One step when this runs")).toBeVisible();
+
+  await owner.getByRole("button", { name: "Add a step to the end" }).click();
+  await owner.getByRole("button", { name: "Add Only if" }).click();
+
+  /** A branch with no conditions is called out rather than refused mid-edit. */
+  await expect(owner.getByText(/would always take the first lane/)).toBeVisible();
+
+  await owner.getByRole("button", { name: "Add a condition" }).click();
+  await owner.getByLabel("What to check, condition 1").fill("job.number");
+  await owner.getByLabel("How to compare, condition 1").selectOption("gt");
+  await owner.getByLabel("What to compare against, condition 1").fill("0");
+
+  /**
+   * Each lane's add button says which lane it is, and each card is a named region,
+   * which is what lets a reader tell three "Title" boxes apart. The test leans on the
+   * same names rather than on positions.
+   */
+  await owner.getByRole("button", { name: "Add a step to step 2, then" }).click();
+  await owner.getByRole("button", { name: "Add Raise a task" }).click();
+  const thenTask = owner.getByRole("region", { name: "step 2, then, step 1, Raise a task" });
+  await thenTask.getByRole("textbox", { name: "Title" }).fill("Ring the big one");
+
+  await owner.getByRole("button", { name: "Add a step to step 2, otherwise" }).click();
+  await owner.getByRole("button", { name: "Add Wait" }).click();
+
+  /**
+   * Two top level cards and four steps: the task it started with, the branch, and one
+   * step in each arm. The count is the ENGINE's rather than the canvas's, which is
+   * what a run's rows will show and the reason it is on the screen at all.
+   */
+  await expect(owner.getByText("4 steps when this runs")).toBeVisible();
+
+  /** Event is the default trigger, so all that is left is saying which event. */
+  await owner.getByRole("checkbox", { name: /job\.completed/ }).check();
+  await owner.getByRole("button", { name: "Save, switched off" }).click();
+
+  /** Saved, and it opens as the lanes rather than as a flat list. */
+  await expect(owner.getByRole("heading", { level: 1, name })).toBeVisible();
+  await expect(owner.getByText("Then", { exact: true })).toBeVisible();
+  await expect(owner.getByText("Otherwise", { exact: true })).toBeVisible();
+  await expect(
+    owner.getByRole("region", { name: "step 2, then, step 1, Raise a task" })
+      .getByRole("textbox", { name: "Title" }),
+  ).toHaveValue("Ring the big one");
+  await expect(owner.getByText("4 steps when this runs")).toBeVisible();
+  /** And the condition came back as a comparator in words, not as an operator. */
+  await expect(owner.getByLabel("What to check, condition 1")).toHaveValue("job.number");
+  await expect(owner.getByLabel("What to compare against, condition 1")).toHaveValue("0");
+});

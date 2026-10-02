@@ -5,7 +5,7 @@ import * as jobs from "../src/services/jobs";
 import * as customers from "../src/services/customers";
 import * as properties from "../src/services/properties";
 import * as events from "../src/services/events";
-import { handleEvent, runnerActor } from "../src/services/workflow-runner";
+import { handleEvent, runnerActor, resume } from "../src/services/workflow-runner";
 import { render } from "../src/services/workflow-steps";
 import { inTenant, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
@@ -433,5 +433,175 @@ run("a workflow raising a task", () => {
     await handleEvent(owner(), eventId);
 
     expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(1);
+  });
+});
+
+/**
+ * BRANCHING, AGAINST A REAL RUN
+ *
+ * `branch` sat in `STEP_PERMISSIONS` with no executor and no shape anybody could
+ * author, so every automation was a straight line. The decision itself is pure and
+ * tested in core; what needs a database is the part core cannot see: that the arm
+ * not taken is written down, that a wait inside an arm resumes without re-deciding,
+ * and that a retry does not collide with its own earlier rows.
+ */
+run("a branch picks an arm", () => {
+  const stepRuns = () => raw<{ step_index: number; step_kind: string; status: string; output: Record<string, unknown> | null }[]>`
+    select step_index, step_kind, status, output from public.workflow_step_run
+    where organization_id = ${ORG} order by step_index`;
+
+  /** Over a hundred takes the then arm; under it takes the otherwise arm. */
+  const overNumber = (n: number) => [
+    { kind: "branch", config: { conditions: { all: [{ path: "job.number", op: "gt", value: n }] }, thenCount: 1, elseCount: 1 } },
+    { kind: "create_task", config: { title: "Big job" } },
+    { kind: "create_task", config: { title: "Small job" } },
+  ];
+
+  it("runs the then arm and writes the otherwise arm off", async () => {
+    /**
+     * Job numbers start at one per company, and the seed runs several jobs before
+     * this, so a threshold of zero is the reliable way to say "always true" without
+     * the branch becoming a condition on nothing.
+     */
+    await defineWorkflow({ steps: overNumber(0), permissions: ["task:write"] });
+    await completeAJob();
+    await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    const tasks = await raw<{ title: string }[]>`
+      select title from public.task where organization_id = ${ORG}`;
+    expect(tasks.map((t) => t.title)).toEqual(["Big job"]);
+
+    const steps = await stepRuns();
+    expect(steps.map((s) => s.status)).toEqual(["succeeded", "succeeded", "skipped"]);
+    /** And the branch row says which way it went, which is the question the screen asks. */
+    expect(steps[0]?.output).toMatchObject({ taken: "then" });
+    /** The skipped row names the branch that skipped it rather than being blank. */
+    expect(steps[2]?.output).toMatchObject({ skippedBy: 0 });
+  });
+
+  it("runs the otherwise arm when the condition does not hold", async () => {
+    await defineWorkflow({ steps: overNumber(100_000), permissions: ["task:write"] });
+    await completeAJob();
+    await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    const tasks = await raw<{ title: string }[]>`
+      select title from public.task where organization_id = ${ORG}`;
+    expect(tasks.map((t) => t.title)).toEqual(["Small job"]);
+
+    const steps = await stepRuns();
+    expect(steps.map((s) => s.status)).toEqual(["succeeded", "skipped", "succeeded"]);
+    expect(steps[0]?.output).toMatchObject({ taken: "otherwise" });
+  });
+
+  it("records the decision even when the arm it chose is empty", async () => {
+    /**
+     * "The condition did not hold" and "nothing happened" are different records,
+     * and only the first explains why a customer was not texted.
+     */
+    await defineWorkflow({
+      steps: [
+        { kind: "branch", config: { conditions: { all: [{ path: "job.number", op: "gt", value: 100_000 }] }, thenCount: 1, elseCount: 0 } },
+        { kind: "create_task", config: { title: "Never" } },
+      ],
+      permissions: ["task:write"],
+    });
+    await completeAJob();
+    await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(0);
+    const steps = await stepRuns();
+    expect(steps[0]?.output).toMatchObject({ taken: "otherwise" });
+    expect(steps[1]?.status).toBe("skipped");
+  });
+
+  it("skips a whole arm rather than its first step", async () => {
+    await defineWorkflow({
+      steps: [
+        { kind: "branch", config: { conditions: { all: [{ path: "job.number", op: "gt", value: 100_000 }] }, thenCount: 2, elseCount: 1 } },
+        { kind: "create_task", config: { title: "A" } },
+        { kind: "create_task", config: { title: "B" } },
+        { kind: "create_task", config: { title: "C" } },
+      ],
+      permissions: ["task:write"],
+    });
+    await completeAJob();
+    await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    const tasks = await raw<{ title: string }[]>`
+      select title from public.task where organization_id = ${ORG}`;
+    expect(tasks.map((t) => t.title)).toEqual(["C"]);
+    expect((await stepRuns()).map((s) => s.status))
+      .toEqual(["succeeded", "skipped", "skipped", "succeeded"]);
+  });
+
+  it("keeps the decision across a wait, rather than re-deciding on resume", async () => {
+    /**
+     * THE CASE THAT DECIDED THE DESIGN.
+     *
+     * A run parks inside an arm and resumes at the next index. Without the skipped
+     * rows, the resume would run the arm the branch decided against, three days
+     * later, with nothing on the screen explaining why. Writing the decision down
+     * is what makes a branch and a wait compose.
+     */
+    await defineWorkflow({
+      steps: [
+        { kind: "branch", config: { conditions: { all: [{ path: "job.number", op: "gt", value: 0 }] }, thenCount: 2, elseCount: 1 } },
+        { kind: "wait", config: { days: 3 } },
+        { kind: "create_task", config: { title: "After the wait" } },
+        { kind: "create_task", config: { title: "Otherwise" } },
+      ],
+      permissions: ["task:write"],
+    });
+    await completeAJob();
+    await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    /** Parked, with the arm it did not take already written off. */
+    const parked = await raw<{ status: string; resume_step_index: number }[]>`
+      select status, resume_step_index from public.workflow_run where organization_id = ${ORG}`;
+    expect(parked[0]).toMatchObject({ status: "waiting", resume_step_index: 2 });
+    expect((await stepRuns()).find((s) => s.step_index === 3)?.status).toBe("skipped");
+
+    /** Resume it by hand, as the worker would once the clock caught up. */
+    const [run] = await raw<{ id: string }[]>`
+      select id from public.workflow_run where organization_id = ${ORG} limit 1`;
+    await inTenant(owner(), (tx) => resume(tx, owner(), { runId: run!.id, now: new Date(Date.now() + 4 * 86_400_000) }));
+
+    const tasks = await raw<{ title: string }[]>`
+      select title from public.task where organization_id = ${ORG}`;
+    /** The arm that was taken finished. The other one never ran. */
+    expect(tasks.map((t) => t.title)).toEqual(["After the wait"]);
+  });
+
+  it("does not double up its skipped rows when the same event is handled twice", async () => {
+    await defineWorkflow({ steps: overNumber(0), permissions: ["task:write"] });
+    await completeAJob();
+    const eventId = (await latestEventNamed("job.completed"))!;
+    await handleEvent(owner(), eventId);
+    await handleEvent(owner(), eventId);
+
+    /** Three rows, not six. The second handling is refused as a replay anyway. */
+    expect(await stepRuns()).toHaveLength(3);
+  });
+
+  it("fails the run on a branch whose arms are nonsense, rather than skipping nothing", async () => {
+    /**
+     * `check` refuses this at the save, so reaching the runner means a definition
+     * written by an older build or straight into the table. Failing loudly beats
+     * running every step as though the branch were not there.
+     */
+    await defineWorkflow({
+      steps: [
+        { kind: "branch", config: { thenCount: 9 } },
+        { kind: "create_task", config: { title: "Should not run" } },
+      ],
+      permissions: ["task:write"],
+    });
+    await completeAJob();
+    await handleEvent(owner(), (await latestEventNamed("job.completed"))!);
+
+    const runs = await raw<{ status: string; error: string }[]>`
+      select status, error from public.workflow_run where organization_id = ${ORG}`;
+    expect(runs[0]?.status).toBe("failed");
+    expect(await raw`select id from public.task where organization_id = ${ORG}`).toHaveLength(0);
   });
 });

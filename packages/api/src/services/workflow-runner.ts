@@ -1,9 +1,9 @@
-import { and, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { automation, comms, type Actor, type Permission, SYSTEM_USER_ID } from "@opentradesos/core";
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
-import { sendMessage, createTask, waitStep, type StepResult } from "./workflow-steps";
+import { sendMessage, createTask, waitStep, branchStep, type StepResult } from "./workflow-steps";
 
 /**
  * THE RUNNER
@@ -286,15 +286,29 @@ async function advance(
   const actor = runnerActor(event.organizationId, version.requiredPermissions);
   const steps = version.steps as { kind: string; config?: Record<string, unknown> }[];
 
-  const done = new Set(
-    (await tx.select({ index: schema.workflowStepRun.stepIndex })
-      .from(schema.workflowStepRun)
-      .where(and(
-        eq(schema.workflowStepRun.runId, runId),
-        eq(schema.workflowStepRun.status, "succeeded"),
-      ))).map((r: { index: number }) => r.index),
-  );
-  let completed = done.size;
+  /**
+   * Steps this run is not to execute: the ones that already succeeded, AND the ones
+   * a branch wrote off.
+   *
+   * The second half is what makes a branch survive a wait. A run that parks inside
+   * an arm resumes at the next index and re-reads this set; without the skipped
+   * rows it would run the arm the branch decided against, three days later and with
+   * nothing on the screen explaining why. Reading the decision back rather than
+   * re-deciding also means the answer cannot change because the event payload is
+   * interpreted differently by a build deployed in between.
+   */
+  const settled = await tx.select({
+    index: schema.workflowStepRun.stepIndex,
+    status: schema.workflowStepRun.status,
+  }).from(schema.workflowStepRun)
+    .where(and(
+      eq(schema.workflowStepRun.runId, runId),
+      inArray(schema.workflowStepRun.status, ["succeeded", "skipped"]),
+    ));
+
+  const done = new Set(settled.map((r: { index: number }) => r.index));
+  /** Skipped steps are not work the run did, so they are not counted as completed. */
+  let completed = settled.filter((r: { status: string }) => r.status === "succeeded").length;
 
   for (const [index, step] of steps.entries()) {
     if (index < input.from || done.has(index)) continue;
@@ -311,12 +325,13 @@ async function advance(
 
     let result: StepResult;
     try {
-      result = await perform(tx, { ...ctx, actor }, step, event, runId, now);
+      result = await perform(tx, { ...ctx, actor }, step, event, runId, now, steps.length - index - 1);
     } catch (error) {
       result = { ok: false, reason: (error as Error).message };
     }
 
     const waitUntil = result.ok && "waitUntil" in result ? result.waitUntil : null;
+    const skipOffsets = result.ok && "skipOffsets" in result ? result.skipOffsets : null;
 
     await tx.update(schema.workflowStepRun).set({
       status: result.ok ? "succeeded" : "failed",
@@ -327,6 +342,38 @@ async function advance(
       finishedAt: new Date(),
       attempts: 1,
     }).where(eq(schema.workflowStepRun.id, stepRow!.id));
+
+    /**
+     * The arm a branch did not take, written down as rows rather than left out.
+     *
+     * Before the loop moves on, so a wait inside the arm that IS taken parks with
+     * the decision already durable. `done` is updated too, because the loop is
+     * mid-iteration and will reach those indices in this same pass.
+     *
+     * `onConflictDoNothing` on the unique index: a retried run re-decides the same
+     * branch and would otherwise collide with its own earlier rows, and a crash
+     * between the decision and the arm is exactly when a retry happens.
+     */
+    if (skipOffsets && skipOffsets.length > 0) {
+      const skipped = skipOffsets
+        .map((offset) => index + offset)
+        .filter((at) => at < steps.length && !done.has(at));
+
+      if (skipped.length > 0) {
+        await tx.insert(schema.workflowStepRun).values(skipped.map((at) => ({
+          organizationId: event.organizationId,
+          runId,
+          stepIndex: at,
+          stepKind: steps[at]!.kind,
+          status: "skipped" as const,
+          input: steps[at]!.config ?? {},
+          output: { skippedBy: index },
+          startedAt: new Date(),
+          finishedAt: new Date(),
+        }))).onConflictDoNothing();
+        for (const at of skipped) done.add(at);
+      }
+    }
 
     if (waitUntil) {
       /**
@@ -373,6 +420,8 @@ async function perform(
   event: typeof schema.domainEvent.$inferSelect,
   runId: string,
   now: Date,
+  /** How many steps come after this one. Only a branch needs it. */
+  following: number,
 ): Promise<StepResult> {
   /**
    * The permission is checked here, against the actor the run was given,
@@ -397,6 +446,8 @@ async function perform(
       return createTask(tx, ctx, step.config ?? {}, event, runId);
     case "wait":
       return waitStep(step.config ?? {}, now);
+    case "branch":
+      return branchStep(step.config ?? {}, event, following);
     default:
       return { ok: false, reason: `step kind not implemented: ${step.kind}` };
   }
