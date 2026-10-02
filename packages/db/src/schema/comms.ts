@@ -4,6 +4,7 @@ import { pk, timestamps, sourceRef } from "./_shared";
 import { organization, businessUnit, user } from "./tenancy";
 import { customer, contact } from "./crm";
 import { job } from "./work";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 import { integrationConnection } from "./integrations";
 
 /**
@@ -158,7 +159,22 @@ export const phoneNumber = pgTable("phone_number", {
   e164: text("e164").notNull(),
   label: text("label"),
   purpose: phoneNumberPurpose("purpose").notNull().default("main"),
-  campaignId: uuid("campaign_id").references(() => messagingCampaign.id, { onDelete: "set null" }),
+  /**
+   * The CARRIER registration this number sends under. Called `campaign_id`
+   * until the marketing module grew a campaign of its own, at which point a
+   * column named only "campaign" on the table tracking numbers live in was
+   * one somebody would point at the wrong thing.
+   */
+  messagingCampaignId: uuid("messaging_campaign_id").references(() => messagingCampaign.id, { onDelete: "set null" }),
+  /**
+   * The tracking campaign a call to this number is credited to, and its
+   * channel. Set together, and `attribution_source` is kept equal to the
+   * channel's catalogue key, so the number map core reads and the campaign
+   * on the screen cannot disagree.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   /** The user this number rings for, when it is theirs. */
   userId: uuid("user_id").references(() => user.id, { onDelete: "set null" }),
   capabilities: jsonb("capabilities").$type<{ voice?: boolean; sms?: boolean; mms?: boolean; fax?: boolean }>()
@@ -485,6 +501,21 @@ export const call = pgTable("call", {
   /** What the call was: booked, quote requested, wrong number, spam. */
   disposition: text("disposition"),
   attributionSource: text("attribution_source"),
+  /**
+   * Whether this was the first time this number had rung the company. Null
+   * when nobody can say: a call tracking provider's own answer wins when it
+   * sends one, because it has seen calls this product never did.
+   */
+  firstTimeCaller: boolean("first_time_caller"),
+  /**
+   * The channel and tracking campaign of the number it arrived on, AT THE
+   * TIME. Copied rather than joined for the reason `received_on_e164` is: a
+   * number moves to next season's campaign and last season's calls must not
+   * move with it.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   providerCallId: text("provider_call_id"),
   ...timestamps,
   ...sourceRef,

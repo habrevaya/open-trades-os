@@ -890,6 +890,39 @@ revoke all on function app.due_workflow_runs(int) from public;
 grant execute on function app.due_workflow_runs(int) to background;
 
 -- =========================================================================
+-- CAMPAIGN SENDS THAT ARE DUE
+--
+-- A text or email campaign with `scheduled_for` in the past, or one already
+-- `sending` because a carrier's daily cap left part of its list for another
+-- day. `scheduled_for` was stored for a long time and fired by nothing, so a
+-- staged send was one press per batch. The worker reads this, and only ids
+-- come back: the send itself runs inside the tenant, under its guard.
+-- =========================================================================
+
+create or replace function app.due_campaigns(p_limit int default 100)
+returns table (organization_id uuid, campaign_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id, c.id
+    from public.marketing_campaign c
+    where c.deleted_at is null
+      and c.cancelled_at is null
+      and (
+        (c.state = 'scheduled' and c.scheduled_for is not null and c.scheduled_for <= now())
+        or c.state = 'sending'
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = c.organization_id and o.suspended_at is not null
+      )
+    order by coalesce(c.scheduled_for, c.started_at)
+    limit p_limit
+  $$;
+
+revoke all on function app.due_campaigns(int) from public;
+grant execute on function app.due_campaigns(int) to background;
+
+-- =========================================================================
 -- WORKFLOWS THAT WATCH FOR SOMETHING NOT HAPPENING
 --
 -- The same shape as the two above. Ids and the dwell spec, nothing else, and

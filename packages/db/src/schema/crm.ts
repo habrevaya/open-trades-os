@@ -1,6 +1,7 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, date, timestamp } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization } from "./tenancy";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
  * CRM SPINE
@@ -36,7 +37,24 @@ export const customer = pgTable("customer", {
   billingState: text("billing_state"),
   billingPostalCode: text("billing_postal_code"),
   billingCountry: text("billing_country").notNull().default("US"),
+  /**
+   * The catalogue key this customer is credited to, for the screens that show
+   * one word. The full story is the touches in `marketing_touch`; this is a
+   * denormalisation of it, and `lead_source_origin` says whose answer it is.
+   */
   leadSource: text("lead_source"),
+  /**
+   * `manual` when somebody chose it on a form, `derived` when the attribution
+   * filled it in from the touches, `imported` when it arrived with a
+   * migration. Kept because "the CSR said Google" and "the tracking number
+   * said Google" are different evidence, and a report that cannot tell them
+   * apart cannot say how much of itself is a guess.
+   */
+  leadSourceOrigin: text("lead_source_origin"),
+  /** The company's own channel and campaign behind `lead_source`, when one is known. */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   /** Net terms in days. 0 means due on receipt. */
   paymentTermsDays: text("payment_terms_days").notNull().default("0"),
   taxExempt: boolean("tax_exempt").notNull().default(false),
