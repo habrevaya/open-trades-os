@@ -35,12 +35,6 @@ function publicUrl(token: string): string {
   return `${base.replace(/\/$/, "")}/api/webhooks/messaging/${token}`;
 }
 
-const readSecret = async (ref: string): Promise<string> => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
-
 export async function POST(
   request: Request,
   context: { params: Promise<{ token: string }> },
@@ -54,7 +48,8 @@ export async function POST(
    */
   const body = await request.text();
 
-  const connection = await commsInbound.resolveWebhook(getDb(), token, readSecret);
+  // The organization the token names has its own secrets read; nothing else.
+  const connection = await commsInbound.resolveWebhook(getDb(), token);
   /**
    * The same 404 for an unknown token and for one that resolves to nothing.
    * Distinguishing them turns the endpoint into an oracle for guessing

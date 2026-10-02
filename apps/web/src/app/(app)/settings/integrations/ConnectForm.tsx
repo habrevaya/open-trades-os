@@ -16,13 +16,15 @@ const input = "h-10 w-full rounded border border-steel-300 px-3 text-sm";
  * never mistaken for "this was never set".
  */
 export function ConnectForm({
-  provider, label, form, connected, credentialRef,
+  provider, label, form, connected, credentialRef, environmentPrefix,
 }: {
   provider: string;
   label: string;
   form: ProviderForm;
   connected: boolean;
   credentialRef: string | null;
+  /** `OTS_SECRET__<company>__` when the deployment keeps secrets in its environment, else null. */
+  environmentPrefix: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [state, actionForm, pending] = useKeptAction<ActionState>(connect, {});
@@ -79,6 +81,14 @@ export function ConnectForm({
               <span className="text-xs text-ink-500">
                 The name your deployment keeps the secret under, not the secret. This product
                 never stores the value.
+                {environmentPrefix && (
+                  <>
+                    {" "}The server reads it from the environment variable{" "}
+                    <code className="break-all font-mono">{environmentPrefix}</code> followed by this
+                    name, for example{" "}
+                    <code className="break-all font-mono">{environmentPrefix}STRIPE_SECRET_KEY</code>.
+                  </>
+                )}
               </span>
             </label>
           )}
@@ -102,6 +112,9 @@ export function ConnectForm({
               {field.kind === "secret_name" && (
                 <span className="text-xs text-ink-500">
                   A name in your secret store, not the secret. A value pasted here is refused.
+                  {environmentPrefix && (
+                    <> Read from <code className="break-all font-mono">{environmentPrefix}</code> followed by the name.</>
+                  )}
                 </span>
               )}
               {field.hint && <span className="text-xs text-ink-500">{field.hint}</span>}

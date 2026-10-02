@@ -7,6 +7,7 @@ import {
   type ServiceContext,
 } from "./context";
 import * as marketingService from "./marketing";
+import { readerFor } from "../secrets/store";
 import {
   createCallTrackingProvider,
   type CallTrackingProvider, type TrackedCall, type WebhookRequest,
@@ -235,31 +236,29 @@ async function loadConnection(tx: Database, organizationId: string) {
 
 export type ReadSecret = (ref: string) => Promise<string>;
 
-const secretFromEnvironment: ReadSecret = async (ref) => {
-  const value = process.env[ref];
-  if (!value) {
-    throw new ConflictError(
-      `No call tracking credential in the environment under "${ref}". The connection points `
-      + "at that name and nothing is set there, so nothing can be read from the provider.",
-    );
-  }
-  return value;
-};
-
 export interface CallTrackingDeps {
-  readSecret: ReadSecret;
+  /**
+   * Omitted in production: the deployment's secret store is read for the
+   * connection's own organization (`readerFor`). A test passes its own.
+   */
+  readSecret?: ReadSecret | undefined;
   /** Injected so a test never reaches CallRail and a deployment never fakes one. */
   provider?: CallTrackingProvider | undefined;
 }
 
-const DEFAULT_DEPS: CallTrackingDeps = { readSecret: secretFromEnvironment };
+const DEFAULT_DEPS: CallTrackingDeps = {};
+
+/** The organization's own store, never a bare environment variable. */
+const readerOf = (db: Database, row: { organizationId: string }, deps: CallTrackingDeps): ReadSecret =>
+  deps.readSecret ?? readerFor(db, row.organizationId);
 
 async function providerFor(
+  db: Database,
   row: typeof schema.integrationConnection.$inferSelect,
   deps: CallTrackingDeps,
 ): Promise<CallTrackingProvider> {
   if (deps.provider) return deps.provider;
-  const key = await deps.readSecret(row.credentialRef ?? keyRefFor(row.id));
+  const key = await readerOf(db, row, deps)(row.credentialRef ?? keyRefFor(row.id));
   return createCallTrackingProvider(row.provider, (row.settings ?? {}) as Record<string, unknown>, key);
 }
 
@@ -274,7 +273,7 @@ async function providerFor(
 export async function check(ctx: ServiceContext, deps: CallTrackingDeps = DEFAULT_DEPS) {
   return guardedWrite(ctx, "integration:write", async (tx) => {
     const row = await loadConnection(tx, ctx.actor.organizationId);
-    const outcome = await (await providerFor(row, deps)).checkCredential();
+    const outcome = await (await providerFor(tx, row, deps)).checkCredential();
 
     await tx.update(schema.integrationConnection).set({
       status: outcome.ok ? "connected" : "error",
@@ -342,8 +341,8 @@ export async function resolveWebhook(
   return {
     connectionId: row.id,
     organizationId: row.organizationId,
-    provider: await providerFor(row, deps),
-    secret: await deps.readSecret(settings.webhookSecretRef ?? secretRefFor(row.id)),
+    provider: await providerFor(db, row, deps),
+    secret: await readerOf(db, row, deps)(settings.webhookSecretRef ?? secretRefFor(row.id)),
   };
 }
 
@@ -749,7 +748,7 @@ export async function backfill(
    */
   const { row, provider } = await guardedWrite(ctx, "integration:write", async (tx) => {
     const found = await loadConnection(tx, ctx.actor.organizationId);
-    return { row: found, provider: await providerFor(found, deps) };
+    return { row: found, provider: await providerFor(tx, found, deps) };
   });
 
   const since = new Date(input.since);

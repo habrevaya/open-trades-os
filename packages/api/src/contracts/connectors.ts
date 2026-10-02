@@ -17,6 +17,21 @@ import { Uuid, MoneyString } from "./common";
  */
 export const ConnectorState = z.enum(["built", "declared"]);
 
+/**
+ * Whether a named secret holds anything, and never what.
+ *
+ * `environmentVariable` is where the operator puts it when the deployment
+ * keeps secrets in its environment: the company's own prefix, then the name.
+ * `last4` is only kept by the database store.
+ */
+export const SecretStatus = z.object({
+  name: z.string(),
+  set: z.boolean(),
+  last4: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  environmentVariable: z.string().nullable(),
+});
+
 export const Connector = z.object({
   key: z.string(),
   label: z.string(),
@@ -39,6 +54,8 @@ export const Connector = z.object({
   credentialRef: z.string().nullable(),
   /** Something to do that nothing else here says, such as a secret value left in the database by an earlier version. */
   notice: z.string().nullable(),
+  /** Every secret the connection names and whether anything is stored under it. Never a value. */
+  secrets: z.array(SecretStatus),
 });
 
 export const listConnectors = defineRoute({

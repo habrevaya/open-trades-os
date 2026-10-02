@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan } from "@opentradesos/core";
+import { assertCan, connectors } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { FALLBACKS, type LeadFieldMap } from "../marketing/lead-webhook";
+import { secretStore } from "../secrets/store";
 
 /**
  * SETTING UP A LEAD SOURCE, WHICH NOTHING COULD DO
@@ -208,6 +209,13 @@ function shape(row: typeof schema.leadSourceConnector.$inferSelect) {
     webhookPath: row.webhookToken ? `/api/webhooks/leads/${row.webhookToken}` : null,
     /** Where the signing secret is expected to be found. Never the secret. */
     secretRef: refFor(row.id),
+    /**
+     * The variable to put the secret in, when this deployment keeps secrets
+     * in its environment: this company's own prefix and then `secretRef`.
+     */
+    secretEnvironmentVariable: secretStore().kind === "environment"
+      ? connectors.environmentVariableFor(row.organizationId, refFor(row.id))
+      : null,
     fieldMap: row.fieldMap ?? {},
     autoAcceptEnabled: row.autoAcceptEnabled,
     autoAcceptRules: row.autoAcceptRules,

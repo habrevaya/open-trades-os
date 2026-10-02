@@ -63914,6 +63914,12 @@
           "secretRef": {
             "type": "string"
           },
+          "secretEnvironmentVariable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "fieldMap": {
             "type": "object",
             "additionalProperties": {
@@ -63955,6 +63961,7 @@
           "active",
           "webhookPath",
           "secretRef",
+          "secretEnvironmentVariable",
           "fieldMap",
           "autoAcceptEnabled",
           "autoAcceptRules",
@@ -79582,6 +79589,45 @@
                     "string",
                     "null"
                   ]
+                },
+                "secrets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "set": {
+                        "type": "boolean"
+                      },
+                      "last4": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "updatedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "environmentVariable": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "set",
+                      "last4",
+                      "updatedAt",
+                      "environmentVariable"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -79599,7 +79645,8 @@
                 "lastError",
                 "webhookPath",
                 "credentialRef",
-                "notice"
+                "notice",
+                "secrets"
               ]
             }
           }
@@ -82573,6 +82620,12 @@
                 "secretRef": {
                   "type": "string"
                 },
+                "secretEnvironmentVariable": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "fieldMap": {
                   "type": "object",
                   "additionalProperties": {
@@ -82608,6 +82661,7 @@
                 "active",
                 "webhookPath",
                 "secretRef",
+                "secretEnvironmentVariable",
                 "fieldMap",
                 "autoAcceptEnabled",
                 "autoAcceptRules",
@@ -94632,6 +94686,12 @@
           "secretRef": {
             "type": "string"
           },
+          "secretEnvironmentVariable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "fieldMap": {
             "type": "object",
             "additionalProperties": {
@@ -94670,6 +94730,7 @@
           "active",
           "webhookPath",
           "secretRef",
+          "secretEnvironmentVariable",
           "fieldMap",
           "autoAcceptEnabled",
           "autoAcceptRules",
@@ -101704,6 +101765,12 @@
           "secretRef": {
             "type": "string"
           },
+          "secretEnvironmentVariable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "fieldMap": {
             "type": "object",
             "additionalProperties": {
@@ -101739,6 +101806,7 @@
           "active",
           "webhookPath",
           "secretRef",
+          "secretEnvironmentVariable",
           "fieldMap",
           "autoAcceptEnabled",
           "autoAcceptRules",

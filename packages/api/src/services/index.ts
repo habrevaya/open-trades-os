@@ -91,3 +91,4 @@ export * as network from "./network";
 export * as dataExport from "./export";
 export * as externalWork from "./external-work";
 export * as kpis from "./kpis";
+export * as secrets from "../secrets/index";

@@ -12,6 +12,7 @@ import {
   type AccountingEntityKind, type AccountingProvider, type ExternalInvoiceLine,
   type ExternalRef, type ReadResult,
 } from "../accounting/provider";
+import { readerFor, writerFor } from "../secrets/store";
 
 /**
  * THE ACCOUNTING BRIDGE
@@ -2067,50 +2068,16 @@ export async function retryDocument(ctx: ServiceContext, input: { linkId: string
 /**
  * WHERE THE REFRESH TOKEN LIVES.
  *
- * `integration_connection.credentialRef` is a reference, never the secret.
- * The deployment decides what it references: Supabase Vault, a KMS, a file
- * the orchestrator mounted. The default reads an environment variable named
- * by the ref, which is the smallest thing that works and keeps the secret out
- * of the database.
+ * `integration_connection.credentialRef` is a NAME in this organization's
+ * secrets, never the secret (src/secrets/store.ts). The store is read for the
+ * organization the request is for and nobody else's.
  *
- * `write` exists because OAuth refresh tokens ROTATE. A deployment that
- * cannot persist the new one has a connection that dies within days, and the
- * default here can only hold it for the life of the process, so it says so
- * out loud rather than failing quietly at three in the morning.
+ * The write matters as much as the read, because OAuth refresh tokens ROTATE.
+ * It goes through the request's root database handle rather than the
+ * transaction that read the connection: the rotation happens during a sync,
+ * after that transaction has closed, and a rotated token lost with a rolled
+ * back sync is a connection that has to be reauthorized by hand.
  */
-export interface SecretStore {
-  read(ref: string): Promise<string>;
-  write(ref: string, value: string): Promise<void>;
-}
-
-let warnedAboutRotation = false;
-
-export const environmentSecretStore: SecretStore = {
-  async read(ref: string): Promise<string> {
-    const value = process.env[ref];
-    if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-    return value;
-  },
-  async write(ref: string, value: string): Promise<void> {
-    process.env[ref] = value;
-    if (!warnedAboutRotation) {
-      warnedAboutRotation = true;
-      console.warn(
-        `[accounting] The accounting credential rotated and was kept in this process only. `
-        + `Configure a real secret store, or the connection will need reauthorizing after `
-        + `the next restart.`,
-      );
-    }
-  },
-};
-
-let secrets: SecretStore = environmentSecretStore;
-
-/** A deployment points this at its own vault once, at startup. */
-export function useSecretStore(store: SecretStore): void {
-  secrets = store;
-}
-
 /** The provider for this request's organization, using the configured store. */
 export async function resolveProvider(
   ctx: ServiceContext,
@@ -2119,8 +2086,8 @@ export async function resolveProvider(
     providerFor(
       tx,
       ctx.actor.organizationId,
-      (ref) => secrets.read(ref),
-      (ref, value) => secrets.write(ref, value),
+      readerFor(tx, ctx.actor.organizationId),
+      writerFor(ctx.db, ctx.actor.organizationId),
     ));
 }
 

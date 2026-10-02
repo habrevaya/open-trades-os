@@ -1,7 +1,7 @@
 import { defineConfig, devices, chromium } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
+import { E2E_SERVER_ENV } from "./e2e/stripe-env";
 
 /**
  * THE BROWSER SUITE
@@ -90,12 +90,14 @@ export default defineConfig({
      * Configured the way .env.example says to, and no further. The links a
      * customer is sent are built from PUBLIC_URL, and setting anything more
      * here than a deployment would is how a suite passes against a setup
-     * nobody runs. The two Stripe variables are the ones .env.example names,
-     * holding values that are not keys: the suite points the company's
-     * Stripe connection at a local fake and signs its own webhook with the
-     * second (e2e/stripe.ts).
+     * nobody runs. The two Stripe secrets are under the seeded company's own
+     * prefix, as .env.example says, holding values that are not keys: the
+     * suite points the company's Stripe connection at a local fake and signs
+     * its own webhook with the second (e2e/stripe.ts). Pointing it at a fake
+     * is what ALLOW_PROVIDER_BASE_URL allows, and the only thing set here
+     * that a deployment never sets (e2e/stripe-env.ts).
      */
-    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV },
+    env: { PUBLIC_URL: BASE, ...E2E_SERVER_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },

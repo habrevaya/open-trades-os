@@ -35,7 +35,9 @@ keyed on the customer's address.
    the message.
 3. Put the auth token where your deployment keeps secrets and give the
    connection its name as the credential. The token never goes in the
-   database.
+   connection. With the default environment store the variable is
+   `OTS_SECRET__<company id>__<name>`, and the screen shows the exact one
+   ([secrets.md](./secrets.md)).
 4. A webhook token is minted for the connection the first time it is
    connected, and the screen shows the webhook address it makes. It is never
    replaced by an edit, because the carrier is already calling it. (A token
@@ -68,7 +70,9 @@ takes a second name in a setting ending in `Ref`. Resend's webhook signing
 secret is `webhookSecretRef`; Stripe's is `webhookSecretRef` too. The settings
 a provider may store are declared in `packages/core/src/connectors/settings.ts`,
 and a connect call carrying anything else is refused, as is a name that is
-plainly the secret itself (`whsec_...`, `sk_live_...`).
+plainly the secret itself (`whsec_...`, `sk_live_...`). How a name becomes a
+value, and why a company can only ever reach its own, is in
+[secrets.md](./secrets.md).
 
 An earlier version stored Resend's signing secret itself in
 `settings.webhookSecret`. An install that has one keeps verifying with it, logs
