@@ -115,6 +115,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   estimate_number_idx: "Allocated by the numbering service.",
   job_number_idx: "Allocated by the numbering service.",
   purchase_order_number_idx: "Allocated by the numbering service.",
+  credit_note_number_idx: "Allocated by the numbering service, in its own sequence.",
   price_book_item_version_idx: "The version is the previous one plus one, inside the write.",
   project_phase_sequence_idx: "The sequence is assigned by the service, not chosen.",
   project_draw_sequence_idx: "The sequence is assigned by the service, not chosen.",

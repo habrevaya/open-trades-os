@@ -116,3 +116,59 @@ test("a payment the service refuses keeps everything that was typed, so only the
   await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
   await expect(owner.locator('dt:text-is("Balance") + dd').first()).toHaveText("$99.00");
 });
+
+test("an invoice that asked for too much is credited, and a goodwill credit is used on it from the customer", async ({ owner }) => {
+  const customer = { id: await newCustomer(owner, { name: `Cormac Lindqvist ${run}` }) };
+
+  await owner.goto(`/customers/${customer.id}`);
+  await owner.getByRole("link", { name: "New invoice" }).click();
+  await owner.getByLabel("Line 1 description").fill("Condenser fan motor");
+  await owner.getByLabel("Line 1 unit price").fill("400.00");
+  await owner.getByRole("button", { name: "Create invoice" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  const invoice = {
+    id: owner.url().split("/").pop()!,
+    number: (await owner.getByRole("heading", { level: 1 }).textContent())!.replace(/\D/g, ""),
+  };
+  const total = Number((await owner.locator('dt:text-is("Total") + dd').first().textContent())!.replace(/[$,]/g, ""));
+
+  // Fifty dollars off the line, because the bill asked for too much.
+  await owner.getByText("Credit this invoice").click();
+  await owner.getByLabel("Credit on Condenser fan motor").fill("50.00");
+  await owner.getByRole("combobox", { name: "Why", exact: true }).selectOption("billing_error");
+  await owner.getByRole("button", { name: "Issue credit note" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/credit-notes\/[0-9a-f-]{36}$/);
+  await expect(owner.getByText("Used", { exact: true }).first()).toBeVisible();
+  await expect(owner.getByRole("table", { name: "Where it went" })).toContainText(invoice.number);
+  const credit = Number((await owner.locator('dt:text-is("Credit") + dd').first().textContent())!.replace(/[$,]/g, ""));
+  expect(credit).toBeGreaterThanOrEqual(50);
+
+  await owner.goto(`/invoices/${invoice.id}`);
+  await expect(owner.locator('dt:text-is("Credited") + dd').first()).toHaveText(`$${credit.toFixed(2)}`);
+  await expect(owner.locator('dt:text-is("Balance") + dd').first()).toHaveText(`$${(total - credit).toFixed(2)}`);
+  // Nothing was paid: a credit is never counted as money arriving.
+  await expect(owner.locator('dt:text-is("Paid")')).toHaveCount(0);
+
+  // Goodwill, from the customer. Refused without words beside it, then given.
+  await owner.goto(`/customers/${customer.id}`);
+  await owner.getByRole("region", { name: "Credit" }).getByRole("link", { name: "Give a credit" }).click();
+  await owner.getByLabel("What it is for").fill("Second visit on us");
+  await owner.getByLabel("Amount").fill("25.00");
+  await owner.getByRole("button", { name: "Give credit" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "Goodwill" })).toContainText("Say why the credit was given");
+  await owner.getByLabel("Note").fill("Took two visits to find the leak");
+  await owner.getByRole("button", { name: "Give credit" }).click();
+  await expect(owner).toHaveURL(/\/invoices\/credit-notes\/[0-9a-f-]{36}$/);
+  await expect(owner.getByText("Not yet used", { exact: true }).first()).toBeVisible();
+
+  const use = owner.getByRole("region", { name: "Use this credit" });
+  await use.getByLabel("Invoice").selectOption({ label: `Invoice ${invoice.number}, owes $${(total - credit).toFixed(2)}` });
+  await expect(use.getByLabel("Amount")).toHaveValue("25.00");
+  await use.getByRole("button", { name: "Use credit" }).click();
+  await expect(owner.getByText("Used", { exact: true }).first()).toBeVisible();
+
+  await owner.goto(`/invoices/${invoice.id}`);
+  await expect(owner.locator('dt:text-is("Balance") + dd').first()).toHaveText(`$${(total - credit - 25).toFixed(2)}`);
+  await owner.goto("/invoices/credit-notes");
+  await expect(owner.getByRole("table", { name: "Credit notes" }).getByRole("row").filter({ hasText: `Cormac Lindqvist ${run}` })).toHaveCount(2);
+});

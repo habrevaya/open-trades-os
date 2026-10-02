@@ -439,8 +439,15 @@
     {
       "idx": 62,
       "version": "7",
-      "when": 1790942099338,
-      "tag": "0062_aspiring_madripoor",
+      "when": 1790940898278,
+      "tag": "0062_normal_boom_boom",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1790942842419,
+      "tag": "0063_mighty_sprite",
       "breakpoints": true
     }
   ]

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
+import { billing, creditNotes, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
@@ -18,6 +18,7 @@ import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
 import { formatDay, todayIn } from "@/lib/dates";
+import { CREDIT_STATUS, CREDIT_TONE } from "../../invoices/credit-notes/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,13 @@ export default async function CustomerPage({
   const invoices = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 50, customerId: id })).data
     : null;
+  /** Credit given to this customer, and how much of it is still theirs to use. */
+  const credits = can(user.actor, "invoice:read")
+    ? (await creditNotes.list(ctx, { limit: 50, customerId: id })).data
+    : null;
+  const creditOnAccount = (credits ?? [])
+    .filter((n) => n.status === "open" || n.status === "partially_applied")
+    .reduce((sum, n) => sum + Number(n.balance), 0);
   const quotes = can(user.actor, "estimate:read")
     ? (await estimateService.list(ctx, { limit: 50, customerId: id })).data
     : null;
@@ -318,6 +326,41 @@ export default async function CustomerPage({
           canCollect={can(user.actor, "payment:collect")}
           canRefund={can(user.actor, "payment:refund")}
         />
+      )}
+
+      {credits && (credits.length > 0 || can(user.actor, "invoice:credit")) && (
+        <section aria-label="Credit">
+          <div className="mt-10 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold">Credit</h2>
+            {can(user.actor, "invoice:credit") && (
+              <a href={`/invoices/credit-notes/new?customer=${id}`}
+                 className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+                Give a credit
+              </a>
+            )}
+          </div>
+          {creditOnAccount > 0 && (
+            <p className="mt-2 text-sm text-ink-700">
+              <Money value={creditOnAccount.toFixed(2)} /> on account, not yet used against an invoice.
+            </p>
+          )}
+          {credits.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">None given.</p>
+          ) : (
+            <Table label="Credit notes" head={<><Th className="w-20">Number</Th><Th>Status</Th><Th className="text-right">Credit</Th><Th className="text-right">Unused</Th></>}>
+              {credits.map((n) => (
+                <tr key={n.id} className="hover:bg-steel-100">
+                  <Td className="font-mono tabular-nums">
+                    <a href={`/invoices/credit-notes/${n.id}`} className="hover:underline">{n.number}</a>
+                  </Td>
+                  <Td><Chip tone={tone(CREDIT_TONE, n.status)}>{label(CREDIT_STATUS, n.status)}</Chip></Td>
+                  <Td className="text-right"><Money value={n.total} /></Td>
+                  <Td className="text-right"><Money value={n.balance} muted={Number(n.balance) === 0} /></Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </section>
       )}
 
       {invoices && (

@@ -130,7 +130,13 @@ export const NAV: NavGroup[] = [
     label: "Money",
     items: [
       { href: "/estimates", label: "Estimates", permission: "estimate:read", icon: "estimates" },
-      { href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices" },
+      {
+        href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices",
+        children: [
+          { href: "/invoices", label: "Invoices" },
+          { href: "/invoices/credit-notes", label: "Credit notes" },
+        ],
+      },
       { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
       { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },

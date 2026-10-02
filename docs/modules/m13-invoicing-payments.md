@@ -114,6 +114,24 @@ invoice screen through Stripe's Payment Element, and the customer takes from
 `POST /v1/invoices/{id}/write-off` are the other two ways an invoice stops being
 owed, and they are different permissions because they are different admissions.
 
+### Credit notes
+
+When the bill asked for too much, the invoice is credited rather than voided or
+written off. Open the invoice, choose **Credit this invoice**, and put how much
+comes off each line. The tax comes back at the rate that line was charged, and
+the credit comes off what is still owed. A credit that is not about one invoice
+(goodwill after a bad visit, what is owed back at the end of a contract) is given
+from the customer page with **Give a credit**, and sits on their account until it
+is used on an invoice from the credit note's own page.
+
+A credit note numbers in its own sequence. Issuing it reverses the revenue and the
+sales tax and leaves the amount owed to the customer as a liability; using it on an
+invoice settles that against the receivable. The invoice's paid amount never
+changes, so a collections report never counts a credit as cash. A line can never
+be credited for more than it charged, counting every earlier credit and draft, and
+goodwill needs a note. `/invoices/credit-notes` lists every one, with what is still
+unused.
+
 ### Deposits
 
 `POST /v1/deposits` asks for one, `POST /v1/deposits/{id}/apply` puts it against
@@ -125,15 +143,17 @@ an invoice and needs `invoice:write` as well, and
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | Raises, issues, sends, voids, takes payments and deposits |
+| Office manager | Raises, issues, sends, voids, credits, takes payments and deposits |
 | Dispatcher, CSR | Neither |
 | Technician | Reads an invoice and takes a payment on site. Does not raise one |
-| Accountant | Everything on this module, including refunds and write offs |
+| Accountant | Everything on this module, including refunds, credits and write offs |
 
-Four separate permissions on one document, deliberately: `invoice:write`,
-`invoice:send`, `invoice:void` and `invoice:writeoff`. Voiding says the invoice
-should never have existed; writing off says it existed and will not be paid. A
-company usually wants different people doing those.
+Five separate permissions on one document, deliberately: `invoice:write`,
+`invoice:send`, `invoice:void`, `invoice:writeoff` and `invoice:credit`. Voiding
+says the invoice should never have existed; writing off says it existed and will
+not be paid; crediting says it asked for too much. A company usually wants
+different people doing those. The office manager and finance roles hold
+`invoice:credit`.
 
 ## API
 
@@ -145,6 +165,11 @@ company usually wants different people doing those.
 | `POST /v1/invoices/{invoiceId}/send` | `invoice:send` |
 | `POST /v1/invoices/{id}/void` | `invoice:void` |
 | `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
+| `GET /v1/credit-notes` | `invoice:read` |
+| `POST /v1/credit-notes` | `invoice:credit` |
+| `POST /v1/credit-notes/{id}/issue` | `invoice:credit` |
+| `POST /v1/credit-notes/{id}/apply` | `invoice:credit` |
+| `POST /v1/credit-notes/{id}/void` | `invoice:credit` |
 | `GET /v1/payments` | `payment:read` |
 | `POST /v1/payments` | `payment:collect` |
 | `POST /v1/payments/{id}/apply` | `payment:collect` |
@@ -170,12 +195,21 @@ way to pay from it.
 intent that was created is not money. The webhook is the only thing that says it
 arrived.
 
+**What is the difference between a credit note, a void and a write off?** A void
+says the invoice should never have existed. A write off says it was right and the
+money will not arrive, which is bad debt. A credit note says it asked for too much,
+which is neither.
+
 **Can a deposit be taken on a booking request?** No. There is no customer yet to
 hold one for.
 
 ## What is not built
 
-There is no credit note object: a negative adjustment is a refund or a write off.
+A credit note cannot be paid out as money: an unused credit is used on a later
+invoice, or a refund is recorded against a payment. A credit note that has been used
+cannot be voided; the invoice it settled has to be dealt with on its own.
+Credit notes do not reach QuickBooks or Xero yet, so a company syncing its books
+raises the matching credit memo there by hand.
 There is no customer statement across invoices, so a customer asking "what do I
 owe in total" is answered from the balance on their account page rather than from
 a document. Tipping is not built. Tax rate determination is deliberately not

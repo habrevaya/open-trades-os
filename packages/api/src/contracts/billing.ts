@@ -46,6 +46,8 @@ export const Invoice = z.object({
   taxTotal: MoneyString,
   total: MoneyString,
   amountPaid: MoneyString,
+  /** Taken off by credit notes. Never counted as paid. */
+  amountCredited: MoneyString,
   balance: MoneyString,
   depositHeld: MoneyString,
   memo: z.string().nullable(),
