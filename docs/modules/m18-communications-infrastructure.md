@@ -103,9 +103,12 @@ it would expect it to mean.
 
 ## Setup
 
-`/settings/integrations` connects Twilio or JustCall for SMS and voice, and
-Resend or any SMTP server for email, by the names of the secrets rather than by
-pasting secrets. `/settings` holds the phone numbers and the call recording
+`/settings/integrations` connects Twilio or JustCall for SMS, and Resend or any
+SMTP server for email, by the names of the secrets rather than by pasting
+secrets. Neither carrier adapter handles voice: nothing places, answers,
+forwards or records a call through either. Calls reach this product only as
+records, from a call tracking provider (CallRail, M19) or logged through
+`POST /v1/calls`. `/settings` holds the phone numbers and the call recording
 policy. A2P 10DLC brand and campaign registration is recorded through
 `POST /v1/messaging/brands` and `POST /v1/messaging/campaigns`, and the setup
 wizard flags it as needing somebody else's review queue.
@@ -198,7 +201,9 @@ gate as everything else.
 Nothing checks that the unsubscribe URL handed to the email sender points at the
 page this product serves, so a caller can satisfy the gate with any string,
 including a 404. Campaigns supply the real one; another caller might not. There is
-no voice agent and no call deflection. Inbound email parsing into a conversation
+no voice at all: no carrier adapter places, answers, routes or records a call, so
+there is no voice agent and no call deflection, and buying a tracking number is
+done at the carrier by hand. Inbound email parsing into a conversation
 thread is one way: a reply to a transactional email does not land in the inbox.
 MMS is not handled. The messaging registration records a carrier's decision and
 does not submit the application.
