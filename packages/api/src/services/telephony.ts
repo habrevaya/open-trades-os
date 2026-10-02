@@ -194,13 +194,24 @@ export interface LogCallInput {
  */
 export async function logCall(ctx: ServiceContext, input: LogCallInput) {
   return guardedWrite(ctx, "message:send", async (tx) => {
+    const inbound = input.direction === "inbound"
+      ? await marketingService.inboundCallFacts(tx, ctx.actor.organizationId, {
+        fromE164: input.fromE164,
+        receivedOnE164: input.receivedOnE164 ?? null,
+        at: input.startedAt ?? new Date(),
+      })
+      : null;
     const [row] = await tx.insert(schema.call).values({
       organizationId: ctx.actor.organizationId,
       direction: input.direction,
       fromE164: input.fromE164,
       toE164: input.toE164,
       receivedOnE164: input.receivedOnE164 ?? null,
-      customerId: input.customerId ?? null,
+      customerId: input.customerId ?? inbound?.customerId ?? null,
+      phoneNumberId: inbound?.phoneNumberId ?? null,
+      channelId: inbound?.channelId ?? null,
+      acquisitionCampaignId: inbound?.campaignId ?? null,
+      firstTimeCaller: inbound?.firstTimeCaller ?? null,
       contactId: input.contactId ?? null,
       jobId: input.jobId ?? null,
       answeredByUserId: input.answeredByUserId ?? null,
@@ -231,7 +242,9 @@ export async function logCall(ctx: ServiceContext, input: LogCallInput) {
     if (input.direction === "inbound" && input.receivedOnE164) {
       await marketingService.recordTouch(tx, ctx.actor.organizationId, {
         at: row!.startedAt ?? new Date(),
-        customerId: input.customerId ?? null,
+        customerId: row!.customerId,
+        callId: row!.id,
+        callerE164: inbound?.callerE164 ?? null,
         trackedNumber: input.receivedOnE164,
       });
     }

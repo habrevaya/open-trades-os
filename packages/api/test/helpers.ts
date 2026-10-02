@@ -153,6 +153,12 @@ const ORDER = [
    */
   "campaign_recipient", "unsubscribe_link", "marketing_campaign",
   /**
+   * The company's channels and tracking campaigns, after everything that
+   * points at them: touches, spend, calls, numbers, jobs, customers and lead
+   * connectors all carry one or both, and a campaign points at its channel.
+   */
+  "acquisition_campaign", "marketing_channel",
+  /**
    * Reviews: a request points at a job and a customer, a review at both
    * plus a technician. The policy and the platform list point at nothing,
    * which is why a company can declare them before it has any reviews.

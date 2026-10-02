@@ -31109,6 +31109,20 @@
         "tags": [
           "M25"
         ],
+        "parameters": [
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "all"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Marketplace offers on the table, soonest to expire first",
@@ -31192,6 +31206,283 @@
         "x-authorization": "session",
         "x-permissions": [
           "job:read"
+        ]
+      }
+    },
+    "/v1/lead-offers/{id}/accept": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "acceptLeadOffer",
+        "summary": "Take the lead: a customer, a property and a job, credited to the channel that sold it",
+        "description": "Accepting is what materialises work, in one transaction: the customer named, else one already holding this phone number or email, else a new one; the property named, else the offer's address, else the customer's primary property; and a job, credited by the same function every other path that creates work uses, so the marketplace that sold the lead gets the job in every report. An expired offer is refused, because the marketplace has most likely given it to somebody else. Accepting twice returns the first acceptance.\n\nRequires a session holding: job:write, customer:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptLeadOfferInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take the lead: a customer, a property and a job, credited to the channel that sold it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptLeadOfferOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write",
+          "customer:write"
+        ]
+      }
+    },
+    "/v1/lead-offers/{id}/decline": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "declineLeadOffer",
+        "summary": "Turn the lead down, with the reason",
+        "description": "The reason is one of a list because the point of recording it is to count it: outside the area forty times is a map problem and no capacity forty times is a hiring problem. The touch the lead made stays, because a declined lead still cost something and still says the channel is producing work this company cannot take.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineLeadOfferInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Turn the lead down, with the reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclineLeadOfferOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
         ]
       }
     },
@@ -31838,6 +32129,742 @@
         ]
       }
     },
+    "/v1/marketing/calls": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listMarketingCalls",
+        "summary": "Inbound calls, with the number, campaign, channel and what each amounted to",
+        "description": "Requires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "numberId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "campaignId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "channelId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inbound calls, with the number, campaign, channel and what each amounted to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMarketingCallsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      }
+    },
+    "/v1/marketing/calls/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getMarketingCall",
+        "summary": "One inbound call",
+        "description": "Requires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One inbound call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMarketingCallOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      }
+    },
+    "/v1/marketing/channel-options": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listChannelOptions",
+        "summary": "Live channels and their live tracking campaigns, for a lead source picker",
+        "description": "Readable by anybody who books work, because the person choosing a lead source on a new job is a CSR and does not read the marketing report. Names only: what a channel cost is not here.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M19"
+        ],
+        "responses": {
+          "200": {
+            "description": "Live channels and their live tracking campaigns, for a lead source picker",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListChannelOptionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      }
+    },
+    "/v1/marketing/channels": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createChannel",
+        "summary": "Add a channel",
+        "description": "A name the office will recognise and the catalogue key it is a kind of. The key is required, because a channel nothing rolls up from is a text column again, one table along. Two live channels with one name are refused.\n\nRequires a session holding: adspend:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChannelInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a channel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateChannelOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:write"
+        ]
+      },
+      "get": {
+        "operationId": "listChannels",
+        "summary": "The company's channels",
+        "description": "Seeded from the lead source catalogue the first time anything asks, one per key, and then the company's own: add Angi and Thumbtack under the marketplace key, rename the van, archive the radio station you stopped buying. Archived channels keep their history.\n\nRequires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's channels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListChannelsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      }
+    },
+    "/v1/marketing/channels/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateChannel",
+        "summary": "Rename, remap or archive a channel",
+        "description": "Changing the key moves the channel's history with it in the roll up, and the tracking numbers on it follow. Archived rather than deleted, because last year's jobs still came from it.\n\nRequires a session holding: adspend:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChannelInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rename, remap or archive a channel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateChannelOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:write"
+        ]
+      }
+    },
     "/v1/marketing/conversions": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -32329,6 +33356,327 @@
         ]
       }
     },
+    "/v1/marketing/funnel": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getMarketingFunnel",
+        "summary": "Spend, calls, leads, booked jobs, revenue and return, by channel, campaign or number",
+        "description": "Every cell is the size of a list of rows that `GET /v1/marketing/funnel/rows` returns, computed by the same code, so a figure can always be opened and counted. Booked jobs are the jobs created in the range, each credited across its own touches under the model, so a split model puts half a job on two rows and the halves add back to one; a job nothing was recorded for is on a row called not attributed, never on direct. Leads are people with a touch in the range. A customer who rang in March and booked in April is a March lead and an April job, which is why a booking rate on a short range can pass a hundred per cent and is reported rather than refused.\n\nRequires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "channel",
+                "campaign",
+                "number"
+              ]
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "first_touch",
+                "last_touch",
+                "last_non_direct",
+                "linear",
+                "position_based"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Spend, calls, leads, booked jobs, revenue and return, by channel, campaign or number",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMarketingFunnelOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      }
+    },
+    "/v1/marketing/funnel/rows": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "drillMarketingFunnel",
+        "summary": "The calls, people, jobs or spend lines behind one cell of the funnel",
+        "description": "`key` is a row's key, or `all` for the total row. The rows are taken from the same buckets the cell was summed from, so they add up to it: calls and people count to it, jobs' shares and revenue sum to it, and spend lines sum to it.\n\nRequires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "channel",
+                "campaign",
+                "number"
+              ]
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "first_touch",
+                "last_touch",
+                "last_non_direct",
+                "linear",
+                "position_based"
+              ]
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "measure",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "spend",
+                "calls",
+                "answered",
+                "missed",
+                "firstTime",
+                "leads",
+                "booked",
+                "completed",
+                "revenue"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The calls, people, jobs or spend lines behind one cell of the funnel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrillMarketingFunnelOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      }
+    },
     "/v1/marketing/performance": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -32447,11 +33795,346 @@
         ]
       }
     },
-    "/v1/marketing/spend": {
-      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+    "/v1/marketing/settings": {
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
+        "GET",
+        "PATCH"
+      ],
+      "get": {
+        "operationId": "getMarketingSettings",
+        "summary": "The company's attribution model, and whether a lead source is required",
+        "description": "Requires a session holding: job:read.",
+        "tags": [
+          "M19"
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's attribution model, and whether a lead source is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMarketingSettingsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      },
+      "patch": {
+        "operationId": "setMarketingSettings",
+        "summary": "Choose the attribution model, or require a lead source on new work",
+        "description": "Requires a session holding: settings:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMarketingSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Choose the attribution model, or require a lead source on new work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMarketingSettingsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/marketing/spend": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
         "POST"
       ],
+      "get": {
+        "operationId": "listSpend",
+        "summary": "Spend rows over a range, newest day first",
+        "description": "Requires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Spend rows over a range, newest day first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSpendOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      },
       "post": {
         "operationId": "recordSpend",
         "summary": "Record what a channel cost on a day",
@@ -32497,6 +34180,134 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:write"
+        ]
+      }
+    },
+    "/v1/marketing/spend-rows/{id}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeSpend",
+        "summary": "Take out a spend row typed against the wrong day or campaign",
+        "description": "Requires a session holding: adspend:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveSpendInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take out a spend row typed against the wrong day or campaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveSpendOutput"
                 }
               }
             }
@@ -33092,6 +34903,729 @@
         "x-authorization": "session",
         "x-permissions": [
           "adspend:read"
+        ]
+      }
+    },
+    "/v1/marketing/tracking-campaigns": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createTrackingCampaign",
+        "summary": "Start a tracking campaign under a channel",
+        "description": "A fixed price needs both dates, because it is spread over them; a price per lead needs the price; a campaign costed by what is recorded has no price of its own. A utm tag is lower cased and must be unique among live campaigns, so a click carrying it is credited here without anybody matching it by hand.\n\nRequires a session holding: adspend:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrackingCampaignInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Start a tracking campaign under a channel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTrackingCampaignOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:write"
+        ]
+      },
+      "get": {
+        "operationId": "listTrackingCampaigns",
+        "summary": "The tracking campaigns, with how many numbers each has",
+        "description": "Requires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tracking campaigns, with how many numbers each has",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTrackingCampaignsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      }
+    },
+    "/v1/marketing/tracking-campaigns/{id}": {
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PATCH"
+      ],
+      "get": {
+        "operationId": "getTrackingCampaign",
+        "summary": "One tracking campaign, its numbers and what has been recorded against it",
+        "description": "Each number comes with its inbound calls in the last ninety days, so one still being paid for that nobody rings is visible on the page where somebody decides whether to keep it.\n\nRequires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One tracking campaign, its numbers and what has been recorded against it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetTrackingCampaignOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      },
+      "patch": {
+        "operationId": "updateTrackingCampaign",
+        "summary": "Change or archive a tracking campaign",
+        "description": "Checked as a whole after the change, so switching to a fixed price on a campaign with no end date is refused. Moving it to another channel moves its numbers with it.\n\nRequires a session holding: adspend:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTrackingCampaignInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change or archive a tracking campaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateTrackingCampaignOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:write"
+        ]
+      }
+    },
+    "/v1/marketing/tracking-numbers": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTrackingNumbers",
+        "summary": "Every tracking number, its campaign and channel, and its calls in the last ninety days",
+        "description": "Requires a session holding: adspend:read.",
+        "tags": [
+          "M19"
+        ],
+        "responses": {
+          "200": {
+            "description": "Every tracking number, its campaign and channel, and its calls in the last ninety days",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTrackingNumbersOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "adspend:read"
+        ]
+      }
+    },
+    "/v1/marketing/tracking-numbers/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "assignTrackingNumber",
+        "summary": "Put a tracking number on a campaign or a channel",
+        "description": "The campaign implies the channel and the channel implies the lead source key the number map reads, so all three are written together. Calls already taken keep the campaign they arrived under.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignTrackingNumberInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Put a tracking number on a campaign or a channel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignTrackingNumberOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -57204,6 +59738,51 @@
           "weMayMoveTo"
         ]
       },
+      "AcceptLeadOfferInput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      },
+      "AcceptLeadOfferOutput": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "offerId",
+          "customerId",
+          "propertyId",
+          "jobId"
+        ]
+      },
       "AddContractSiteInput": {
         "type": "object",
         "properties": {
@@ -59480,6 +62059,82 @@
           "crewId",
           "status",
           "on"
+        ]
+      },
+      "AssignTrackingNumberInput": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          }
+        }
+      },
+      "AssignTrackingNumberOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "e164": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "attributionSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "label",
+          "purpose",
+          "attributionSource",
+          "channelId",
+          "campaignId"
         ]
       },
       "AssignVisitInput": {
@@ -62997,6 +65652,11 @@
             ],
             "maxLength": 300
           },
+          "templateCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
           "utmCampaign": {
             "type": "string",
             "minLength": 1,
@@ -63013,8 +65673,7 @@
         "required": [
           "name",
           "channel",
-          "audience",
-          "body"
+          "audience"
         ]
       },
       "CreateCampaignOutput": {
@@ -63151,6 +65810,53 @@
           "cancellationReason",
           "createdAt",
           "result"
+        ]
+      },
+      "CreateChannelInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "sourceKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          }
+        },
+        "required": [
+          "name",
+          "sourceKey"
+        ]
+      },
+      "CreateChannelOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "sourceKey",
+          "sourceLabel",
+          "archived"
         ]
       },
       "CreateContractInput": {
@@ -63703,6 +66409,14 @@
             "type": "string",
             "maxLength": 100
           },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "paymentTermsDays": {
             "type": "integer",
             "minimum": 0,
@@ -63878,6 +66592,26 @@
               "string",
               "null"
             ]
+          },
+          "leadSourceOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "acquisitionCampaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "paymentTermsDays": {
             "type": "integer"
@@ -64958,6 +67692,18 @@
             "type": "string",
             "maxLength": 100
           },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "callId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "purchaseOrderNumber": {
             "type": "string",
             "maxLength": 100
@@ -65206,6 +67952,26 @@
               "string",
               "null"
             ]
+          },
+          "leadSourceOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "acquisitionCampaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "isWarranty": {
             "type": "boolean"
@@ -65481,6 +68247,10 @@
             "minLength": 1,
             "maxLength": 64
           },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "displayName": {
             "type": "string",
             "minLength": 1,
@@ -65522,6 +68292,13 @@
           },
           "source": {
             "type": "string"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "displayName": {
             "type": "string"
@@ -65565,6 +68342,9 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "channelGuessed": {
+            "type": "boolean"
+          },
           "secret": {
             "type": "string"
           },
@@ -65575,6 +68355,7 @@
         "required": [
           "id",
           "source",
+          "channelId",
           "displayName",
           "active",
           "webhookPath",
@@ -65584,6 +68365,7 @@
           "autoAcceptRules",
           "commissionRate",
           "leadFee",
+          "channelGuessed",
           "secret",
           "signing"
         ]
@@ -66903,6 +69685,166 @@
           "active"
         ]
       },
+      "CreateTrackingCampaignInput": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "costModel": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "fixed",
+              "per_lead"
+            ]
+          },
+          "costAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "budget": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "utmCampaign": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "channelId",
+          "name"
+        ]
+      },
+      "CreateTrackingCampaignOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channelName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costModel": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "fixed",
+              "per_lead"
+            ]
+          },
+          "costAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "budget": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "utmCampaign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "channelId",
+          "channelName",
+          "sourceKey",
+          "startsOn",
+          "endsOn",
+          "costModel",
+          "costAmount",
+          "budget",
+          "utmCampaign",
+          "notes",
+          "archived"
+        ]
+      },
       "CreateVendorInput": {
         "type": "object",
         "properties": {
@@ -67768,6 +70710,49 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "DeclineLeadOfferInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "no_capacity",
+              "outside_area",
+              "not_our_work",
+              "too_small",
+              "duplicate",
+              "bad_lead",
+              "other"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "DeclineLeadOfferOutput": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "declined"
+            ]
+          }
+        },
+        "required": [
+          "offerId",
+          "status"
         ]
       },
       "DeclinePortalEstimateInput": {
@@ -69066,6 +72051,408 @@
         "required": [
           "provider",
           "status"
+        ]
+      },
+      "DrillMarketingFunnelOutput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "measure": {
+            "type": "string",
+            "enum": [
+              "spend",
+              "calls",
+              "answered",
+              "missed",
+              "firstTime",
+              "leads",
+              "booked",
+              "completed",
+              "revenue"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "first_touch",
+              "last_touch",
+              "last_non_direct",
+              "linear",
+              "position_based"
+            ]
+          },
+          "cell": {
+            "type": "object",
+            "properties": {
+              "spend": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "calls": {
+                "type": "integer"
+              },
+              "answered": {
+                "type": "integer"
+              },
+              "missed": {
+                "type": "integer"
+              },
+              "firstTime": {
+                "type": "integer"
+              },
+              "leads": {
+                "type": "integer"
+              },
+              "booked": {
+                "type": "string"
+              },
+              "bookedWeight": {
+                "type": "integer"
+              },
+              "completed": {
+                "type": "string"
+              },
+              "completedWeight": {
+                "type": "integer"
+              },
+              "revenue": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "bookingRate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "averageTicket": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "costPerLead": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "costPerBookedJob": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "roi": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "roas": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "spend",
+              "calls",
+              "answered",
+              "missed",
+              "firstTime",
+              "leads",
+              "booked",
+              "bookedWeight",
+              "completed",
+              "completedWeight",
+              "revenue",
+              "bookingRate",
+              "averageTicket",
+              "costPerLead",
+              "costPerBookedJob",
+              "roi",
+              "roas"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "calls",
+              "leads",
+              "jobs",
+              "spend"
+            ]
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "callId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "receivedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string"
+                },
+                "outcomeLabel": {
+                  "type": "string"
+                },
+                "answered": {
+                  "type": "boolean"
+                },
+                "missed": {
+                  "type": "boolean"
+                },
+                "firstTime": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "durationSeconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "callId",
+                "startedAt",
+                "from",
+                "receivedOn",
+                "status",
+                "outcome",
+                "outcomeLabel",
+                "answered",
+                "missed",
+                "firstTime",
+                "durationSeconds",
+                "customerId",
+                "customerName",
+                "jobId"
+              ]
+            }
+          },
+          "leads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "callerE164": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "firstAt": {
+                  "type": "string"
+                },
+                "touches": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "customerId",
+                "customerName",
+                "callerE164",
+                "firstAt",
+                "touches"
+              ]
+            }
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "completed": {
+                  "type": "boolean"
+                },
+                "share": {
+                  "type": "string"
+                },
+                "weight": {
+                  "type": "integer"
+                },
+                "revenue": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "number",
+                "summary",
+                "customerId",
+                "customerName",
+                "createdAt",
+                "status",
+                "completed",
+                "share",
+                "weight",
+                "revenue"
+              ]
+            }
+          },
+          "spend": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "recorded",
+                    "fixed",
+                    "per_lead"
+                  ]
+                },
+                "spendId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "campaignId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "spentOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "spendId",
+                "campaignId",
+                "spentOn",
+                "label",
+                "amount",
+                "note"
+              ]
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "measure",
+          "model",
+          "cell",
+          "kind"
         ]
       },
       "ExceptRecurringOccurrenceInput": {
@@ -71622,6 +75009,26 @@
               "null"
             ]
           },
+          "leadSourceOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "acquisitionCampaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "paymentTermsDays": {
             "type": "integer"
           },
@@ -73841,6 +77248,26 @@
               "null"
             ]
           },
+          "leadSourceOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "acquisitionCampaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "isWarranty": {
             "type": "boolean"
           },
@@ -74114,8 +77541,98 @@
             "type": "string",
             "format": "uuid"
           },
+          "companyModel": {
+            "type": "string",
+            "enum": [
+              "first_touch",
+              "last_touch",
+              "last_non_direct",
+              "linear",
+              "position_based"
+            ]
+          },
           "touchCount": {
             "type": "integer"
+          },
+          "touches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "sourceLabel": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "utm",
+                    "click_id",
+                    "tracked_number",
+                    "referrer",
+                    "declared",
+                    "none"
+                  ]
+                },
+                "enteredByPerson": {
+                  "type": "boolean"
+                },
+                "channelName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "campaignName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "trackedNumberE164": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "callId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "utmCampaign": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "occurredAt",
+                "source",
+                "sourceLabel",
+                "basis",
+                "enteredByPerson",
+                "channelName",
+                "campaignName",
+                "trackedNumberE164",
+                "callId",
+                "utmCampaign"
+              ]
+            }
           },
           "agree": {
             "type": "boolean"
@@ -74198,7 +77715,9 @@
         },
         "required": [
           "jobId",
+          "companyModel",
           "touchCount",
+          "touches",
           "agree",
           "models"
         ]
@@ -74874,6 +78393,399 @@
           "computed",
           "unavailable",
           "elsewhere"
+        ]
+      },
+      "GetMarketingCallOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "receivedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "channelName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "campaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "campaignName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "durationSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "firstTimeCaller": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "outcomeLabel": {
+            "type": "string"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id",
+          "startedAt",
+          "from",
+          "receivedOn",
+          "channelId",
+          "channelName",
+          "campaignId",
+          "campaignName",
+          "status",
+          "durationSeconds",
+          "firstTimeCaller",
+          "outcome",
+          "outcomeLabel",
+          "customerId",
+          "customerName",
+          "jobId"
+        ]
+      },
+      "GetMarketingFunnelOutput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "channel",
+              "campaign",
+              "number"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "first_touch",
+              "last_touch",
+              "last_non_direct",
+              "linear",
+              "position_based"
+            ]
+          },
+          "modelLabel": {
+            "type": "string"
+          },
+          "modelWrongAbout": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "spend": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "calls": {
+                  "type": "integer"
+                },
+                "answered": {
+                  "type": "integer"
+                },
+                "missed": {
+                  "type": "integer"
+                },
+                "firstTime": {
+                  "type": "integer"
+                },
+                "leads": {
+                  "type": "integer"
+                },
+                "booked": {
+                  "type": "string"
+                },
+                "bookedWeight": {
+                  "type": "integer"
+                },
+                "completed": {
+                  "type": "string"
+                },
+                "completedWeight": {
+                  "type": "integer"
+                },
+                "revenue": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "bookingRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "averageTicket": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "costPerLead": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "costPerBookedJob": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "roi": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "roas": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "spend",
+                "calls",
+                "answered",
+                "missed",
+                "firstTime",
+                "leads",
+                "booked",
+                "bookedWeight",
+                "completed",
+                "completedWeight",
+                "revenue",
+                "bookingRate",
+                "averageTicket",
+                "costPerLead",
+                "costPerBookedJob",
+                "roi",
+                "roas",
+                "key",
+                "label",
+                "detail"
+              ]
+            }
+          },
+          "total": {
+            "type": "object",
+            "properties": {
+              "spend": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "calls": {
+                "type": "integer"
+              },
+              "answered": {
+                "type": "integer"
+              },
+              "missed": {
+                "type": "integer"
+              },
+              "firstTime": {
+                "type": "integer"
+              },
+              "leads": {
+                "type": "integer"
+              },
+              "booked": {
+                "type": "string"
+              },
+              "bookedWeight": {
+                "type": "integer"
+              },
+              "completed": {
+                "type": "string"
+              },
+              "completedWeight": {
+                "type": "integer"
+              },
+              "revenue": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "bookingRate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "averageTicket": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "costPerLead": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "costPerBookedJob": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "roi": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "roas": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "spend",
+              "calls",
+              "answered",
+              "missed",
+              "firstTime",
+              "leads",
+              "booked",
+              "bookedWeight",
+              "completed",
+              "completedWeight",
+              "revenue",
+              "bookingRate",
+              "averageTicket",
+              "costPerLead",
+              "costPerBookedJob",
+              "roi",
+              "roas"
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "by",
+          "model",
+          "modelLabel",
+          "modelWrongAbout",
+          "rows",
+          "total"
+        ]
+      },
+      "GetMarketingSettingsOutput": {
+        "type": "object",
+        "properties": {
+          "attributionModel": {
+            "type": "string",
+            "enum": [
+              "first_touch",
+              "last_touch",
+              "last_non_direct",
+              "linear",
+              "position_based"
+            ]
+          },
+          "requireLeadSource": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attributionModel",
+          "requireLeadSource"
         ]
       },
       "GetMyTimeclockOutput": {
@@ -77556,6 +81468,134 @@
           "rows"
         ]
       },
+      "GetTrackingCampaignOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channelName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costModel": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "fixed",
+              "per_lead"
+            ]
+          },
+          "costAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "budget": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "utmCampaign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "e164": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "calls": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "e164",
+                "label",
+                "calls"
+              ]
+            }
+          },
+          "recordedSpend": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "channelId",
+          "channelName",
+          "sourceKey",
+          "startsOn",
+          "endsOn",
+          "costModel",
+          "costAmount",
+          "budget",
+          "utmCampaign",
+          "notes",
+          "archived",
+          "numbers",
+          "recordedSpend"
+        ]
+      },
       "GetTrialBalanceOutput": {
         "type": "object",
         "properties": {
@@ -78288,6 +82328,20 @@
                   ],
                   "maxLength": 200
                 },
+                "channelId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "campaignId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "spentOn": {
                   "type": "string",
                   "format": "date"
@@ -78319,7 +82373,6 @@
                 }
               },
               "required": [
-                "source",
                 "spentOn",
                 "amount"
               ]
@@ -78377,6 +82430,14 @@
             "minLength": 1,
             "maxLength": 50
           },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "text": {
             "type": "string",
             "minLength": 1,
@@ -78384,7 +82445,6 @@
           }
         },
         "required": [
-          "source",
           "text"
         ]
       },
@@ -81329,6 +85389,104 @@
           "certifications"
         ]
       },
+      "ListChannelOptionsOutput": {
+        "type": "object",
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sourceKey": {
+                  "type": "string"
+                },
+                "sourceLabel": {
+                  "type": "string"
+                },
+                "archived": {
+                  "type": "boolean"
+                },
+                "campaigns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "sourceKey",
+                "sourceLabel",
+                "archived",
+                "campaigns"
+              ]
+            }
+          }
+        },
+        "required": [
+          "channels"
+        ]
+      },
+      "ListChannelsOutput": {
+        "type": "object",
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sourceKey": {
+                  "type": "string"
+                },
+                "sourceLabel": {
+                  "type": "string"
+                },
+                "archived": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "sourceKey",
+                "sourceLabel",
+                "archived"
+              ]
+            }
+          }
+        },
+        "required": [
+          "channels"
+        ]
+      },
       "ListCommissionBasesOutput": {
         "type": "object",
         "properties": {
@@ -82772,6 +86930,26 @@
                     "string",
                     "null"
                   ]
+                },
+                "leadSourceOrigin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channelId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "acquisitionCampaignId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
                 },
                 "paymentTermsDays": {
                   "type": "integer"
@@ -84778,6 +88956,26 @@
                     "null"
                   ]
                 },
+                "leadSourceOrigin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channelId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "acquisitionCampaignId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "isWarranty": {
                   "type": "boolean"
                 },
@@ -85142,6 +89340,13 @@
                 "source": {
                   "type": "string"
                 },
+                "channelId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "displayName": {
                   "type": "string"
                 },
@@ -85188,6 +89393,7 @@
               "required": [
                 "id",
                 "source",
+                "channelId",
                 "displayName",
                 "active",
                 "webhookPath",
@@ -85254,6 +89460,33 @@
                 "connector": {
                   "type": "string"
                 },
+                "status": {
+                  "type": "string"
+                },
+                "contactName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contactPhone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contactEmail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "serviceRequested": {
                   "type": [
                     "string",
@@ -85306,11 +89539,43 @@
                     "integer",
                     "null"
                   ]
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "decidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "declineReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "connector",
+                "status",
+                "contactName",
+                "contactPhone",
+                "contactEmail",
+                "notes",
                 "serviceRequested",
                 "addressLine1",
                 "city",
@@ -85319,7 +89584,11 @@
                 "estimatedValue",
                 "expiresAt",
                 "expired",
-                "secondsLeft"
+                "secondsLeft",
+                "customerId",
+                "jobId",
+                "decidedAt",
+                "declineReason"
               ]
             }
           }
@@ -85400,6 +89669,134 @@
         },
         "required": [
           "locations"
+        ]
+      },
+      "ListMarketingCallsOutput": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "receivedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channelId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "channelName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "campaignId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "campaignName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "durationSeconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "firstTimeCaller": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "type": "string"
+                },
+                "outcomeLabel": {
+                  "type": "string"
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "numberLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcomeWhy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "startedAt",
+                "from",
+                "receivedOn",
+                "channelId",
+                "channelName",
+                "campaignId",
+                "campaignName",
+                "status",
+                "durationSeconds",
+                "firstTimeCaller",
+                "outcome",
+                "outcomeLabel",
+                "customerId",
+                "customerName",
+                "jobId",
+                "numberLabel",
+                "outcomeWhy"
+              ]
+            }
+          }
+        },
+        "required": [
+          "calls"
         ]
       },
       "ListMessageTemplatesOutput": {
@@ -88233,6 +92630,83 @@
           "routes"
         ]
       },
+      "ListSpendOutput": {
+        "type": "object",
+        "properties": {
+          "spend": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "spentOn": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "channelId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "channelName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "campaignId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "campaignName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "origin": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "spentOn",
+                "source",
+                "channelId",
+                "channelName",
+                "campaignId",
+                "campaignName",
+                "label",
+                "amount",
+                "origin"
+              ]
+            }
+          }
+        },
+        "required": [
+          "spend"
+        ]
+      },
       "ListStaleRegulatoryConstantsOutput": {
         "type": "object",
         "properties": {
@@ -88803,6 +93277,7 @@
                     "click_id",
                     "tracked_number",
                     "referrer",
+                    "declared",
                     "none"
                   ]
                 },
@@ -88871,6 +93346,174 @@
         },
         "required": [
           "touches"
+        ]
+      },
+      "ListTrackingCampaignsOutput": {
+        "type": "object",
+        "properties": {
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "channelId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "channelName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sourceKey": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "startsOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "costModel": {
+                  "type": "string",
+                  "enum": [
+                    "recorded",
+                    "fixed",
+                    "per_lead"
+                  ]
+                },
+                "costAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "budget": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "utmCampaign": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "archived": {
+                  "type": "boolean"
+                },
+                "numbers": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "channelId",
+                "channelName",
+                "sourceKey",
+                "startsOn",
+                "endsOn",
+                "costModel",
+                "costAmount",
+                "budget",
+                "utmCampaign",
+                "notes",
+                "archived",
+                "numbers"
+              ]
+            }
+          }
+        },
+        "required": [
+          "campaigns"
+        ]
+      },
+      "ListTrackingNumbersOutput": {
+        "type": "object",
+        "properties": {
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "e164": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "campaignId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "channelId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "calls": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "e164",
+                "label",
+                "source",
+                "campaignId",
+                "channelId",
+                "calls"
+              ]
+            }
+          }
+        },
+        "required": [
+          "numbers"
         ]
       },
       "ListUndeliveredInvoicesOutput": {
@@ -91605,12 +96248,51 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 100
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
           }
         }
       },
       "PreviewCampaignOutput": {
         "type": "object",
         "properties": {
+          "rendered": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "for": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "body": {
+                "type": "string"
+              },
+              "subject": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "for",
+              "body",
+              "subject"
+            ]
+          },
           "count": {
             "type": "integer"
           },
@@ -91671,6 +96353,7 @@
           }
         },
         "required": [
+          "rendered",
           "count",
           "overflow",
           "inWords",
@@ -94192,6 +98875,20 @@
             ],
             "maxLength": 200
           },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "spentOn": {
             "type": "string",
             "format": "date"
@@ -94223,7 +98920,6 @@
           }
         },
         "required": [
-          "source",
           "spentOn",
           "amount"
         ]
@@ -94244,6 +98940,20 @@
               "null"
             ]
           },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "spentOn": {
             "type": "string"
           },
@@ -94259,6 +98969,8 @@
           "id",
           "source",
           "campaign",
+          "channelId",
+          "campaignId",
           "spentOn",
           "amount",
           "origin"
@@ -95274,6 +99986,29 @@
         },
         "required": [
           "jurisdiction"
+        ]
+      },
+      "RemoveSpendInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveSpendOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
         ]
       },
       "RenewComplianceDocumentInput": {
@@ -97201,6 +101936,13 @@
           "source": {
             "type": "string"
           },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "displayName": {
             "type": "string"
           },
@@ -97250,6 +101992,7 @@
         "required": [
           "id",
           "source",
+          "channelId",
           "displayName",
           "active",
           "webhookPath",
@@ -99500,6 +104243,46 @@
           "maxPercent",
           "maxAmount",
           "note"
+        ]
+      },
+      "SetMarketingSettingsInput": {
+        "type": "object",
+        "properties": {
+          "attributionModel": {
+            "type": "string",
+            "enum": [
+              "first_touch",
+              "last_touch",
+              "last_non_direct",
+              "linear",
+              "position_based"
+            ]
+          },
+          "requireLeadSource": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetMarketingSettingsOutput": {
+        "type": "object",
+        "properties": {
+          "attributionModel": {
+            "type": "string",
+            "enum": [
+              "first_touch",
+              "last_touch",
+              "last_non_direct",
+              "linear",
+              "position_based"
+            ]
+          },
+          "requireLeadSource": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attributionModel",
+          "requireLeadSource"
         ]
       },
       "SetMembershipActiveInput": {
@@ -102844,6 +107627,52 @@
           "active"
         ]
       },
+      "UpdateChannelInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "sourceKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateChannelOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "sourceKey",
+          "sourceLabel",
+          "archived"
+        ]
+      },
       "UpdateCrewInput": {
         "type": "object",
         "properties": {
@@ -103081,6 +107910,20 @@
             ],
             "maxLength": 100
           },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "paymentTermsDays": {
             "type": "integer",
             "minimum": 0,
@@ -103195,6 +108038,26 @@
               "string",
               "null"
             ]
+          },
+          "leadSourceOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "acquisitionCampaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "paymentTermsDays": {
             "type": "integer"
@@ -103828,8 +108691,25 @@
             "format": "uuid"
           },
           "leadSource": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "maxLength": 100
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "campaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "purchaseOrderNumber": {
             "type": "string",
@@ -103967,6 +108847,26 @@
               "string",
               "null"
             ]
+          },
+          "leadSourceOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "acquisitionCampaignId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "isWarranty": {
             "type": "boolean"
@@ -104242,6 +109142,10 @@
             "minLength": 1,
             "maxLength": 200
           },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "fieldMap": {
             "type": "object",
             "additionalProperties": {
@@ -104277,6 +109181,13 @@
           },
           "source": {
             "type": "string"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "displayName": {
             "type": "string"
@@ -104324,6 +109235,7 @@
         "required": [
           "id",
           "source",
+          "channelId",
           "displayName",
           "active",
           "webhookPath",
@@ -105192,6 +110104,165 @@
           "travelFee",
           "color",
           "active"
+        ]
+      },
+      "UpdateTrackingCampaignInput": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "costModel": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "fixed",
+              "per_lead"
+            ]
+          },
+          "costAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "budget": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "utmCampaign": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateTrackingCampaignOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channelName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costModel": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "fixed",
+              "per_lead"
+            ]
+          },
+          "costAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "budget": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "utmCampaign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "channelId",
+          "channelName",
+          "sourceKey",
+          "startsOn",
+          "endsOn",
+          "costModel",
+          "costAmount",
+          "budget",
+          "utmCampaign",
+          "notes",
+          "archived"
         ]
       },
       "UpdateWebhookEndpointInput": {

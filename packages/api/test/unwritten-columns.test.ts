@@ -92,7 +92,7 @@ const WRITTEN_ELSEWHERE = new Map<string, string>([]);
  * and a test below fails in both directions.
  */
 const SOFT_DELETE_NOT_OFFERED = [
-  "adSpend", "attachment", "bookableService", "conversation", "customerProperty",
+  "attachment", "bookableService", "conversation", "customerProperty",
   "integrationConnection", "invoice", "job", "overtimePolicy", "priceBookItem",
   "property", "purchaseOrder", "rateCard", "recurringSchedule", "review",
   "reviewPlatform", "reviewPolicy", "reviewRequest", "serviceContract",

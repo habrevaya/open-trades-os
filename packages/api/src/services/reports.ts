@@ -84,6 +84,11 @@ export const SCOPE_FILTERS: Record<string, (ctx: ServiceContext) => SQL | undefi
    * between them and it.
    */
   profitability: (ctx) => jobScopeFilter(scopeOf(ctx, "job"), ctx.actor),
+  /**
+   * Not scoped by work: a call is the company's marketing, not a technician's
+   * job, and the dataset needs `adspend:read`, which no field role holds.
+   */
+  calls: () => undefined,
 };
 
 export function scopeFilterFor(ctx: ServiceContext, dataset: reporting.Dataset): SQL | undefined {

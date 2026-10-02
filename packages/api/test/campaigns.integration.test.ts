@@ -6,7 +6,10 @@ import * as campaigns from "../src/services/campaigns";
 import * as unsubscribe from "../src/services/unsubscribe";
 import * as email from "../src/services/email";
 import * as commsSend from "../src/services/comms-send";
-import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
+import * as marketing from "../src/services/marketing";
+import * as jobs from "../src/services/jobs";
+import * as messageTemplates from "../src/services/message-templates";
+import { ConflictError, NotFoundError, inTenant, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -766,11 +769,22 @@ run("handing a batch to the outbox", () => {
     /** Still sending, because marking it sent with three left would lie. */
     expect(day1.state).toBe("sending");
 
-    const day2 = await campaigns.send(owner(), { id: created.id, at: DAYTIME });
+    /**
+     * A second press the SAME day sends nothing. The cap is the carrier's per
+     * day, and it used to be applied per call, so pressing twice (or a worker
+     * coming round again) sent a second day's worth into a carrier that would
+     * reject it.
+     */
+    const again = await campaigns.send(owner(), { id: created.id, at: DAYTIME });
+    expect(again.queued).toBe(2);
+    expect(again.remaining).toBe(3);
+
+    const nextDay = (days: number) => new Date(Date.parse(DAYTIME) + days * 86_400_000).toISOString();
+    const day2 = await campaigns.send(owner(), { id: created.id, at: nextDay(1) });
     expect(day2.queued).toBe(4);
     expect(day2.remaining).toBe(1);
 
-    const day3 = await campaigns.send(owner(), { id: created.id, at: DAYTIME });
+    const day3 = await campaigns.send(owner(), { id: created.id, at: nextDay(2) });
     expect(day3.queued).toBe(5);
     expect(day3.remaining).toBe(0);
     expect(day3.state).toBe("sent");
@@ -1279,9 +1293,15 @@ run("what a campaign may become", () => {
 
   it("credits the work a campaign brought in through job.campaign_id", async () => {
     /**
-     * That column has been on the job table since the first migration with no
-     * foreign key, written by nothing and read by nothing. This is its first
-     * reader and the results report is what it was for.
+     * That column has been on the job table since the first migration, and
+     * for a long time this test set it with raw SQL because no product code
+     * wrote it, so the results report read zero for every campaign anybody
+     * ran. `marketing.creditWork` writes it now, from the credited touch's
+     * utm tag, on every path that creates work; this books the job through
+     * `jobs.create` like a CSR would and lets that happen.
+     *
+     * Revenue is the ledger's, the one definition every marketing figure
+     * shares, so the job's revenue is posted as an invoice would post it.
      *
      * NO CONVERSION RATE COMES BACK, deliberately, and it is the one number
      * every tool in this category prints. Jobs divided by recipients is a
@@ -1296,8 +1316,25 @@ run("what a campaign may become", () => {
     const created = await campaigns.create(owner(), sms());
     await campaigns.send(owner(), { id: created.id, at: DAYTIME });
 
-    const booked = await completedJob(who, 1, "1250.0000");
-    await raw`update public.job set campaign_id = ${created.id} where id = ${booked}`;
+    /** They clicked the link in the text, which carried the campaign's own tag. */
+    await inTenant(owner(), (tx) => marketing.recordTouch(tx, ORG, {
+      customerId: who,
+      query: `utm_source=newsletter&utm_medium=sms&utm_campaign=${created.utmCampaign}`,
+    }));
+    const propertyId = await property(who, "78703");
+    const job = await jobs.create(owner(), {
+      customerId: who, propertyId, summary: "Tune up from the text", tags: [], customFields: {},
+    });
+    const [written] = await raw<{ campaign_id: string | null }[]>`
+      select campaign_id from public.job where id = ${job.id}`;
+    expect(written!.campaign_id).toBe(created.id);
+    await raw`
+      insert into public.ledger_entry (organization_id, transaction_id, occurred_at, direction,
+                                       account_code, currency, amount, source_type, source_id, job_id)
+      select ${ORG}, t.id, now(), d.direction, d.code, 'USD', '1250.0000', 'manual', t.id, ${job.id}
+      from (select gen_random_uuid() as id) t,
+           (values ('debit'::ledger_direction, '1100'), ('credit'::ledger_direction, '4000'))
+             as d(direction, code)`;
 
     const results = await campaigns.results(owner(), { id: created.id });
     expect(results.jobs).toBe(1);
@@ -1366,6 +1403,139 @@ run("who may run a campaign", () => {
   it("refuses a carrier registration belonging to nobody", async () => {
     await expect(campaigns.create(owner(), sms({ messagingCampaignId: fixtureId("cmp:ghost") })))
       .rejects.toThrow(NotFoundError);
+  });
+});
+
+/* ================================================ merge fields and the clock */
+
+run("a campaign that calls people by name", () => {
+  const PERSONAL = "Hi {{ customer.firstName }}, {{ company.name }} here: $89 tune ups this month. Reply STOP to opt out.";
+
+  it("previews the message as the first person on the list will read it", async () => {
+    await number("+15125550950", "sending");
+    const who = await customer({ name: "Maria Lopez", phone: "+15125550951" });
+    await completedJob(who, 10);
+
+    const created = await campaigns.create(owner(), sms({ body: PERSONAL }));
+    const preview = await campaigns.preview(owner(), { id: created.id });
+    expect(preview.rendered).toEqual({
+      for: "Maria Lopez",
+      body: "Hi Maria, Comfort Co here: $89 tune ups this month. Reply STOP to opt out.",
+      subject: null,
+    });
+
+    /** And before it is saved, from the words on the form. */
+    const trying = await campaigns.preview(owner(), {
+      channel: "sms", audience: [{ kind: "served_at_least_once" }], body: "Thanks {{ customer.name }}",
+    });
+    expect(trying.rendered?.body).toBe("Thanks Maria Lopez");
+  });
+
+  it("sends each person their own words", async () => {
+    await number("+15125550952", "sending");
+    const who = await customer({ name: "Maria Lopez", phone: "+15125550953" });
+    await completedJob(who, 10);
+    await consentFor("+15125550953", { channel: "sms", purpose: "marketing" });
+
+    const created = await campaigns.create(owner(), sms({ body: PERSONAL }));
+    await campaigns.send(owner(), { id: created.id, at: DAYTIME });
+    const [sent] = await raw<{ body: string }[]>`
+      select m.body from public.message m
+      join public.campaign_recipient r on r.message_id = m.id
+      where r.campaign_id = ${created.id}`;
+    expect(sent!.body).toBe("Hi Maria, Comfort Co here: $89 tune ups this month. Reply STOP to opt out.");
+  });
+
+  it("refuses a field it cannot fill, which would otherwise go out as a gap", async () => {
+    await expect(campaigns.create(owner(), sms({ body: "Hi {{ custmer.firstName }}" })))
+      .rejects.toThrow(/not something a campaign can fill in/);
+  });
+
+  it("starts from a message template, and refuses one written for something else", async () => {
+    await messageTemplates.define(owner(), {
+      code: "spring.offer", name: "Spring offer", channel: "sms", purpose: "marketing", body: PERSONAL,
+    });
+    const created = await campaigns.create(owner(), sms({ body: undefined, templateCode: "spring.offer" }));
+    expect(created.body).toBe(PERSONAL);
+
+    await messageTemplates.define(owner(), {
+      code: "arrival", name: "On the way", channel: "sms", body: "Your window is {{ visit.window }}",
+    });
+    await expect(campaigns.create(owner(), sms({ body: undefined, templateCode: "arrival" })))
+      .rejects.toThrow(/not something a campaign can fill in/);
+  });
+});
+
+run("the clock", () => {
+  /**
+   * `scheduled_for` was stored and fired by nothing, so a staged send was one
+   * press per batch. These run the worker's own function, against the real
+   * clock for "is it due" (the database decides that) and a chosen one for
+   * quiet hours and the cap.
+   */
+  const mine = (results: campaigns.DueResult[], id: string) => results.filter((r) => r.campaignId === id);
+
+  it("fires a scheduled campaign once it is due, as its author, and only once", async () => {
+    await number("+15125550960", "sending");
+    for (const [i, phone] of ["+15125550961", "+15125550962"].entries()) {
+      const who = await customer({ name: `Due ${i}`, phone });
+      await completedJob(who, 10);
+      await consentFor(phone, { channel: "sms", purpose: "marketing" });
+    }
+    const created = await campaigns.create(owner(), sms());
+    await campaigns.update(owner(), {
+      id: created.id, scheduledFor: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    expect(mine(await campaigns.sendDue(db(), { now: new Date(DAYTIME) }), created.id)).toEqual([]);
+
+    await campaigns.update(owner(), { id: created.id, scheduledFor: new Date(Date.now() - 60_000).toISOString() });
+    const fired = mine(await campaigns.sendDue(db(), { now: new Date(DAYTIME) }), created.id);
+    expect(fired).toEqual([expect.objectContaining({ action: "sent", queued: 2, remaining: 0 })]);
+
+    /** Sent is sent: the next pass finds nothing due and writes nothing twice. */
+    expect(mine(await campaigns.sendDue(db(), { now: new Date(DAYTIME) }), created.id)).toEqual([]);
+    const [count] = await raw<{ n: number }[]>`
+      select count(*)::int as n from public.campaign_recipient where campaign_id = ${created.id}`;
+    expect(count!.n).toBe(2);
+  });
+
+  it("waits through quiet hours rather than skipping everybody for good", async () => {
+    await number("+15125550970", "sending");
+    const who = await customer({ name: "Night", phone: "+15125550971" });
+    await completedJob(who, 10);
+    await consentFor("+15125550971", { channel: "sms", purpose: "marketing" });
+    const created = await campaigns.create(owner(), sms());
+    await campaigns.update(owner(), { id: created.id, scheduledFor: new Date(Date.now() - 60_000).toISOString() });
+
+    expect(mine(await campaigns.sendDue(db(), { now: new Date(NIGHT) }), created.id))
+      .toEqual([expect.objectContaining({ action: "waiting", reason: "quiet_hours" })]);
+    const [none] = await raw<{ n: number }[]>`
+      select count(*)::int as n from public.campaign_recipient where campaign_id = ${created.id}`;
+    expect(none!.n).toBe(0);
+
+    expect(mine(await campaigns.sendDue(db(), { now: new Date(DAYTIME) }), created.id))
+      .toEqual([expect.objectContaining({ action: "sent", queued: 1 })]);
+  });
+
+  it("takes one day of the carrier's cap and comes back for the rest", async () => {
+    await number("+15125550980", "sending");
+    const carrier = await carrierCampaign(1, null);
+    for (const [i, phone] of ["+15125550981", "+15125550982"].entries()) {
+      const who = await customer({ name: `Capped ${i}`, phone });
+      await completedJob(who, 10);
+      await consentFor(phone, { channel: "sms", purpose: "marketing" });
+    }
+    const created = await campaigns.create(owner(), sms({ messagingCampaignId: carrier }));
+    await campaigns.update(owner(), { id: created.id, scheduledFor: new Date(Date.now() - 60_000).toISOString() });
+
+    expect(mine(await campaigns.sendDue(db(), { now: new Date(DAYTIME) }), created.id))
+      .toEqual([expect.objectContaining({ action: "sent", queued: 1, remaining: 1 })]);
+    /** Still sending, and the same day's cap is spent. */
+    expect(mine(await campaigns.sendDue(db(), { now: new Date(DAYTIME) }), created.id))
+      .toEqual([expect.objectContaining({ action: "waiting", reason: "daily_cap" })]);
+    const tomorrow = new Date(Date.parse(DAYTIME) + 86_400_000);
+    expect(mine(await campaigns.sendDue(db(), { now: tomorrow }), created.id))
+      .toEqual([expect.objectContaining({ action: "sent", queued: 2, remaining: 0 })]);
   });
 });
 

@@ -97,8 +97,21 @@ export const createCampaign = defineRoute({
     name: z.string().min(1).max(200),
     channel: CampaignChannel,
     audience: z.array(AudienceRule),
-    body: z.string().min(1).max(20000),
+    /**
+     * The words, with merge fields in the message templates' own syntax:
+     * {{ customer.firstName }}, {{ customer.name }}, {{ company.name }},
+     * {{ company.phone }}. Anything else is refused, because the renderer
+     * turns an unknown field into nothing and "Hi ," would go to everybody.
+     * Optional only when `templateCode` is given.
+     */
+    body: z.string().min(1).max(20000).optional(),
     subject: z.string().max(300).nullable().optional(),
+    /**
+     * A message template (M18) on the same channel to start from. Its words
+     * are copied in, so editing the template later does not change what this
+     * campaign says it sent.
+     */
+    templateCode: z.string().min(1).max(64).optional(),
     /** Defaulted from the name. Two fields that must agree are two spellings in a report. */
     utmCampaign: z.string().min(1).max(100).optional(),
     /** The registered carrier campaign, on SMS. Its throughput is what the send paces against. */
@@ -196,8 +209,21 @@ export const previewCampaign = defineRoute({
     channel: CampaignChannel.optional(),
     audience: z.array(AudienceRule).optional(),
     sample: z.number().int().min(0).max(100).optional(),
+    /** Words to render for the first person on the list, when trying a campaign before saving it. */
+    body: z.string().max(20000).optional(),
+    subject: z.string().max(300).nullable().optional(),
   }),
   output: z.object({
+    /**
+     * The message as the first person on the list will read it, merge fields
+     * filled in by the renderer the send uses. Null when there are no words
+     * to render yet.
+     */
+    rendered: z.object({
+      for: z.string().nullable(),
+      body: z.string(),
+      subject: z.string().nullable(),
+    }).nullable(),
     count: z.number().int(),
     /** True when the rules matched more than one campaign will take. */
     overflow: z.boolean(),

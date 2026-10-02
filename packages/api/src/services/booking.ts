@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, inArray, sql, gte, lte, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, time, marketing, SYSTEM_USER_ID } from "@opentradesos/core";
+import { money as m, time, marketing as mk, SYSTEM_USER_ID } from "@opentradesos/core";
 import { randomBytes, createHash } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -439,7 +439,15 @@ export async function createRequest(
      */
     await marketingService.recordTouch(tx, org.id, {
       at: row!.createdAt,
-      visitorId: input.visitorId ?? null,
+      /**
+       * The browser's own id when the widget sent one, and otherwise the
+       * request itself as the thread, so confirming it can always find this
+       * touch. Without a thread, a booking from a page with no visitor script
+       * left its touch belonging to nobody, the job was credited to nothing,
+       * and the only record of where it came from was a word on the job.
+       */
+      visitorId: input.visitorId ?? requestThread(row!.id),
+      callerE164: mk.callerKey(input.contactPhone),
       /**
        * The raw query when the widget sent one, falling back to the utm bag
        * rebuilt as a query string. The fallback loses the click id, because
@@ -552,7 +560,6 @@ export async function confirm(ctx: ServiceContext, input: z.infer<typeof confirm
       // The customer's own words, kept verbatim. Rewriting them into a job
       // summary loses the only unfiltered account of the problem anyone gets.
       customerComplaint: request.notes ?? null,
-      leadSource: sourceOf(request),
     }).returning({ id: schema.job.id });
 
     await tx.update(schema.bookingRequest).set({
@@ -565,37 +572,21 @@ export async function confirm(ctx: ServiceContext, input: z.infer<typeof confirm
     }).where(eq(schema.bookingRequest.id, input.id));
 
     /**
-     * THE MOMENT AN ANONYMOUS HISTORY BECOMES SOMEBODY'S.
+     * THE MOMENT AN ANONYMOUS HISTORY BECOMES SOMEBODY'S, and the work is
+     * credited to it.
      *
-     * Everything this visitor did before filling the form is joined to the
-     * customer here, in one write. Without it the five touches before the
-     * conversion belong to nobody and only the sixth belongs to the
-     * customer, which is last touch attribution arrived at by accident
-     * rather than chosen by a reader.
+     * This was written out here, and only here, which is why a job booked
+     * online was credited and a job a CSR typed in after a call on a tracking
+     * number was not. It is `marketing.creditWork` now, shared by every path
+     * that creates work: the visitor's earlier touches join the customer, the
+     * customer's untagged touches are tagged with this job, and the job's
+     * lead source, channel and campaign are filled from the company's chosen
+     * model and marked `derived`.
      */
-    if (request.visitorId) {
-      await marketingService.identify(tx, ctx.actor.organizationId, {
-        visitorId: request.visitorId,
-        customerId,
-      });
-    }
-
-    /**
-     * And the touches this customer made are tagged with the work they
-     * produced, so a channel's booked value can be counted without walking
-     * back through every job the customer has ever had. Only the ones not
-     * already credited to an earlier job: a repeat customer's first visit
-     * belongs to their first job, and re-tagging it here would move the
-     * credit for last year's work onto this one.
-     */
-    await tx.update(schema.marketingTouch).set({
+    await marketingService.creditWork(tx, ctx.actor.organizationId, {
       jobId: job!.id,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(schema.marketingTouch.organizationId, ctx.actor.organizationId),
-      eq(schema.marketingTouch.customerId, customerId),
-      isNull(schema.marketingTouch.jobId),
-    ));
+      visitorId: request.visitorId ?? requestThread(request.id),
+    });
 
     // The tracking link the requester already has now points at a real job and
     // a real customer, so it keeps working rather than dead-ending the moment
@@ -816,7 +807,11 @@ async function createCustomerFrom(
     name: request.contactName,
     email: request.contactEmail ?? null,
     phone: request.contactPhone ?? null,
-    leadSource: sourceOf(request),
+    /**
+     * Left blank here and filled by `creditWork` from the touch the request
+     * recorded, marked `derived`, rather than written as a bare word: the word
+     * was all this path used to keep.
+     */
   }).returning({ id: schema.customer.id });
   return customer!.id;
 }
@@ -1168,26 +1163,5 @@ function pathOf(sourceUrl: string | null | undefined): string | null {
   }
 }
 
-/**
- * The single word that goes on the job, for the screens that show one.
- *
- * Still written, and still only one word, because a job list has one column
- * for it. It is no longer the ONLY thing kept: the full touch went into
- * `marketing_touch` when the request arrived, so this is a convenience
- * denormalisation rather than the whole of the company's attribution.
- */
-function sourceOf(request: typeof schema.bookingRequest.$inferSelect): string {
-  const touch = marketing.parseTouch({
-    at: request.createdAt,
-    query: request.landingQuery ?? utmAsQuery((request.utm ?? {}) as Record<string, string | undefined>),
-    referrer: request.referrer,
-    /**
-     * Our own pages are not a referral. Somebody moving from the pricing page
-     * to the booking page is one session, and counting it as a referral from
-     * ourselves is how "our own website" becomes the top lead source.
-     */
-    ownHosts: [new URL(portalBase()).host],
-  });
-
-  return touch.source;
-}
+/** The anonymous thread a booking request's touch carries when the page sent no visitor id. */
+const requestThread = (requestId: string) => `booking_request:${requestId}`;

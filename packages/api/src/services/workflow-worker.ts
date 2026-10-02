@@ -5,6 +5,7 @@ import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
+import { sendDue } from "./campaigns";
 
 /**
  * THE WORKER
@@ -229,6 +230,8 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * The clock first, so anything it fires is in the log before this pass
    * reads it and goes out on the same pass rather than the next.
    */
+  /** Companies a campaign batch went out for, whose outbox has to be sent this pass. */
+  const sentCampaigns = new Set<string>();
   if (options.schedules !== false) {
     try {
       await tick(options.db, stop ? { shouldStop: stop } : {});
@@ -236,6 +239,14 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       await resumeDue(options.db, stop ? { shouldStop: stop } : {});
       // And the records that have been sitting there too long.
       await sweep(options.db, stop ? { shouldStop: stop } : {});
+      /**
+       * And the campaign sends that are due: a scheduled one whose time has
+       * come, or a staged one with a new day of its carrier's cap. Before the
+       * drain, like the schedules, so the texts it queues leave on this pass.
+       */
+      for (const due of await sendDue(options.db, stop ? { shouldStop: stop } : {})) {
+        if (due.action === "sent") sentCampaigns.add(due.organizationId);
+      }
     } catch (error) {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.
@@ -252,14 +263,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * in the outbox until that company happens to produce another event, which
    * on a quiet afternoon is hours. The budget is set with room for it.
    */
-  for (const result of results) {
-    if (result.events === 0) continue;
+  /**
+   * A campaign batch queues messages without writing an event, so a company
+   * whose only activity this pass was a scheduled send has nothing in the
+   * drain results, and its texts would sit in the outbox until it next did
+   * something else. Those companies are added to the ones the hook runs for.
+   */
+  const outboxFor = new Set(results.filter((r) => r.events > 0).map((r) => r.organizationId));
+  for (const organizationId of sentCampaigns) outboxFor.add(organizationId);
+  for (const organizationId of outboxFor) {
     try {
-      await options.afterDrain?.(result.organizationId);
+      await options.afterDrain?.(organizationId);
     } catch (error) {
       // One organization's carrier being down must not stop the loop for
       // everybody else. The messages stay queued and go on the next pass.
-      console.error(`[worker] outbox ${result.organizationId}:`, (error as Error).message);
+      console.error(`[worker] outbox ${organizationId}:`, (error as Error).message);
     }
   }
 

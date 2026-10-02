@@ -439,33 +439,32 @@ export async function record(
     const providerCallId = `${PROVIDER}:${call.externalId}`;
 
     /**
-     * The tracking number as this company holds it, when it holds it at all.
+     * The tracking number as this company holds it, its channel and campaign
+     * now, who rang if we know them, and whether they have rung before. One
+     * function shared with `telephony.logCall`, so the two writers of inbound
+     * calls cannot disagree about any of it.
+     *
      * A CallRail number the office never recorded here is not an error: the
      * call is still a call, and the touch below resolves to `unknown` rather
      * than to a channel, which is the honest answer and is the one that puts
      * the number on the worklist.
+     *
+     * The caller is MATCHED rather than created: a tracked call is an
+     * enquiry, and creating a customer from one would fill the CRM with every
+     * wrong number and every supplier who rang the tracking line. The call
+     * log offers "create a customer and a job from this call" for the ones
+     * that are real, and the stitching in `marketing.identifyCaller` gives
+     * that customer this call when they are.
      */
-    const [number] = await tx.select({ id: schema.phoneNumber.id })
-      .from(schema.phoneNumber)
-      .where(and(
-        eq(schema.phoneNumber.organizationId, organizationId),
-        eq(schema.phoneNumber.e164, call.trackingNumber),
-        isNull(schema.phoneNumber.releasedAt),
-      )).limit(1);
-
-    /**
-     * Whose call it is, if this number is already on somebody's record.
-     * Matched rather than created: a tracked call is an enquiry, and creating
-     * a customer from one would fill the CRM with every wrong number and
-     * every supplier who rang the tracking line.
-     */
-    const [customer] = await tx.select({ id: schema.customer.id })
-      .from(schema.customer)
-      .where(and(
-        eq(schema.customer.organizationId, organizationId),
-        eq(schema.customer.phone, call.customerNumber),
-        isNull(schema.customer.deletedAt),
-      )).limit(1);
+    const known = call.direction === "inbound"
+      ? await marketingService.inboundCallFacts(tx, organizationId, {
+        fromE164: call.customerNumber,
+        receivedOnE164: call.trackingNumber,
+        at: call.startedAt,
+        providerSaysFirst: call.firstCall,
+      })
+      : null;
+    const customer = known?.customerId ? { id: known.customerId } : undefined;
 
     /** The natural key window: the same second, allowing for a rounding difference. */
     const from = new Date(call.startedAt.getTime() - 1000);
@@ -496,8 +495,13 @@ export async function record(
         ? new Date(call.startedAt.getTime() + call.durationSeconds * 1000)
         : null,
       durationSeconds: call.durationSeconds,
-      phoneNumberId: number?.id ?? null,
-      customerId: customer?.id ?? null,
+      ...(known?.phoneNumberId ? { phoneNumberId: known.phoneNumberId } : {}),
+      /**
+       * Only ever SET from here, never cleared. A repeat delivery about a call
+       * the office has since turned into a customer and a job must not undo
+       * that link because the caller's number is not the one on the account.
+       */
+      ...(customer ? { customerId: customer.id } : {}),
       /**
        * Their own word for the source, verbatim and unmapped. Not folded
        * into this product's closed catalogue by anything on the way in: an
@@ -530,6 +534,14 @@ export async function record(
       sourceSystem: PROVIDER,
       sourceId: call.externalId,
       sourcePayload: storable(call.raw),
+      /**
+       * Decided on the first sight of the call and not on a repeat, when an
+       * earlier delivery of this same call would make it look like a second.
+       */
+      firstTimeCaller: known?.firstTimeCaller ?? null,
+      /** The number's channel and campaign at the time, kept with the call. */
+      channelId: known?.channelId ?? null,
+      acquisitionCampaignId: known?.campaignId ?? null,
       ...facts,
     }).onConflictDoNothing({
       target: [schema.call.organizationId, schema.call.providerCallId],
@@ -588,6 +600,8 @@ export async function record(
       const touch = await marketingService.recordTouch(tx, organizationId, {
         at: call.startedAt,
         customerId: customer?.id ?? null,
+        callId: fresh.id,
+        callerE164: known?.callerE164 ?? null,
         trackedNumber: call.trackingNumber,
         /**
          * Their attribution, rendered as the query string a website visit

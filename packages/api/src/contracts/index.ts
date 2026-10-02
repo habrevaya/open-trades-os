@@ -54,6 +54,7 @@ import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
 import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
+import { acquisitionRoutes } from "./acquisition";
 
 export * from "./common";
 export * from "./customers";
@@ -71,6 +72,7 @@ export * from "./labor";
 export * from "./obligations";
 export * from "./files";
 export * from "./marketing";
+export * from "./acquisition";
 export * from "./connectors";
 export * from "./reviews";
 export * from "./recurring";
@@ -139,6 +141,7 @@ export const routes = {
   ...obligationRoutes,
   ...fileRoutes,
   ...marketingRoutes,
+  ...acquisitionRoutes,
   ...connectorRoutes,
   ...reviewRoutes,
   ...recurringRoutes,
