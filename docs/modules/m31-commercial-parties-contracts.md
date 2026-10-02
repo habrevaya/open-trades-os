@@ -216,6 +216,42 @@ job: accepting an order from a facilities network is agreeing to their terms
 for it, which is the same decision as signing the contract, and it is not the
 same decision as scheduling the visit.
 
+### The screen
+
+`Contracts > Work from other systems`. `contract:read` to look and `contract:write`
+to move, which is the service's own split.
+
+**Two statuses on every row, never reconciled into one.** Their word is kept
+verbatim beside ours, because it is the only thing that survives them renaming a
+status, and the row says which system is the record.
+
+**The buttons come from `weMayMoveTo`.** The service works it out from the state
+and the network's own flags, so the screen does not know the transition table and
+cannot offer a move the module would refuse. Two consequences are visible: on a
+network where acceptance is final there is no Accept after the fact, and nowhere
+on the screen is there a button for "the client cancelled it" or "they sent it
+back", because neither is ours to declare. A test checks that second one against
+core in both directions rather than against the markup.
+
+**The job field appears only on Accept.** A declined order must never carry a job:
+half of what arrives on a facilities network is declined, and a job on a declined
+order is work nobody is doing sitting on the board and in the margin report.
+
+**The push queue is a count with a consequence, not a tidiness list.** A status
+changed and never pushed is a contractor whose scorecard says they never
+responded, and the scorecard decides the next dispatch. A failed push keeps the
+order in the queue and shows the error; only recording the push clears it.
+
+**Each network's caveat is where the decision is made.** A contractor needs to know
+that a warranty administrator's acceptance is final BEFORE they accept. A network
+with no profile written for it is listed too, with its order count, because the
+profile list is notes rather than a gate: a regional warranty administrator nobody
+has heard of is as real as Corrigo, and it gets the cautious defaults.
+
+An order is posted through the API rather than created on the screen, because that
+is how one arrives. The browser test does the same, which is also the honest shape
+of the test: there is no adapter for any network, so the API is the only way in.
+
 ## Not built
 
 Rate cards, which are the other half of "our price book is not the price

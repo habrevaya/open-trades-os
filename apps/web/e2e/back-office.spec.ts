@@ -639,3 +639,68 @@ test("Commission plans: a basis is chosen with its caveat on the screen, and a p
   await expect(owner.getByRole("table", { name: "Commission plans" }).getByRole("row")
     .filter({ hasText: label })).toContainText("Superseded");
 });
+
+test("Work from other systems: an order arrives, is accepted, completed, and the push is owed then recorded", async ({ owner }) => {
+  /**
+   * The order is posted through the public API rather than built on a screen,
+   * because that is how one actually arrives: a network dispatches it. There is no
+   * adapter for any network, so the API is the only way in, and the screen is what
+   * a dispatcher does with it afterwards.
+   */
+  const externalId = `CORR-${run}`;
+  /**
+   * The NUMBER is what the screen shows, because that is what a dispatcher reads
+   * off the network's own portal; the id is the key the mirror is idempotent on.
+   * The first version of this test looked for the id and found nothing.
+   */
+  const externalNumber = `9${run.slice(-5)}`;
+  const received = await owner.request.post("/api/v1/external-work-orders", {
+    data: { sourceSystem: "corrigo", externalId, externalNumber, externalStatus: "Dispatched" },
+  });
+  expect(received.ok()).toBe(true);
+
+  await owner.goto("/contracts/external");
+  await expect(owner.getByRole("heading", { level: 1, name: "Work from other systems" })).toBeVisible();
+
+  const table = owner.getByRole("table", { name: "External work orders" });
+  const row = table.getByRole("row").filter({ hasText: externalNumber });
+  await expect(row).toContainText("Offered");
+  /** Their word, verbatim and beside ours rather than instead of it. */
+  await expect(row).toContainText("Dispatched");
+
+  /**
+   * An offered order can be accepted or declined and nothing else. The buttons come
+   * from `weMayMoveTo`, so there is no Complete here yet and nowhere at all is
+   * there a button saying the client pulled it.
+   */
+  await expect(row.getByRole("button", { name: "Accept" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Decline" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Complete" })).toHaveCount(0);
+  await expect(owner.getByRole("button", { name: /pulled by the client/i })).toHaveCount(0);
+
+  await row.getByRole("button", { name: "Accept" }).click();
+  await expect(table.getByRole("row").filter({ hasText: externalNumber }))
+    .toContainText("Accepted");
+
+  /**
+   * Accepting owes the client an update. The queue is the point: a status changed
+   * and never pushed is a contractor whose scorecard says they never responded.
+   */
+  await expect(owner.getByText(/order has a change their system has not been told/)).toBeVisible();
+
+  // A failed push KEEPS it in the queue rather than clearing it.
+  const accepted = table.getByRole("row").filter({ hasText: externalNumber });
+  await accepted.getByLabel("Why the push failed").fill("401 from their gateway");
+  await accepted.getByRole("button", { name: "Push failed" }).click();
+  await expect(table.getByRole("row").filter({ hasText: externalNumber }))
+    .toContainText("401 from their gateway");
+  await expect(owner.getByText(/has a change their system has not been told/)).toBeVisible();
+
+  // Recording the push clears it.
+  await table.getByRole("row").filter({ hasText: externalNumber })
+    .getByRole("button", { name: "Told them" }).click();
+  await expect(owner.getByText("Nothing owed")).toBeVisible();
+
+  /** And the networks' caveats are on the screen rather than in a help article. */
+  await expect(owner.getByText("Accepting cannot be undone").first()).toBeVisible();
+});

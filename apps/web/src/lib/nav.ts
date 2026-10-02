@@ -110,7 +110,19 @@ export const NAV: NavGroup[] = [
        * than about a number. Somebody opens this before quoting, not while
        * invoicing.
        */
-      { href: "/contracts", label: "Contracts", permission: "contract:read", icon: "contracts" },
+      {
+        href: "/contracts", label: "Contracts", permission: "contract:read", icon: "contracts",
+        children: [
+          { href: "/contracts", label: "Rate cards" },
+          /**
+           * The other direction: work that arrives from somebody else's system,
+           * where theirs is the record and ours is the mirror. Under Contracts
+           * because both answer "what did we agree with this client", one as a
+           * price and one as a queue.
+           */
+          { href: "/contracts/external", label: "Work from other systems" },
+        ],
+      },
       { href: "/inbox", label: "Inbox", permission: "message:read", icon: "inbox" },
     ],
   },
