@@ -317,7 +317,7 @@ run("seeing what happened", () => {
      * the screen would be offering a step that does nothing at run time.
      */
     const kinds = workflows.availableSteps(owner()).map((s) => s.kind);
-    expect(kinds).toEqual(["send_message", "create_task", "wait", "branch"]);
+    expect(kinds).toEqual(["send_message", "create_task", "wait", "email_report", "branch"]);
     expect(kinds).not.toContain("record_payment");
   });
 

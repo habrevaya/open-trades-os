@@ -357,7 +357,9 @@ run("the worker", () => {
     expect(await deliveriesOf(created.id)).toHaveLength(1);
     // This company had no events on the pass; it is still handed to the outbox.
     expect(sentFor).toContain(ORG);
-  });
+    // A whole pass over every company in the test database, which the suites
+    // running beside this one keep busy: the time a pass takes, not a unit.
+  }, 60_000);
 });
 
 run("an automation that emails a report", () => {

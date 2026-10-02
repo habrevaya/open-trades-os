@@ -125,6 +125,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   },
   integration_event: { idempotency_key: "A retry key the worker chose. Not a credential." },
   workflow_run: { idempotency_key: "A retry key the workflow chose. Not a credential." },
+  report_delivery: {
+    idempotency_key: "The occurrence a report was delivered for, a schedule and a day or a run and a step. "
+      + "Not a credential.",
+  },
   ai_usage: {
     idempotency_key: "A retry key the AI call chose. Not a credential.",
     /**

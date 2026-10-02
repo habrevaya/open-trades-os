@@ -81,12 +81,13 @@ function Cell({
 }
 
 /**
- * The row in words, for the link's accessible name: ", Over 90 days".
+ * The row in words, for the link's description: ", Over 90 days".
  *
- * A screen reader on a report hears a column of links, and twelve links all
- * called "Open the records behind Outstanding" are twelve it cannot tell
- * apart. Plain text rather than the formatted cell, so a month reads as the
- * month and a status as its words.
+ * The link is named by the number it shows and described by what it opens,
+ * as a title rather than a label: a label would replace the number as the
+ * link's name, and every form on the page with a "To" box would have a
+ * column of links answering to it too. Plain text rather than the formatted
+ * cell, so a month reads as the month and a status as its words.
  */
 export function describeRow(
   dimensions: ReportResult["columns"],
@@ -165,7 +166,7 @@ export function ReportTable({
                     <a
                       href={drill(row)}
                       className="underline decoration-steel-300 underline-offset-2 hover:decoration-ink-700"
-                      aria-label={`Open the records behind ${c.label}${describeRow(dimensions, row)}`}
+                      title={`Open the records behind ${c.label}${describeRow(dimensions, row)}`}
                     >
                       <Cell column={c} value={row[c.key] ?? null} timezone={timezone} />
                     </a>

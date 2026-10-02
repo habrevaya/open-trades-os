@@ -27,7 +27,7 @@ test("Drill through: a number on a report opens the invoices behind it, and they
   const first = owner.locator("main table tbody tr").first();
   const link = first.getByRole("link").first();
   const clicked = (await link.innerText()).trim();
-  await expect(link).toHaveAttribute("aria-label", /^Open the records behind Outstanding, /);
+  await expect(link).toHaveAttribute("title", /^Open the records behind Outstanding, /);
   await link.click();
 
   await expect(owner).toHaveURL(/\/reports\/drill\?/);
@@ -44,7 +44,7 @@ test("Drill through: a number on a report opens the invoices behind it, and they
 
 test("Drill through: a bar on a dashboard opens the records behind it", async ({ owner }) => {
   await owner.goto("/dashboards/money");
-  await owner.getByRole("link", { name: /^Open the records behind Who owes us, / }).first().click();
+  await owner.getByTitle(/^Open the records behind Who owes us, /).first().click();
   await expect(owner.getByRole("heading", { level: 1, name: "Invoices behind Who owes us" })).toBeVisible();
   // The tile's own filter came with it, said in words.
   await expect(owner.getByText("Status is not Paid.")).toBeVisible();
@@ -101,7 +101,7 @@ test("Statements: one is emailed from the statement page, the refusal is kept, a
 
   await owner.goto(`/customers/${id}/statement`);
   const panel = owner.getByRole("region", { name: "Email statement" });
-  await expect(panel.getByLabel("To")).toHaveAttribute("placeholder", address);
+  await expect(panel.getByLabel("Email address")).toHaveAttribute("placeholder", address);
   await panel.getByRole("button", { name: "Email statement" }).click();
   await expect(panel.getByRole("alert").filter({ hasText: "No email provider is connected" })).toBeVisible();
   await expect(panel.getByRole("list", { name: "Statements already sent" })).toContainText(`to ${address}: not sent.`);

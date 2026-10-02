@@ -74,12 +74,12 @@ describe("a report draws a link on every number", () => {
     truncated: false,
   };
 
-  it("names each link by its row, so a screen reader can tell them apart", () => {
+  it("describes each link by its row, so two links with the same number can be told apart", () => {
     const html = renderToStaticMarkup(
       <ReportTable result={result} timezone="America/Chicago" drill={(row) => `/reports/drill?pin=aging:${String(row["aging"])}`} />,
     );
     expect(html).toContain('href="/reports/drill?pin=aging:1 Current"');
-    expect(html).toContain('aria-label="Open the records behind Outstanding, Over 90 days"');
+    expect(html).toContain('title="Open the records behind Outstanding, Over 90 days"');
   });
 });
 
@@ -98,7 +98,7 @@ describe("a dashboard tile opens the same way", () => {
     }} />);
     expect(html).toMatch(/href="\/reports\/drill\?[^"]*pin=aging%3A2\+1\+to\+30\+days/);
     expect(html).toContain("back=%2Fdashboards%2Fmoney");
-    expect(html).toContain('aria-label="Open the records behind Receivables by age, 1 to 30 days"');
+    expect(html).toContain('title="Open the records behind Receivables by age, 1 to 30 days"');
   });
 
   it("links the one number on a number tile", () => {
@@ -107,7 +107,7 @@ describe("a dashboard tile opens the same way", () => {
       definition: { dataset: "invoices", dimensions: [], measures: ["balance"] },
       result: { columns: [], truncated: false, rows: [{ balance: "460.0000" }] },
     }} />);
-    expect(html).toContain('aria-label="Open the records behind Receivables by age"');
+    expect(html).toContain('title="Open the records behind Receivables by age"');
     expect(html).toContain("$460.00");
   });
 

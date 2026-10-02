@@ -87,12 +87,16 @@ export function DashboardTile({ tile, back }: {
   );
 }
 
-/** A link when there is somewhere to go, and the plain content when there is not. */
+/**
+ * A link when there is somewhere to go, and the plain content when there is
+ * not. Named by what it shows and described by what it opens, the same as a
+ * number on a report.
+ */
 function Open({ href, label, className, children }: {
   href: string | null; label: string; className?: string; children: React.ReactNode;
 }) {
   if (!href) return <>{children}</>;
-  return <a href={href} aria-label={label} className={className ?? "hover:underline"}>{children}</a>;
+  return <a href={href} title={label} className={className ?? "hover:underline"}>{children}</a>;
 }
 
 function Body({ tile, drill }: { tile: TileResult; drill: Drill }) {

@@ -84,7 +84,7 @@ export default async function StatementPage({ params, searchParams }: {
             action={emailStatement} submit="Email statement" className="mt-3 flex flex-wrap items-end gap-3"
             hidden={{ id, from: statement.from, to: statement.to }}
           >
-            <TextField label="To" name="email" type="email" className="block w-72"
+            <TextField label="Email address" name="email" type="email" className="block w-72"
                        placeholder={onFile ?? "The address on file"} />
           </ActionForm>
           {sent.length > 0 && (
