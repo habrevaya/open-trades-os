@@ -104,6 +104,25 @@ walkthrough consume capacity and earn no customer revenue, and in a
 revenue-per-day denominator that is exactly the thing that has to be
 distinguishable rather than absent.
 
+### The screen
+
+`Reports > Trade scorecard`. Under Reports rather than beside it, because a top
+level item for one screen is how a rail becomes a list of every screen, and it
+is a child rather than one of the eight built-in reports because it is not a
+report: a report shows rows grouped a way you chose.
+
+The window defaults to the month so far in the COMPANY's timezone. Dated by the
+server's clock it would roll over at seven in the evening in Austin and show an
+owner an empty month.
+
+The number is large and its two halves are under it, always. A null value reads
+"Not this window" rather than 0%, which is the service's decision carried
+through to the last step: a screen that rendered the null as a zero would undo
+it. The unavailable list is below, each row naming its one missing datum, and the
+four the fleet report already answers are named with the endpoint rather than
+computed again, because two screens computing one number from two queries is how
+they come to disagree.
+
 ### The guard
 
 `kpis.integration.test.ts` fails if a pack declares a KPI the catalogue does not

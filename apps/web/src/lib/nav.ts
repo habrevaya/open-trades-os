@@ -132,6 +132,15 @@ export const NAV: NavGroup[] = [
         href: "/reports", label: "Reports", permission: "report:read", icon: "reports",
         children: [
           { href: "/reports", label: "All reports" },
+          /**
+           * Under Reports rather than beside it, because it is a reading
+           * somebody does from the same place, and a top level item for one
+           * screen is how a rail becomes a list of every screen. It is not a
+           * report, though, which is why it is its own child and not one of
+           * the eight: a report shows rows grouped a way you chose, and this
+           * shows the numbers your trade already said it runs on.
+           */
+          { href: "/reports/scorecard", label: "Trade scorecard" },
           { href: "/reports/new", label: "Build one" },
         ],
       },
@@ -151,6 +160,23 @@ export const NAV: NavGroup[] = [
         children: [
           { href: "/settings", label: "Company" },
           { href: "/settings/integrations", label: "Integrations" },
+          /**
+           * The group this company is in, and what it has agreed to let the
+           * group's operator see. Under Settings because it is a standing
+           * decision rather than something anybody opens weekly, and it is the
+           * member's own screen: the operator's roster is the other half of it.
+           */
+          { href: "/settings/network", label: "Group" },
+          /**
+           * Taking a copy. A child of Settings rather than a top level item,
+           * and it inherits `settings:read` to be SHOWN while the page itself
+           * needs `data:export` to be read, which is the one place in this rail
+           * where a door is narrower than the corridor. The alternative was a
+           * top level item most roles cannot open, which is worse: a rail that
+           * lists what you may not have is how a product feels like it is
+           * withholding.
+           */
+          { href: "/settings/export", label: "Take a copy" },
         ],
       },
     ],

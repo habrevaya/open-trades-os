@@ -246,3 +246,82 @@ test("Settings, Integrations: Stripe is connected by secret names, a pasted key 
   await connected.getByRole("button", { name: "Disconnect" }).click();
   await expect(connected.getByRole("button", { name: "Connect Stripe" })).toBeVisible();
 });
+
+test("Trade scorecard: the pack's own numbers come back with both halves, and the gaps are named", async ({ owner }) => {
+  /**
+   * The screen that reads what the trade packs have declared since they shipped
+   * and nothing read. A render test proves the card draws; this proves the SQL
+   * behind it runs against a real company and answers.
+   */
+  await owner.goto(`/reports/scorecard?from=${inDays(-400)}&to=${inDays(30)}`);
+  await expect(owner.getByRole("heading", { level: 1, name: "Trade scorecard" })).toBeVisible();
+  await expect(owner.getByText("HVAC,", { exact: false })).toBeVisible();
+
+  // The seeded company invoiced real money against completed jobs.
+  const ticket = owner.getByRole("listitem").filter({ hasText: "Average ticket" });
+  await expect(ticket).toBeVisible();
+  await expect(ticket).toContainText("$");
+  /** Both halves, which is the whole argument of the screen. */
+  await expect(ticket).toContainText("completed jobs");
+  await expect(ticket).toContainText("over");
+
+  /**
+   * And the other half of the answer: the ones it cannot compute, each naming
+   * the datum it needs rather than saying "not built".
+   */
+  await expect(owner.getByText("Not computed, and what each one needs")).toBeVisible();
+  await expect(owner.getByText(/Needs:/).first()).toBeVisible();
+
+  // A backwards window is refused in a sentence rather than a stack trace.
+  await owner.goto(`/reports/scorecard?from=${inDays(30)}&to=${inDays(-30)}`);
+  await expect(owner.getByText("The end of the window is before its start")).toBeVisible();
+});
+
+test("Take a copy: the manifest counts the rows and the download ends with its terminator", async ({ owner }) => {
+  await owner.goto("/settings/export");
+  await expect(owner.getByRole("heading", { level: 1, name: "Take a copy" })).toBeVisible();
+
+  // A row count per table is what makes an export checkable.
+  const customers = owner.getByRole("row").filter({ hasText: "customer" }).first();
+  await expect(customers).toBeVisible();
+
+  // Credentials are held back by name, with a reason, rather than dropped quietly.
+  await expect(owner.getByText("integration_connection").first()).toBeVisible();
+
+  /**
+   * The download itself, read through the signed in context so the cookie goes
+   * with it. The last line of a finished file is the terminator and nothing
+   * else is: a file without it stopped part way.
+   */
+  const response = await owner.request.get("/settings/export/download");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/x-ndjson");
+  expect(response.headers()["content-disposition"]).toContain(".ndjson");
+
+  const lines = (await response.text()).split("\n").filter((line) => line !== "");
+  const first = JSON.parse(lines[0]!) as { manifest?: { tables?: unknown[] } };
+  expect(first.manifest?.tables?.length).toBeGreaterThan(50);
+
+  const last = JSON.parse(lines.at(-1)!) as { complete?: boolean; rows?: number };
+  expect(last.complete).toBe(true);
+  expect(last.rows).toBeGreaterThan(0);
+
+  // Every line between the two is a row tagged with the table it came from.
+  const middle = JSON.parse(lines[1]!) as { table?: string; row?: unknown };
+  expect(typeof middle.table).toBe("string");
+  expect(middle.row).toBeTruthy();
+
+  /** And no credential left in the file, which is the claim the screen makes. */
+  expect(await response.text()).not.toContain("webhook_secret\":\"whsec");
+});
+
+test("Group: a company in no network is told so rather than shown an error", async ({ owner }) => {
+  /**
+   * Most companies running this are one company. A screen that treated that as
+   * a misconfiguration would be wrong about the common case, and this is the
+   * assertion that it is not.
+   */
+  await owner.goto("/settings/network");
+  await expect(owner.getByText("This company is not in a group")).toBeVisible();
+  await expect(owner.getByText("Joining is done from the operator API")).toBeVisible();
+});

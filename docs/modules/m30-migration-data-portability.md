@@ -233,6 +233,38 @@ from here, which is why no part of this export has to be trusted not to include
 them. The people who work here are exported through `membership`, with their
 name and address.
 
+### One file, from the screen
+
+`Settings > Take a copy` shows the manifest first and then downloads the whole
+thing as one newline delimited JSON file. The first line is the manifest and
+every line after it is `{"table": ..., "row": {...}}`.
+
+**Not CSV, and not a zip of one file per table.** A CSV per table loses the type
+of every column and cannot represent a `jsonb` field at all, which is where the
+custom fields live. A zip has to be finished before its first byte can be sent,
+so a company with real history gets a request that times out rather than a file
+that starts arriving. NDJSON streams, and `grep` pulls one table out of it with
+nothing installed.
+
+**A finished file ends with `{"complete": true, "rows": n, "expected": m}` and
+nothing else does.** That terminator is how a truncated download is detectable
+from the file alone, and `rows` is a count of what the writer actually emitted
+rather than the manifest's total restated, so the two differing tells you
+somebody was working while it ran.
+
+There is no line saying WHY a failed export stopped, and the first version had
+one. A test showed it never arrives: enqueueing a chunk and then erroring a
+`ReadableStream` discards the queued chunk, by specification. So the broken
+transfer and the missing terminator are the signal, and the reason goes to the
+server log. Closing the stream cleanly instead would have delivered the reason
+and handed back a 200 with a successful-looking download, which is the one
+outcome worth avoiding.
+
+The screen is `data:export`, like the API. It is shown in the rail under
+Settings, which only needs `settings:read`, and that is the single place in this
+product where a navigation item is visible to somebody the page itself will
+refuse. The alternative was a top level item most roles cannot open.
+
 ### The audit trail
 
 Every page writes an audit line with the table, the row count and whether it

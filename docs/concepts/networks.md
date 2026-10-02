@@ -153,10 +153,38 @@ which is a row read wearing an aggregate's clothes. The five classes are
 revenue, expense, asset, liability and equity, signed to each account's normal
 balance, which is the same rule `core/ledger` holds.
 
+## The screen
+
+`Settings > Group`, and it is one screen with two halves because a company can
+be on either side of the relationship. A franchisee sees the top half: four
+measures, each with the service's own description of what it gives away, and a
+switch on each. A franchisor sees both, because it is a company in its own right
+and its own numbers are in its own roll up.
+
+**The member's half is the important one.** A consent nobody can see the state of
+is not a consent. Until this screen existed the grants were rows an owner could
+only read through the API, and somebody who cannot tell what their franchisor
+can see will assume the worst and be right to.
+
+Two details that are the screen rather than decoration:
+
+- **Shared and not shared are one list.** A list of only what is on is a list of
+  facts; this has to be a list of choices, so the measures a member has not
+  granted are on it, marked as not shared.
+- **The labels are words.** `gl_summary` reads "Ledger totals by class". On a
+  screen whose whole job is informed consent, a label that looks like a variable
+  name is what makes somebody click away without deciding.
+
+A company in no network is told so in a sentence. Most companies running this
+are one company, and a screen that treated that as a misconfiguration would be
+wrong about the common case.
+
+Changing what is shared needs `settings:write`; reading the screen needs
+`settings:read`, and a reader who holds only the second is told which permission
+is missing rather than shown switches that refuse.
+
 ## What is not built
 
-- **No screens.** The member's sharing switches and the operator's roll up are
-  both API only.
 - **No network level user.** A franchisor's analyst signs in to the operator
   organization. There is no account that spans members, and adding one would
   need a second answer to "what can this person see" alongside the grant.
