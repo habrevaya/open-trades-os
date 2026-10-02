@@ -79,7 +79,13 @@ export type ConnectorCapability =
    */
   | "calendar"
   /** A language model, running on the company's own key and the company's own bill. */
-  | "ai_model";
+  | "ai_model"
+  /**
+   * Where an address is. In the database's capability enum since the first
+   * migration with nothing behind it, exactly as `calendar` was, and the
+   * reason `property.latitude` was a column nothing filled.
+   */
+  | "maps";
 
 /**
  * How the operator proves who they are.
@@ -164,7 +170,13 @@ export type ConnectorFlow =
    * first thing in this catalogue that puts customer addresses somewhere
    * this company does not control.
    */
-  | "calendar_out";
+  | "calendar_out"
+  /**
+   * Addresses out, and where they are back. A customer's address leaves this
+   * product for the geocoder, which is worth an owner knowing before they
+   * connect one, and a coordinate with its precision comes back to be kept.
+   */
+  | "locations_in";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -520,6 +532,36 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "Mint a feed on the calendar settings screen and copy the URL it shows you once. Paste it into the calendar app as a subscription, not an import: an import is a one-off copy that never changes again. There is no account to open and nothing to approve, because there is no vendor involved at all.",
     limitation:
       "The URL is the whole credential: anybody who gets it sees those visits until it is revoked, so it is handed over once and cannot be read back, and rotating is one call. It is also read only in both directions. Nothing a technician changes in their own calendar comes back here, and how often a client collects it is the client's decision rather than ours: Google in particular can take hours to notice a change, so a visit moved this morning is not a reliable way to tell somebody. The customer's phone number is deliberately not in it, because a calendar syncs to accounts and devices this company does not control.",
+  },
+
+  /* ----------------------------------------------------------------- maps */
+  {
+    key: "nominatim",
+    label: "OpenStreetMap (Nominatim)",
+    capability: "maps",
+    auth: "none",
+    flows: ["locations_in"],
+    state: "built",
+    purpose:
+      "Put every customer's address on the dispatch map, and give the route optimiser something to measure, with no account and no key. Addresses are looked up by the background worker, never while somebody is saving a customer.",
+    setup:
+      "Nothing to sign up for. Give a contact email so the OpenStreetMap volunteers who run the public server can reach you, as their usage policy asks. With more than a few thousand addresses, run your own Nominatim server and enter its address instead: the public one asks not to be used for bulk work, and this product will only ask it one address a second.",
+    limitation:
+      "The public server answers one request a second at most, so a backfill of a large customer list takes hours, and its coverage of house numbers is patchy outside cities: many answers land on the street rather than the house, and the map says so. Your customers' addresses are sent to whichever server you point it at. A pin placed by hand on the property page always wins over it.",
+  },
+  {
+    key: "mapbox",
+    label: "Mapbox",
+    capability: "maps",
+    auth: "api_key",
+    flows: ["locations_in"],
+    state: "built",
+    purpose:
+      "The same job as OpenStreetMap with a commercial geocoder behind it, for a company with a large customer list or addresses where house level answers matter.",
+    setup:
+      "A Mapbox account with permanent geocoding enabled, which is a paid tier, and an access token scoped to geocoding only. Put the token in your secret store and enter its name here; this product holds the name and never the value.",
+    limitation:
+      "Only the permanent tier may be stored, and this product stores every answer, so it always asks for that tier and a token without it is refused. The token travels in the request's URL because that is the only place Mapbox accepts it, which is why it should be scoped to geocoding and nothing else. Google is deliberately not offered: its terms cap keeping coordinates at thirty days and bar drawing them on a map that is not Google's.",
   },
 
   /* -------------------------------------------------------- call tracking */

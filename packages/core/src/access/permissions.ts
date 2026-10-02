@@ -55,6 +55,16 @@ export const PERMISSIONS = {
   "visit:write": "Create and edit visits",
   "visit:dispatch": "Assign and dispatch visits",
   "visit:reschedule": "Move a visit on the board",
+  /**
+   * Sending somebody to work they are not recorded as qualified for.
+   *
+   * A separate grant because it is a separate decision: the dispatcher who
+   * puts people on the board is not automatically the person who may send an
+   * apprentice to a gas job because nobody else is free. It never skips the
+   * check; it lets a refusal be overridden with a reason, and the audit log
+   * keeps the reason beside what was refused.
+   */
+  "visit:assign_unqualified": "Send somebody to work they are not recorded as qualified for, with a reason",
   "servicereport:read": "View service reports",
   "servicereport:write": "Record service reports and readings",
   "servicereport:publish": "Publish a service report to the customer portal",

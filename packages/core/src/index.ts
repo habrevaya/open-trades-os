@@ -30,3 +30,6 @@ export * as files from "./files/index.js";
 export * as connectors from "./connectors/index.js";
 export * as modules from "./modules/index.js";
 export * as events from "./events/index.js";
+export * as geo from "./geo/index.js";
+export * as routing from "./routing/index.js";
+export * as qualification from "./qualification/index.js";

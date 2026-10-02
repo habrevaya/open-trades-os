@@ -115,6 +115,20 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     rates: { kind: "record" }, baseUrl: BASE_URL,
   },
   google: { defaultModel: { kind: "text" }, rates: { kind: "record" }, baseUrl: BASE_URL },
+  nominatim: {
+    /** A self hosted server, or the public one when absent. */
+    endpoint: { kind: "text" },
+    /** Who the public server's operators can write to, as their usage policy asks. */
+    contactEmail: { kind: "text" },
+    /** Slower than the floor is allowed; faster than one a second against the public server is not. */
+    minIntervalMs: { kind: "number" },
+    countryCodes: { kind: "list" },
+  },
+  mapbox: {
+    countryCodes: { kind: "list" },
+    minIntervalMs: { kind: "number" },
+    baseUrl: BASE_URL,
+  },
   callrail: {
     accountId: { kind: "text" },
     companyId: { kind: "text" },
