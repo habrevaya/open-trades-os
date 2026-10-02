@@ -51,6 +51,7 @@ export function refusalOf(error: unknown): string | null {
     case "NotFoundError":
     case "PermissionError":
     case "PeriodClosedError":
+    case "DemoReadOnlyError": // the public demo, refusing anything that would be kept
       return error.message;
     case "UnprocessableError": {
       const issues = (error as Error & { issues?: { path: string; message: string }[] }).issues ?? [];

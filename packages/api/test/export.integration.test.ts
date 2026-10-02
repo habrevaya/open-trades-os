@@ -183,7 +183,7 @@ run("the manifest", () => {
     const manifest = await dataExport.manifest(owner());
     const named = new Map(manifest.outsideTheTenant.map((row) => [row.table, row.reason]));
     expect([...named.keys()].sort())
-      .toEqual(["credential", "network", "organization", "session", "setup_token", "user"]);
+      .toEqual(["credential", "demo_visit", "network", "organization", "session", "setup_token", "user"]);
     expect(named.get("credential")).toMatch(/Password hashes/);
     expect(named.get("user")).toMatch(/membership/);
   });

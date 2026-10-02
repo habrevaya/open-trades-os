@@ -108,6 +108,24 @@ export class OrganizationSuspendedError extends Error {
   }
 }
 
+/**
+ * Something the public demo cannot do, said plainly.
+ *
+ * The demo is one company every visitor shares (docs/self-hosting/demo.md),
+ * so nothing anybody does there may be kept: no write from its read only
+ * session, no approval or payment through its portal links, no booking or
+ * form on its public pages. A 403 with a code a client can branch on, and a
+ * sentence a person reads, rather than "Missing permission: job:write" for
+ * a button that is already hidden.
+ */
+export class DemoReadOnlyError extends Error {
+  readonly code = "demo_read_only";
+  constructor() {
+    super("This is a demo company. Nothing here can be changed, sent, approved or paid.");
+    this.name = "DemoReadOnlyError";
+  }
+}
+
 export class NotFoundError extends Error {
   constructor(resource: string) {
     super(`${resource} not found`);
@@ -178,12 +196,37 @@ const APP_ROLE = process.env.DATABASE_APP_ROLE ?? "authenticated";
  * connection, which is a cross tenant read and a silent one.
  */
 export async function inTenant<T>(ctx: ServiceContext, fn: (tx: Database) => Promise<T>): Promise<T> {
-  return ctx.db.transaction(async (tx) => {
-    await tx.execute(sql.raw(`set local role ${quoteIdent(APP_ROLE)}`));
-    await tx.execute(sql`select set_config('app.organization_id', ${ctx.actor.organizationId}, true)`);
-    await tx.execute(sql`select set_config('app.user_id', ${ctx.actor.userId}, true)`);
-    return fn(tx as unknown as Database);
-  });
+  try {
+    return await ctx.db.transaction(async (tx) => {
+      /**
+       * A read only actor (the public demo) gets a READ ONLY transaction, and
+       * this has to be the first statement in it: Postgres refuses the mode
+       * once a query has run. It is the layer under the permission check.
+       * The demo's role holds no write permission, so every guarded write is
+       * refused before it gets here, and anything that writes without asking
+       * for a permission (a preference, a saved view, a write somebody adds
+       * next year and forgets to guard) is refused by the database instead.
+       */
+      if (ctx.actor.readOnly) await tx.execute(sql`set transaction read only`);
+      await tx.execute(sql.raw(`set local role ${quoteIdent(APP_ROLE)}`));
+      await tx.execute(sql`select set_config('app.organization_id', ${ctx.actor.organizationId}, true)`);
+      await tx.execute(sql`select set_config('app.user_id', ${ctx.actor.userId}, true)`);
+      return fn(tx as unknown as Database);
+    });
+  } catch (error) {
+    // 25006, read_only_sql_transaction: the refusal above, in words.
+    if (ctx.actor.readOnly && pgCode(error) === "25006") throw new DemoReadOnlyError();
+    throw error;
+  }
+}
+
+function pgCode(error: unknown): string | undefined {
+  for (let e: unknown = error, depth = 0; e && depth < 3; depth += 1) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 /** The role name is configuration rather than user input, but it is

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Database } from "@opentradesos/db";
 import { handlers, type RequestMeta } from "../routes/index";
-import type { ServiceContext } from "../services/context";
+import { DemoReadOnlyError, type ServiceContext } from "../services/context";
 import { problem, json, errorResponse } from "./problem";
 import { handleOperator, isOperatorPath, type OperatorConfig } from "./operator";
 import { matchRoute, queryToInput } from "./match";
@@ -133,6 +133,32 @@ export async function dispatch(request: Request, deps: DispatchDeps): Promise<Re
   const route = match.route as RouteDefinition;
 
   /**
+   * WHO, BEFORE WHAT.
+   *
+   * A session route resolves its caller before the body is read or the
+   * schema is checked, so a caller who may not use the route learns nothing
+   * about its shape: no 422 naming the fields to a stranger, and no 422 to a
+   * read only session either.
+   *
+   * A read only session (the public demo) is refused every route that is not
+   * a GET, here, whatever the route declares. The permission check and the
+   * read only transaction underneath would refuse each of them anyway; this
+   * is the one place that does not depend on every handler having been
+   * written correctly, and the test that walks the route table asserts it
+   * for every one of them.
+   */
+  let session: ServiceContext | null = null;
+  if ((route.authorization ?? "session") === "session") {
+    try {
+      session = await deps.resolveSession(request);
+    } catch (error) {
+      return errorResponse(error);
+    }
+    if (!session) return problem(401, "Not signed in");
+    if (session.actor.readOnly && route.method !== "get") return errorResponse(new DemoReadOnlyError());
+  }
+
+  /**
    * Input comes from three places and they are merged in one order: query
    * string, then body, then path parameters LAST.
    *
@@ -217,8 +243,7 @@ export async function dispatch(request: Request, deps: DispatchDeps): Promise<Re
     const authorization = route.authorization ?? "session";
 
     if (authorization === "session") {
-      const ctx = await deps.resolveSession(request);
-      if (!ctx) return problem(401, "Not signed in");
+      const ctx = session!;
 
       /**
        * The idempotency key is taken from the header and never from the body.

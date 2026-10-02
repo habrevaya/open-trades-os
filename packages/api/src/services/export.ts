@@ -36,7 +36,7 @@ import { audit, guardedRead, ConflictError, NotFoundError, type ServiceContext }
  *
  * WHAT IS OUTSIDE THE TENANT ALTOGETHER, and therefore cannot appear here at
  * all: `credential` (password hashes), `session`, `setup_token`, `user`,
- * `organization` and `network`. None carries `organization_id`, so row level
+ * `organization`, `network` and the demo's rate limit, `demo_visit`. None carries `organization_id`, so row level
  * security does not scope them and this export cannot reach them. A company's
  * people are in `membership`, which is a tenant table, and the person's email
  * and name come back through it. The password hash does not exist in any shape
@@ -209,6 +209,11 @@ const OUTSIDE: { table: string; reason: string }[] = [
   {
     table: "setup_token",
     reason: "First-password links, which expire.",
+  },
+  {
+    table: "demo_visit",
+    reason: "The public demo's rate limit: a hash of each visitor's address, for an hour. "
+      + "It belongs to the deployment and names no company.",
   },
   {
     table: "organization",

@@ -155,6 +155,16 @@ create policy setup_token_no_direct_access on public.setup_token
   using (false)
   with check (false);
 
+-- The demo's rate limit, closed the same way: `app.create_demo_session` is
+-- the only thing that reads or writes it.
+alter table public.demo_visit enable row level security;
+alter table public.demo_visit force row level security;
+drop policy if exists demo_visit_no_direct_access on public.demo_visit;
+create policy demo_visit_no_direct_access on public.demo_visit
+  to authenticated
+  using (false)
+  with check (false);
+
 -- ---- Ledger is append only ---------------------------------------------
 -- No UPDATE. No DELETE. Ever. A correction is a new reversing entry.
 -- Enforced in the database rather than in application code, because
@@ -374,7 +384,17 @@ create function app.resolve_session(p_token_hash text)
      * is the whole reason this function exists.
      */
     custom_role_permissions jsonb,
-    custom_role_scopes jsonb
+    custom_role_scopes jsonb,
+    /**
+     * True for every session of a user that some company names as its demo
+     * user (`organization.demo_user_id`), whichever company the session is
+     * in. Derived rather than stored on the session, so there is no way to
+     * hold a writable session as the demo user: not by signing in with a
+     * password somebody set for it, not by a membership somebody added.
+     * The application resolves such a session as read only whatever the
+     * membership says. docs/self-hosting/demo.md.
+     */
+    demo boolean
   )
   language sql
   stable
@@ -391,7 +411,8 @@ create function app.resolve_session(p_token_hash text)
         (select array_agg(cm.crew_id) from public.crew_member cm where cm.technician_id = t.id),
         '{}'::uuid[]
       ),
-      r.permissions, r.scopes
+      r.permissions, r.scopes,
+      exists (select 1 from public.organization d where d.demo_user_id = s.user_id)
     from public.session s
     join public."user" u on u.id = s.user_id
     join public.organization o on o.id = s.active_organization_id
@@ -438,6 +459,66 @@ create or replace function app.revoke_session(p_token_hash text)
     where token_hash = p_token_hash and revoked_at is null
   $$;
 
+-- ---- The demo's sessions ------------------------------------------------
+-- `GET /demo` signs a stranger in as the demo company's read only user, so
+-- everything that decides whether it may is here, in one statement's worth
+-- of SQL rather than in a route a later change can reorder:
+--
+--   * the company must name a demo user, and that user must hold an active
+--     `readonly` membership in it. A deployment that points
+--     DEMO_ORGANIZATION_ID at a real company by mistake gets a 404, not a
+--     public window into that company;
+--   * at most p_limit sessions per address hash in p_window. The count is in
+--     the database because a serverless host runs many instances, and a
+--     counter in memory is one per instance;
+--   * the rows that keep the count, and the demo user's sessions that have
+--     been expired a day, are deleted on the way, so neither table grows
+--     with the demo's traffic.
+--
+-- Answers 'not_demo', 'limited' or 'created'.
+create or replace function app.create_demo_session(
+  p_organization_id uuid, p_token_hash text, p_ip_hash text,
+  p_expires_at timestamptz, p_limit integer, p_window interval
+) returns text
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_user uuid;
+    v_recent integer;
+  begin
+    select o.demo_user_id into v_user
+      from public.organization o
+      join public.membership m
+        on m.organization_id = o.id and m.user_id = o.demo_user_id
+     where o.id = p_organization_id
+       and o.suspended_at is null
+       and m.active
+       and m.role = 'readonly'
+       and m.role_id is null;
+    if v_user is null then
+      return 'not_demo';
+    end if;
+
+    delete from public.demo_visit where created_at < now() - p_window;
+    select count(*) into v_recent
+      from public.demo_visit
+     where ip_hash = p_ip_hash and created_at >= now() - p_window;
+    if v_recent >= p_limit then
+      return 'limited';
+    end if;
+
+    insert into public.demo_visit (ip_hash) values (p_ip_hash);
+    delete from public.session
+     where user_id = v_user and expires_at < now() - interval '1 day';
+    insert into public.session (user_id, token_hash, active_organization_id, expires_at)
+    values (v_user, p_token_hash, p_organization_id, p_expires_at);
+    return 'created';
+  end
+  $$;
+
+revoke all on function app.create_demo_session(uuid, text, text, timestamptz, integer, interval) from public;
+grant execute on function app.create_demo_session(uuid, text, text, timestamptz, integer, interval) to authenticated;
+
 revoke all on function app.create_session(uuid, text, uuid, timestamptz) from public;
 revoke all on function app.revoke_session(text) from public;
 
@@ -479,9 +560,13 @@ create or replace function app.consume_portal_grant(
        and g.revoked_at is null
        and (g.max_uses is null or g.use_count < g.max_uses)
        -- A suspended company's links open nothing, and spend no use trying.
+       -- The demo company's links open (`peek` below) and act on nothing:
+       -- every approval, decline and payment starts here, and none of them
+       -- may happen to a company every visitor shares.
        and not exists (
          select 1 from public.organization o
-          where o.id = g.organization_id and o.suspended_at is not null
+          where o.id = g.organization_id
+            and (o.suspended_at is not null or o.demo_user_id is not null)
        )
     returning
       g.id, g.organization_id, g.customer_id, g.scope::text, g.subject_id,
@@ -519,6 +604,23 @@ create or replace function app.peek_portal_grant(p_token_hash text)
       )
     limit 1
   $$;
+
+-- Why `consume_portal_grant` returned nothing, when the answer is "this is
+-- the demo". Asked only after it did, so a real customer's link pays nothing
+-- for it, and returns a boolean about a token the caller already holds.
+create or replace function app.portal_grant_is_demo(p_token_hash text)
+  returns boolean
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select exists (
+      select 1 from public.portal_grant g
+      join public.organization o on o.id = g.organization_id
+      where g.token_hash = p_token_hash and o.demo_user_id is not null
+    )
+  $$;
+
+revoke all on function app.portal_grant_is_demo(text) from public;
+grant execute on function app.portal_grant_is_demo(text) to authenticated;
 
 create or replace function app.revoke_portal_grant(p_token_hash text)
   returns void
@@ -733,6 +835,10 @@ create or replace function app.resolve_app_token(p_token_hash text)
       and a.revoked_at is null
       -- Suspension is a revocation path like the others, and lives with them.
       and o.suspended_at is null
+      -- Nobody can connect an application to the demo company from inside
+      -- it, and one connected any other way would act with the app's
+      -- permissions rather than as the read only demo.
+      and o.demo_user_id is null
     limit 1
   $$;
 
@@ -813,10 +919,13 @@ create or replace function app.pending_event_organizations(
       and (p_only is null or e.organization_id = any(p_only))
       -- A suspended company's events wait, unread, rather than being skipped
       -- past. See docs/self-hosting/operator-api.md for what that means when
-      -- it is resumed.
+      -- it is resumed. The demo company's wait forever: nothing a workflow
+      -- does (a text, an email, a webhook, an accounting push) may leave a
+      -- company every visitor shares.
       and not exists (
         select 1 from public.organization o
-         where o.id = e.organization_id and o.suspended_at is not null
+         where o.id = e.organization_id
+           and (o.suspended_at is not null or o.demo_user_id is not null)
       )
     group by e.organization_id
     -- Most behind first. A tenant that has been waiting longest should not be
@@ -886,6 +995,8 @@ returns table (
       and w.schedule is not null
       and w.active_version_id is not null
       and o.suspended_at is null
+      -- Nor the demo's: see `pending_event_organizations`.
+      and o.demo_user_id is null
     -- A workflow with no row yet sorts first, so a new schedule is planned
     -- on the next tick rather than whenever the list happens to reach it.
     order by coalesce(s.next_run_at, '-infinity'::timestamptz)
@@ -915,7 +1026,8 @@ returns table (organization_id uuid, run_id uuid, resume_at timestamptz)
       and r.resume_at <= now()
       and not exists (
         select 1 from public.organization o
-         where o.id = r.organization_id and o.suspended_at is not null
+         where o.id = r.organization_id
+           and (o.suspended_at is not null or o.demo_user_id is not null)
       )
     -- Longest overdue first, so a backlog drains in the order it built up.
     order by r.resume_at
@@ -945,7 +1057,8 @@ returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
       and w.active_version_id is not null
       and not exists (
         select 1 from public.organization o
-         where o.id = w.organization_id and o.suspended_at is not null
+         where o.id = w.organization_id
+           and (o.suspended_at is not null or o.demo_user_id is not null)
       )
     order by w.created_at
     limit p_limit
@@ -1083,17 +1196,19 @@ $$;
 -- `organization_member_access` lets a member's own requests update their own
 -- organization row, which the settings screens need. It would also let them
 -- clear their own suspension, or take another customer's external reference
--- and be handed that customer's ids on the operator's next retry. So these
--- three columns are refused to any role that is not the operator, by a
--- trigger, because a policy cannot see which columns an update touches.
+-- and be handed that customer's ids on the operator's next retry, or mark
+-- itself the demo (or unmark the demo). So these columns are refused to any
+-- role that is not the operator, by a trigger, because a policy cannot see
+-- which columns an update touches.
 create or replace function app.guard_operator_columns() returns trigger
   language plpgsql as $$
 begin
   if (new.suspended_at is distinct from old.suspended_at
       or new.suspended_reason is distinct from old.suspended_reason
-      or new.external_ref is distinct from old.external_ref)
+      or new.external_ref is distinct from old.external_ref
+      or new.demo_user_id is distinct from old.demo_user_id)
      and not pg_has_role(current_user, 'platform_operator', 'MEMBER') then
-    raise exception 'suspended_at, suspended_reason and external_ref are written by the operator only'
+    raise exception 'suspended_at, suspended_reason, external_ref and demo_user_id are written by the operator only'
       using errcode = '42501';
   end if;
   return new;
@@ -1163,6 +1278,11 @@ create or replace function app.operator_active_users(
     where s.active_organization_id = p_organization_id
       and s.expires_at >= p_since
       and (s.revoked_at is null or s.revoked_at >= p_since)
+      -- The demo's visitors are one shared user and nobody's seat. Counting
+      -- them would bill a deployment for its own marketing.
+      and not exists (
+        select 1 from public.organization d where d.demo_user_id = s.user_id
+      )
   $$;
 
 revoke all on function app.operator_active_users(uuid, timestamptz) from public;

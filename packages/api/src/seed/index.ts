@@ -5,6 +5,7 @@ import { createClient, type Database } from "@opentradesos/db";
 import { createInvoice, recordPayment } from "../contracts/billing";
 import * as billing from "../services/billing";
 import type { ServiceContext } from "../services/context";
+import { setupDemo } from "../services/demo";
 
 /**
  * THE DEMO COMPANY
@@ -70,9 +71,40 @@ const PACK = (() => {
 })();
 const CATALOGUE_ONLY = PACK !== "hvac";
 
+/**
+ * THE SAME COMPANY, AS A DEPLOYMENT'S PUBLIC DEMO
+ *
+ * `pnpm --filter @opentradesos/api demo:seed` (this file with `--demo`)
+ * writes the same day into a deployment that has real companies in it, as a
+ * separate company, and makes it the read only demo
+ * (docs/self-hosting/demo.md). What changes is everything that could touch
+ * anybody else:
+ *
+ *   * Every id comes from a different namespace, the slug is
+ *     `ridgeline-demo` and the people are `@demo.ridgeline.example`, so it
+ *     shares nothing with a development seed in the same database.
+ *   * Nothing is deleted. The development seed replaces its company by
+ *     wiping it first; this one, finding the demo company already there,
+ *     makes sure it is set up as the demo and stops. `--refresh` replaces
+ *     it (to move its day to today), and deletes only rows carrying its own
+ *     id and only its own people, never another company's.
+ *   * No session is created for anybody in it and no sign in is printed.
+ *     Visitors get their own short, read only session from `/demo`.
+ *
+ * The invoices and payments are raised through the billing service either
+ * way, so the ledger has the postings a real company's would.
+ */
+const DEMO = process.argv.includes("--demo");
+const REFRESH = process.argv.includes("--refresh");
+if (DEMO && CATALOGUE_ONLY) {
+  throw new Error("The demo is the HVAC company. --pack and --demo do not go together.");
+}
+const SLUG = DEMO ? "ridgeline-demo" : "ridgeline";
+const DOMAIN = DEMO ? "demo.ridgeline.example" : "ridgeline.example";
+
 /** Stable ids from names. Re-running the seed must not duplicate anything. */
 function id(name: string): string {
-  const h = createHash("sha256").update(`opentradesos:seed:${name}`).digest("hex");
+  const h = createHash("sha256").update(`opentradesos:${DEMO ? "demo" : "seed"}:${name}`).digest("hex");
   return [
     h.slice(0, 8), h.slice(8, 12), `4${h.slice(13, 16)}`,
     ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
@@ -150,9 +182,9 @@ function at(hoursFromAnchor: number, dayOffset = 0): Date {
 }
 
 const TECHNICIANS = [
-  { key: "ray", name: "Ray Ortiz", email: "ray@ridgeline.example", color: "#1D4ED8", skills: ["hvac", "refrigerant"], classification: "Journeyman" },
-  { key: "nia", name: "Nia Osei", email: "nia@ridgeline.example", color: "#047857", skills: ["hvac", "electrical"], classification: "Journeyman" },
-  { key: "sam", name: "Sam Reyes", email: "sam@ridgeline.example", color: "#B45309", skills: ["hvac"], classification: "Apprentice" },
+  { key: "ray", name: "Ray Ortiz", email: `ray@${DOMAIN}`, color: "#1D4ED8", skills: ["hvac", "refrigerant"], classification: "Journeyman" },
+  { key: "nia", name: "Nia Osei", email: `nia@${DOMAIN}`, color: "#047857", skills: ["hvac", "electrical"], classification: "Journeyman" },
+  { key: "sam", name: "Sam Reyes", email: `sam@${DOMAIN}`, color: "#B45309", skills: ["hvac"], classification: "Apprentice" },
 ];
 
 const CUSTOMERS = [
@@ -251,6 +283,13 @@ async function main(): Promise<void> {
   const sql = postgres(URL, { max: 4, prepare: false });
   const db = createClient(URL);
   try {
+    if (DEMO && !REFRESH) {
+      const [existing] = await sql<{ id: string }[]>`select id from public.organization where id = ${ORG}`;
+      if (existing) {
+        await demoReport(db, false);
+        return;
+      }
+    }
     await wipe(sql);
     await organization(sql);
     const technicians = await people(sql);
@@ -280,6 +319,10 @@ async function main(): Promise<void> {
     await bookingPage(sql, jobTypes);
     await purchasing(sql, "CONT-2P");
     const links = await portalLinks(sql, customers);
+    if (DEMO) {
+      await demoReport(db, true, links);
+      return;
+    }
     const owner = await session(sql, "owner");
     const tech = await session(sql, "ray");
     report({ owner, tech }, links);
@@ -312,9 +355,9 @@ async function wipe(sql: postgres.Sql): Promise<void> {
       await sql.unsafe(`delete from public.${table_name} where organization_id = $1`, [ORG]);
     }
     await sql.unsafe(`delete from public.session where user_id in (
-      select id from public."user" where email like '%@ridgeline.example')`);
-    await sql.unsafe(`delete from public."user" where email like '%@ridgeline.example'`);
-    await sql.unsafe(`delete from public.organization where id = $1 or slug = 'ridgeline'`, [ORG]);
+      select id from public."user" where email like $1)`, [`%@${DOMAIN}`]);
+    await sql.unsafe(`delete from public."user" where email like $1`, [`%@${DOMAIN}`]);
+    await sql.unsafe(`delete from public.organization where id = $1 or slug = $2`, [ORG, SLUG]);
   } finally {
     await sql.unsafe(`set session_replication_role = origin`);
   }
@@ -329,7 +372,7 @@ async function organization(sql: postgres.Sql): Promise<void> {
   const name = CATALOGUE_ONLY ? `Ridgeline ${titleOf(PACK)}` : "Ridgeline Mechanical";
   await sql`
     insert into public.organization (id, name, slug, legal_name, timezone, primary_trade, brand_color, setup_completed_at)
-    values (${ORG}, ${name}, 'ridgeline', ${`${name} LLC`},
+    values (${ORG}, ${name}, ${SLUG}, ${`${name} LLC`},
             'America/Chicago', ${PACK}, '#1D4ED8', now())
   `;
   await sql`
@@ -341,7 +384,7 @@ async function organization(sql: postgres.Sql): Promise<void> {
 async function people(sql: postgres.Sql): Promise<Map<string, string>> {
   const owner = id("user:owner");
   await sql`insert into public."user" (id, email, name, email_verified_at)
-            values (${owner}, 'owner@ridgeline.example', 'Hollis Grant', now())`;
+            values (${owner}, ${`owner@${DOMAIN}`}, 'Hollis Grant', now())`;
   await sql`insert into public.membership (id, organization_id, user_id, role)
             values (${id("mem:owner")}, ${ORG}, ${owner}, 'owner')`;
 
@@ -1207,6 +1250,28 @@ async function session(sql: postgres.Sql, userKey: string): Promise<string> {
     values (${randomUUID()}, ${id(`user:${userKey}`)}, ${hash}, ${ORG}, ${expires})
   `;
   return token;
+}
+
+/**
+ * The demo company is set up as the demo, and what to set says so. Its id is
+ * the last line, alone, so a script can take it with `tail -1`.
+ */
+async function demoReport(db: Database, created: boolean, links?: { estimate: string; job: string }): Promise<void> {
+  const done = await setupDemo(db, ORG);
+  console.log("");
+  console.log(created
+    ? "  Ridgeline Mechanical is seeded as the read only demo."
+    : "  The demo company is already here; nothing was replaced. --refresh replaces it.");
+  console.log("");
+  console.log(`  company        ${done.organizationName} (${SLUG})`);
+  if (links) {
+    console.log(`  proposal       /e/${links.estimate}   (opens; approves nothing)`);
+    console.log(`  job tracking   /j/${links.job}`);
+  }
+  console.log("");
+  console.log("  Set this on the site to turn on /demo:");
+  console.log("");
+  console.log(`DEMO_ORGANIZATION_ID=${done.organizationId}`);
 }
 
 function report(tokens: { owner: string; tech: string }, links: { estimate: string; job: string }): void {

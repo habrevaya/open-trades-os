@@ -35,7 +35,10 @@ export async function approve(input: {
     // double tap rather than anything sinister. Say what happened plainly.
     const message = error instanceof portal.InvalidGrantError
       ? "This link has already been used. If you have approved this estimate, you are all set."
-      : "Something went wrong approving this. Please reply to the message that brought you here.";
+      // The demo company's links open and approve nothing. Said, not hidden.
+      : error instanceof Error && error.name === "DemoReadOnlyError"
+        ? error.message
+        : "Something went wrong approving this. Please reply to the message that brought you here.";
     return { ok: false, message };
   }
 

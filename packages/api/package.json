@@ -18,6 +18,7 @@
     "./calendar": "./src/calendar/index.ts",
     "./call-tracking": "./src/call-tracking/index.ts",
     "./services/calendar": "./src/services/calendar.ts",
+    "./services/demo": "./src/services/demo.ts",
     "./services/call-tracking": "./src/services/call-tracking.ts"
   },
   "scripts": {
@@ -26,6 +27,8 @@
     "openapi": "tsx src/lib/generate-openapi.ts",
     "worker": "tsx src/bin/worker.ts",
     "seed": "tsx src/seed/index.ts",
+    "demo:seed": "tsx src/seed/index.ts --demo",
+    "demo:setup": "tsx src/bin/demo-setup.ts",
     "mcp": "tsx src/bin/mcp-stdio.ts",
     "secrets:rotate": "tsx src/bin/rotate-secrets.ts"
   },

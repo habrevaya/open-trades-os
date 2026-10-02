@@ -334,7 +334,7 @@ run("authenticating over HTTP", () => {
     actor: { userId: USER, organizationId: ORG, roles: ["owner"] as Actor["roles"] },
     userId: USER, email: "owner@app-co.test", name: null,
     organizationId: ORG, organizationName: "App Co", organizationSlug: "app-co",
-    organizationTimezone: "America/Chicago", setupCompleted: true,
+    organizationTimezone: "America/Chicago", setupCompleted: true, demo: false,
   });
 
   it("accepts a bearer token and acts as the app", async () => {

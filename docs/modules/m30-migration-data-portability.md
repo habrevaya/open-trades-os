@@ -224,7 +224,7 @@ an export cannot be matched to the attachments.
 
 ### What is outside the tenant
 
-`user`, `credential`, `session`, `setup_token`, `organization` and `network`
+`user`, `credential`, `session`, `setup_token`, `demo_visit`, `organization` and `network`
 carry no `organization_id`, so row level security does not scope them and this
 export cannot reach them.
 

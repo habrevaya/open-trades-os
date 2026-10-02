@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   can, canAll, permissionsFor, redact, effectiveScope, assertCan,
   PermissionError, ROLE_PRESETS, ALL_PERMISSIONS, SENSITIVE_PERMISSIONS,
-  type Actor,
+  isReadPermission, type Actor,
 } from "../src/access/index.js";
 
 const actor = (roles: Actor["roles"], extra: Partial<Actor> = {}): Actor => ({
@@ -160,5 +160,25 @@ describe("assertCan", () => {
     } catch (e) {
       expect((e as PermissionError).permission).toBe("ledger:post");
     }
+  });
+});
+
+describe("a read only actor (the public demo)", () => {
+  it("the readonly preset is reads and nothing else, so read only loses it nothing", () => {
+    const preset = ROLE_PRESETS.readonly.permissions;
+    expect(preset.filter((p) => !isReadPermission(p))).toEqual([]);
+    expect(permissionsFor(actor(["readonly"], { readOnly: true }))).toEqual(permissionsFor(actor(["readonly"])));
+  });
+
+  it("keeps only reads, whatever its roles and grants say", () => {
+    const demo = actor(["owner"], { grants: ["user:invite"], readOnly: true });
+    const held = [...permissionsFor(demo)];
+    expect(held.length).toBeGreaterThan(0);
+    expect(held.every(isReadPermission)).toBe(true);
+    for (const p of ["user:invite", "settings:write", "invoice:send", "payment:collect", "message:send"] as const) {
+      expect(can(demo, p), p).toBe(false);
+      expect(() => assertCan(demo, p)).toThrow(PermissionError);
+    }
+    expect(can(demo, "customer:read")).toBe(true);
   });
 });
