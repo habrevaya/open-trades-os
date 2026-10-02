@@ -38,13 +38,13 @@ export const cleaning: TradePackInput = {
    * them on the route would make the route's capacity numbers meaningless.
    */
   jobTypes: [
-    { code: "recur-res", name: "Recurring residential clean", capacityModel: "route", defaultDurationMinutes: 150, requiredSkills: ["residential-clean"], color: "#00897B" },
-    { code: "deep", name: "Deep clean", capacityModel: "route", defaultDurationMinutes: 300, requiredSkills: ["residential-clean"] },
-    { code: "move", name: "Move in or move out clean", capacityModel: "route", defaultDurationMinutes: 300, requiredSkills: ["residential-clean"], color: "#EF6C00" },
-    { code: "comm-night", name: "Commercial nightly clean", capacityModel: "route", defaultDurationMinutes: 90, requiredSkills: ["janitorial"], color: "#3949AB" },
-    { code: "post-con", name: "Post construction clean", capacityModel: "crew_production", defaultDurationMinutes: 480, requiredSkills: ["post-construction"], productionUnit: "square feet" },
-    { code: "floor-care", name: "Periodic floor and carpet care", capacityModel: "crew_production", defaultDurationMinutes: 300, requiredSkills: ["floor-care"], productionUnit: "square feet" },
-    { code: "walkthrough", name: "Estimate walkthrough", capacityModel: "technician_dispatch", defaultDurationMinutes: 30 },
+    { code: "recur-res", name: "Recurring residential clean", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 150, requiredSkills: ["residential-clean"], color: "#00897B" },
+    { code: "deep", name: "Deep clean", capacityModel: "route", revenueClass: "project", defaultDurationMinutes: 300, requiredSkills: ["residential-clean"] },
+    { code: "move", name: "Move in or move out clean", capacityModel: "route", revenueClass: "project", defaultDurationMinutes: 300, requiredSkills: ["residential-clean"], color: "#EF6C00" },
+    { code: "comm-night", name: "Commercial nightly clean", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 90, requiredSkills: ["janitorial"], color: "#3949AB" },
+    { code: "post-con", name: "Post construction clean", capacityModel: "crew_production", revenueClass: "project", defaultDurationMinutes: 480, requiredSkills: ["post-construction"], productionUnit: "square feet" },
+    { code: "floor-care", name: "Periodic floor and carpet care", capacityModel: "crew_production", revenueClass: "project", defaultDurationMinutes: 300, requiredSkills: ["floor-care"], productionUnit: "square feet" },
+    { code: "walkthrough", name: "Estimate walkthrough", capacityModel: "technician_dispatch", revenueClass: "internal", defaultDurationMinutes: 30 },
   ],
 
   /**

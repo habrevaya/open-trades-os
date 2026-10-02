@@ -41,17 +41,17 @@ export const dumpsterRental: TradePackInput = {
     "Price book, job types, checklists, weight and load readings, disposal records and KPIs are complete. Tipping fees are placeholders and must be re-margined against the operator's own facility accounts, which is the single largest cost line in the trade. There are no inspection programmes, because the trade has none. Local hauler franchise rules, right of way permit workflows and per jurisdiction diversion report formats are not modelled.",
 
   jobTypes: [
-    { code: "delivery", name: "Delivery", capacityModel: "asset_rental", defaultDurationMinutes: 30, requiredSkills: ["roll-off-driver"], color: "#1E8E3E" },
-    { code: "pickup", name: "Final pickup", capacityModel: "asset_rental", defaultDurationMinutes: 30, requiredSkills: ["roll-off-driver"], color: "#0B57D0" },
+    { code: "delivery", name: "Delivery", capacityModel: "asset_rental", revenueClass: "recurring", defaultDurationMinutes: 30, requiredSkills: ["roll-off-driver"], color: "#1E8E3E" },
+    { code: "pickup", name: "Final pickup", capacityModel: "asset_rental", revenueClass: "recurring", defaultDurationMinutes: 30, requiredSkills: ["roll-off-driver"], color: "#0B57D0" },
     // A swap is one stop that closes and opens a rental period at the same
     // address. Modelled as its own job type because the driver must arrive
     // with an empty can on the truck, which the router has to know.
-    { code: "swap", name: "Swap, empty for full", capacityModel: "asset_rental", defaultDurationMinutes: 45, requiredSkills: ["roll-off-driver"], color: "#6B3FA0" },
-    { code: "dump-return", name: "Dump and return", capacityModel: "asset_rental", defaultDurationMinutes: 75, requiredSkills: ["roll-off-driver"] },
-    { code: "relocate", name: "Relocate on site", capacityModel: "asset_rental", defaultDurationMinutes: 30, requiredSkills: ["roll-off-driver"] },
+    { code: "swap", name: "Swap, empty for full", capacityModel: "asset_rental", revenueClass: "recurring", defaultDurationMinutes: 45, requiredSkills: ["roll-off-driver"], color: "#6B3FA0" },
+    { code: "dump-return", name: "Dump and return", capacityModel: "asset_rental", revenueClass: "recurring", defaultDurationMinutes: 75, requiredSkills: ["roll-off-driver"] },
+    { code: "relocate", name: "Relocate on site", capacityModel: "asset_rental", revenueClass: "service", defaultDurationMinutes: 30, requiredSkills: ["roll-off-driver"] },
     // The only stop in the trade that is about a person's hours rather than a
     // container's days, and it happens in the yard.
-    { code: "yard-repair", name: "Container inspection and repair", capacityModel: "technician_dispatch", defaultDurationMinutes: 120, requiredSkills: ["welding"] },
+    { code: "yard-repair", name: "Container inspection and repair", capacityModel: "technician_dispatch", revenueClass: "internal", defaultDurationMinutes: 120, requiredSkills: ["welding"] },
   ],
 
   priceBook: [

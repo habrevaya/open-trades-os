@@ -46,10 +46,21 @@ export const PriceBookSeedItem = z.object({
   warrantyMonths: z.number().int().min(0).max(600).optional(),
 });
 
+/**
+ * What kind of revenue a job type produces, which is NOT its capacity model.
+ *
+ * Required rather than defaulted, and that is deliberate. Every KPI in a pack
+ * that says "install revenue" or "the recurring route" or "all day jobs" needs
+ * this, and a default would let a pack author skip the one decision those
+ * numbers depend on. The compiler asks for it once per job type.
+ */
+export const RevenueClass = z.enum(["install", "service", "recurring", "project", "internal"]);
+
 export const JobTypeSeed = z.object({
   code: z.string().max(60),
   name: z.string().min(1).max(100),
   capacityModel: CapacityModel.default("technician_dispatch"),
+  revenueClass: RevenueClass,
   defaultDurationMinutes: z.number().int().min(5).max(1440).default(60),
   requiredSkills: z.array(z.string()).default([]),
   /** Units of production for crew work: square feet, linear feet, yards. */

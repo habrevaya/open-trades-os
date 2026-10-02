@@ -1,0 +1,2 @@
+CREATE TYPE "public"."job_revenue_class" AS ENUM('install', 'service', 'recurring', 'project', 'internal');--> statement-breakpoint
+ALTER TABLE "job_type" ADD COLUMN "revenue_class" "job_revenue_class" DEFAULT 'service' NOT NULL;

@@ -22,12 +22,12 @@ export const hvac: TradePackInput = {
     "Price book, job types, checklists, readings and KPIs are complete. Refrigerant tracking captures the readings but the submission formatter is not written yet. Load calculations are not included.",
 
   jobTypes: [
-    { code: "diag", name: "Diagnostic", capacityModel: "technician_dispatch", defaultDurationMinutes: 60, requiredSkills: ["hvac-service"], color: "#0B57D0" },
-    { code: "repair", name: "Repair", capacityModel: "technician_dispatch", defaultDurationMinutes: 120, requiredSkills: ["hvac-service"] },
-    { code: "maint", name: "Maintenance", capacityModel: "technician_dispatch", defaultDurationMinutes: 75, requiredSkills: ["hvac-service"], color: "#6B3FA0" },
-    { code: "install", name: "System replacement", capacityModel: "crew_production", defaultDurationMinutes: 480, requiredSkills: ["hvac-install"], productionUnit: "system" },
-    { code: "iaq", name: "Indoor air quality", capacityModel: "technician_dispatch", defaultDurationMinutes: 90 },
-    { code: "emergency", name: "No heat or no cool", capacityModel: "technician_dispatch", defaultDurationMinutes: 90, requiredSkills: ["hvac-service"], color: "#C4261D" },
+    { code: "diag", name: "Diagnostic", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 60, requiredSkills: ["hvac-service"], color: "#0B57D0" },
+    { code: "repair", name: "Repair", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 120, requiredSkills: ["hvac-service"] },
+    { code: "maint", name: "Maintenance", capacityModel: "technician_dispatch", revenueClass: "recurring", defaultDurationMinutes: 75, requiredSkills: ["hvac-service"], color: "#6B3FA0" },
+    { code: "install", name: "System replacement", capacityModel: "crew_production", revenueClass: "install", defaultDurationMinutes: 480, requiredSkills: ["hvac-install"], productionUnit: "system" },
+    { code: "iaq", name: "Indoor air quality", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 90 },
+    { code: "emergency", name: "No heat or no cool", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 90, requiredSkills: ["hvac-service"], color: "#C4261D" },
   ],
 
   priceBook: [

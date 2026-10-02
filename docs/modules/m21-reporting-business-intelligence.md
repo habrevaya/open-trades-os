@@ -18,6 +18,110 @@ what is stuck, who did how much work. Eight of those ship in the box and run
 on the first day. Anything else is built on the screen: pick what the report
 is about, pick what to group it by, pick what to count.
 
+## The trade scorecard
+
+Separate from the report builder and answering a different question. A report
+is "show me these rows grouped this way". A KPI is "of the numbers my trade
+runs on, what are they this month".
+
+Eight trade packs declare sixty three KPIs between them, forty seven distinct
+keys, each with a label, a format, a target and a definition precise enough to
+name the way that metric is usually got wrong. `KpiSeed` validated every one of
+them at import and nothing read them: searching the product for `kpis` returned
+the schema line that parses them and nothing else.
+
+`GET /v1/kpis` is the reader, and `GET /v1/kpi-catalogue` is the whole list
+with what the product can do about each.
+
+### Every number comes with its two halves
+
+"$620" is an assertion. "$186,000 over 300 jobs" is an arithmetic a contractor
+can argue with, and arguing with it is how they come to trust it. Every
+definition in every pack turns out to be a ratio of two countable things, which
+is not a coincidence: a KPI that is not is usually one nobody can reproduce.
+
+A zero denominator is **null, never zero**. Nought per cent close rate says
+every estimate was lost; no estimates presented says there is nothing to
+measure. Those are different months with different answers, and this codebase
+makes the same choice in `utilisation`, `reachRate` and `overageCapture`.
+
+The exception is a total. A replacement pipeline over no declined
+recommendations is zero dollars, which IS the fact, and reporting it as unknown
+would send an owner looking for a report that is working correctly.
+
+### The unavailable list is the other half of the answer
+
+Nineteen of the forty seven are answered: fifteen computed here, four by M22's
+fleet report. The other twenty eight each name the single datum that is
+missing.
+
+That is a product decision rather than an apology. **Most of these definitions
+name an exclusion**, and a KPI computed without its exclusions is worse than an
+absent one, because it looks like the definition. `drive_time_pct` excludes the
+commute leg; without that exclusion the number is about where people live
+rather than about how the route was built, and a company in a sprawling metro
+would read it as a dispatch problem. `recurring_retention` excludes customers
+who sold the house; without it a retention figure moves with the local property
+market and an owner concludes their service is getting worse.
+
+A dashboard showing six real numbers and naming the two it cannot compute is
+worth more than one showing eight where two are guesses, because the guesses are
+the ones somebody makes a hiring decision on.
+
+### Three missing data would unlock most of the rest
+
+- **A coded cancellation reason.** Four KPIs need it: every retention and
+  renewal figure has to separate churn from a house sale.
+- **A cost posting.** `ACCOUNTS.COGS` is declared in core and nothing debits it,
+  so margin KPIs would read material and labour and miss subcontract and
+  disposal, which is exactly where a badly estimated install goes wrong.
+- **A finer job type class.** `job_revenue_class` was added for these and
+  unlocked five. A trade's own upsell path (a drain job that became a lining, a
+  troubleshooting call that converted on the visit) needs the pack to mark which
+  of its own job types and price book items are the upsell.
+
+### What `job_revenue_class` is, and is not
+
+Added in the same change as the scorecard, because a third of these definitions
+depend on it and nothing could answer them: "install revenue", "completed
+service calls to non members", "the recurring route average", "deep cleans,
+move outs and post construction, which are all day jobs".
+
+`capacity_model` is a different question. It says HOW work is scheduled: one
+technician, a crew, a route, a container on hire. Two job types with the same
+capacity model can be an install and a maintenance visit, which carry different
+margins and belong in different numbers. In the HVAC pack `repair` and `maint`
+are both `technician_dispatch`, and they are `service` and `recurring`.
+
+Five values: `install`, `service`, `recurring`, `project`, `internal`. It is
+REQUIRED on a pack's job type rather than defaulted, so the compiler asks once
+per job type and a pack author cannot skip the one decision those numbers
+depend on. On the table it defaults to `service`, which is the least wrong thing
+to assume about a job type somebody created by hand without saying.
+
+`internal` is the one worth explaining. A yard repair and an estimate
+walkthrough consume capacity and earn no customer revenue, and in a
+revenue-per-day denominator that is exactly the thing that has to be
+distinguishable rather than absent.
+
+### The guard
+
+`kpis.integration.test.ts` fails if a pack declares a KPI the catalogue does not
+account for, if the catalogue accounts for one no pack declares, if a pack and
+the catalogue disagree about a format, or if a `needs` sentence is vague enough
+to be "not built".
+
+The computed set is a NAMED LIST rather than a count. This codebase learned that
+once already: `SOFT_DELETE_NOT_OFFERED` was a count that stayed at twenty four
+while one table was fixed and another broke. Listed, a KPI moving from `needs`
+to `computed` is a line in a diff with the implementation beside it, and one
+moving the other way has to be argued for.
+
+The guard earned itself immediately. Six of the trash bin pack's eight KPIs were
+written across several lines, my extraction missed them, and the test named all
+six: a scorecard for that trade would have shown two numbers and silently
+dropped the rest.
+
 ## Key concepts
 
 **A report definition is data, not SQL.** It names a dataset, some dimensions,

@@ -85,6 +85,10 @@
       "description": "Reviews and Reputation"
     },
     {
+      "name": "M21",
+      "description": "Reporting and Business Intelligence"
+    },
+    {
       "name": "M22",
       "description": "Fleet, Tools and Company Assets"
     },
@@ -26096,6 +26100,242 @@
         "x-authorization": "session",
         "x-permissions": [
           "inventory:read"
+        ]
+      }
+    },
+    "/v1/kpi-catalogue": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listKpiCatalogue",
+        "summary": "Every KPI every trade pack declares, and what we can do about each",
+        "description": "Not scoped to a company and reading nothing: it is the catalogue, for somebody deciding whether this product measures their trade before they have applied a pack. Every key is one of three things, and the counts come back so the honest summary is one line rather than something a reader has to total. `elsewhere` names the endpoint that already computes it, because the four rental KPIs are M22's fleet report and computing them twice would produce two figures that disagree in a meeting.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every KPI every trade pack declares, and what we can do about each",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListKpiCatalogueOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
+        ]
+      }
+    },
+    "/v1/kpis": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getKpiScorecard",
+        "summary": "Your trade's own numbers, and what the rest need",
+        "description": "EVERY NUMBER COMES BACK WITH ITS TWO HALVES. '$620' is an assertion; '$186,000 over 300 jobs' is an arithmetic a contractor can argue with, and arguing with it is how they come to trust it. A zero denominator is null rather than zero, because nought per cent close rate says every estimate lost and no estimates presented says there is nothing to measure. THE UNAVAILABLE LIST IS THE OTHER HALF OF THE ANSWER: most of these definitions name an exclusion, a KPI computed without its exclusions is worse than an absent one because it looks like the definition, and each unavailable entry names the single datum that is missing rather than saying 'not built'. A dashboard showing six real numbers and naming the two it cannot compute is worth more than one showing eight where two are guesses, because the guesses are the ones somebody makes a hiring decision on.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Your trade's own numbers, and what the rest need",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetKpiScorecardOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
         ]
       }
     },
@@ -67498,6 +67738,322 @@
           "labour"
         ]
       },
+      "GetKpiScorecardOutput": {
+        "type": "object",
+        "properties": {
+          "tradePack": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "computed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "definition": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "percent",
+                    "money",
+                    "number",
+                    "duration"
+                  ]
+                },
+                "target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "computed",
+                    "unavailable",
+                    "elsewhere"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numerator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "denominator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numeratorLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "denominatorLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "needs": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endpoint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "definition",
+                "format",
+                "target",
+                "state",
+                "value",
+                "numerator",
+                "denominator",
+                "numeratorLabel",
+                "denominatorLabel",
+                "needs",
+                "endpoint"
+              ]
+            }
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "definition": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "percent",
+                    "money",
+                    "number",
+                    "duration"
+                  ]
+                },
+                "target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "computed",
+                    "unavailable",
+                    "elsewhere"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numerator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "denominator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numeratorLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "denominatorLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "needs": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endpoint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "definition",
+                "format",
+                "target",
+                "state",
+                "value",
+                "numerator",
+                "denominator",
+                "numeratorLabel",
+                "denominatorLabel",
+                "needs",
+                "endpoint"
+              ]
+            }
+          },
+          "elsewhere": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "definition": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "percent",
+                    "money",
+                    "number",
+                    "duration"
+                  ]
+                },
+                "target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "computed",
+                    "unavailable",
+                    "elsewhere"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numerator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "denominator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numeratorLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "denominatorLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "needs": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endpoint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "definition",
+                "format",
+                "target",
+                "state",
+                "value",
+                "numerator",
+                "denominator",
+                "numeratorLabel",
+                "denominatorLabel",
+                "needs",
+                "endpoint"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tradePack",
+          "from",
+          "to",
+          "computed",
+          "unavailable",
+          "elsewhere"
+        ]
+      },
       "GetMyTimeclockOutput": {
         "type": "object",
         "properties": {
@@ -76340,6 +76896,82 @@
         },
         "required": [
           "transactions"
+        ]
+      },
+      "ListKpiCatalogueOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "definition": {
+                  "type": "string"
+                },
+                "trades": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "computed",
+                    "unavailable",
+                    "elsewhere"
+                  ]
+                },
+                "needs": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endpoint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "definition",
+                "trades",
+                "state",
+                "needs",
+                "endpoint"
+              ]
+            }
+          },
+          "computed": {
+            "type": "integer"
+          },
+          "elsewhere": {
+            "type": "integer"
+          },
+          "unavailable": {
+            "type": "integer"
+          },
+          "accounted": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "computed",
+          "elsewhere",
+          "unavailable",
+          "accounted"
         ]
       },
       "ListLeadConnectorsOutput": {

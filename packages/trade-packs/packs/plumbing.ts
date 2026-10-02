@@ -25,16 +25,16 @@ export const plumbing: TradePackInput = {
     "Price book, job types, checklists, readings and KPIs are complete. Backflow test reports are captured and rendered for the customer, but the per authority submission formats are not written yet, so a test still gets filed by hand. Sewer lining and repipe are priced as line items only: there is no takeoff or per segment estimating. Medical gas work is out of scope.",
 
   jobTypes: [
-    { code: "diag", name: "Diagnostic", capacityModel: "technician_dispatch", defaultDurationMinutes: 60, requiredSkills: ["plumbing-service"], color: "#0B57D0" },
-    { code: "repair", name: "Service repair", capacityModel: "technician_dispatch", defaultDurationMinutes: 120, requiredSkills: ["plumbing-service"] },
-    { code: "drain", name: "Drain and sewer", capacityModel: "technician_dispatch", defaultDurationMinutes: 90, requiredSkills: ["drain-tech"], color: "#6B3FA0" },
-    { code: "wh", name: "Water heater replacement", capacityModel: "technician_dispatch", defaultDurationMinutes: 240, requiredSkills: ["plumbing-service"] },
-    { code: "backflow", name: "Backflow assembly test", capacityModel: "technician_dispatch", defaultDurationMinutes: 45, requiredSkills: ["backflow-tester"], color: "#0F7B6C" },
+    { code: "diag", name: "Diagnostic", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 60, requiredSkills: ["plumbing-service"], color: "#0B57D0" },
+    { code: "repair", name: "Service repair", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 120, requiredSkills: ["plumbing-service"] },
+    { code: "drain", name: "Drain and sewer", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 90, requiredSkills: ["drain-tech"], color: "#6B3FA0" },
+    { code: "wh", name: "Water heater replacement", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 240, requiredSkills: ["plumbing-service"] },
+    { code: "backflow", name: "Backflow assembly test", capacityModel: "technician_dispatch", revenueClass: "recurring", defaultDurationMinutes: 45, requiredSkills: ["backflow-tester"], color: "#0F7B6C" },
     // Repipe is the one plumbing job sold by the fixture rather than by the
     // hour, and it ties up a crew for days. Scheduling it against dispatch
     // capacity buries the board for a week.
-    { code: "repipe", name: "Repipe", capacityModel: "crew_production", defaultDurationMinutes: 480, requiredSkills: ["plumbing-install"], productionUnit: "fixture" },
-    { code: "emergency", name: "Leak or no water", capacityModel: "technician_dispatch", defaultDurationMinutes: 90, requiredSkills: ["plumbing-service"], color: "#C4261D" },
+    { code: "repipe", name: "Repipe", capacityModel: "crew_production", revenueClass: "install", defaultDurationMinutes: 480, requiredSkills: ["plumbing-install"], productionUnit: "fixture" },
+    { code: "emergency", name: "Leak or no water", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 90, requiredSkills: ["plumbing-service"], color: "#C4261D" },
   ],
 
   priceBook: [

@@ -35,12 +35,12 @@ export const trashBinCleaning: TradePackInput = {
     "Price book, job types, readings, checklists and KPIs are complete, and the route model handles collection-day scheduling through completion-anchored recurrence. What is NOT built yet: importing a municipal collection calendar, which today means entering the collection day per street by hand. Water reclaim volumes are captured as readings but there is no disposal manifest formatter. Commercial compactor and dumpster washing is out of scope: that is a different truck and a different trade.",
 
   jobTypes: [
-    { code: "route-stop", name: "Route stop", capacityModel: "route", defaultDurationMinutes: 8, color: "#0B57D0" },
-    { code: "first-clean", name: "First clean", capacityModel: "route", defaultDurationMinutes: 15, requiredSkills: ["bin-cleaning"] },
-    { code: "deep-clean", name: "Deep clean and deodorise", capacityModel: "route", defaultDurationMinutes: 20 },
-    { code: "hoa-sweep", name: "Neighbourhood sweep", capacityModel: "route", defaultDurationMinutes: 240, color: "#6B3FA0" },
-    { code: "commercial", name: "Commercial cart run", capacityModel: "route", defaultDurationMinutes: 45 },
-    { code: "missed", name: "Missed bin return visit", capacityModel: "technician_dispatch", defaultDurationMinutes: 15 },
+    { code: "route-stop", name: "Route stop", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 8, color: "#0B57D0" },
+    { code: "first-clean", name: "First clean", capacityModel: "route", revenueClass: "service", defaultDurationMinutes: 15, requiredSkills: ["bin-cleaning"] },
+    { code: "deep-clean", name: "Deep clean and deodorise", capacityModel: "route", revenueClass: "project", defaultDurationMinutes: 20 },
+    { code: "hoa-sweep", name: "Neighbourhood sweep", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 240, color: "#6B3FA0" },
+    { code: "commercial", name: "Commercial cart run", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 45 },
+    { code: "missed", name: "Missed bin return visit", capacityModel: "technician_dispatch", revenueClass: "internal", defaultDurationMinutes: 15 },
   ],
 
   priceBook: [

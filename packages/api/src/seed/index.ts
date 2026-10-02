@@ -407,8 +407,9 @@ async function tradePack(sql: postgres.Sql): Promise<Map<string, string>> {
   for (const jobType of pack.jobTypes) {
     const jobTypeId = id(`jt:${jobType.code}`);
     await sql`
-      insert into public.job_type (id, organization_id, name, code, capacity_model, default_duration_minutes, required_skills, color)
+      insert into public.job_type (id, organization_id, name, code, capacity_model, revenue_class, default_duration_minutes, required_skills, color)
       values (${jobTypeId}, ${ORG}, ${jobType.name}, ${jobType.code}, ${jobType.capacityModel},
+              ${jobType.revenueClass},
               ${jobType.defaultDurationMinutes}, ${JSON.stringify(jobType.requiredSkills)}, ${jobType.color ?? null})
     `;
     jobTypes.set(jobType.code, jobTypeId);

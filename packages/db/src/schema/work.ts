@@ -46,6 +46,37 @@ export const visitStatus = pgEnum("visit_status", [
   "completed_after_cancellation",
 ]);
 
+/**
+ * WHAT KIND OF REVENUE A JOB TYPE PRODUCES
+ *
+ * Added because the trade packs' own KPI definitions depend on it and nothing
+ * could answer them. Eight packs declare sixty three KPIs between them, and
+ * roughly a third name a distinction this column is: "install revenue",
+ * "completed service calls to non members", "the recurring route average",
+ * "deep cleans, move outs and post construction, which are all day jobs".
+ *
+ * `capacity_model` is a different question and is not this. It says HOW the work
+ * is scheduled: one technician, a crew, a route, a container on hire. Two job
+ * types with the same capacity model can be an install and a maintenance visit,
+ * which carry different margins and belong in different numbers.
+ *
+ *   install      a replacement or a new system. Capital work, priced as a
+ *                project, and the margin an owner watches most closely.
+ *   service      a one off call: a repair, a diagnosis, an unblocking.
+ *   recurring    a stop on a programme or a route. The thing a renewal rate and
+ *                a stops-per-day figure are about.
+ *   project      multi day crew work. A deep clean, a landscape build, a
+ *                post construction clean. Counted separately from `recurring`
+ *                because an all day job in a route average pulls it to nothing.
+ *   internal     not customer revenue at all: a yard repair, a shop day, a
+ *                container inspection. In a revenue-per-day denominator these
+ *                are capacity consumed and nothing earned, which is exactly why
+ *                they have to be distinguishable rather than absent.
+ */
+export const jobRevenueClass = pgEnum("job_revenue_class", [
+  "install", "service", "recurring", "project", "internal",
+]);
+
 export const jobType = pgTable("job_type", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -59,6 +90,11 @@ export const jobType = pgTable("job_type", {
    * second system.
    */
   capacityModel: capacityModel("capacity_model").notNull().default("technician_dispatch"),
+  /**
+   * Defaults to `service`, which is the commonest and the least wrong thing to
+   * assume about a job type somebody created by hand without saying.
+   */
+  revenueClass: jobRevenueClass("revenue_class").notNull().default("service"),
   /** Units of production for crew_production. Square feet, linear feet, yards. */
   productionUnit: text("production_unit"),
   defaultDurationMinutes: integer("default_duration_minutes").notNull().default(60),

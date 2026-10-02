@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork,
+  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
 } from "../services/index";
 
 /**
@@ -561,6 +561,10 @@ export const handlers = {
   getExternalWorkOrder: externalWork.handlers.getExternalWorkOrder,
   listExternalWorkOrders: externalWork.handlers.listExternalWorkOrders,
   listExternalWorkSources: externalWork.handlers.listExternalWorkSources,
+
+  // KPIs (M21): the numbers the trade packs defined and nothing computed
+  getKpiScorecard: kpis.handlers.getKpiScorecard,
+  listKpiCatalogue: kpis.handlers.listKpiCatalogue,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

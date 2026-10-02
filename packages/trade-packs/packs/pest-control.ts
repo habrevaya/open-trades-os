@@ -39,13 +39,13 @@ export const pestControl: TradePackInput = {
   jobTypes: [
     // The initial is dispatched rather than routed: it is longer, it is sold
     // separately and it usually cannot wait for the route to come round.
-    { code: "initial", name: "Initial service", capacityModel: "technician_dispatch", defaultDurationMinutes: 90, requiredSkills: ["applicator-general"], color: "#0B57D0" },
-    { code: "recurring", name: "Recurring program service", capacityModel: "route", defaultDurationMinutes: 35, requiredSkills: ["applicator-general"], color: "#1E8E3E" },
-    { code: "reservice", name: "Warranty re service", capacityModel: "route", defaultDurationMinutes: 30, requiredSkills: ["applicator-general"], color: "#C4261D" },
-    { code: "commercial", name: "Commercial device service", capacityModel: "route", defaultDurationMinutes: 60, requiredSkills: ["applicator-general", "commercial-accounts"] },
-    { code: "termite", name: "Termite treatment", capacityModel: "crew_production", defaultDurationMinutes: 360, requiredSkills: ["applicator-termite"], productionUnit: "linear foot" },
-    { code: "wdi", name: "Wood destroying insect inspection", capacityModel: "technician_dispatch", defaultDurationMinutes: 75, requiredSkills: ["applicator-termite"] },
-    { code: "bedbug", name: "Bed bug treatment", capacityModel: "technician_dispatch", defaultDurationMinutes: 180, requiredSkills: ["applicator-general"] },
+    { code: "initial", name: "Initial service", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 90, requiredSkills: ["applicator-general"], color: "#0B57D0" },
+    { code: "recurring", name: "Recurring program service", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 35, requiredSkills: ["applicator-general"], color: "#1E8E3E" },
+    { code: "reservice", name: "Warranty re service", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 30, requiredSkills: ["applicator-general"], color: "#C4261D" },
+    { code: "commercial", name: "Commercial device service", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 60, requiredSkills: ["applicator-general", "commercial-accounts"] },
+    { code: "termite", name: "Termite treatment", capacityModel: "crew_production", revenueClass: "install", defaultDurationMinutes: 360, requiredSkills: ["applicator-termite"], productionUnit: "linear foot" },
+    { code: "wdi", name: "Wood destroying insect inspection", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 75, requiredSkills: ["applicator-termite"] },
+    { code: "bedbug", name: "Bed bug treatment", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 180, requiredSkills: ["applicator-general"] },
   ],
 
   priceBook: [

@@ -84,6 +84,7 @@ async function seed(tx: Database, org: string, pack: TradePack) {
       name: jt.name,
       code: jt.code,
       capacityModel: jt.capacityModel,
+      revenueClass: jt.revenueClass,
       defaultDurationMinutes: jt.defaultDurationMinutes,
       requiredSkills: jt.requiredSkills,
       color: jt.color ?? null,

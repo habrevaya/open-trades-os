@@ -28,15 +28,15 @@ export const electrical: TradePackInput = {
     "Price book, job types, checklists, readings and KPIs are complete. Project work is only partly covered: assemblies can be priced as line items but there is no takeoff, no schedule of values and no progress billing, so bid spec jobs still need a second system. Certified payroll is captured from the timeclock but the state specific report formats are not written. Utility interconnection for solar and battery is out of scope.",
 
   jobTypes: [
-    { code: "diag", name: "Troubleshooting", capacityModel: "technician_dispatch", defaultDurationMinutes: 60, requiredSkills: ["electrical-service"], color: "#0B57D0" },
-    { code: "repair", name: "Service repair", capacityModel: "technician_dispatch", defaultDurationMinutes: 120, requiredSkills: ["electrical-service"] },
-    { code: "panel", name: "Panel or service upgrade", capacityModel: "technician_dispatch", defaultDurationMinutes: 480, requiredSkills: ["electrical-service", "panel-work"], color: "#6B3FA0" },
-    { code: "ev", name: "EV charger installation", capacityModel: "technician_dispatch", defaultDurationMinutes: 240, requiredSkills: ["electrical-service"] },
-    { code: "generator", name: "Standby power installation", capacityModel: "technician_dispatch", defaultDurationMinutes: 600, requiredSkills: ["electrical-install", "generator"] },
+    { code: "diag", name: "Troubleshooting", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 60, requiredSkills: ["electrical-service"], color: "#0B57D0" },
+    { code: "repair", name: "Service repair", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 120, requiredSkills: ["electrical-service"] },
+    { code: "panel", name: "Panel or service upgrade", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 480, requiredSkills: ["electrical-service", "panel-work"], color: "#6B3FA0" },
+    { code: "ev", name: "EV charger installation", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 240, requiredSkills: ["electrical-service"] },
+    { code: "generator", name: "Standby power installation", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 600, requiredSkills: ["electrical-install", "generator"] },
     // Rough in is sold by device count and run by a crew for days at a time,
     // so it does not belong on the dispatch board with the service calls.
-    { code: "rough", name: "Rough in and finish", capacityModel: "crew_production", defaultDurationMinutes: 480, requiredSkills: ["electrical-install"], productionUnit: "device" },
-    { code: "inspection", name: "Safety inspection", capacityModel: "technician_dispatch", defaultDurationMinutes: 120, requiredSkills: ["electrical-service"], color: "#0F7B6C" },
+    { code: "rough", name: "Rough in and finish", capacityModel: "crew_production", revenueClass: "install", defaultDurationMinutes: 480, requiredSkills: ["electrical-install"], productionUnit: "device" },
+    { code: "inspection", name: "Safety inspection", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 120, requiredSkills: ["electrical-service"], color: "#0F7B6C" },
   ],
 
   priceBook: [

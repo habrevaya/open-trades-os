@@ -47,6 +47,7 @@ import { rentalRoutes } from "./rentals";
 import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
 import { externalWorkRoutes } from "./external-work";
+import { kpiRoutes } from "./kpis";
 
 export * from "./common";
 export * from "./customers";
@@ -162,6 +163,7 @@ export const routes = {
   ...networkRoutes,
   ...exportRoutes,
   ...externalWorkRoutes,
+  ...kpiRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

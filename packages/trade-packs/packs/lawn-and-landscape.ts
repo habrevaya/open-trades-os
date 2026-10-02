@@ -40,14 +40,14 @@ export const lawnAndLandscape: TradePackInput = {
    * job types carry the unit the work is actually estimated and costed in.
    */
   jobTypes: [
-    { code: "mow", name: "Mowing route stop", capacityModel: "route", defaultDurationMinutes: 35, requiredSkills: ["mow-crew"], color: "#2E7D32" },
-    { code: "fert", name: "Fertilisation and weed control round", capacityModel: "route", defaultDurationMinutes: 30, requiredSkills: ["applicator-license"], color: "#F9A825" },
-    { code: "php", name: "Tree and shrub care round", capacityModel: "route", defaultDurationMinutes: 45, requiredSkills: ["applicator-license"] },
-    { code: "irr", name: "Irrigation service", capacityModel: "technician_dispatch", defaultDurationMinutes: 90, requiredSkills: ["irrigation-tech"], color: "#0277BD" },
-    { code: "cleanup", name: "Seasonal clean up", capacityModel: "crew_production", defaultDurationMinutes: 240, productionUnit: "square feet" },
-    { code: "mulch", name: "Mulch and bed refresh", capacityModel: "crew_production", defaultDurationMinutes: 180, productionUnit: "cubic yards" },
-    { code: "install", name: "Landscape and hardscape install", capacityModel: "crew_production", defaultDurationMinutes: 480, requiredSkills: ["install-crew"], productionUnit: "square feet", color: "#6B3FA0" },
-    { code: "wall-edge", name: "Retaining wall and bed edging", capacityModel: "crew_production", defaultDurationMinutes: 420, requiredSkills: ["install-crew"], productionUnit: "linear feet" },
+    { code: "mow", name: "Mowing route stop", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 35, requiredSkills: ["mow-crew"], color: "#2E7D32" },
+    { code: "fert", name: "Fertilisation and weed control round", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 30, requiredSkills: ["applicator-license"], color: "#F9A825" },
+    { code: "php", name: "Tree and shrub care round", capacityModel: "route", revenueClass: "recurring", defaultDurationMinutes: 45, requiredSkills: ["applicator-license"] },
+    { code: "irr", name: "Irrigation service", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 90, requiredSkills: ["irrigation-tech"], color: "#0277BD" },
+    { code: "cleanup", name: "Seasonal clean up", capacityModel: "crew_production", revenueClass: "project", defaultDurationMinutes: 240, productionUnit: "square feet" },
+    { code: "mulch", name: "Mulch and bed refresh", capacityModel: "crew_production", revenueClass: "project", defaultDurationMinutes: 180, productionUnit: "cubic yards" },
+    { code: "install", name: "Landscape and hardscape install", capacityModel: "crew_production", revenueClass: "install", defaultDurationMinutes: 480, requiredSkills: ["install-crew"], productionUnit: "square feet", color: "#6B3FA0" },
+    { code: "wall-edge", name: "Retaining wall and bed edging", capacityModel: "crew_production", revenueClass: "install", defaultDurationMinutes: 420, requiredSkills: ["install-crew"], productionUnit: "linear feet" },
   ],
 
   priceBook: [
