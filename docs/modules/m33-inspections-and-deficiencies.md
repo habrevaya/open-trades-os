@@ -153,9 +153,20 @@ inspection work grants them to the people who do it.
 
 ## API
 
-No `/v1` routes. The whole module is reachable from `/inspections` and from the
-service layer, which means an integration cannot publish a programme, file an
-inspection or read the backlog, and the MCP server offers no inspection tools.
+| Call | Needs |
+|---|---|
+| `GET /v1/inspection-programs` | `compliance:read` |
+| `POST /v1/inspections` | `compliance:write` |
+| `GET /v1/inspection-deficiencies` | `compliance:read` |
+| `POST /v1/inspection-deficiencies/{id}/status` | `compliance:write` |
+
+Filing an inspection sends ANSWERS and gets the verdict back. The outcome is not an
+input, which is the one thing this surface must not allow: accepting one would let a
+half finished inspection be filed as a pass, and that report goes in a compliance
+file, is handed to a buyer and is shown to an insurer.
+
+The backlog's ageing is measured against an instant the caller supplies, so a report
+run for a month end says the same thing every time it is run.
 
 ## Common questions
 
@@ -172,7 +183,10 @@ idea with no compliance obligation and no third party reader.
 
 ## What is not built
 
-No `/v1` routes, as above. No statutory report document: the data that a fire
+Defining or revising a programme is not on the API: a programme comes from a trade
+pack, and publishing one is content rather than an integration. Neither is the
+proposal, whose shape is core's own decision union and would freeze an internal type
+into a published contract. No statutory report document: the data that a fire
 marshal's form needs is held and nothing renders the form, which is the gap the
 problem statement at the top is about. Nothing files a submission. The field app
 cannot run an inspection. Resolving a deficiency does not automatically create the

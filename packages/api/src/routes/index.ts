@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, equipment, customerLifecycle, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
 } from "../services/index";
 
 /**
@@ -502,6 +502,24 @@ export const handlers = {
   removeCustomer: customerLifecycle.handlers.removeCustomer,
   mergeCustomers: customerLifecycle.handlers.mergeCustomers,
   getCustomerMergedInto: customerLifecycle.handlers.getCustomerMergedInto,
+
+  listInspectionPrograms: inspections.handlers.listInspectionPrograms,
+  recordInspection: inspections.handlers.recordInspection,
+  listDeficiencies: inspections.handlers.listDeficiencies,
+  setDeficiencyStatus: inspections.handlers.setDeficiencyStatus,
+
+  listWorkflows: workflows.handlers.listWorkflows,
+  getWorkflowRuns: workflows.handlers.getWorkflowRuns,
+  setWorkflowEnabled: workflows.handlers.setWorkflowEnabled,
+  listWorkflowEvents: workflows.handlers.listWorkflowEvents,
+  listWorkflowSteps: workflows.handlers.listWorkflowSteps,
+
+  listTasks: tasks.handlers.listTasks,
+  getTaskCounts: tasks.handlers.getTaskCounts,
+  createTask: tasks.handlers.createTask,
+  updateTask: tasks.handlers.updateTask,
+  claimTask: tasks.handlers.claimTask,
+  closeTask: tasks.handlers.closeTask,
 
   listEquipment: equipment.handlers.listEquipment,
   getEquipment: equipment.handlers.getEquipment,

@@ -127,13 +127,21 @@ them use the task permissions, because an obligation is work in the same queue.
 
 | Call | Needs |
 |---|---|
+| `GET /v1/tasks` | `task:read` |
+| `GET /v1/tasks/counts` | `task:read` |
+| `POST /v1/tasks` | `task:write` |
+| `PATCH /v1/tasks/{id}` | `task:write` |
+| `POST /v1/tasks/{id}/claim` | `task:read` |
+| `POST /v1/tasks/{id}/close` | `task:write` |
 | `GET /v1/obligations` | `task:read` |
 | `POST /v1/obligations/{id}/satisfy` | `task:write` |
 | `POST /v1/obligations/{id}/waive` | `task:write` |
 | `POST /v1/obligations/sweep` | `task:write` |
 
-Tasks themselves have no `/v1` routes: the queue is office only, and an integration
-or an agent cannot create or complete a task.
+Claiming needs only `task:read`, and it is the one write in the module guarded by
+a read. Taking an unclaimed task is acting on your own work, which is the same
+class of act as clocking yourself in. It is conditional, so two people opening the
+queue at the same moment cannot both take it and do the work twice.
 
 ## Common questions
 
@@ -151,8 +159,17 @@ cancelled. The primitive is built for more than that and nothing else writes one
 
 ## What is not built
 
-No `/v1` routes for tasks. No escalation: a task that goes overdue stays overdue and
-nothing reassigns it or tells anybody. No recurring tasks. No task templates or
-checklists within a task. The obligation primitive has one writer, so the SLA clocks,
-acknowledge by and claim windows the schema describes are a shape waiting for the
-modules that would use it.
+A TECHNICIAN CAN TAKE A TASK AND CANNOT CLOSE IT. Claiming needs `task:read` and
+closing needs `task:write`, which the technician preset does not hold, so a
+technician who picks work off the queue leaves it in progress for the office to
+finish. The service's own header used to say a technician "can be handed a task
+and complete it", which was false in the direction that matters, and the sentence
+is corrected rather than the permission widened: whether a person should be able
+to close a task assigned to them is a product decision, and the right place to
+make it is not a guard in a service file.
+
+No escalation: a task that goes overdue stays overdue and nothing reassigns it or
+tells anybody. No recurring tasks. No task templates or checklists within a task.
+The obligation primitive has one writer, so the SLA clocks, acknowledge by and
+claim windows the schema describes are a shape waiting for the modules that would
+use it.

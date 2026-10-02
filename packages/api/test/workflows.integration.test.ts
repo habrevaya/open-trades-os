@@ -324,12 +324,37 @@ run("seeing what happened", () => {
   it("marks the steps a reader cannot publish rather than hiding them", async () => {
     // A step missing from the list reads as a product that cannot do the
     // thing, rather than as an account that may not.
-    const dispatcher = workflows.availableSteps(as(["dispatcher"]));
-    const send = dispatcher.find((s) => s.kind === "send_message")!;
-    const task = dispatcher.find((s) => s.kind === "create_task")!;
+    //
+    // An office manager with `task:write` taken away, rather than a dispatcher.
+    // The dispatcher was a convenient actor holding `message:send` and not
+    // `task:write`, and it also holds no `workflow:read`: reading the step
+    // catalogue is reading an automation, which the service checks now because
+    // the route has always declared it. A revocation beats a grant, which is what
+    // makes this one actor hold exactly the pair the test is about.
+    const actor: Actor = {
+      userId: USER,
+      organizationId: ORG,
+      roles: ["office_manager"],
+      revocations: ["task:write"],
+    };
+    const narrowed: ServiceContext = { actor, db: db() };
+    const steps = workflows.availableSteps(narrowed);
+    const send = steps.find((s) => s.kind === "send_message")!;
+    const task = steps.find((s) => s.kind === "create_task")!;
     expect(send.allowed).toBe(true);
     expect(task.allowed).toBe(false);
     expect(task.permissions).toEqual(["task:write"]);
+  });
+
+  it("refuses the step catalogue to somebody who may not read automations", async () => {
+    /**
+     * The route declares `workflow:read` and the service did not check it, so a
+     * dispatcher could read the catalogue. Harmless on its own, and the same
+     * omission on `triggerEvents` exposed the distinct event names a company has
+     * ever emitted, which is a sketch of what that company does.
+     */
+    expect(() => workflows.availableSteps(as(["dispatcher"]))).toThrow(/workflow:read/);
+    await expect(workflows.triggerEvents(as(["dispatcher"]))).rejects.toThrow(/workflow:read/);
   });
 
   it("offers events from a list rather than a text box", async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { routes, routeList } from "../src/contracts/index.js";
 import { handlers, PENDING_ROUTES, routeNames } from "../src/routes/index";
+import * as services from "../src/services/index";
 import { ALL_PERMISSIONS } from "../../core/src/access/permissions.js";
 
 /**
@@ -313,5 +314,45 @@ describe("every route has something behind it", () => {
     const ghosts = PENDING_ROUTES.filter((n) => !real.has(n));
     expect(ghosts, `PENDING_ROUTES names routes that were removed: ${ghosts.join(", ")}`)
       .toEqual([]);
+  });
+
+  /**
+   * THE OTHER DIRECTION: A HANDLER NOTHING SERVES.
+   *
+   * The check above catches a route with no handler, and the compiler catches it
+   * too, because the table in `routes/index.ts` is typed against the registry. The
+   * reverse has nothing watching it: a service exports `handlers.doTheThing`,
+   * nobody adds the line to `routes/index.ts`, and the capability is written,
+   * tested and unreachable. That is exactly how the equipment register, the
+   * customer lifecycle, the task queue, workflows and inspections ended up on
+   * screens with no API behind them, which is the opposite of BUILD.md's third
+   * ordering rule.
+   *
+   * Every key a service exposes as a handler has to be served. A service function
+   * that is deliberately internal simply is not in a `handlers` object.
+   */
+  it("serves every handler a service exposes", () => {
+    const served = new Set<string>(Object.keys(handlers));
+    const stranded: string[] = [];
+    let checked = 0;
+
+    for (const [name, mod] of Object.entries(services as Record<string, unknown>)) {
+      if (typeof mod !== "object" || mod === null) continue;
+      const table = (mod as { handlers?: unknown }).handlers;
+      if (typeof table !== "object" || table === null) continue;
+      for (const key of Object.keys(table)) {
+        checked += 1;
+        if (!served.has(key)) stranded.push(`${name}.handlers.${key}`);
+      }
+    }
+
+    expect(
+      stranded,
+      "These handlers exist and nothing serves them. Add the line to "
+      + "src/routes/index.ts, or take them out of the handlers object if they are "
+      + "internal",
+    ).toEqual([]);
+    /** And it looked at something, so an import that stopped resolving is not a pass. */
+    expect(checked).toBeGreaterThan(200);
   });
 });

@@ -155,6 +155,19 @@ second is a much smaller list of people.
 | `DELETE /v1/custom-fields/{id}` | `customfield:write` |
 | `GET /v1/custom-fields/usage` | `settings:read` |
 | `POST /v1/custom-fields/validate` | `settings:read` |
+| `GET /v1/workflows` | `workflow:read` |
+| `GET /v1/workflows/{id}/runs` | `workflow:read` |
+| `POST /v1/workflows/{id}/enabled` | `workflow:write` |
+| `GET /v1/workflow-events` | `workflow:read` |
+| `GET /v1/workflow-steps` | `workflow:read` |
+
+Reading and stopping are on the API; writing a definition is not, and that is a
+decision rather than an omission. A definition carries a condition group, which is
+a recursive shape the OpenAPI generator cannot describe, so publishing one would
+mean publishing a document that does not say what the request is. And the authority
+check on a publish is against what the AUTHOR holds, which is a question about a
+session rather than about a payload, so the builder stays where the check can see
+who is asking.
 
 ## Common questions
 
@@ -172,9 +185,8 @@ implements.
 
 ## What is not built
 
-Custom objects: fields only. The validator is written and not wired into the customer,
-property and job writes. Workflows have no `/v1` routes at all, so automation is office
-only and no integration or agent can list a workflow, read a run or switch one off.
-There is no canvas and no branching UI: branching exists as a step the engine runs and
-the builder writes a linear definition. Scheduled report delivery is not built, and
-neither is a workflow step that runs a report.
+Custom objects: fields only. The validator is written and not wired into the
+customer, property and job writes. Writing a workflow definition is office only, as
+above. There is no canvas and no branching UI: branching exists as a step the engine
+runs and the builder writes a linear definition. Scheduled report delivery is not
+built, and neither is a workflow step that runs a report.

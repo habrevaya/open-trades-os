@@ -41,6 +41,9 @@ import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
 import { appRoutes } from "./apps";
 import { equipmentRoutes } from "./equipment";
+import { taskRoutes } from "./tasks";
+import { workflowRoutes } from "./workflows";
+import { inspectionRoutes } from "./inspections";
 import { pricingAuthorityRoutes } from "./pricing-authority";
 import { fieldAssetRoutes } from "./field-assets";
 import { campaignRoutes } from "./campaigns";
@@ -158,6 +161,9 @@ export const routes = {
   ...serviceReportRoutes,
   ...appRoutes,
   ...equipmentRoutes,
+  ...taskRoutes,
+  ...workflowRoutes,
+  ...inspectionRoutes,
   ...pricingAuthorityRoutes,
   ...fieldAssetRoutes,
   ...campaignRoutes,

@@ -1233,20 +1233,19 @@ export const handlers = {
 
   liftEmailSuppression: (ctx: ServiceContext, input: { address: string }) =>
     liftSuppression(ctx, input),
-
-  /**
-   * The provider callback. `db` first, no ServiceContext: there is no caller
-   * identity here and the signature is what admits the request.
-   */
-  receiveEmailWebhook: async (db: Database, input: {
-    token: string; url: string; headers: Record<string, string>; rawBody: string;
-  }): Promise<{ outcome: string; reason: string | null; messageId: string | null }> => {
-    const result = await receiveByToken(db, input);
-    if (result.kind === "rejected") {
-      return { outcome: "rejected", reason: result.reason, messageId: null };
-    }
-    return result.outcome.recorded
-      ? { outcome: "recorded", reason: null, messageId: result.outcome.messageId }
-      : { outcome: "ignored", reason: result.outcome.reason, messageId: null };
-  },
 } as const;
+
+/*
+ * THERE WAS A `receiveEmailWebhook` HANDLER HERE AND NOTHING CALLED IT.
+ *
+ * A wrapper over `receiveByToken` that flattened the result, sitting in the
+ * `handlers` table, which is the table the HTTP router serves from. No route named
+ * it, because a provider callback is not a `/v1` route: it arrives at
+ * `/api/webhooks/email/{token}` and that page calls `receiveByToken` directly,
+ * which is right, since the signature is what admits the request and there is no
+ * caller identity to build a context from.
+ *
+ * So it was dead code in the one place that implies the opposite. Removed rather
+ * than routed, and `contracts.test.ts` now fails on a handler nothing serves,
+ * which is how this was found.
+ */

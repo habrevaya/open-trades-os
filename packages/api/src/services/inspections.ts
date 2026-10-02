@@ -661,3 +661,98 @@ function addMonths(date: string, months: number): string {
   target.setUTCDate(Math.min(d, last));
   return target.toISOString().slice(0, 10);
 }
+
+export const handlers = {
+  listInspectionPrograms: async (ctx: ServiceContext) => ({ programs: await programs(ctx) }),
+
+  recordInspection: (
+    ctx: ServiceContext,
+    input: {
+      programId: string; propertyId: string; customerId: string;
+      answers: {
+        itemKey: string;
+        /**
+         * Spelled out rather than `insp.AnswerValue`, which carries readonly
+         * arrays: the contract infers mutable ones and the two are not assignable
+         * in that direction. Widening core's type to satisfy a handler would be
+         * the wrong end to fix it.
+         */
+        value:
+          | { kind: "pass_fail"; passed: boolean }
+          | { kind: "reading"; raw: string | number | null }
+          | { kind: "photo"; photoIds: string[] }
+          | { kind: "note"; text: string }
+          | { kind: "count"; count: number }
+          | { kind: "not_applicable"; why: string };
+        at: string;
+        by: string;
+        note?: string | undefined;
+        photoIds?: string[] | undefined;
+        equipmentId?: string | undefined;
+      }[];
+      jobId?: string | null | undefined;
+      visitId?: string | null | undefined;
+      inspectorName?: string | null | undefined;
+      inspectorLicense?: string | null | undefined;
+      performedOn?: string | undefined;
+    },
+  ) => record(ctx, {
+    programId: input.programId,
+    propertyId: input.propertyId,
+    customerId: input.customerId,
+    /**
+     * `at` becomes a Date here and nowhere else.
+     *
+     * The wire carries an instant as a string because JSON has no date, and core
+     * takes a `Date` because it compares them. Parsing at the edge rather than
+     * inside the assessment keeps the decision clock-free: core is handed the
+     * moment the device recorded, never one this process invented.
+     */
+    answers: input.answers.map((answer) => ({
+      itemKey: answer.itemKey,
+      value: answer.value,
+      at: new Date(answer.at),
+      by: answer.by,
+      ...(answer.note !== undefined ? { note: answer.note } : {}),
+      ...(answer.photoIds !== undefined ? { photoIds: answer.photoIds } : {}),
+      ...(answer.equipmentId !== undefined ? { equipmentId: answer.equipmentId } : {}),
+    })),
+    ...(input.jobId !== undefined ? { jobId: input.jobId } : {}),
+    ...(input.visitId !== undefined ? { visitId: input.visitId } : {}),
+    ...(input.inspectorName !== undefined ? { inspectorName: input.inspectorName } : {}),
+    ...(input.inspectorLicense !== undefined ? { inspectorLicense: input.inspectorLicense } : {}),
+    ...(input.performedOn !== undefined ? { performedOn: input.performedOn } : {}),
+  }),
+
+  listDeficiencies: async (
+    ctx: ServiceContext,
+    input: {
+      propertyId?: string | undefined; customerId?: string | undefined;
+      includeSettled?: boolean | undefined; now?: string | undefined;
+    },
+  ) => ({
+    deficiencies: await backlog(ctx, {
+      ...(input.propertyId !== undefined ? { propertyId: input.propertyId } : {}),
+      ...(input.customerId !== undefined ? { customerId: input.customerId } : {}),
+      ...(input.includeSettled !== undefined ? { includeSettled: input.includeSettled } : {}),
+      ...(input.now !== undefined ? { now: new Date(input.now) } : {}),
+    }),
+  }),
+
+  setDeficiencyStatus: (
+    ctx: ServiceContext,
+    input: {
+      id: string;
+      status: "open" | "quoted" | "approved" | "scheduled" | "corrected" | "declined" | "deferred" | "void";
+      reason?: string | undefined;
+      jobId?: string | null | undefined;
+      on?: string | undefined;
+    },
+  ) => setDeficiencyStatus(ctx, {
+    id: input.id,
+    status: input.status,
+    ...(input.reason !== undefined ? { reason: input.reason } : {}),
+    ...(input.jobId !== undefined ? { jobId: input.jobId } : {}),
+    ...(input.on !== undefined ? { on: input.on } : {}),
+  }),
+} as const;

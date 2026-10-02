@@ -10,10 +10,21 @@ import {
  * The work that is not a job. Call this customer back, chase this approval,
  * this invoice needs a purchase order before it can go out.
  *
- * Reading and writing are separate permissions. A technician can be handed a
- * task and complete it; letting them create work for other people is a
- * different thing, and a queue anybody can add to stops being a queue anybody
- * reads.
+ * Reading and writing are separate permissions. Letting somebody who can see the
+ * queue create work for other people is a different thing, and a queue anybody
+ * can add to stops being a queue anybody reads.
+ *
+ * WHAT A READER MAY DO IS CLAIM, AND ONLY CLAIM. This comment used to say a
+ * technician "can be handed a task and complete it", and `close` has always taken
+ * `task:write`, which the technician preset does not hold. So the sentence was
+ * false in the direction that matters: somebody reading it would build a role on
+ * it.
+ *
+ * The asymmetry that leaves is real and is stated rather than smoothed over. A
+ * technician can take an unclaimed task, which sets it in progress, and cannot
+ * then close it: finishing is the office's. Whether that is right is a product
+ * decision and not one to make by widening a permission here, so it is named in
+ * `docs/modules/m34-tasks-and-the-office-queue.md` instead.
  */
 
 export type TaskView = "mine" | "unassigned" | "overdue" | "all";
@@ -273,3 +284,110 @@ export async function claim(ctx: ServiceContext, input: { id: string }) {
   });
 }
 
+
+/**
+ * A task on the wire, with every instant as a string.
+ *
+ * The service works in `Date` because the database does, and the contract
+ * publishes ISO strings because JSON has no date. Converting here rather than at
+ * each route keeps one answer to "what does a task look like over HTTP".
+ */
+const onTheWire = (row: {
+  id: string; title: string; body: string | null; status: string; priority: string;
+  entityType: string | null; entityId: string | null; assigneeUserId: string | null;
+  assigneeName: string | null; queue: string | null; dueAt: Date | null;
+  completedAt: Date | null; outcome: string | null; raisedByRunId: string | null;
+  createdAt: Date; overdue: boolean;
+}) => ({
+  id: row.id,
+  title: row.title,
+  body: row.body,
+  status: row.status,
+  priority: row.priority,
+  entityType: row.entityType,
+  entityId: row.entityId,
+  assigneeUserId: row.assigneeUserId,
+  assigneeName: row.assigneeName,
+  queue: row.queue,
+  dueAt: row.dueAt?.toISOString() ?? null,
+  completedAt: row.completedAt?.toISOString() ?? null,
+  outcome: row.outcome,
+  raisedByRunId: row.raisedByRunId,
+  createdAt: row.createdAt.toISOString(),
+  overdue: row.overdue,
+});
+
+export const handlers = {
+  listTasks: async (
+    ctx: ServiceContext,
+    input: { view?: TaskView | undefined; limit?: number | undefined; cursor?: string | undefined },
+  ) => {
+    const page = await list(ctx, {
+      ...(input.view ? { view: input.view } : {}),
+      ...(input.limit ? { limit: input.limit } : {}),
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+    });
+    return { ...page, data: page.data.map(onTheWire) };
+  },
+
+  getTaskCounts: (ctx: ServiceContext) => counts(ctx),
+
+  createTask: async (
+    ctx: ServiceContext,
+    input: {
+      title: string; body?: string | undefined; priority?: TaskInput["priority"];
+      entityType?: string | undefined; entityId?: string | undefined;
+      assigneeUserId?: string | undefined; queue?: string | undefined;
+      dueAt?: string | undefined;
+    },
+  ) => ({
+    id: (await create(ctx, {
+      title: input.title,
+      ...(input.body !== undefined ? { body: input.body } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.entityType !== undefined ? { entityType: input.entityType } : {}),
+      ...(input.entityId !== undefined ? { entityId: input.entityId } : {}),
+      ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}),
+      ...(input.queue !== undefined ? { queue: input.queue } : {}),
+      ...(input.dueAt !== undefined ? { dueAt: new Date(input.dueAt) } : {}),
+    })).id,
+  }),
+
+  updateTask: async (
+    ctx: ServiceContext,
+    input: {
+      id: string; title?: string | undefined; body?: string | undefined;
+      priority?: TaskInput["priority"]; assigneeUserId?: string | undefined;
+      queue?: string | undefined; dueAt?: string | undefined;
+      status?: "open" | "in_progress" | undefined;
+    },
+  ) => ({
+    id: (await update(ctx, {
+      id: input.id,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.body !== undefined ? { body: input.body } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}),
+      ...(input.queue !== undefined ? { queue: input.queue } : {}),
+      ...(input.dueAt !== undefined ? { dueAt: new Date(input.dueAt) } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+    })).id,
+  }),
+
+  claimTask: async (ctx: ServiceContext, input: { id: string }) => {
+    const after = await claim(ctx, input);
+    return { id: after.id, assigneeUserId: after.assigneeUserId };
+  },
+
+  closeTask: async (
+    ctx: ServiceContext,
+    input: { id: string; outcome?: string | undefined; dismissed?: boolean | undefined },
+  ) => {
+    const after = await close(ctx, {
+      id: input.id,
+      ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
+      ...(input.dismissed !== undefined ? { dismissed: input.dismissed } : {}),
+    });
+    return { id: after.id, status: after.status };
+  },
+} as const;

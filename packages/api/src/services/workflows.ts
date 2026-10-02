@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { automation, events, permissionsFor } from "@opentradesos/core";
+import { assertCan, automation, events, permissionsFor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -480,6 +480,19 @@ export async function remove(ctx: ServiceContext, input: { id: string }) {
  * emitted nor declared.
  */
 export async function triggerEvents(ctx: ServiceContext): Promise<string[]> {
+  /**
+   * CHECKED, although the catalogue half is a constant.
+   *
+   * The other half is this company's own event log, read through `inTenant`, which
+   * sets the tenant and does NOT check a permission: that is what `guardedRead`
+   * adds on top of it. So the distinct names a company has ever emitted, which is
+   * a sketch of what that company does, were readable by anybody with a session.
+   *
+   * Caught by `permission-declarations.test.ts`, which probes every route with an
+   * actor holding nothing and fails on one that answers. The route has always
+   * declared `workflow:read`; now so does the service.
+   */
+  assertCan(ctx.actor, "workflow:read");
   const seen = await inTenant(ctx, async (tx) =>
     tx.selectDistinct({ name: schema.domainEvent.name }).from(schema.domainEvent));
   return [...new Set([
@@ -511,6 +524,12 @@ export async function triggerEventCatalogue(
 
 /** The steps this build can actually perform, with what each one needs. */
 export function availableSteps(ctx: ServiceContext) {
+  /**
+   * Seeing what the engine can do is reading an automation, so it takes the same
+   * permission. The list is a constant and the `allowed` flag beside each step is
+   * the caller's own, which is exactly the pair a role was meant to gate.
+   */
+  assertCan(ctx.actor, "workflow:read");
   const held = permissionsFor(ctx.actor);
   return IMPLEMENTED.map((step) => ({
     ...step,
@@ -566,3 +585,51 @@ export function describeDwell(
   const days = dwell.afterDays;
   return `${shape.label}, after ${days} ${days === 1 ? "day" : "days"}`;
 }
+
+export const handlers = {
+  listWorkflows: async (ctx: ServiceContext) => ({
+    workflows: (await list(ctx)).map((row) => ({
+      ...row,
+      nextRunAt: row.nextRunAt?.toISOString() ?? null,
+      lastRunAt: row.lastRunAt?.toISOString() ?? null,
+      recent: row.recent.map((r) => ({ status: r.status, at: r.at?.toISOString() ?? null })),
+    })),
+  }),
+
+  /**
+   * The runs only, not the workflow row beside them.
+   *
+   * `detail` hands back the drizzle rows for the workflow, its version and its
+   * schedule state, which is right for a screen that already has the summary and
+   * wrong to publish: declaring every column of three tables in a contract makes
+   * the API's shape the schema's shape, and a column added for an internal reason
+   * becomes a published promise. The summary list is the published shape of a
+   * workflow; this route answers the question the summary cannot.
+   */
+  getWorkflowRuns: async (ctx: ServiceContext, input: { id: string; runs?: number | undefined }) => {
+    const found = await detail(ctx, { id: input.id, ...(input.runs ? { runs: input.runs } : {}) });
+    return {
+      runs: found.runs.map((run) => ({
+        ...run,
+        startedAt: run.startedAt?.toISOString() ?? null,
+        finishedAt: run.finishedAt?.toISOString() ?? null,
+        resumeAt: run.resumeAt?.toISOString() ?? null,
+      })),
+    };
+  },
+
+  setWorkflowEnabled: async (ctx: ServiceContext, input: { id: string; enabled: boolean }) => {
+    const after = await setEnabled(ctx, input);
+    return { id: after.id, enabled: after.enabled };
+  },
+
+  listWorkflowEvents: async (ctx: ServiceContext) => ({
+    events: await triggerEventCatalogue(ctx),
+  }),
+
+  /**
+   * Async although it reads nothing: the handler table takes one shape, and a
+   * synchronous entry is a different type the registry cannot hold.
+   */
+  listWorkflowSteps: async (ctx: ServiceContext) => ({ steps: availableSteps(ctx) }),
+} as const;
