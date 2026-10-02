@@ -16090,6 +16090,928 @@
         ]
       }
     },
+    "/v1/credit-notes": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createCreditNote",
+        "summary": "Raise a credit note",
+        "description": "Against an invoice or standing alone. Totals are computed here from the lines, with tax at the rate the credited invoice line charged. A line can never credit more than its invoice line charged, counting earlier credits, and a credit against an invoice can never pass what it billed. Goodwill needs a note. Issued straight away unless `draft` is set, and applied to its own invoice's balance at once unless `apply` is false.\n\nRequires a session holding: invoice:credit.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCreditNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Raise a credit note",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateCreditNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:credit"
+        ]
+      },
+      "get": {
+        "operationId": "listCreditNotes",
+        "summary": "Credit notes",
+        "description": "Newest first. Filter by customer, by the invoice they were raised against, or by status.\n\nRequires a session holding: invoice:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "open",
+                "partially_applied",
+                "applied",
+                "void"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credit notes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCreditNotesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:read"
+        ]
+      }
+    },
+    "/v1/credit-notes/{id}": {
+      "description": "Served at this path: DELETE, GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "GET"
+      ],
+      "delete": {
+        "operationId": "deleteCreditNote",
+        "summary": "Throw away a draft credit note",
+        "description": "Drafts only. An issued credit note is in the ledger and is voided instead.\n\nRequires a session holding: invoice:credit.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteCreditNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Throw away a draft credit note",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteCreditNoteOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:credit"
+        ]
+      },
+      "get": {
+        "operationId": "getCreditNote",
+        "summary": "One credit note, its lines and where it went",
+        "description": "With every application, so a credit spread over three invoices reconciles back to the document that created it.\n\nRequires a session holding: invoice:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One credit note, its lines and where it went",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCreditNoteOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:read"
+        ]
+      }
+    },
+    "/v1/credit-notes/{id}/apply": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyCreditNote",
+        "summary": "Put a credit against invoices",
+        "description": "Only that customer's open invoices, never more than the credit has left and never more than an invoice owes. No cash moves: what the company owed the customer settles what the customer owes the company.\n\nRequires a session holding: invoice:credit.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyCreditNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put a credit against invoices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyCreditNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:credit"
+        ]
+      }
+    },
+    "/v1/credit-notes/{id}/issue": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "issueCreditNote",
+        "summary": "Issue a draft credit note",
+        "description": "Posts it to the ledger and numbers it. A credit note already issued is returned as it is.\n\nRequires a session holding: invoice:credit.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueCreditNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Issue a draft credit note",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueCreditNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:credit"
+        ]
+      }
+    },
+    "/v1/credit-notes/{id}/void": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "voidCreditNote",
+        "summary": "Void a credit note nothing has used",
+        "description": "Reverses its posting. Refused once any of it is applied, because the application has its own posting and unwinding both from here would be two reversals pretending to be one.\n\nRequires a session holding: invoice:credit.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidCreditNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Void a credit note nothing has used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoidCreditNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:credit"
+        ]
+      }
+    },
     "/v1/crews": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -56857,6 +57779,265 @@
           "fields"
         ]
       },
+      "ApplyCreditNoteInput": {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "amount"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "applications"
+        ]
+      },
+      "ApplyCreditNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "partially_applied",
+              "applied",
+              "void"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "price_adjustment",
+              "goodwill",
+              "work_not_done",
+              "duplicate_invoice",
+              "contract_adjustment"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "subtotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountApplied": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "balance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "voidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lineTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceLineId",
+                "name",
+                "description",
+                "quantity",
+                "unitPrice",
+                "taxable",
+                "taxRate",
+                "taxAmount",
+                "lineTotal"
+              ]
+            }
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "integer"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "appliedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceId",
+                "invoiceNumber",
+                "amount",
+                "appliedOn"
+              ]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "customerId",
+          "customerName",
+          "invoiceId",
+          "invoiceNumber",
+          "reason",
+          "note",
+          "issuedOn",
+          "currency",
+          "subtotal",
+          "taxTotal",
+          "total",
+          "amountApplied",
+          "balance",
+          "voidedAt",
+          "lines",
+          "applications",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "ApplyDepositInput": {
         "type": "object",
         "properties": {
@@ -61931,6 +63112,317 @@
           "name"
         ]
       },
+      "CreateCreditNoteInput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "price_adjustment",
+              "goodwill",
+              "work_not_done",
+              "duplicate_invoice",
+              "contract_adjustment"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceLineId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$",
+                  "default": "1"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                }
+              },
+              "required": [
+                "unitPrice"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          },
+          "draft": {
+            "type": "boolean",
+            "default": false
+          },
+          "apply": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "reason",
+          "lines"
+        ]
+      },
+      "CreateCreditNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "partially_applied",
+              "applied",
+              "void"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "price_adjustment",
+              "goodwill",
+              "work_not_done",
+              "duplicate_invoice",
+              "contract_adjustment"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "subtotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountApplied": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "balance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "voidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lineTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceLineId",
+                "name",
+                "description",
+                "quantity",
+                "unitPrice",
+                "taxable",
+                "taxRate",
+                "taxAmount",
+                "lineTotal"
+              ]
+            }
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "integer"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "appliedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceId",
+                "invoiceNumber",
+                "amount",
+                "appliedOn"
+              ]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "customerId",
+          "customerName",
+          "invoiceId",
+          "invoiceNumber",
+          "reason",
+          "note",
+          "issuedOn",
+          "currency",
+          "subtotal",
+          "taxTotal",
+          "total",
+          "amountApplied",
+          "balance",
+          "voidedAt",
+          "lines",
+          "applications",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "CreateCrewInput": {
         "type": "object",
         "properties": {
@@ -63091,6 +64583,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountCredited": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -63266,6 +64762,7 @@
           "taxTotal",
           "total",
           "amountPaid",
+          "amountCredited",
           "balance",
           "depositHeld",
           "memo",
@@ -66750,6 +68247,29 @@
           "deleted"
         ]
       },
+      "DeleteCreditNoteInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DeleteCreditNoteOutput": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "deleted",
+          "id"
+        ]
+      },
       "DeleteCustomFieldInput": {
         "type": "object",
         "properties": {
@@ -69424,6 +70944,235 @@
           "rows"
         ]
       },
+      "GetCreditNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "partially_applied",
+              "applied",
+              "void"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "price_adjustment",
+              "goodwill",
+              "work_not_done",
+              "duplicate_invoice",
+              "contract_adjustment"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "subtotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountApplied": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "balance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "voidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lineTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceLineId",
+                "name",
+                "description",
+                "quantity",
+                "unitPrice",
+                "taxable",
+                "taxRate",
+                "taxAmount",
+                "lineTotal"
+              ]
+            }
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "integer"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "appliedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceId",
+                "invoiceNumber",
+                "amount",
+                "appliedOn"
+              ]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "customerId",
+          "customerName",
+          "invoiceId",
+          "invoiceNumber",
+          "reason",
+          "note",
+          "issuedOn",
+          "currency",
+          "subtotal",
+          "taxTotal",
+          "total",
+          "amountApplied",
+          "balance",
+          "voidedAt",
+          "lines",
+          "applications",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "GetCrewAvailabilityOutput": {
         "type": "object",
         "properties": {
@@ -71498,6 +73247,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountCredited": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -71673,6 +73426,7 @@
           "taxTotal",
           "total",
           "amountPaid",
+          "amountCredited",
           "balance",
           "depositHeld",
           "memo",
@@ -76444,6 +78198,244 @@
           "expiresAt"
         ]
       },
+      "IssueCreditNoteInput": {
+        "type": "object",
+        "properties": {
+          "apply": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "IssueCreditNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "partially_applied",
+              "applied",
+              "void"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "price_adjustment",
+              "goodwill",
+              "work_not_done",
+              "duplicate_invoice",
+              "contract_adjustment"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "subtotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountApplied": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "balance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "voidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lineTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceLineId",
+                "name",
+                "description",
+                "quantity",
+                "unitPrice",
+                "taxable",
+                "taxRate",
+                "taxAmount",
+                "lineTotal"
+              ]
+            }
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "integer"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "appliedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceId",
+                "invoiceNumber",
+                "amount",
+                "appliedOn"
+              ]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "customerId",
+          "customerName",
+          "invoiceId",
+          "invoiceNumber",
+          "reason",
+          "note",
+          "issuedOn",
+          "currency",
+          "subtotal",
+          "taxTotal",
+          "total",
+          "amountApplied",
+          "balance",
+          "voidedAt",
+          "lines",
+          "applications",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "IssueInvoiceInput": {
         "type": "object",
         "properties": {
@@ -76540,6 +78532,10 @@
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "amountPaid": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountCredited": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
@@ -76718,6 +78714,7 @@
           "taxTotal",
           "total",
           "amountPaid",
+          "amountCredited",
           "balance",
           "depositHeld",
           "memo",
@@ -79789,6 +81786,257 @@
           "nextCursor"
         ]
       },
+      "ListCreditNotesOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "open",
+                    "partially_applied",
+                    "applied",
+                    "void"
+                  ]
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "billing_error",
+                    "price_adjustment",
+                    "goodwill",
+                    "work_not_done",
+                    "duplicate_invoice",
+                    "contract_adjustment"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "currency": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 3
+                },
+                "subtotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "amountApplied": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "balance": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "voidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceLineId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "quantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "unitPrice": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "taxable": {
+                        "type": "boolean"
+                      },
+                      "taxRate": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "taxAmount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "lineTotal": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "invoiceLineId",
+                      "name",
+                      "description",
+                      "quantity",
+                      "unitPrice",
+                      "taxable",
+                      "taxRate",
+                      "taxAmount",
+                      "lineTotal"
+                    ]
+                  }
+                },
+                "applications": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceNumber": {
+                        "type": "integer"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "appliedOn": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "invoiceId",
+                      "invoiceNumber",
+                      "amount",
+                      "appliedOn"
+                    ]
+                  }
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "number",
+                "status",
+                "customerId",
+                "customerName",
+                "invoiceId",
+                "invoiceNumber",
+                "reason",
+                "note",
+                "issuedOn",
+                "currency",
+                "subtotal",
+                "taxTotal",
+                "total",
+                "amountApplied",
+                "balance",
+                "voidedAt",
+                "lines",
+                "applications",
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
       "ListCrewsOutput": {
         "type": "object",
         "properties": {
@@ -81872,6 +84120,10 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "amountCredited": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
                 "balance": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -81936,6 +84188,7 @@
                 "taxTotal",
                 "total",
                 "amountPaid",
+                "amountCredited",
                 "balance",
                 "depositHeld",
                 "memo",
@@ -101022,6 +103275,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountCredited": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -101197,6 +103454,7 @@
           "taxTotal",
           "total",
           "amountPaid",
+          "amountCredited",
           "balance",
           "depositHeld",
           "memo",
@@ -103411,6 +105669,248 @@
           "timeline"
         ]
       },
+      "VoidCreditNoteInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "VoidCreditNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "partially_applied",
+              "applied",
+              "void"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "price_adjustment",
+              "goodwill",
+              "work_not_done",
+              "duplicate_invoice",
+              "contract_adjustment"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "subtotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountApplied": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "balance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "voidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lineTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceLineId",
+                "name",
+                "description",
+                "quantity",
+                "unitPrice",
+                "taxable",
+                "taxRate",
+                "taxAmount",
+                "lineTotal"
+              ]
+            }
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "integer"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "appliedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceId",
+                "invoiceNumber",
+                "amount",
+                "appliedOn"
+              ]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "customerId",
+          "customerName",
+          "invoiceId",
+          "invoiceNumber",
+          "reason",
+          "note",
+          "issuedOn",
+          "currency",
+          "subtotal",
+          "taxTotal",
+          "total",
+          "amountApplied",
+          "balance",
+          "voidedAt",
+          "lines",
+          "applications",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "VoidInvoiceInput": {
         "type": "object",
         "properties": {
@@ -103511,6 +106011,10 @@
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "amountPaid": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountCredited": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
@@ -103689,6 +106193,7 @@
           "taxTotal",
           "total",
           "amountPaid",
+          "amountCredited",
           "balance",
           "depositHeld",
           "memo",
@@ -104094,6 +106599,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountCredited": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -104269,6 +106778,7 @@
           "taxTotal",
           "total",
           "amountPaid",
+          "amountCredited",
           "balance",
           "depositHeld",
           "memo",

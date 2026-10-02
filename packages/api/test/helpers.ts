@@ -32,6 +32,7 @@ const ORDER = [
   "project_draw", "project_job", "project_phase", "project",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
+  "credit_note_application", "credit_note_line", "credit_note",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",

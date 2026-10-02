@@ -1268,7 +1268,8 @@ export async function reverseForRefund(
     await tx.update(schema.invoice).set({
       amountPaid: m.toString(paid),
       balance: m.toString(balance),
-      status: m.isPositive(paid) ? "partially_paid" : "open",
+      /** Part paid while anything has come off it: money, a deposit or a credit. */
+      status: m.compare(balance, usd(invoice.total)) < 0 ? "partially_paid" : "open",
       updatedAt: new Date(),
     }).where(eq(schema.invoice.id, invoiceId));
     fromApplied = m.subtract(fromApplied, take);
@@ -1403,7 +1404,14 @@ async function allocate(
     if (!invoice) throw new NotFoundError("Invoice");
 
     const paid = m.add(usd(invoice.amountPaid), allocation.amount);
-    const balance = m.subtract(usd(invoice.total), paid);
+    /**
+     * FROM THE BALANCE, not recomputed as total less paid. Two other things
+     * reduce a balance without being a payment, a deposit applied and a
+     * credit note applied, and recomputing from the total quietly undid both
+     * the next time a payment landed: an invoice with a two hundred dollar
+     * deposit on it, paid in full, came out owing two hundred dollars.
+     */
+    const balance = m.subtract(usd(invoice.balance), allocation.amount);
 
     await tx.update(schema.invoice).set({
       amountPaid: m.toString(paid),
@@ -1556,6 +1564,17 @@ export async function voidInvoice(
       throw new ConflictError(
         `Invoice ${invoice.number} has ${invoice.amountPaid} paid against it. `
         + "Refund the payment first, or write the balance off instead.",
+      );
+    }
+    /**
+     * The same for a credit put against it: the credit note's application is
+     * its own posting, and voiding the invoice underneath it would leave a
+     * credit applied to nothing.
+     */
+    if (m.isPositive(m.money(invoice.amountCredited, "USD"))) {
+      throw new ConflictError(
+        `Invoice ${invoice.number} has ${invoice.amountCredited} of credit applied to it. `
+        + "Write the balance off instead.",
       );
     }
 

@@ -88,6 +88,7 @@ export const PERMISSIONS = {
   "invoice:send": "Send an invoice",
   "invoice:void": "Void an invoice",
   "invoice:writeoff": "Write off a balance",
+  "invoice:credit": "Issue, apply and void a credit note",
   "payment:read": "View payments",
   "payment:collect": "Take a payment",
   "payment:refund": "Issue a refund",

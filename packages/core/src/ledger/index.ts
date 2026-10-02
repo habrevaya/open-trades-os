@@ -639,6 +639,116 @@ export function postVoid(input: {
   });
 }
 
+/**
+ * A CREDIT NOTE, WHICH IS THE THIRD WAY A BALANCE GOES AWAY AND THE ONE THAT
+ * WAS MISSING.
+ *
+ * A write off says the money is owed and will not arrive: the revenue stays and
+ * a bad debt expense appears beside it. A void says the invoice should never
+ * have existed. A credit note says the invoice asked for too much: the work
+ * happened and some of it should not have been billed, or the company chose to
+ * give something back.
+ *
+ * So it reverses the revenue and the tax for the credited amount, exactly as a
+ * void does, and the only difference is that it is PARTIAL and it leaves the
+ * original invoice standing. That matters for the tax line above all: the
+ * company collected sales tax it is no longer owed, and a credit note that left
+ * `TAX_PAYABLE` alone would have the company remitting tax on revenue it gave
+ * back.
+ *
+ * ISSUING IT DOES NOT TOUCH THE INVOICE. Issuing creates the credit; applying it
+ * is the second posting below, and the two are separate because a credit can be
+ * issued today and applied to an invoice raised next month, or never applied at
+ * all and refunded instead. Collapsing them would make an unapplied credit
+ * invisible, which is money a company owes a customer and does not know about.
+ */
+export function postCreditNote(input: {
+  creditNoteId: string;
+  occurredAt: Date;
+  /** Only the amounts being credited, never the original invoice's. */
+  totals: { subtotal: Money; taxTotal: Money; total: Money };
+  customerId?: string | undefined;
+  invoiceId?: string | undefined;
+  isAgreementRevenue?: boolean | undefined;
+}): Posting {
+  const { totals } = input;
+  const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
+  const tag = { customerId: input.customerId };
+
+  return assertBalanced({
+    sourceType: "credit_note",
+    sourceId: input.creditNoteId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(revenueAccount, totals.subtotal, "Revenue credited back", tag),
+      dr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax credited back", tag),
+      /**
+       * The other side sits in customer deposits, which is where unapplied money
+       * owed to a customer already lives in this chart. It is a liability and it
+       * is the right one: until the credit is applied, the company owes the
+       * customer something.
+       */
+      cr(ACCOUNTS.CUSTOMER_DEPOSITS, totals.total, "Credit owed to the customer", tag),
+    ]),
+  });
+}
+
+/**
+ * Putting a credit against an invoice.
+ *
+ * Identical in shape to applying an unapplied payment, because it is the same
+ * movement: a liability the company owed the customer is settled by reducing
+ * what the customer owes the company. No cash is involved in either.
+ */
+export function postCreditNoteApplication(input: {
+  creditNoteId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+  invoiceId?: string | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "credit_note_application",
+    sourceId: input.creditNoteId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Credit applied", tag),
+      cr(ACCOUNTS.AR, input.amount, "Applied to receivable", tag),
+    ]),
+  });
+}
+
+/**
+ * Taking a credit note back, before any of it was applied.
+ *
+ * The reverse of issuing it. Refused by the service once any of it has been
+ * applied, because the application has its own posting and unwinding both from
+ * here would be two reversals pretending to be one.
+ */
+export function postCreditNoteVoid(input: {
+  creditNoteId: string;
+  occurredAt: Date;
+  totals: { subtotal: Money; taxTotal: Money; total: Money };
+  customerId?: string | undefined;
+  isAgreementRevenue?: boolean | undefined;
+}): Posting {
+  const { totals } = input;
+  const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
+  const tag = { customerId: input.customerId };
+
+  return assertBalanced({
+    sourceType: "credit_note_void",
+    sourceId: input.creditNoteId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, totals.total, "Credit withdrawn", tag),
+      cr(revenueAccount, totals.subtotal, "Revenue restored", tag),
+      cr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax restored", tag),
+    ]),
+  });
+}
+
 /** Writing off a balance. The receivable goes, and the loss is recognised. */
 export function postWriteOff(input: {
   invoiceId: string;

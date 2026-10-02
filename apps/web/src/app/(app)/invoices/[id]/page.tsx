@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, customers, invoiceDelivery, jobs, payments, NotFoundError } from "@opentradesos/api/services";
+import { billing, creditNotes, customers, invoiceDelivery, jobs, payments, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -12,6 +12,9 @@ import { InvoiceActions } from "./Panels";
 import { actOnInvoice } from "../actions";
 import { startCardPayment } from "../../payments/actions";
 import { PayNow } from "../../../(portal)/PayNow";
+import { ActionForm, Select, TextArea } from "@/components/ActionForm";
+import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../credit-notes/labels";
+import { creditInvoice } from "../credit-notes/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +38,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     invoice.jobId && can(user.actor, "job:read") ? jobs.get(ctx, { id: invoice.jobId }).catch(() => null) : null,
     invoiceDelivery.history(ctx, { invoiceId: id }).then((r) => r.deliveries),
   ]);
+  const credited = (await creditNotes.list(ctx, { limit: 50, invoiceId: id })).data;
+  /**
+   * A credit can be raised on anything issued and still standing, paid
+   * included: what a paid invoice no longer owes stays on the account.
+   */
+  const creditable = can(user.actor, "invoice:credit")
+    && ["open", "partially_paid", "paid"].includes(invoice.status);
   const tz = user.organizationTimezone;
   const owed = (invoice.status === "open" || invoice.status === "partially_paid") && Number(invoice.balance ?? "0") > 0;
   const collects = owed && can(user.actor, "payment:collect");
@@ -70,6 +80,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <Fact label="PO number">{invoice.purchaseOrderNumber}</Fact>
         <Fact label="Total"><Money value={invoice.total} /></Fact>
         <Fact label="Paid">{zero(invoice.amountPaid) ? null : <Money value={invoice.amountPaid} />}</Fact>
+        <Fact label="Credited">{zero(invoice.amountCredited ?? "0") ? null : <Money value={invoice.amountCredited ?? "0"} />}</Fact>
         <Fact label="Balance"><Money value={invoice.balance} /></Fact>
         <Fact label="Note">{invoice.memo}</Fact>
       </Facts>
@@ -145,6 +156,54 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         customerEmail={customer?.email ?? null}
         sentBefore={deliveries.length > 0}
       />
+
+      {credited.length > 0 && (
+        <section aria-label="Credit notes">
+          <h2 className="mt-10 text-base font-semibold">Credit notes</h2>
+          <Table label="Credit notes on this invoice" head={
+            <><Th className="w-20">Number</Th><Th>Why</Th><Th>Status</Th><Th className="text-right">Credit</Th></>
+          }>
+            {credited.map((n) => (
+              <tr key={n.id} className="hover:bg-steel-100">
+                <Td className="font-mono tabular-nums">
+                  <a href={`/invoices/credit-notes/${n.id}`} className="hover:underline">{n.number}</a>
+                </Td>
+                <Td className="text-ink-700">{label(CREDIT_REASON, n.reason)}</Td>
+                <Td><Chip tone={tone(CREDIT_TONE, n.status)}>{label(CREDIT_STATUS, n.status)}</Chip></Td>
+                <Td className="text-right"><Money value={n.total} /></Td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+      )}
+
+      {creditable && (
+        <details className="mt-4 rounded-md border border-steel-200 p-4">
+          <summary className="cursor-pointer text-sm font-medium">Credit this invoice</summary>
+          <p className="mt-2 text-sm text-ink-700">
+            The bill asked for too much. Say how much comes off each line; the tax comes back at
+            the rate the line was charged, and it comes off what is still owed.
+          </p>
+          <ActionForm action={creditInvoice} submit="Issue credit note" hidden={{ invoiceId: invoice.id }}
+                      className="mt-3 space-y-3">
+            <div className="space-y-2">
+              {invoice.lines.map((line) => (
+                <label key={line.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <span>
+                    <span className="font-medium">{line.name}</span>
+                    <span className="ml-2 text-ink-500">charged <Money value={line.lineTotal} /></span>
+                  </span>
+                  <input name={`line:${line.id}`} inputMode="decimal" placeholder="0.00"
+                         aria-label={`Credit on ${line.name}`}
+                         className="h-9 w-32 rounded border border-steel-300 bg-canvas px-3 text-right text-sm" />
+                </label>
+              ))}
+            </div>
+            <Select label="Why" name="reason" options={REASON_OPTIONS} />
+            <TextArea label="Note" name="note" rows={2} maxLength={2000} />
+          </ActionForm>
+        </details>
+      )}
 
       {deliveries.length > 0 && (
         <section aria-label="Sent">

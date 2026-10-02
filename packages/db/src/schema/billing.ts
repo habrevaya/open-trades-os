@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, currency, rate } from "./_shared";
-import { organization, businessUnit } from "./tenancy";
+import { organization, businessUnit, user } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
 import { priceBookItemVersion } from "./pricebook";
@@ -298,6 +298,12 @@ export const invoice = pgTable("invoice", {
   total: money("total").notNull().default("0"),
   /** Denormalized for AR aging queries. Authoritative figure is the ledger. */
   amountPaid: money("amount_paid").notNull().default("0"),
+  /**
+   * What credit notes took off it. Kept apart from `amountPaid` because a
+   * credit is not money arriving: a collections report that counted it as
+   * paid would show cash the bank never saw.
+   */
+  amountCredited: money("amount_credited").notNull().default("0"),
   balance: money("balance").notNull().default("0"),
   /** Deposit held against work not yet performed. A liability, not revenue. */
   depositHeld: money("deposit_held").notNull().default("0"),
@@ -359,6 +365,144 @@ export const invoiceLine = pgTable("invoice_line", {
   rateCardLineId: uuid("rate_card_line_id"),
   ...timestamps,
 }, (t) => ({ invoiceIdx: index("invoice_line_invoice_idx").on(t.invoiceId) }));
+
+/**
+ * WHY A CREDIT NOTE IS ITS OWN DOCUMENT
+ *
+ * Three different things reduce what a customer owes and they are not
+ * interchangeable, which is the whole reason this table exists rather than a
+ * flag on `invoice`:
+ *
+ *   A REFUND moves cash back out. There is a bank line for it.
+ *   A WRITE OFF admits the money will never arrive. It is a bad debt expense
+ *     and it says something about the customer.
+ *   A CREDIT NOTE says the invoice asked for too much. No cash moves, nothing
+ *     is owed and nothing was lost: the bill was wrong, or the company chose to
+ *     give something back.
+ *
+ * Collapsing the third into the second is the common shortcut and it is
+ * expensive in a specific way: every mis-billed invoice becomes bad debt
+ * expense, so the one number an owner uses to decide whether to keep selling to
+ * a customer is made of their own billing mistakes.
+ *
+ * NOT A NEGATIVE INVOICE, which is the other shortcut. An invoice with a
+ * negative total would be picked up by every query in this product that means
+ * "what is owed": the aging report, the receivables total, the statement, the
+ * dunning list. Each one would need an exclusion, and the first one anybody
+ * forgets reports a company's receivables as smaller than they are.
+ */
+export const creditNoteStatus = pgEnum("credit_note_status", [
+  "draft",
+  /** Issued and posted. Some or all of it may still be unapplied. */
+  "open",
+  "partially_applied",
+  "applied",
+  "void",
+]);
+
+/**
+ * Why the credit was given, from a closed list.
+ *
+ * Required, and closed, because the free text version of this field is always
+ * filled in with the customer's name. The six below are what the reasons
+ * actually are, and the distinction an owner needs is the first one against the
+ * rest: a billing error is a process problem that can be fixed, and goodwill is
+ * a decision somebody made.
+ */
+export const creditReason = pgEnum("credit_reason", [
+  "billing_error",
+  "price_adjustment",
+  "goodwill",
+  "work_not_done",
+  "duplicate_invoice",
+  "contract_adjustment",
+]);
+
+export const creditNote = pgTable("credit_note", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** Its own sequence, so a credit note and an invoice never share a number. */
+  number: integer("number").notNull(),
+  customerId: uuid("customer_id").notNull().references(() => customer.id),
+  /**
+   * The invoice it was raised against, when there is one.
+   *
+   * Nullable because a standalone credit is real: a customer owed something at
+   * the end of a contract, or a goodwill credit against future work. Those have
+   * no invoice to point at, and inventing one would be a document nobody sent.
+   */
+  invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "set null" }),
+  status: creditNoteStatus("status").notNull().default("draft"),
+  reason: creditReason("reason").notNull(),
+  /** In the person's own words, beside the category. Required for goodwill. */
+  note: text("note"),
+  issuedOn: date("issued_on"),
+  currency: currency(),
+  subtotal: money("subtotal").notNull().default("0"),
+  taxTotal: money("tax_total").notNull().default("0"),
+  total: money("total").notNull().default("0"),
+  /** How much of it has been put against an invoice. */
+  amountApplied: money("amount_applied").notNull().default("0"),
+  /** What is left to apply. Credit sitting on the account, which is a liability. */
+  balance: money("balance").notNull().default("0"),
+  issuedByUserId: uuid("issued_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  ...sourceRef,
+  ...timestamps,
+}, (t) => ({
+  sourceRefIdx: sourceRefIndex("credit_note_source_ref_idx", t),
+  /** UNIQUE for the same reason as the invoice and job numbers. */
+  numberIdx: uniqueIndex("credit_note_number_idx").on(t.organizationId, t.number),
+  customerIdx: index("credit_note_customer_idx").on(t.organizationId, t.customerId, t.status),
+  invoiceIdx: index("credit_note_invoice_idx").on(t.invoiceId),
+}));
+
+export const creditNoteLine = pgTable("credit_note_line", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  creditNoteId: uuid("credit_note_id").notNull().references(() => creditNote.id, { onDelete: "cascade" }),
+  /**
+   * The invoice line this credits, when it credits one.
+   *
+   * What makes a credit note answerable rather than a lump: "we took the
+   * capacitor off" is a different conversation from "we took two hundred
+   * dollars off", and only the first one tells anybody what to fix.
+   */
+  invoiceLineId: uuid("invoice_line_id").references(() => invoiceLine.id, { onDelete: "set null" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  name: text("name").notNull(),
+  description: text("description"),
+  quantity: money("quantity").notNull().default("1"),
+  unitPrice: money("unit_price").notNull().default("0"),
+  taxable: boolean("taxable").notNull().default(true),
+  /** The rate AS APPLIED on the invoice being credited, never recomputed. */
+  taxRate: rate("tax_rate").notNull().default("0"),
+  taxAmount: money("tax_amount").notNull().default("0"),
+  lineTotal: money("line_total").notNull().default("0"),
+  ...timestamps,
+}, (t) => ({ noteIdx: index("credit_note_line_note_idx").on(t.creditNoteId) }));
+
+/**
+ * Where a credit went, invoice by invoice.
+ *
+ * The same shape as `payment_allocation` and for the same reason: a credit can
+ * span invoices and an invoice can take several credits, so the connection
+ * between them is a row rather than a column on either side. Without it, a
+ * credit applied to three invoices is three numbers nobody can reconcile back
+ * to the document that created them.
+ */
+export const creditNoteApplication = pgTable("credit_note_application", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  creditNoteId: uuid("credit_note_id").notNull().references(() => creditNote.id, { onDelete: "cascade" }),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  amount: money("amount").notNull(),
+  appliedOn: date("applied_on"),
+  ...timestamps,
+}, (t) => ({
+  noteIdx: index("credit_note_application_note_idx").on(t.creditNoteId),
+  invoiceIdx: index("credit_note_application_invoice_idx").on(t.invoiceId),
+}));
 
 export const paymentMethod = pgEnum("payment_method", [
   "card", "card_present", "ach", "cash", "check", "financing", "credit", "other",
