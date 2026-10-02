@@ -64,7 +64,24 @@ export const NAV: NavGroup[] = [
   {
     label: "Work",
     items: [
-      { href: "/schedule", label: "Schedule", permission: "visit:read", icon: "schedule" },
+      {
+        href: "/schedule", label: "Schedule", permission: "visit:read", icon: "schedule",
+        children: [
+          { href: "/schedule", label: "The board" },
+          /**
+           * Who is working, from two ends: the crews that take work one person
+           * cannot do, and who has the phone when the office is shut. Both were
+           * in the API with no screen.
+           */
+          { href: "/schedule/crews", label: "Crews and on call" },
+          /**
+           * The template a route business runs its week on. Under Schedule
+           * rather than under Recurring, because a route is a weekday and a
+           * servicer before it is a cadence.
+           */
+          { href: "/schedule/routes", label: "Routes" },
+        ],
+      },
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
       { href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks" },
       { href: "/recurring", label: "Recurring", permission: "job:read", icon: "recurring" },
@@ -127,7 +144,19 @@ export const NAV: NavGroup[] = [
        * period, a register somebody can check line by line, and the file the
        * bureau takes.
        */
-      { href: "/payroll", label: "Payroll", permission: "payroll:read", icon: "payroll" },
+      {
+        href: "/payroll", label: "Payroll", permission: "payroll:read", icon: "payroll",
+        children: [
+          { href: "/payroll", label: "Pay periods" },
+          /**
+           * The rule behind the commission lines already on the register. It
+           * inherits `payroll:read` to be SHOWN and the page itself needs
+           * `commission:read`, because the person who runs the export is usually
+           * not the person entitled to decide what people are paid.
+           */
+          { href: "/payroll/commissions", label: "Commission plans" },
+        ],
+      },
       { href: "/booking", label: "Online booking", permission: "booking:configure", icon: "booking" },
     ],
   },

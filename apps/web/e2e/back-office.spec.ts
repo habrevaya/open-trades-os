@@ -486,3 +486,156 @@ test("Campaigns: an audience is read back as a sentence, and a send reports who 
   await expect(after).toContainText("Nobody matched the rules");
   await expect(after).not.toContainText("Not sent yet");
 });
+
+test("Crews and on call: a crew is named, staffed and given a lead, and somebody goes on call", async ({ owner }) => {
+  await owner.goto("/schedule/crews");
+  await expect(owner.getByRole("heading", { level: 1, name: "Crews and on call" })).toBeVisible();
+
+  const name = `Tree crew ${run}`;
+  const add = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add" }) });
+  await add.getByPlaceholder("Tree crew").fill(name);
+  /**
+   * A rate with no unit is refused, because "eight hundred a day" is eight hundred
+   * square feet or linear feet or cubic yards and the three are different jobs.
+   */
+  await add.getByLabel("Production rate a day").fill("800");
+  await add.getByRole("button", { name: "Add" }).click();
+  await expect(add.getByRole("alert")).toBeVisible();
+
+  // With both halves it saves.
+  await add.getByPlaceholder("Tree crew").fill(name);
+  await add.getByLabel("Production rate a day").fill("800");
+  await add.getByLabel("Unit the rate is in").fill("square feet");
+  await add.getByRole("button", { name: "Add" }).click();
+
+  const row = owner.getByRole("table", { name: "Crews" }).getByRole("row").filter({ hasText: name });
+  await expect(row).toContainText("800 square feet a day");
+  // Nobody on it yet, said out loud rather than left blank.
+  await expect(row).toContainText("Nobody on it");
+
+  /**
+   * Somebody on call, and the rota says who.
+   *
+   * IN THE NEXT FEW DAYS, not at a fixed date. The service windows the rota to
+   * roughly a month ahead on purpose, and the first version of this test used a
+   * date in the past: the shift was written, the list correctly showed nothing,
+   * and the assertion read that as the screen being broken. The screen now states
+   * its window for the same reason.
+   */
+  const soon = (days: number, hour: string) =>
+    `${iso(new Date(Date.now() + days * 864e5))}T${hour}`;
+  const schedule = owner.locator("form").filter({
+    has: owner.getByRole("button", { name: "Schedule" }),
+  });
+  await schedule.getByLabel("From").fill(soon(3, "18:00"));
+  await schedule.getByLabel("Until").fill(soon(6, "06:00"));
+  await schedule.getByRole("button", { name: "Schedule" }).click();
+  await expect(owner.getByRole("table", { name: "On call" })).toBeVisible();
+
+  /**
+   * And a second shift over the same hours is refused. Two rows covering one
+   * instant is two people told different things, discovered at two in the morning
+   * by a customer.
+   */
+  await schedule.getByLabel("From").fill(soon(4, "09:00"));
+  await schedule.getByLabel("Until").fill(soon(5, "09:00"));
+  await schedule.getByRole("button", { name: "Schedule" }).click();
+  await expect(schedule.getByRole("alert")).toContainText(/already|on call|overlap/i);
+});
+
+test("Routes: a route is defined, given a stop, and turned into a day's work", async ({ owner }) => {
+  const street = `${run.slice(-5)} Pool Ln`;
+  await newCustomer(owner, {
+    name: `Poolside ${run}`,
+    address: { street, city: "Austin", state: "TX", zip: "78745" },
+  });
+
+  await owner.goto("/schedule/routes");
+  await expect(owner.getByRole("heading", { level: 1, name: "Routes" })).toBeVisible();
+
+  const name = `Tuesday north ${run}`;
+  const add = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add" }) });
+  await add.getByPlaceholder("Tuesday north").fill(name);
+  await add.getByLabel("Which weekday").selectOption({ label: "Tuesday" });
+  await add.getByLabel("Minutes driving between stops").fill("8");
+  await add.getByRole("button", { name: "Add" }).click();
+
+  const row = owner.getByRole("table", { name: "Routes" }).getByRole("row").filter({ hasText: name });
+  await expect(row).toContainText("Tuesday");
+
+  // Its stops and whether the day fits.
+  await row.getByRole("link", { name: "Stops and fit" }).click();
+  await expect(owner.getByRole("heading", { level: 2, name })).toBeVisible();
+
+  const stop = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Add" }) }).last();
+  await stop.getByLabel("Address").selectOption({ label: `${street}, Austin` });
+  await stop.getByLabel("Minutes on site").fill("24");
+  await stop.getByLabel("Price per stop").fill("65");
+  await stop.getByRole("button", { name: "Add" }).click();
+  await expect(owner.getByRole("table", { name: "Stops" })).toContainText(street);
+  await expect(owner.getByRole("table", { name: "Stops" })).toContainText("$65.00");
+
+  /**
+   * The same address twice is refused: it is a double booking written into the
+   * template, and every materialisation forever would produce the pair.
+   */
+  await stop.getByLabel("Address").selectOption({ label: `${street}, Austin` });
+  await stop.getByRole("button", { name: "Add" }).click();
+  await expect(stop.getByRole("alert")).toBeVisible();
+
+  /**
+   * Making a day. Refused onto the wrong weekday, because a route IS a weekday and
+   * materialising Tuesday's onto a Thursday puts forty stops on a day the servicer
+   * is committed elsewhere.
+   */
+  const make = owner.getByRole("table", { name: "Routes" }).getByRole("row").filter({ hasText: name });
+  await make.getByLabel("Which day").fill("2026-06-04");
+  await make.getByRole("button", { name: "Make a day" }).click();
+  await expect(make.getByRole("alert")).toBeVisible();
+
+  // A Tuesday works.
+  await make.getByLabel("Which day").fill("2026-06-02");
+  await make.getByRole("button", { name: "Make a day" }).click();
+  await expect(make.getByRole("alert")).toHaveCount(0);
+});
+
+test("Commission plans: a basis is chosen with its caveat on the screen, and a plan is superseded", async ({ owner }) => {
+  await owner.goto("/payroll/commissions");
+  await expect(owner.getByRole("heading", { level: 1, name: "Commission plans" })).toBeVisible();
+
+  /**
+   * The caveat is on the screen where the choice is made, not behind a link.
+   * Somebody picking a basis is writing the instruction their technicians will
+   * follow for years, usually in about ninety seconds.
+   */
+  await expect(owner.getByText("Rewards instead:").first()).toBeVisible();
+  await expect(owner.getByText("Needs:").first()).toBeVisible();
+
+  const label = `Service commission ${run}`;
+  const form = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Declare" }) });
+  await form.getByLabel("What this plan is called").fill(label);
+  await form.getByLabel("Basis").selectOption({ label: "Percentage of revenue" });
+  // A percentage basis with a flat amount and no rate is refused by the service.
+  await form.getByLabel("Flat amount").fill("45");
+  await form.getByLabel("What a technician is told when they ask").fill("Eight per cent of the invoice.");
+  await form.getByRole("button", { name: "Declare" }).click();
+  await expect(form.getByRole("alert")).toBeVisible();
+
+  // With the rate it declares, and the percentage reads as a percentage.
+  await form.getByLabel("What this plan is called").fill(label);
+  await form.getByLabel("Rate, as a decimal").fill("0.08");
+  await form.getByLabel("Flat amount").fill("");
+  await form.getByLabel("What a technician is told when they ask").fill("Eight per cent of the invoice.");
+  await form.getByRole("button", { name: "Declare" }).click();
+
+  const row = owner.getByRole("table", { name: "Commission plans" }).getByRole("row")
+    .filter({ hasText: label });
+  await expect(row).toContainText("8%");
+  await expect(row).toContainText("Live");
+  await expect(row).toContainText("rewards selling the expensive option");
+
+  // Superseded rather than edited, and it stays on the list to explain past pay.
+  await row.getByRole("button", { name: "Supersede" }).click();
+  await expect(owner.getByRole("table", { name: "Commission plans" }).getByRole("row")
+    .filter({ hasText: label })).toContainText("Superseded");
+});
