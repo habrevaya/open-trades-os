@@ -311,3 +311,130 @@ export async function mergedInto(ctx: ServiceContext, input: { id: string }) {
     return target ?? null;
   });
 }
+
+/**
+ * THE RECORDS THAT LOOK LIKE THE SAME PERSON
+ *
+ * Merging needs two ids and a screen cannot ask somebody to type the second one.
+ * A picker over every customer is no better: a company with four thousand of them
+ * is a dropdown nobody can use, and browsing is not how a duplicate is found
+ * anyway. A duplicate is found by matching.
+ *
+ * Three signals, strongest first, and each one says WHY so the person deciding
+ * can see it rather than trusting a score:
+ *
+ *   The same phone number, which for a household is the strongest signal there
+ *   is: two records with one number is almost always one person entered twice.
+ *   The same email address, for the same reason.
+ *   A similar name, by trigram similarity, which catches "Robert Smith" against
+ *   "Bob Smith" and "Smith, Robert" and is the one that needs a human to confirm.
+ *
+ * NO SCORE AND NO RANKING ACROSS SIGNALS. A single number would have to weigh a
+ * shared phone against a 0.6 name similarity, and whatever weighting was chosen
+ * would be wrong for somebody. The reason is the output.
+ *
+ * Soft deleted rows are excluded, so a record already merged away does not come
+ * back as a candidate for merging again.
+ */
+const NAME_SIMILARITY = 0.45;
+
+export interface DuplicateCandidate {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  /** Why this one is here, in the words a person deciding would use. */
+  because: string;
+}
+
+export async function likelyDuplicates(
+  ctx: ServiceContext, input: { id: string; limit?: number },
+): Promise<DuplicateCandidate[]> {
+  return guardedRead(ctx, "customer:read", async (tx) => {
+    const subject = await load(tx, ctx.actor.organizationId, input.id);
+    const limit = Math.min(input.limit ?? 10, 50);
+
+    /**
+     * One query rather than three, because three would have to be merged in
+     * TypeScript and a record matching on both phone and name would arrive twice.
+     * The `case` picks the strongest reason, which is also what orders the result.
+     */
+    /**
+     * EVERY PARAMETER IS CAST, and the nullable ones are why.
+     *
+     * A bare parameter in `$1 is not null` gives Postgres nothing to infer a type
+     * from, and it refuses the statement with "could not determine data type of
+     * parameter $1" rather than guessing. That is the right behaviour and it is
+     * not a Drizzle quirk: the same SQL typed by hand is refused the same way.
+     */
+    const phone = sql`${subject.phone}::text`;
+    const email = sql`${subject.email}::text`;
+    const name = sql`${subject.name}::text`;
+
+    const rows = await tx.execute<{
+      id: string; name: string; phone: string | null; email: string | null; because: string;
+    }>(sql`
+      select c.id, c.name, c.phone, c.email,
+        case
+          when ${phone} is not null and c.phone = ${phone}
+            then 'Same phone number'
+          when ${email} is not null and lower(c.email) = lower(${email})
+            then 'Same email address'
+          else 'Similar name'
+        end as because
+      from public.customer c
+      where c.organization_id = ${ctx.actor.organizationId}
+        and c.id <> ${input.id}
+        and c.deleted_at is null
+        and (
+          (${phone} is not null and c.phone = ${phone})
+          or (${email} is not null and lower(c.email) = lower(${email}))
+          or similarity(c.name, ${name}) >= ${NAME_SIMILARITY}::real
+        )
+      order by
+        case
+          when ${phone} is not null and c.phone = ${phone} then 0
+          when ${email} is not null and lower(c.email) = lower(${email}) then 1
+          else 2
+        end,
+        similarity(c.name, ${name}) desc,
+        c.name
+      limit ${limit}`);
+
+    return [...rows] as DuplicateCandidate[];
+  });
+}
+
+export const handlers = {
+  getCustomerDuplicates: async (ctx: ServiceContext, input: { id: string; limit?: number | undefined }) => ({
+    candidates: await likelyDuplicates(ctx, {
+      id: input.id, ...(input.limit ? { limit: input.limit } : {}),
+    }),
+  }),
+
+  getCustomerDeletability: (ctx: ServiceContext, input: { id: string }) =>
+    deletability(ctx, input),
+
+  removeCustomer: (ctx: ServiceContext, input: { id: string; reason: string }) =>
+    remove(ctx, input),
+
+  mergeCustomers: (
+    ctx: ServiceContext,
+    input: { keepId: string; mergeId: string; reason?: string | undefined },
+  ) => merge(ctx, {
+    keepId: input.keepId,
+    mergeId: input.mergeId,
+    ...(input.reason ? { reason: input.reason } : {}),
+  }),
+
+  /**
+   * Wrapped in an object rather than returned bare.
+   *
+   * A route whose whole body is `null` is indistinguishable from a route that
+   * answered nothing, and a generated client types it as `unknown`. `into: null`
+   * is an answer: this customer was never merged.
+   */
+  getCustomerMergedInto: async (ctx: ServiceContext, input: { id: string }) => ({
+    into: await mergedInto(ctx, input),
+  }),
+} as const;

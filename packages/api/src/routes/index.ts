@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, equipment, customerLifecycle, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
 } from "../services/index";
 
 /**
@@ -497,6 +497,21 @@ export const handlers = {
   annotateServiceReport: serviceReports.handlers.annotateServiceReport,
   publishServiceReport: serviceReports.handlers.publishServiceReport,
   unpublishServiceReport: serviceReports.handlers.unpublishServiceReport,
+  getCustomerDeletability: customerLifecycle.handlers.getCustomerDeletability,
+  getCustomerDuplicates: customerLifecycle.handlers.getCustomerDuplicates,
+  removeCustomer: customerLifecycle.handlers.removeCustomer,
+  mergeCustomers: customerLifecycle.handlers.mergeCustomers,
+  getCustomerMergedInto: customerLifecycle.handlers.getCustomerMergedInto,
+
+  listEquipment: equipment.handlers.listEquipment,
+  getEquipment: equipment.handlers.getEquipment,
+  getEquipmentHistory: equipment.handlers.getEquipmentHistory,
+  getWarrantyWatch: equipment.handlers.getWarrantyWatch,
+  registerEquipment: equipment.handlers.registerEquipment,
+  updateEquipment: equipment.handlers.updateEquipment,
+  moveEquipment: equipment.handlers.moveEquipment,
+  retireEquipment: equipment.handlers.retireEquipment,
+
   getAppSelf: apps.handlers.getAppSelf,
   listApps: apps.handlers.listApps,
   installApp: apps.handlers.installApp,

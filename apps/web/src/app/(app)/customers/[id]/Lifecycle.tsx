@@ -2,7 +2,27 @@
 
 import { useKeptAction } from "@/lib/use-kept-action";
 import { useState } from "react";
-import { removeCustomer, mergeCustomer } from "./actions";
+
+/**
+ * The two server actions are PASSED IN rather than imported.
+ *
+ * `./actions` is a `"use server"` module, so importing it from a client component
+ * pulls `server-only` into anything that loads this file, including a render test,
+ * which then fails to collect. Every other screen built over a service does it
+ * this way for the same reason, and the cost is two props.
+ */
+type State = { error?: string; moved?: string[] } | null;
+type Action = (previous: State, form: FormData) => Promise<State>;
+
+/**
+ * What a candidate reads as in the dropdown.
+ *
+ * Exported so a render test can check it without opening the form, which is
+ * behind a toggle: a destructive control that is open by default is one somebody
+ * submits by accident.
+ */
+export const candidateLabel = (candidate: { name: string; because: string }): string =>
+  `${candidate.name}: ${candidate.because}`;
 
 const BUTTON =
   "inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm hover:bg-steel-100 disabled:opacity-60";
@@ -20,24 +40,25 @@ const BUTTON =
  * delete that succeeds and quietly takes eleven other rows is worse again.
  */
 export function Lifecycle({
-  id, name, deletable, blockedBy, wouldRemove, candidates,
+  removeAction, mergeAction, id, name, deletable, blockedBy, wouldRemove, candidates,
 }: {
+  removeAction: Action;
+  mergeAction: Action;
   id: string;
   name: string;
   deletable: boolean;
   blockedBy: { label: string; n: number }[];
   wouldRemove: { label: string; n: number }[];
-  candidates: { id: string; name: string }[];
+  /** Each one carries WHY it is a candidate, which is what the decision turns on. */
+  candidates: { id: string; name: string; because: string }[];
 }) {
-  const [removeState, removeForm, removing] = useKeptAction(removeCustomer, null);
-  const [mergeState, mergeForm, merging] = useKeptAction(mergeCustomer, null);
+  const [removeState, removeForm, removing] = useKeptAction(removeAction, null);
+  const [mergeState, mergeForm, merging] = useKeptAction(mergeAction, null);
   const [confirming, setConfirming] = useState(false);
   const [joining, setJoining] = useState(false);
 
-  const error = [removeState, mergeState]
-    .map((state) => (state && "error" in state ? state.error : null))
-    .find(Boolean);
-  const moved = mergeState && "moved" in mergeState ? mergeState.moved : null;
+  const error = [removeState, mergeState].map((state) => state?.error).find(Boolean);
+  const moved = mergeState?.moved ?? null;
 
   return (
     <div className="mt-10 border-t border-steel-200 pt-6">
@@ -66,10 +87,20 @@ export function Lifecycle({
           </p>
         )}
 
-        {candidates.length > 0 && (
+        {candidates.length > 0 ? (
           <button type="button" onClick={() => setJoining((was) => !was)} className={BUTTON}>
-            {joining ? "Cancel" : "Merge another record into this one"}
+            {joining ? "Cancel" : `Merge a duplicate into this one (${candidates.length})`}
           </button>
+        ) : (
+          /*
+            Said rather than left as an absent button. A missing control reads as
+            a feature somebody does not have access to, and the truth is more
+            useful: nothing matches, so there is nothing to merge.
+          */
+          <p className="text-sm text-ink-500">
+            No other record shares this phone number or email, or has a close enough name, so there
+            is nothing to merge.
+          </p>
         )}
       </div>
 
@@ -108,8 +139,15 @@ export function Lifecycle({
             <select id="merge-id" name="mergeId" required
                     className="mt-1 h-8 min-w-64 rounded border border-steel-300 px-2 text-sm">
               <option value="">Pick one</option>
+              {/*
+                The reason is in the label, not behind a hover. "Same phone
+                number" is what makes somebody confident, and a bare list of
+                names is a list they have to verify somewhere else.
+              */}
               {candidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+                <option key={candidate.id} value={candidate.id}>
+                  {candidateLabel(candidate)}
+                </option>
               ))}
             </select>
           </div>

@@ -98,12 +98,36 @@ wrong within a month.
 
 ## API
 
-The equipment register has no `/v1` surface yet. What the API does carry is the
-part the field app needs: `PUT /v1/visits/{visitId}/units` plans which units a
-visit is about, `GET /v1/visits/{visitId}/units` reads that plan back, and
-`POST /v1/visits/{visitId}/units/{equipmentId}/outcome` records what happened
-to one of them. All three are visit permissions rather than equipment ones,
-because they are statements about a visit.
+| Call | Needs |
+|---|---|
+| `GET /v1/equipment` | `equipment:read` |
+| `GET /v1/equipment/{id}` | `equipment:read` |
+| `GET /v1/equipment/{id}/history` | `equipment:read` |
+| `GET /v1/equipment-warranties` | `equipment:read` |
+| `POST /v1/equipment` | `equipment:write` |
+| `PATCH /v1/equipment/{id}` | `equipment:write` |
+| `POST /v1/equipment/{id}/move` | `equipment:write` |
+| `POST /v1/equipment/{id}/retire` | `equipment:write` |
+
+The register comes back FLAT, in reading order, with a depth on every row, and
+the screen's own read is a tree. That is not an inconsistency: a recursive
+schema is a lazy one and the OpenAPI generator cannot describe it, so a tree
+here would mean publishing a document that does not say what the response is.
+Flattening loses nothing, because capping the depth and surfacing a unit caught
+in a cycle at the top have already happened by the time it runs, and a client
+renders the indentation straight off `depth`.
+
+The warranty watch is at `/v1/equipment-warranties` rather than under
+`/v1/equipment/`, because a literal segment at the same depth as
+`/v1/equipment/{id}` is ambiguous and the route guard refuses it rather than
+picking.
+
+The API also carries the part the field app needs:
+`PUT /v1/visits/{visitId}/units` plans which units a visit is about,
+`GET /v1/visits/{visitId}/units` reads that plan back, and
+`POST /v1/visits/{visitId}/units/{equipmentId}/outcome` records what happened to
+one of them. All three are visit permissions rather than equipment ones, because
+they are statements about a visit.
 
 ## Common questions
 
@@ -120,9 +144,9 @@ everything naming it still resolves.
 
 ## What is not built
 
-No `/v1` routes for the register, the moves or the warranty watch, so an
-integration cannot read or write equipment at all. That is the one place in the
-product where a screen has something the API does not, and it is against
-BUILD.md's own ordering rule. Resolving coverage from an equipment warranty
-record is not wired to M32 either: the dates are here and that module does not
-read them.
+Resolving coverage from an equipment warranty record is not wired to M32: the
+dates are here and that module does not read them. There is no screen for the
+warranty watch, so the list worth a daily look is an API read or a report
+somebody builds. Nothing matches an incoming unit against the register by serial
+number on the office side, so a duplicate row for one furnace is still possible
+when somebody types rather than scans.

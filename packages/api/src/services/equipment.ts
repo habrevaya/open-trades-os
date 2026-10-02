@@ -675,3 +675,116 @@ function yearsBetween(from: string, to: string): number {
   if (tm < fm || (tm === fm && td < fd)) years -= 1;
   return Math.max(0, years);
 }
+
+export const handlers = {
+  /**
+   * Flattened in pre-order, with a depth on every row.
+   *
+   * The tree the screen uses cannot be published: a recursive schema is a
+   * `z.lazy` and the OpenAPI generator cannot describe one, so a tree here would
+   * mean a document that does not say what the response is. Flattening loses
+   * nothing, because the work the tree does, capping the depth and surfacing a
+   * unit caught in a cycle at the top rather than dropping it, has already
+   * happened by the time this runs.
+   */
+  listEquipment: async (ctx: ServiceContext, input: { propertyId: string; on?: string | undefined }) => ({
+    equipment: flatten(await atProperty(ctx, {
+      propertyId: input.propertyId,
+      ...(input.on ? { on: input.on } : {}),
+    })),
+  }),
+
+  getEquipment: (ctx: ServiceContext, input: { id: string; on?: string | undefined }) =>
+    get(ctx, { id: input.id, ...(input.on ? { on: input.on } : {}) }),
+
+  getEquipmentHistory: (ctx: ServiceContext, input: { id: string }) => history(ctx, input),
+
+  getWarrantyWatch: async (
+    ctx: ServiceContext, input: { withinDays?: number | undefined; on?: string | undefined },
+  ) => ({
+    units: await warrantyWatch(ctx, {
+      ...(input.withinDays ? { withinDays: input.withinDays } : {}),
+      ...(input.on ? { on: input.on } : {}),
+    }),
+  }),
+
+  registerEquipment: async (ctx: ServiceContext, input: EquipmentInput) => ({
+    id: (await register(ctx, input)).id,
+  }),
+
+  /**
+   * Spread field by field rather than passed straight through.
+   *
+   * `Partial<EquipmentInput>` under `exactOptionalPropertyTypes` means a key is
+   * absent or a value, never explicitly `undefined`, and the contract's inferred
+   * input says `string | undefined`. Forwarding it wholesale does not compile,
+   * and the shortcut that would, widening the service's own input, would let
+   * `update` be called with `category: undefined` and clear a column somebody
+   * did not mean to touch.
+   */
+  updateEquipment: async (
+    ctx: ServiceContext,
+    input: {
+      id: string;
+      category?: string | undefined;
+      tag?: string | null | undefined;
+      manufacturer?: string | null | undefined;
+      model?: string | null | undefined;
+      serialNumber?: string | null | undefined;
+      installedOn?: string | null | undefined;
+      installedByUs?: boolean | undefined;
+      warrantyPartsExpiresOn?: string | null | undefined;
+      warrantyLaborExpiresOn?: string | null | undefined;
+      location?: string | null | undefined;
+      parentEquipmentId?: string | null | undefined;
+      attributes?: Record<string, unknown> | undefined;
+    },
+  ) => {
+    const { id, ...rest } = input;
+    const given = Object.fromEntries(
+      Object.entries(rest).filter(([, value]) => value !== undefined),
+    ) as Partial<EquipmentInput>;
+    return { id: (await update(ctx, { ...given, id })).id };
+  },
+
+  moveEquipment: async (
+    ctx: ServiceContext,
+    input: {
+      id: string; reason: MoveReason; toPropertyId?: string | null | undefined;
+      movedOn?: string | undefined; jobId?: string | null | undefined;
+      notes?: string | null | undefined;
+    },
+  ) => {
+    return move(ctx, {
+      id: input.id,
+      reason: input.reason,
+      ...(input.toPropertyId !== undefined ? { toPropertyId: input.toPropertyId } : {}),
+      ...(input.movedOn !== undefined ? { movedOn: input.movedOn } : {}),
+      ...(input.jobId !== undefined ? { jobId: input.jobId } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+    });
+  },
+
+  retireEquipment: (
+    ctx: ServiceContext, input: { id: string; reason: string; on?: string | undefined },
+  ) => retire(ctx, { id: input.id, reason: input.reason, ...(input.on ? { on: input.on } : {}) }),
+} as const;
+
+/**
+ * A nested register as rows in reading order, each carrying how deep it sits.
+ *
+ * Recursion with no guard of its own, deliberately: `treeFor` has already broken
+ * every cycle and capped the depth, so the structure this walks is finite by
+ * construction. A second cap here would be a guard against a shape that cannot
+ * arrive, and the kind that gets deleted later by somebody who cannot see what it
+ * was for.
+ */
+function flatten(nodes: EquipmentView[], depth = 0): (Omit<EquipmentView, "children"> & { depth: number })[] {
+  const out: (Omit<EquipmentView, "children"> & { depth: number })[] = [];
+  for (const node of nodes) {
+    const { children, ...row } = node;
+    out.push({ ...row, depth });
+    if (children && children.length > 0) out.push(...flatten(children, depth + 1));
+  }
+  return out;
+}

@@ -121,6 +121,11 @@ attached afterwards, which would have sent it to everybody.
 | `POST /v1/properties` | `property:write` |
 | `PATCH /v1/properties/{id}` | `property:write` |
 | `POST /v1/properties/{id}/customers` | `property:write` |
+| `GET /v1/customers/{id}/duplicates` | `customer:read` |
+| `GET /v1/customers/{id}/deletability` | `customer:read` |
+| `GET /v1/customers/{id}/merged-into` | `customer:read` |
+| `POST /v1/customers/{keepId}/merge` | `customer:merge` |
+| `POST /v1/customers/{id}/remove` | `customer:delete` |
 
 Every create takes an `externalRef`, and every list can look one up, which is
 what makes a migration and a two way integration idempotent. M30 covers it.
@@ -137,12 +142,31 @@ The new owner is a new customer; nothing is copied and nothing is lost.
 **Why is the balance not a column?** Because a stored balance is a number that
 was right when it was written. It is computed from open invoices on read.
 
+### Join two records that are the same person
+
+`GET /v1/customers/{id}/duplicates` is the records that look like this person,
+with the reason on each: the same phone number, the same email address, or a
+name close enough that somebody should look. There is deliberately no score,
+because one would have to weigh a shared phone against a name similarity and
+whatever weighting was chosen would be wrong for somebody.
+`POST /v1/customers/{keepId}/merge` joins them, and the response says what
+moved and which blank fields on the survivor were filled in from the duplicate.
+`GET /v1/customers/{id}/merged-into` is where a merged record went, which is
+what makes keeping it worth anything.
+
+### Remove one
+
+`GET /v1/customers/{id}/deletability` says whether it can go and what would go
+with it, asked before anybody clicks because the answer decides which button a
+screen should show. `POST /v1/customers/{id}/remove` is the removal, and it is
+refused outright when money points at the customer: a hard delete would cascade
+and take the invoices, a soft delete would leave a receivable nobody can
+explain, and both are worse than refusing. The refusal names what is in the way,
+which is also the case where merging is the right answer.
+
 ## What is not built
 
-Deleting a customer and merging two that are the same person are written and
-tested in `services/customer-lifecycle.ts`, and neither has a route or a
-screen, so neither can be reached. Deletion is refused when anything financial
-points at the customer, and the refusal names what; merge moves everything
-except the ledger, which is append only and corrects by reversing entry rather
-than by moving a row. Contacts have a service and no route either. Tags and
-custom fields are stored and read back; nothing filters by a tag yet.
+Contacts have a service and no route. Tags and custom fields are stored and read
+back; nothing filters by a tag yet. The duplicate matcher is per record rather
+than a company wide sweep, so there is no screen that says "you have forty
+likely duplicates"; it answers for the customer in front of you.

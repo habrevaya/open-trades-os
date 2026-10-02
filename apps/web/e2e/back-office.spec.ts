@@ -834,3 +834,43 @@ test("Applications: an app is let in, issued a credential once, and revoked", as
   /** And its credential went with it. */
   await expect(off).toContainText("Revoked", { timeout: 5000 });
 });
+
+test("Duplicates: the merge candidate list is the records that match, and the merge moves everything", async ({ owner }) => {
+  /**
+   * The candidate list used to be `customers.list({ limit: 50 })`: whichever fifty
+   * records came back first, as things to merge this customer into. The real
+   * duplicate is usually not among them, and a dropdown of fifty unrelated people
+   * is one somebody picks the wrong entry from. A merge is irreversible in
+   * practice, so joining two different people is the mistake this must not make
+   * easy.
+   */
+  /**
+   * Digits derived from the run suffix rather than the suffix itself, so two runs
+   * do not share a number and find each other's records as duplicates. Replacing
+   * the letters with zeroes would give every run the same number, which is exactly
+   * that collision.
+   */
+  const digits = [...run.slice(-4)].map((c) => c.charCodeAt(0) % 10).join("");
+  const phone = `512555${digits}`;
+  const real = await newCustomer(owner, { name: `Robert Smith ${run}`, phone });
+  const dup = await newCustomer(owner, { name: `Bob Smith ${run}`, phone });
+  /** Shares nothing: a different number and a name no trigram brings close. */
+  const stranger = await newCustomer(owner, {
+    name: `Zubeida Okonkwo ${run}`, phone: `512444${digits}`,
+  });
+
+  await owner.goto(`/customers/${real}`);
+  await owner.getByRole("button", { name: /Merge a duplicate into this one/ }).click();
+
+  const picker = owner.getByLabel("Which record is the duplicate");
+  /** The matching record is offered, with the reason, and the unrelated one is not. */
+  await expect(picker.getByRole("option", { name: `Bob Smith ${run}: Same phone number` })).toHaveCount(1);
+  await expect(picker.getByRole("option", { name: new RegExp(`Zubeida Okonkwo ${run}`) })).toHaveCount(0);
+  expect(stranger).not.toBe(dup);
+
+  await picker.selectOption(dup);
+  await owner.getByRole("button", { name: `Merge into Robert Smith ${run}` }).click();
+
+  /** And afterwards there is nothing left to merge, because the duplicate is gone. */
+  await expect(owner.getByText(/No other record shares this phone number or email/)).toBeVisible();
+});

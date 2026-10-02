@@ -15,7 +15,7 @@ import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { applyHeld, refund } from "../../payments/actions";
-import { accountLink } from "./actions";
+import { accountLink, removeCustomer, mergeCustomer } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
 import { formatDay, todayIn } from "@/lib/dates";
 
@@ -70,8 +70,22 @@ export default async function CustomerPage({
   const removable = can(user.actor, "customer:delete")
     ? await customerLifecycle.deletability(ctx, { id })
     : null;
+  /**
+   * THE RECORDS THAT LOOK LIKE THIS PERSON, not the first fifty customers.
+   *
+   * This read used to be `customers.list({ limit: 50 })`, which offered whichever
+   * fifty records came back first as things to merge this one into. That is the
+   * wrong affordance twice over: the real duplicate is usually not among them, and
+   * a dropdown of fifty unrelated people is a dropdown somebody picks the wrong
+   * entry from. A merge is irreversible in practice, so the one mistake this
+   * control must not make easy is joining two different people.
+   *
+   * `likelyDuplicates` matches instead of listing: a shared phone, a shared email,
+   * or a name close enough that a person should look. Each candidate carries WHY,
+   * which is what the operator actually decides on.
+   */
   const mergeable = can(user.actor, "customer:merge")
-    ? (await customers.list(ctx, { limit: 50, includeInactive: false })).data.filter((row) => row.id !== id)
+    ? await customerLifecycle.likelyDuplicates(ctx, { id })
     : [];
 
   /**
@@ -184,12 +198,14 @@ export default async function CustomerPage({
 
       {(removable || mergeable.length > 0) && (
         <Lifecycle
+          removeAction={removeCustomer}
+          mergeAction={mergeCustomer}
           id={id}
           name={customer.name}
           deletable={removable?.deletable ?? false}
           blockedBy={removable?.blockedBy ?? []}
           wouldRemove={removable?.wouldRemove ?? []}
-          candidates={mergeable.map((row) => ({ id: row.id, name: row.name }))}
+          candidates={mergeable.map((row) => ({ id: row.id, name: row.name, because: row.because }))}
         />
       )}
 

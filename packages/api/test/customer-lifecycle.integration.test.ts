@@ -294,3 +294,107 @@ run("merging two", () => {
     expect(await lifecycle.mergedInto(owner(), { id: customer.id })).toBeNull();
   });
 });
+
+/**
+ * FINDING THE DUPLICATE, WHICH IS HOW A MERGE ACTUALLY STARTS
+ *
+ * Merging needs two ids and nothing could produce the second one. A picker over
+ * every customer is not the answer either: a company with four thousand of them
+ * is a dropdown nobody can use, and browsing is not how a duplicate is found. It
+ * is found by matching, so the matching is the feature.
+ */
+run("the records that look like the same person", () => {
+  it("puts a shared phone number first, and says that is why", async () => {
+    const real = await make("Robert Smith", { phone: "+15125550777" });
+    await make("Bob Smith", { phone: "+15125550777" });
+
+    const found = await lifecycle.likelyDuplicates(owner(), { id: real.id });
+    expect(found[0]?.name).toBe("Bob Smith");
+    expect(found[0]?.because).toBe("Same phone number");
+  });
+
+  it("catches a name nobody would match on exactly", async () => {
+    /**
+     * The signal that needs a human. "Robert Smith" against "Smith, Robert" is
+     * one person twice and no equality test finds it.
+     */
+    const real = await make("Robert Smith", { phone: "+15125550801" });
+    await make("Smith, Robert", { phone: "+15125550802" });
+
+    const found = await lifecycle.likelyDuplicates(owner(), { id: real.id });
+    expect(found.map((c) => c.name)).toContain("Smith, Robert");
+    expect(found.find((c) => c.name === "Smith, Robert")?.because).toBe("Similar name");
+  });
+
+  it("gives one reason per candidate, the strongest, rather than listing it twice", async () => {
+    /**
+     * A record matching on both the phone and the name used to arrive twice when
+     * this was three queries folded together. One query and a `case` is why it
+     * does not.
+     */
+    const real = await make("Robert Smith", { phone: "+15125550901" });
+    await make("Robert Smithe", { phone: "+15125550901" });
+
+    const found = await lifecycle.likelyDuplicates(owner(), { id: real.id });
+    expect(found).toHaveLength(1);
+    expect(found[0]?.because).toBe("Same phone number");
+  });
+
+  it("matches an email whatever case it was typed in", async () => {
+    const real = await make("Ada Lovelace", { email: "ada@example.com" });
+    await make("A Lovelace", { email: "ADA@EXAMPLE.COM" });
+
+    const found = await lifecycle.likelyDuplicates(owner(), { id: real.id });
+    expect(found[0]?.because).toBe("Same email address");
+  });
+
+  it("does not offer a record that has already been merged away", async () => {
+    /**
+     * Otherwise a merged duplicate comes back as a candidate for merging again,
+     * which is a loop a person can walk into and a 404 at the end of it.
+     */
+    const real = await make("Grace Hopper", { phone: "+15125551001" });
+    const dup = await make("G Hopper", { phone: "+15125551001" });
+    await lifecycle.merge(owner(), { keepId: real.id, mergeId: dup.id });
+
+    const found = await lifecycle.likelyDuplicates(owner(), { id: real.id });
+    expect(found.map((c) => c.id)).not.toContain(dup.id);
+  });
+
+  it("does not offer the record itself", async () => {
+    const real = await make("Alan Turing", { phone: "+15125551101" });
+    const found = await lifecycle.likelyDuplicates(owner(), { id: real.id });
+    expect(found.map((c) => c.id)).not.toContain(real.id);
+  });
+
+  it("finds nothing for somebody with no near match, rather than the nearest thing", async () => {
+    /**
+     * A matcher that always returns its best guess is a matcher that proposes a
+     * merge between two unrelated people, and somebody will accept one.
+     */
+    await make("Robert Smith", { phone: "+15125551201" });
+    const other = await make("Zubeida Okonkwo-Mbeki", { phone: "+15125551202" });
+    const found = await lifecycle.likelyDuplicates(owner(), { id: other.id });
+    expect(found).toEqual([]);
+  });
+
+  it("answers through the handler in the shape the route publishes", async () => {
+    const real = await make("Robert Smith", { phone: "+15125551301" });
+    await make("Bob Smith", { phone: "+15125551301" });
+    const out = await lifecycle.handlers.getCustomerDuplicates(owner(), { id: real.id, limit: 5 });
+    expect(out.candidates).toHaveLength(1);
+    expect(out.candidates[0]?.phone).toBe("+15125551301");
+  });
+
+  it("says where a merged customer went, and null for one that was never merged", async () => {
+    const real = await make("Katherine Johnson", { phone: "+15125551401" });
+    const dup = await make("K Johnson", { phone: "+15125551401" });
+    await lifecycle.merge(owner(), { keepId: real.id, mergeId: dup.id });
+
+    const gone = await lifecycle.handlers.getCustomerMergedInto(owner(), { id: dup.id });
+    expect(gone.into).toMatchObject({ id: real.id, name: "Katherine Johnson" });
+
+    const live = await lifecycle.handlers.getCustomerMergedInto(owner(), { id: real.id });
+    expect(live.into).toBeNull();
+  });
+});

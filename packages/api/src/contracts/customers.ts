@@ -147,6 +147,109 @@ export const updateCustomer = defineRoute({
   output: Customer,
 });
 
+
+/**
+ * REMOVING AND MERGING, WHICH NOTHING COULD REACH
+ *
+ * `customer:delete` and `customer:merge` were in the permission catalogue from
+ * the first commit, both granted to the office manager preset, and
+ * `permissions-enforced.test.ts` found that nothing asserted either. The service
+ * was written to fix that and it got no routes and no screen, so the permissions
+ * were asserted by code nobody could call, which from an owner's side is the same
+ * as not being asserted at all: the role list promised a capability and there was
+ * no button.
+ *
+ * What happens without them is not that nothing happens. A company that mis-keys
+ * a customer, or takes two leads from the same person through two forms, edits one
+ * of the rows into something else. That is how a CRM ends up with a customer
+ * called "DO NOT USE" and another called "Smith (real one)", both carrying history
+ * that is now attached to a lie.
+ */
+
+export const BlockingCount = z.object({ label: z.string(), n: z.number().int() });
+
+export const getCustomerDeletability = defineRoute({
+  method: "get",
+  path: "/v1/customers/{id}/deletability",
+  summary: "Whether this customer can be removed, and what would go with them",
+  description:
+    "Asked before anybody clicks, because the answer decides which button a screen should show. A delete refused after the click with a list of reasons is a worse version of the same information. `blockedBy` is records of money, which make deleting the wrong answer rather than a risky one; `wouldRemove` is everything else, shown so nobody is surprised.",
+  module: "M03",
+  permissions: ["customer:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    deletable: z.boolean(),
+    blockedBy: z.array(BlockingCount),
+    wouldRemove: z.array(BlockingCount),
+  }),
+});
+
+export const removeCustomer = defineRoute({
+  method: "post",
+  path: "/v1/customers/{id}/remove",
+  summary: "Take a customer off the books",
+  description:
+    "Soft, and refused outright when money points at them. A hard delete would cascade through the foreign keys and take the invoices with it; a soft delete on a customer with invoices leaves a receivable nobody can explain. Both are worse than refusing, so this refuses and names what is in the way, which is also the case where merging is the right answer. The reason is required: it is the only thing left to read when somebody asks why this record is gone.",
+  module: "M03",
+  permissions: ["customer:delete"],
+  idempotent: true,
+  input: z.object({ id: Uuid, reason: z.string().min(1).max(500) }),
+  output: z.object({ id: Uuid, removed: z.literal(true), reason: z.string() }),
+});
+
+export const mergeCustomers = defineRoute({
+  method: "post",
+  path: "/v1/customers/{keepId}/merge",
+  summary: "Join two records that are the same person",
+  description:
+    "EVERYTHING MOVES, including the money, which is the difference between this and removing: a merge does not discard a history, it re-parents one, so the invoices raised against the duplicate become invoices against the survivor and the balance is right for the first time. The duplicate is soft deleted and keeps a pointer to the survivor, because an id that stops resolving breaks a link somebody emailed, an integration that stored it and every audit row naming it. The response says what moved and which blank fields on the survivor were filled in from the duplicate.",
+  module: "M03",
+  permissions: ["customer:merge"],
+  idempotent: true,
+  input: z.object({ keepId: Uuid, mergeId: Uuid, reason: z.string().max(500).optional() }),
+  output: z.object({
+    keptId: Uuid,
+    mergedId: Uuid,
+    name: z.string(),
+    moved: z.array(BlockingCount),
+    filled: z.array(z.string()),
+  }),
+});
+
+export const getCustomerDuplicates = defineRoute({
+  method: "get",
+  path: "/v1/customers/{id}/duplicates",
+  summary: "The records that look like the same person",
+  description:
+    "Three signals, strongest first, and each candidate says WHY rather than carrying a score: the same phone number, the same email address, or a similar name by trigram similarity. There is deliberately no single number, because one would have to weigh a shared phone against a name similarity and whatever weighting was chosen would be wrong for somebody. Records already merged away are excluded, so one cannot come back as a candidate for merging again.",
+  module: "M03",
+  permissions: ["customer:read"],
+  input: z.object({ id: Uuid, limit: z.number().int().min(1).max(50).optional() }),
+  output: z.object({
+    candidates: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      phone: z.string().nullable(),
+      email: z.string().nullable(),
+      because: z.string(),
+    })),
+  }),
+});
+
+export const getCustomerMergedInto = defineRoute({
+  method: "get",
+  path: "/v1/customers/{id}/merged-into",
+  summary: "Where a merged customer went",
+  description:
+    "The read that makes keeping the duplicate worth anything. Without it the pointer is a column nobody follows and the old id resolving to a soft deleted row is the same dead end as deleting it. Answers null for a customer that was never merged, so a caller can follow it twice and find the record that is actually current.",
+  module: "M03",
+  permissions: ["customer:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({ into: z.object({ id: Uuid, name: z.string() }).nullable() }),
+});
+
 export const customerRoutes = {
   listCustomers, getCustomer, createCustomer, updateCustomer,
+  getCustomerDeletability, removeCustomer, mergeCustomers, getCustomerMergedInto,
+  getCustomerDuplicates,
 } as const;

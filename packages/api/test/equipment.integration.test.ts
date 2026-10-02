@@ -392,3 +392,125 @@ run("what we did to it", () => {
       .rejects.toBeInstanceOf(NotFoundError);
   });
 });
+
+/**
+ * THE SURFACE, WHICH DID NOT EXIST
+ *
+ * Every test above drives the service, and that is how this module came to have a
+ * screen and no routes: the one place in the product where a capability was on a
+ * screen and not on the API, which is the opposite of BUILD.md's third ordering
+ * rule and means a migration could load a company's whole history except the
+ * equipment at its addresses, and the MCP server had no tool for the first
+ * question any agent would ask.
+ *
+ * These are about the handlers, and specifically about the one thing the routes do
+ * that the service does not: the nested register is flattened, because a recursive
+ * schema cannot be published in OpenAPI.
+ */
+run("the API surface", () => {
+  it("flattens the register in reading order, with a depth on every row", async () => {
+    const unit = await furnace();
+    const valve = await equipment.register(owner(), {
+      propertyId: houseId, category: "valve", tag: "V-1", parentEquipmentId: unit.id,
+    });
+    await equipment.register(owner(), { propertyId: houseId, category: "condenser", tag: "C-1" });
+
+    const { equipment: rows } = await equipment.handlers.listEquipment(
+      owner(), { propertyId: houseId, on: TODAY },
+    );
+
+    /** The child comes immediately after its parent, which is what `depth` is for. */
+    const at = (tag: string) => rows.findIndex((row) => row.tag === tag);
+    expect(at("V-1")).toBe(at("F-1") + 1);
+    expect(rows[at("F-1")]?.depth).toBe(0);
+    expect(rows[at("V-1")]?.depth).toBe(1);
+    expect(rows[at("C-1")]?.depth).toBe(0);
+    expect(rows).toHaveLength(3);
+    expect(valve.parentEquipmentId).toBe(unit.id);
+    /** And nothing recursive survives into the published shape. */
+    expect(rows.every((row) => !("children" in row))).toBe(true);
+  });
+
+  it("answers the warranty question as of a day that is not today", async () => {
+    /**
+     * The parameter a month end report needs. A warranty that expired in April is
+     * covered on a statement run for March, and a read that could only answer
+     * about today would report last quarter wrongly.
+     */
+    await furnace();
+    const current = await equipment.handlers.listEquipment(owner(), { propertyId: houseId, on: "2019-01-01" });
+    const later = await equipment.handlers.listEquipment(owner(), { propertyId: houseId, on: TODAY });
+    expect(current.equipment[0]?.warranty.labourCovered).toBe(true);
+    expect(later.equipment[0]?.warranty.labourCovered).toBe(false);
+    /** Parts run to 2028, so they are covered on both days. */
+    expect(current.equipment[0]?.warranty.partsCovered).toBe(true);
+    expect(later.equipment[0]?.warranty.partsCovered).toBe(true);
+  });
+
+  it("hands back the whole unit and its moves on a single read", async () => {
+    const unit = await furnace();
+    await equipment.move(owner(), {
+      id: unit.id, reason: "relocated", toPropertyId: rentalId, movedOn: "2026-05-01",
+    });
+    const view = await equipment.handlers.getEquipment(owner(), { id: unit.id, on: TODAY });
+    expect(view.propertyId).toBe(rentalId);
+    expect(view.moves).toHaveLength(1);
+    expect(view.moves[0]?.reason).toBe("relocated");
+    expect(view.moves[0]?.fromPropertyId).toBe(houseId);
+  });
+
+  it("reports a move's unit count, including the children that went with it", async () => {
+    const unit = await furnace();
+    await equipment.register(owner(), {
+      propertyId: houseId, category: "valve", parentEquipmentId: unit.id,
+    });
+    const moved = await equipment.handlers.moveEquipment(owner(), {
+      id: unit.id, reason: "relocated", toPropertyId: rentalId, movedOn: "2026-05-02",
+    });
+    expect(moved.unitsMoved).toBe(2);
+    expect(moved.movedOn).toBe("2026-05-02");
+  });
+
+  it("clears nothing a patch left out", async () => {
+    /**
+     * The reason the update handler spreads field by field instead of forwarding
+     * what it was given. A key absent from a patch is a field nobody mentioned,
+     * and forwarding it as an explicit `undefined` would clear a column.
+     */
+    const unit = await furnace();
+    await equipment.handlers.updateEquipment(owner(), { id: unit.id, location: "Basement" });
+    const after = await equipment.handlers.getEquipment(owner(), { id: unit.id, on: TODAY });
+    expect(after.location).toBe("Basement");
+    expect(after.manufacturer).toBe("Carrier");
+    expect(after.serialNumber).toBe("SN-0001");
+    expect(after.warranty.partsExpiresOn).toBe("2028-03-01");
+  });
+
+  it("lists what is running out, looking back as well as forward", async () => {
+    /**
+     * The labour warranty lapsed in 2019 and the parts one runs to 2028, so a
+     * window measured from 2028 catches the parts side and a window from today
+     * catches neither. The backward half is the point: a lapsed warranty is the
+     * call worth making.
+     */
+    await furnace();
+    const near = await equipment.handlers.getWarrantyWatch(owner(), { on: "2028-02-01", withinDays: 60 });
+    expect(near.units).toHaveLength(1);
+    expect(near.units[0]?.address).toContain("Austin");
+
+    const quiet = await equipment.handlers.getWarrantyWatch(owner(), { on: "2023-01-01", withinDays: 30 });
+    expect(quiet.units).toHaveLength(0);
+  });
+
+  it("retires through the handler and says why on the way out", async () => {
+    const unit = await furnace();
+    const out = await equipment.handlers.retireEquipment(
+      owner(), { id: unit.id, reason: "Replaced with a heat pump", on: TODAY },
+    );
+    expect(out).toMatchObject({ retired: true, on: TODAY, reason: "Replaced with a heat pump" });
+    /** And it leaves the register while still answering for itself. */
+    const { equipment: rows } = await equipment.handlers.listEquipment(owner(), { propertyId: houseId });
+    expect(rows).toHaveLength(0);
+    await expect(equipment.handlers.getEquipment(owner(), { id: unit.id })).resolves.toBeTruthy();
+  });
+});

@@ -40,6 +40,7 @@ import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
 import { appRoutes } from "./apps";
+import { equipmentRoutes } from "./equipment";
 import { pricingAuthorityRoutes } from "./pricing-authority";
 import { fieldAssetRoutes } from "./field-assets";
 import { campaignRoutes } from "./campaigns";
@@ -156,6 +157,7 @@ export const routes = {
   ...readbackRoutes,
   ...serviceReportRoutes,
   ...appRoutes,
+  ...equipmentRoutes,
   ...pricingAuthorityRoutes,
   ...fieldAssetRoutes,
   ...campaignRoutes,
