@@ -236,12 +236,55 @@ No. The body of a sent campaign is what is in four thousand inboxes, and a
 record of it that somebody can edit afterwards is not a record of anything.
 Copy it into a new campaign.
 
+## The screen
+
+`Marketing > Campaigns`. Previewing is `campaign:read`; creating and sending is
+`campaign:write`, so a reader who holds only the first sees the campaigns and the
+results and no buttons. That is the right shape for a screen whose buttons spend
+money and risk a carrier registration.
+
+**The nine rules are boxes, not a query builder.** Each one is written out with a
+sentence a contractor recognises, and two of them take a number whose units are
+part of the question ("days since the last job" against "years since install").
+A form generated from `RULE_KINDS` would read as nine field names. A test asserts
+the boxes cover every kind the union has in both directions, so a tenth rule
+cannot ship without one.
+
+**The sentence is the safety.** Before anything is sent the audience reads back as
+"412 customers who were last served more than 540 days ago and have never held an
+agreement", from the same core function the sender uses, so the screen cannot
+describe one audience and send to another. The difference between two years and
+two months is one character in a form and a factor of twelve in the bill.
+
+There is no confirmation dialogue, deliberately. The confirmation is that
+sentence, which is specific, and a modal saying "are you sure" is the thing
+people learn to click through. The send is also safe to repeat: recipients
+already written are not re-selected.
+
+Three things the screen says that an owner cannot get from a total:
+
+- **Queued and not sent are separate numbers, with the reasons under them.** A
+  screen reporting nine hundred sent hides that four hundred of them were never
+  asked for consent, which is a fact about the company's records rather than about
+  the send.
+- **A consent gap and somebody who replied STOP read differently.** One the office
+  can fix by asking; the other they must not touch. A reason the wording has not
+  caught up with shows the raw value rather than "skipped".
+- **A carrier's cap is said in days.** "3 batches" does not say whether that is
+  three minutes or three days, and under a 10DLC daily cap it is days. A cap of
+  zero is called a registration problem rather than rendered as "0 a day", which
+  would send somebody to rewrite rules that are fine.
+
+An overflow is said out loud: an audience larger than one campaign will take
+reaches the first twenty five thousand BY NAME ORDER, which is not a random
+sample and therefore not a test of anything.
+
 ## What is not built
 
-- **No screens.** A campaign is written and sent through the API.
 - **No scheduler.** `scheduledFor` is stored and nothing fires on it, so a
-  staged send is one call per batch rather than something that continues
-  overnight on its own.
+  staged send is one call per batch, or one press per batch, rather than
+  something that continues overnight on its own. The screen says so where it
+  reports the number of days a cap will take.
 - **No per-recipient personalisation.** The body is sent as written. Message
   templates with placeholders exist in M18 and are not wired to a campaign yet.
 - **No A/B test.** Two campaigns to two audiences is the available answer.

@@ -431,3 +431,58 @@ test("Containers: a can is registered, sent out, swapped, collected with a ticke
   await expect(owed).toContainText("$66.00");
   await expect(owed).toContainText("$102.00");
 });
+
+test("Campaigns: an audience is read back as a sentence, and a send reports who it would not send to", async ({ owner }) => {
+  /**
+   * The one claim a render test cannot make: that the boxes a person ticks become
+   * the rules the sender runs, and that the sentence on the screen describes the
+   * audience the service actually selected rather than a second opinion about it.
+   */
+  await owner.goto("/marketing/campaigns");
+  await expect(owner.getByRole("heading", { level: 1, name: "Campaigns" })).toBeVisible();
+
+  const form = owner.locator("form").filter({
+    has: owner.getByRole("button", { name: "Save as a draft" }),
+  });
+
+  // An audience with no rules at all is refused rather than sent to everybody.
+  await form.getByLabel("Name").fill(`Everybody ${run}`);
+  await form.getByLabel("Message").fill("Comfort Co here: $89 tune ups. Reply STOP to opt out.");
+  await form.getByRole("button", { name: "Save as a draft" }).click();
+  await expect(form.getByRole("alert")).toContainText(/at least one rule/);
+
+  // With a rule it saves, and the sentence is the rule in words.
+  const name = `Win back ${run}`;
+  await form.getByLabel("Name").fill(name);
+  await form.getByRole("checkbox").and(form.locator('[value="no_job_since"]')).check();
+  await form.getByLabel("Days since the last job").fill("30");
+  await form.getByRole("button", { name: "Save as a draft" }).click();
+
+  const row = owner.getByRole("table", { name: "Campaigns" }).getByRole("row")
+    .filter({ hasText: name });
+  await expect(row).toContainText("were last served more than 30 days ago");
+  await expect(row).toContainText("draft");
+
+  // Who it reaches, counted and read back before anything is sent.
+  await row.getByRole("link", { name: "Who it reaches" }).click();
+  const audience = owner.locator("section").filter({ hasText: "Who it reaches" });
+  await expect(audience).toContainText("were last served more than 30 days ago");
+
+  /**
+   * The send, on an audience that matches nobody in the seeded company: every
+   * customer there has a recent job, so "not served for 30 days" selects none.
+   *
+   * That is the case worth asserting rather than the happy one. A campaign that
+   * has gone and matched nobody must not read as one that has not gone, and the
+   * first version of this screen showed both as "Not sent yet", so a campaign
+   * marked `sent` sat beside a result saying it had not been.
+   */
+  const sendRow = owner.getByRole("table", { name: "Campaigns" }).getByRole("row")
+    .filter({ hasText: name });
+  await sendRow.getByRole("button", { name: "Send a batch" }).click();
+  const after = owner.getByRole("table", { name: "Campaigns" }).getByRole("row")
+    .filter({ hasText: name });
+  await expect(after).toContainText("sent");
+  await expect(after).toContainText("Nobody matched the rules");
+  await expect(after).not.toContainText("Not sent yet");
+});

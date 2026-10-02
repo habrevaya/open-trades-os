@@ -164,6 +164,14 @@ export const NAV: NavGroup[] = [
         href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
         children: [
           { href: "/marketing", label: "What it cost" },
+          /**
+           * The other half of marketing: what you send to the list you already
+           * own. Under Marketing rather than beside it, and it inherits
+           * `adspend:read` to be SHOWN while the page itself needs
+           * `campaign:read`, which is the same arrangement as Take a copy under
+           * Settings and for the same reason.
+           */
+          { href: "/marketing/campaigns", label: "Campaigns" },
           { href: "/marketing/connectors", label: "Connectors" },
         ],
       },
