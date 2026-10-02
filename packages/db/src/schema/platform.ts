@@ -83,6 +83,98 @@ export const webhookEndpoint = pgTable("webhook_endpoint", {
   ...timestamps,
 }, (t) => ({ orgIdx: index("webhook_endpoint_org_idx").on(t.organizationId) }));
 
+/**
+ * A REPLAY SOMEBODY ASKED FOR: one event again, or everything from a point.
+ *
+ * A row rather than a loop run inside the request, because a range can be
+ * thousands of events and each one is a request to somebody else's server
+ * with a ten second timeout. The request records what to send and the worker
+ * sends it, in order, beside the endpoint's ordinary deliveries and without
+ * moving the endpoint's own position: a replay is a second copy of history,
+ * and the live stream carries on from where it was.
+ *
+ * `through_sequence` is fixed when the replay is asked for. A replay of
+ * "everything since Tuesday" that kept reading as new events arrived would
+ * never finish, and would send each new event twice: once live and once
+ * here.
+ */
+export const webhookReplayStatus = pgEnum("webhook_replay_status", [
+  "pending",
+  /** Everything in the range went and was answered with a 2xx. */
+  "done",
+  /** The receiver kept refusing and the replay stopped trying. See `last_error`. */
+  "failed",
+]);
+
+export const webhookReplay = pgTable("webhook_replay", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  endpointId: uuid("endpoint_id").notNull().references(() => webhookEndpoint.id, { onDelete: "cascade" }),
+  /** Set when one event was asked for rather than a range. */
+  eventId: uuid("event_id"),
+  /** The first sequence to send again, inclusive. */
+  fromSequence: integer("from_sequence").notNull(),
+  /** The last, inclusive, fixed when the replay was asked for. */
+  throughSequence: integer("through_sequence").notNull(),
+  /** The last sequence this replay has sent and had answered. Starts one before `from`. */
+  position: integer("position").notNull(),
+  status: webhookReplayStatus("status").notNull().default("pending"),
+  /** Consecutive refusals, with the same backoff and limit as live delivery. */
+  failureCount: integer("failure_count").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /** The worker's question every pass: what is still pending for this endpoint. */
+  pendingIdx: index("webhook_replay_pending_idx").on(t.organizationId, t.endpointId, t.status),
+}));
+
+/**
+ * EVERY DELIVERY ATTEMPT, AND WHAT THE RECEIVER SAID.
+ *
+ * The endpoint row carries a failure count and the time of the last attempt,
+ * which says THAT a receiver is failing and never WHY. An integrator
+ * debugging theirs needs the status it answered, the first part of the body
+ * it sent back and how long it took, per attempt, and until this table they
+ * were reading their own logs for it.
+ *
+ * BOUNDED, twice. The body is an excerpt (`EXCERPT_LIMIT` in core's webhook
+ * delivery rules), because a receiver answering with an HTML error page of a
+ * megabyte on every retry would otherwise grow this table by a megabyte a
+ * minute. And the rows themselves are pruned per endpoint by count and by age
+ * on every pass, so a busy endpoint cannot grow the log without bound.
+ *
+ * No foreign key to `domain_event`: the event id and sequence are copied
+ * because a delivery is a fact about what was sent, and the name is copied so
+ * the history reads without a join into the busiest table in the database.
+ */
+export const webhookDelivery = pgTable("webhook_delivery", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  endpointId: uuid("endpoint_id").notNull().references(() => webhookEndpoint.id, { onDelete: "cascade" }),
+  eventId: uuid("event_id").notNull(),
+  eventSequence: integer("event_sequence").notNull(),
+  eventName: text("event_name").notNull(),
+  /** 1 for the first try of this event at this endpoint, counting replays. */
+  attempt: integer("attempt").notNull(),
+  /** Set when this attempt was a replay rather than the live stream. */
+  replayId: uuid("replay_id").references(() => webhookReplay.id, { onDelete: "set null" }),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  /** Null when nothing answered: a timeout, a refused connection, DNS. */
+  responseStatus: integer("response_status"),
+  responseExcerpt: text("response_excerpt"),
+  error: text("error"),
+  ok: boolean("ok").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  endpointIdx: index("webhook_delivery_endpoint_idx").on(t.organizationId, t.endpointId, t.requestedAt),
+  eventIdx: index("webhook_delivery_event_idx").on(t.organizationId, t.eventId),
+}));
+
 export const customFieldDefinition = pgTable("custom_field_definition", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),

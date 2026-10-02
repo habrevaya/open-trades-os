@@ -9,8 +9,8 @@ import {
 } from "./context";
 import {
   AccountingNotConfiguredError, createProvider,
-  type AccountingEntityKind, type AccountingProvider, type ExternalInvoiceLine,
-  type ExternalRef, type ReadResult,
+  type AccountingEntityKind, type AccountingProvider, type ExternalCreditApplication,
+  type ExternalInvoiceLine, type ExternalRef, type ReadResult,
 } from "../accounting/provider";
 
 /**
@@ -483,6 +483,21 @@ export const paymentKey = (paymentId: string): string => shortKey("OT", paymentI
 /** A refund's ledger transaction, hashed like a payment, `OR` for "our refund". */
 export const refundKey = (transactionId: string): string => shortKey("OR", transactionId);
 export const customerKey = (name: string): string => name.trim();
+/**
+ * A credit note's own number, `CN` in front. Not `C`, which is what an
+ * invoice's void or write off carries with the INVOICE's number, and the two
+ * sequences overlap: credit note 12 and invoice 12 are different documents.
+ */
+export const creditNoteKey = (number: number): string => `CN${number}`;
+/** The invoice that reverses a voided credit note, numbered from it. */
+export const creditNoteVoidKey = (number: number): string => `CNV${number}`;
+/**
+ * An application's zero payment or allocation, hashed like a payment, `OA`
+ * for "our application". The settlement a void makes is keyed by the credit
+ * note's own id through the same function, and no application row can share
+ * a credit note's id.
+ */
+export const creditApplicationKey = (id: string): string => shortKey("OA", id);
 
 /* ------------------------------------------------------------- the claim */
 
@@ -1001,10 +1016,28 @@ type PushResultLike =
  */
 async function invoiceAccounts(
   tx: Database, organizationId: string, connectionId: string, invoiceId: string,
-): Promise<
+): Promise<DocumentAccounts> {
+  return postingAccounts(tx, organizationId, connectionId, {
+    sourceType: "invoice", sourceId: invoiceId, direction: "credit", noun: "invoice",
+  });
+}
+
+type DocumentAccounts =
   | { ok: true; revenue: { externalId: string; kind: string }; tax: { externalId: string; kind: string } | null }
-  | { ok: false; message: string }
-> {
+  | { ok: false; message: string };
+
+/**
+ * The same question for any document whose posting moves revenue and tax.
+ *
+ * An invoice CREDITS revenue, a credit note DEBITS it back, and a voided
+ * credit note credits it again; the side is the only difference, so one
+ * function answers all three from the ledger and none of them can come to
+ * disagree about which account a line belongs in.
+ */
+async function postingAccounts(
+  tx: Database, organizationId: string, connectionId: string,
+  source: { sourceType: string; sourceId: string; direction: "debit" | "credit"; noun: string },
+): Promise<DocumentAccounts> {
   const entries = await tx.select({
     accountCode: schema.ledgerEntry.accountCode,
     amount: schema.ledgerEntry.amount,
@@ -1012,30 +1045,31 @@ async function invoiceAccounts(
     .from(schema.ledgerEntry)
     .where(and(
       eq(schema.ledgerEntry.organizationId, organizationId),
-      eq(schema.ledgerEntry.sourceType, "invoice"),
-      eq(schema.ledgerEntry.sourceId, invoiceId),
-      eq(schema.ledgerEntry.direction, "credit"),
+      eq(schema.ledgerEntry.sourceType, source.sourceType),
+      eq(schema.ledgerEntry.sourceId, source.sourceId),
+      eq(schema.ledgerEntry.direction, source.direction),
     ));
 
   if (entries.length === 0) {
     return {
       ok: false,
-      message: "This invoice has no ledger posting, so there is nothing that says where its revenue belongs.",
+      message: `This ${source.noun} has no ledger posting, so there is nothing that says where its revenue belongs.`,
     };
   }
 
+  const verb = source.direction === "credit" ? "credits" : "debits";
   const revenueCodes = [...new Set(
     entries.filter((e) => e.accountCode !== ledger.ACCOUNTS.TAX_PAYABLE && Number(e.amount) !== 0)
       .map((e) => e.accountCode),
   )];
   if (revenueCodes.length === 0) {
-    return { ok: false, message: "This invoice's posting credits no revenue account." };
+    return { ok: false, message: `This ${source.noun}'s posting ${verb} no revenue account.` };
   }
   if (revenueCodes.length > 1) {
     return {
       ok: false,
       message:
-        `This invoice's posting credits ${revenueCodes.length} revenue accounts `
+        `This ${source.noun}'s posting ${verb} ${revenueCodes.length} revenue accounts `
         + `(${revenueCodes.join(", ")}) and the lines cannot be attributed between them.`,
     };
   }
@@ -1098,8 +1132,9 @@ async function mappingsFor(
  *
  * Customers before invoices because an invoice references a customer.
  * Invoices before payments because a payment references the invoices it
- * cleared. Credits last because a credit memo reverses an invoice that has to
- * be there first. Each step is skipped for a document whose dependency did
+ * cleared. Credits after because a credit memo reverses an invoice that has to
+ * be there first, and credit notes last because their applications point at
+ * both a credit note and an invoice. Each step is skipped for a document whose dependency did
  * not make it, rather than pushed with a dangling reference.
  */
 async function pushOutbound(
@@ -1351,9 +1386,15 @@ async function pushOutbound(
          * and crediting the total would leave the customer a credit in the
          * books for money they had already paid.
          */
+        /**
+         * And less what credit notes already settled on it. Those reach the
+         * books as applications of their own, and counting them here as well
+         * would take the same money off the receivable twice.
+         */
         amount: {
           amount: m.toString(m.subtract(
-            m.money(credit.total, credit.currency), m.money(credit.amountPaid, credit.currency),
+            m.subtract(m.money(credit.total, credit.currency), m.money(credit.amountPaid, credit.currency)),
+            m.money(credit.amountCredited, credit.currency),
           )),
           currency: credit.currency,
         },
@@ -1363,6 +1404,8 @@ async function pushOutbound(
       find: (k) => deps.provider.findPushed("credit_memo", k),
     });
   }
+
+  await pushCreditNotes(ctx, deps, connection, state, closedOn, limit, meteredRead, customerRef);
 }
 
 /**
@@ -1623,6 +1666,408 @@ async function refundsToPush(
     .limit(limit);
 }
 
+/* ------------------------------------------------------------ credit notes */
+
+/**
+ * CREDIT NOTES, AND WHAT THEY BECOME IN THE BOOKS.
+ *
+ * Four kinds of document, in dependency order, and each waits for the one
+ * before it rather than going with a dangling reference:
+ *
+ *   ISSUED   a QuickBooks CreditMemo or a Xero ACCRECCREDIT credit note,
+ *            with the credit note's own lines on the revenue account the
+ *            ledger debited and its tax on the mapped tax account. It lands
+ *            unapplied, as credit the customer holds, because that is what
+ *            issuing one does here.
+ *
+ *   APPLIED  one per `credit_note_application` row, dated the day it was
+ *            applied: a zero payment linking the invoice and the credit memo
+ *            in QuickBooks, an Allocation in Xero. Waits for both the credit
+ *            note and the invoice to be over there.
+ *
+ *   VOIDED   an invoice for the same lines, dated the day of the void, and
+ *            then that invoice settled against the credit note exactly as an
+ *            application is. NEITHER BOOK'S OWN VOID IS USED, and the reason
+ *            is the one `pushCredit` already lives by: a document that may sit
+ *            in a filed period is corrected by a new document dated now,
+ *            never by changing the old one. QuickBooks' API offers no void
+ *            for a credit memo at all, only a delete, and Xero's void takes
+ *            the credit out of the period it was issued in, which this
+ *            company may have closed. Our ledger posts the void on the day it
+ *            happened, and the reversing invoice is that posting as a
+ *            document: revenue and tax back on the day of the void, the
+ *            credit used up, nothing left open on either side.
+ *
+ * A credit note voided before it ever reached the books never goes, exactly
+ * as an invoice voided before its push never goes: there is nothing over
+ * there to take back. The one exception is a push that may already be in
+ * the books (a `pending` claim), which is still offered so the crash window
+ * is closed and the void then follows it.
+ *
+ * Every set is read AFTER the one before it has been pushed, so a credit
+ * note issued and applied since the last pass reaches the books whole in one
+ * pass rather than an application at a time.
+ */
+async function pushCreditNotes(
+  ctx: ServiceContext,
+  deps: SyncDeps,
+  connection: AccountingConnection,
+  state: PassState,
+  closedOn: string | null,
+  limit: number,
+  meteredRead: MeteredRead,
+  customerRef: (customerId: string) => Promise<string | null>,
+): Promise<void> {
+  const organizationId = ctx.actor.organizationId;
+  const money = (amount: string, currency: string) => ({ amount, currency });
+
+  /** Lines and accounts for a document built from a credit note's lines. */
+  const documentFor = async (
+    noteId: string, currency: string, posting: { sourceType: string; direction: "debit" | "credit"; noun: string },
+  ) => guardedRead(ctx, "accounting:sync", async (tx) => {
+    const accounts = await postingAccounts(tx, organizationId, connection.id, {
+      ...posting, sourceId: noteId,
+    });
+    if (!accounts.ok) return accounts;
+    const rows = await tx.select({
+      name: schema.creditNoteLine.name,
+      description: schema.creditNoteLine.description,
+      quantity: schema.creditNoteLine.quantity,
+      unitPrice: schema.creditNoteLine.unitPrice,
+      lineTotal: schema.creditNoteLine.lineTotal,
+    })
+      .from(schema.creditNoteLine)
+      .where(eq(schema.creditNoteLine.creditNoteId, noteId))
+      .orderBy(asc(schema.creditNoteLine.sortOrder));
+    /** Mapped the way an invoice's lines are, by the same rule. */
+    const lines: ExternalInvoiceLine[] = rows.map((line) => ({
+      description: line.description ?? line.name,
+      quantity: line.quantity,
+      unitPrice: money(line.unitPrice, currency),
+      amount: money(line.lineTotal, currency),
+      accountExternalId: accounts.revenue.externalId,
+      accountExternalKind: accounts.revenue.kind,
+    }));
+    return { ok: true as const, lines, tax: accounts.tax };
+  });
+
+  /** Push one application, or the settlement of one void, which is the same document. */
+  const pushApplication = async (entityId: string, application: ExternalCreditApplication) =>
+    pushOne(ctx, connection.id, state, meteredRead, {
+      kind: "credit_note_application",
+      entityId,
+      idempotencyKey: application.idempotencyKey,
+      send: () => deps.provider.pushCreditApplication(application),
+      find: async () => {
+        const taken = await guardedRead(ctx, "accounting:sync", async (tx) => {
+          const rows = await tx.select({ externalId: schema.accountingEntityLink.externalId })
+            .from(schema.accountingEntityLink)
+            .where(and(
+              eq(schema.accountingEntityLink.connectionId, connection.id),
+              eq(schema.accountingEntityLink.kind, "credit_note_application"),
+              isNotNull(schema.accountingEntityLink.externalId),
+            ));
+          return rows.map((row) => row.externalId!);
+        });
+        return deps.provider.findCreditApplication(application, taken);
+      },
+    });
+
+  /* Issued. */
+  const notes = await guardedRead(ctx, "accounting:sync", (tx) =>
+    creditNotesToPush(tx, connection.id, closedOn, limit));
+  for (const note of notes) {
+    const key = creditNoteKey(note.number);
+    const customerExternalId = await customerRef(note.customerId);
+    if (!customerExternalId) { state.skipped += 1; continue; }
+
+    const document = await documentFor(note.id, note.currency, {
+      sourceType: "credit_note", direction: "debit", noun: "credit note",
+    });
+    if (!document.ok) {
+      await recordRefusal(ctx, connection.id, "credit_note", note.id, key, document.message);
+      state.failed += 1;
+      continue;
+    }
+
+    await pushOne(ctx, connection.id, state, meteredRead, {
+      kind: "credit_note",
+      entityId: note.id,
+      idempotencyKey: key,
+      send: () => deps.provider.pushCreditNote({
+        idempotencyKey: key,
+        customerExternalId,
+        documentNumber: key,
+        issuedOn: note.issuedOn!,
+        currency: note.currency,
+        lines: document.lines,
+        tax: document.tax && Number(note.taxTotal) !== 0
+          ? { amount: money(note.taxTotal, note.currency), accountExternalId: document.tax.externalId }
+          : null,
+        memo: note.note,
+      }),
+      find: (k) => deps.provider.findPushed("credit_note", k),
+    });
+  }
+
+  /* Applied. */
+  const applications = await guardedRead(ctx, "accounting:sync", (tx) =>
+    applicationsToPush(tx, connection.id, closedOn, limit));
+  for (const application of applications) {
+    const customerExternalId = await customerRef(application.customerId);
+    if (!customerExternalId) { state.skipped += 1; continue; }
+    await pushApplication(application.id, {
+      idempotencyKey: creditApplicationKey(application.id),
+      customerExternalId,
+      creditNoteExternalId: application.creditNoteExternalId!,
+      invoiceExternalId: application.invoiceExternalId!,
+      appliedOn: application.appliedOn,
+      amount: money(application.amount, application.currency),
+    });
+  }
+
+  /* Voided: the reversing invoice. */
+  const voids = await guardedRead(ctx, "accounting:sync", (tx) =>
+    voidsToPush(tx, connection.id, closedOn, limit));
+  for (const note of voids) {
+    const key = creditNoteVoidKey(note.number);
+    const customerExternalId = await customerRef(note.customerId);
+    if (!customerExternalId) { state.skipped += 1; continue; }
+
+    const document = await documentFor(note.id, note.currency, {
+      sourceType: "credit_note_void", direction: "credit", noun: "voided credit note",
+    });
+    if (!document.ok) {
+      await recordRefusal(ctx, connection.id, "credit_note_void", note.id, key, document.message);
+      state.failed += 1;
+      continue;
+    }
+
+    const voidedOn = (note.voidedAt ?? new Date()).toISOString().slice(0, 10);
+    await pushOne(ctx, connection.id, state, meteredRead, {
+      kind: "credit_note_void",
+      entityId: note.id,
+      idempotencyKey: key,
+      send: () => deps.provider.pushInvoice({
+        idempotencyKey: key,
+        customerExternalId,
+        documentNumber: key,
+        issuedOn: voidedOn,
+        dueOn: voidedOn,
+        currency: note.currency,
+        lines: document.lines,
+        tax: document.tax && Number(note.taxTotal) !== 0
+          ? { amount: money(note.taxTotal, note.currency), accountExternalId: document.tax.externalId }
+          : null,
+        memo: `Reverses credit note ${note.number}, which was voided.`,
+      }),
+      find: (k) => deps.provider.findPushed("credit_note_void", k),
+    });
+  }
+
+  /* Voided: the reversing invoice settled against the credit note. */
+  const settlements = await guardedRead(ctx, "accounting:sync", (tx) =>
+    voidSettlementsToPush(tx, connection.id, closedOn, limit));
+  for (const note of settlements) {
+    const customerExternalId = await customerRef(note.customerId);
+    if (!customerExternalId) { state.skipped += 1; continue; }
+    await pushApplication(note.id, {
+      idempotencyKey: creditApplicationKey(note.id),
+      customerExternalId,
+      creditNoteExternalId: note.creditNoteExternalId!,
+      invoiceExternalId: note.reversalExternalId!,
+      appliedOn: (note.voidedAt ?? new Date()).toISOString().slice(0, 10),
+      /**
+       * The whole credit note, because nothing of it was ever applied: the
+       * void is refused here once any of it has been.
+       */
+      amount: money(note.total, note.currency),
+    });
+  }
+}
+
+/**
+ * Issued credit notes that have not reached the books, dated after the
+ * close by their own issue date.
+ */
+async function creditNotesToPush(
+  tx: Database, connectionId: string, closedOn: string | null, limit: number,
+) {
+  const link = alias(schema.accountingEntityLink, "credit_note_link");
+  return tx.select({
+    id: schema.creditNote.id,
+    number: schema.creditNote.number,
+    customerId: schema.creditNote.customerId,
+    issuedOn: schema.creditNote.issuedOn,
+    currency: schema.creditNote.currency,
+    taxTotal: schema.creditNote.taxTotal,
+    note: schema.creditNote.note,
+  })
+    .from(schema.creditNote)
+    .leftJoin(link, and(
+      eq(link.connectionId, connectionId),
+      eq(link.kind, "credit_note"),
+      eq(link.entityId, schema.creditNote.id),
+    ))
+    .where(and(
+      /**
+       * A DRAFT IS NOT SENT, for the reason a draft invoice is not. A void
+       * one is sent only when a push of it may already have landed.
+       */
+      or(
+        inArray(schema.creditNote.status, ["open", "partially_applied", "applied"]),
+        and(eq(schema.creditNote.status, "void"), eq(link.state, "pending")),
+      ),
+      isNotNull(schema.creditNote.issuedOn),
+      offerable(link.id, link.state),
+      afterClose(schema.creditNote.issuedOn, closedOn),
+    ))
+    .orderBy(asc(schema.creditNote.number))
+    .limit(limit);
+}
+
+/**
+ * Applications whose credit note AND invoice are both in the books, dated
+ * after the close by the day they were applied. An application against an
+ * invoice that never reached the books waits for it, as a payment does.
+ */
+async function applicationsToPush(
+  tx: Database, connectionId: string, closedOn: string | null, limit: number,
+) {
+  const noteLink = alias(schema.accountingEntityLink, "applied_note_link");
+  const invoiceLink = alias(schema.accountingEntityLink, "applied_invoice_link");
+  const applicationLink = alias(schema.accountingEntityLink, "application_link");
+  return tx.select({
+    id: schema.creditNoteApplication.id,
+    amount: schema.creditNoteApplication.amount,
+    /**
+     * The day it was applied, or the day the row was written for one an
+     * older build saved without a date. Written by the service on every
+     * application since the column existed, so this is a fallback, and it
+     * is the same day in all but a migration.
+     */
+    appliedOn: sql<string>`coalesce(${schema.creditNoteApplication.appliedOn}, ${schema.creditNoteApplication.createdAt}::date)::text`,
+    customerId: schema.creditNote.customerId,
+    currency: schema.creditNote.currency,
+    creditNoteExternalId: noteLink.externalId,
+    invoiceExternalId: invoiceLink.externalId,
+  })
+    .from(schema.creditNoteApplication)
+    .innerJoin(schema.creditNote, eq(schema.creditNote.id, schema.creditNoteApplication.creditNoteId))
+    .innerJoin(noteLink, and(
+      eq(noteLink.connectionId, connectionId),
+      eq(noteLink.kind, "credit_note"),
+      eq(noteLink.entityId, schema.creditNote.id),
+      eq(noteLink.state, "linked"),
+      isNotNull(noteLink.externalId),
+    ))
+    .innerJoin(invoiceLink, and(
+      eq(invoiceLink.connectionId, connectionId),
+      eq(invoiceLink.kind, "invoice"),
+      eq(invoiceLink.entityId, schema.creditNoteApplication.invoiceId),
+      eq(invoiceLink.state, "linked"),
+      isNotNull(invoiceLink.externalId),
+    ))
+    .leftJoin(applicationLink, and(
+      eq(applicationLink.connectionId, connectionId),
+      eq(applicationLink.kind, "credit_note_application"),
+      eq(applicationLink.entityId, schema.creditNoteApplication.id),
+    ))
+    .where(and(
+      offerable(applicationLink.id, applicationLink.state),
+      closedOn
+        ? sql`coalesce(${schema.creditNoteApplication.appliedOn}, ${schema.creditNoteApplication.createdAt}::date) > ${closedOn}`
+        : undefined,
+    ))
+    .orderBy(asc(schema.creditNoteApplication.createdAt))
+    .limit(limit);
+}
+
+/**
+ * Credit notes voided after they reached the books, dated after the close by
+ * the day of the void, which is the period the reversal belongs in for the
+ * reason `creditsToPush` gives for a write off.
+ */
+async function voidsToPush(
+  tx: Database, connectionId: string, closedOn: string | null, limit: number,
+) {
+  const noteLink = alias(schema.accountingEntityLink, "voided_note_link");
+  const voidLink = alias(schema.accountingEntityLink, "credit_note_void_link");
+  return tx.select({
+    id: schema.creditNote.id,
+    number: schema.creditNote.number,
+    customerId: schema.creditNote.customerId,
+    currency: schema.creditNote.currency,
+    taxTotal: schema.creditNote.taxTotal,
+    voidedAt: schema.creditNote.voidedAt,
+  })
+    .from(schema.creditNote)
+    .innerJoin(noteLink, and(
+      eq(noteLink.connectionId, connectionId),
+      eq(noteLink.kind, "credit_note"),
+      eq(noteLink.entityId, schema.creditNote.id),
+      eq(noteLink.state, "linked"),
+      isNotNull(noteLink.externalId),
+    ))
+    .leftJoin(voidLink, and(
+      eq(voidLink.connectionId, connectionId),
+      eq(voidLink.kind, "credit_note_void"),
+      eq(voidLink.entityId, schema.creditNote.id),
+    ))
+    .where(and(
+      eq(schema.creditNote.status, "void"),
+      offerable(voidLink.id, voidLink.state),
+      closedOn ? sql`${schema.creditNote.voidedAt}::date > ${closedOn}` : undefined,
+    ))
+    .orderBy(asc(schema.creditNote.number))
+    .limit(limit);
+}
+
+/** Voids whose reversing invoice is over there and not yet settled against the credit note. */
+async function voidSettlementsToPush(
+  tx: Database, connectionId: string, closedOn: string | null, limit: number,
+) {
+  const noteLink = alias(schema.accountingEntityLink, "settled_note_link");
+  const voidLink = alias(schema.accountingEntityLink, "settled_void_link");
+  const settlementLink = alias(schema.accountingEntityLink, "void_settlement_link");
+  return tx.select({
+    id: schema.creditNote.id,
+    customerId: schema.creditNote.customerId,
+    currency: schema.creditNote.currency,
+    total: schema.creditNote.total,
+    voidedAt: schema.creditNote.voidedAt,
+    creditNoteExternalId: noteLink.externalId,
+    reversalExternalId: voidLink.externalId,
+  })
+    .from(schema.creditNote)
+    .innerJoin(noteLink, and(
+      eq(noteLink.connectionId, connectionId),
+      eq(noteLink.kind, "credit_note"),
+      eq(noteLink.entityId, schema.creditNote.id),
+      eq(noteLink.state, "linked"),
+      isNotNull(noteLink.externalId),
+    ))
+    .innerJoin(voidLink, and(
+      eq(voidLink.connectionId, connectionId),
+      eq(voidLink.kind, "credit_note_void"),
+      eq(voidLink.entityId, schema.creditNote.id),
+      eq(voidLink.state, "linked"),
+      isNotNull(voidLink.externalId),
+    ))
+    .leftJoin(settlementLink, and(
+      eq(settlementLink.connectionId, connectionId),
+      eq(settlementLink.kind, "credit_note_application"),
+      eq(settlementLink.entityId, schema.creditNote.id),
+    ))
+    .where(and(
+      eq(schema.creditNote.status, "void"),
+      offerable(settlementLink.id, settlementLink.state),
+      closedOn ? sql`${schema.creditNote.voidedAt}::date > ${closedOn}` : undefined,
+    ))
+    .orderBy(asc(schema.creditNote.number))
+    .limit(limit);
+}
+
 /**
  * A document this pass refuses to send, written down where somebody can read
  * it.
@@ -1665,6 +2110,21 @@ async function recordRefusal(
  * record for accounts. Changes flow back as facts about documents, not as new
  * documents.
  */
+/**
+ * The kinds a change feed entry can be, per kind it reports.
+ *
+ * A provider's feed names its own object types, and three of ours share one:
+ * a credit note is a CreditMemo like a write off is, a voided credit note's
+ * reversal is an Invoice, and a QuickBooks application is a Payment. Without
+ * this a credit note deleted over there would be looked for as a write off,
+ * found nowhere, and still believed in here.
+ */
+const SAME_DOCUMENT: Partial<Record<AccountingEntityKind, AccountingEntityKind[]>> = {
+  credit_memo: ["credit_memo", "credit_note"],
+  invoice: ["invoice", "credit_note_void"],
+  payment: ["payment", "credit_note_application"],
+};
+
 async function applyChanges(
   ctx: ServiceContext,
   connectionId: string,
@@ -1678,7 +2138,7 @@ async function applyChanges(
         .from(schema.accountingEntityLink)
         .where(and(
           eq(schema.accountingEntityLink.connectionId, connectionId),
-          eq(schema.accountingEntityLink.kind, change.kind),
+          inArray(schema.accountingEntityLink.kind, SAME_DOCUMENT[change.kind] ?? [change.kind]),
           eq(schema.accountingEntityLink.externalId, change.externalId),
         )).limit(1);
       /** A document we never pushed. Counted, and otherwise none of our business. */
@@ -1722,7 +2182,7 @@ async function applyChanges(
  * `status` instead, so "eleven documents are held back by the March close" is
  * on the screen without anything being burned.
  */
-function afterClose(column: typeof schema.invoice.issuedOn, closedOn: string | null) {
+function afterClose(column: PgColumn, closedOn: string | null) {
   return closedOn ? sql`${column} > ${closedOn}` : undefined;
 }
 
@@ -1840,6 +2300,7 @@ async function creditsToPush(
     status: schema.invoice.status,
     total: schema.invoice.total,
     amountPaid: schema.invoice.amountPaid,
+    amountCredited: schema.invoice.amountCredited,
     currency: schema.invoice.currency,
     voidedAt: schema.invoice.voidedAt,
     updatedAt: schema.invoice.updatedAt,
