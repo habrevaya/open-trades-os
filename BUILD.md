@@ -19,7 +19,7 @@
 | Domain logic | Access control, money, estimates, the ledger, the field operation model, recurrence, automation, inspection, labor, coverage, reporting |
 | API | Every declared route is served, over HTTP, at `/api/v1`. Booked-to-paid, the sell path, dispatch, field sync, properties, the price book, job editing, inventory, purchasing, time, reviews, forms, webhooks |
 | Web app | Dispatch board, a technician's day, the customer portal (proposal, tracking, booking, invoice, deposit, and the customer's whole account at `/c/{token}`), and office screens for customers, projects (phases that wait for each other, a job per phase, draws raised as invoices, budget against actual), jobs (with cost against revenue on each job, for whoever may read both, and a job costing report beside the four margin reports; booked, assigned and completed from the office), invoices (raised, edited, issued, sent, voided and written off), payments (recorded, held, applied, refunded, and a card taken), estimates (options, a deposit, the approval link, and converting to a job), agreements, inventory, purchasing, the fleet (the register with who holds each thing, check out and in, meter readings, service due, and registration, inspection, insurance and calibration in the order to act on them), certifications (who holds what until when, whether the card was seen, what is due for renewal, suspend, revoke and reinstate, and the kinds that unlock skills), timesheets, payroll (pay periods, the register with a reason on every line and the people who cannot be paid named first, close and reopen, the CSV export and recording commissions paid), reports, dashboards, compliance (documents on file and when each runs out, the lapsed ones marked needed for work, renewals, and the filing calendar the trade pack declares), automations, reviews and the inbox (threads by customer, on the customer's page too, texting a customer first, and what each number has agreed to beside the conversation; the same conversations and consent are in the API at `/v1/conversations` and `/v1/consent`). Settings → Integrations connects, changes and disconnects every built integration (Stripe, QuickBooks, Xero, Twilio, JustCall, Resend, SMTP, CallRail and the AI models), shows each one's state and webhook address, and takes secret names rather than secrets |
-| Mobile | The technician's day runs as a web page on the phone they already have. The Expo app is not built |
+| Mobile | The technician's day runs as a web page on the phone they already have. The server takes photo and signature bytes, hash checked, deduplicated by content and served back at `/files/{key}`, and the phone page has no camera control to send any. The Expo app is not built, and the bytes are in Postgres rather than object storage |
 | Worker | Built. `pnpm --filter @opentradesos/api worker` drains the event log, fires schedules, resumes waiting runs, sweeps for things that did not happen, and then sends the outbox, webhooks and accounting sync. On a host with no long running processes the same pass runs from `POST /api/internal/worker/tick`. `docs/self-hosting/worker.md` |
 | Trade packs | 8 shipped: HVAC, plumbing, electrical, lawn and landscape, pest control, cleaning, dumpster rental, trash bin cleaning |
 | Migration | The importer is the separate migration toolkit, which loads through `/api/v1` with an app token; nothing here imports from Jobber or Housecall Pro. The API takes history faithfully: back-dated invoices, payments, refunds and completions posted on their own dates (never into a closed period), tax as charged, invoice adjustments with a to-the-cent totals cross check, unapplied money, source document numbers, cancelled and untimed visits, `externalRef` provenance on every create with lookup on every list, people and job type lists, and file attachments. History needs the owner-only `data:import` permission. An estimate's historical status is not yet accepted. `docs/modules/m30-migration-data-portability.md` |
@@ -185,11 +185,30 @@ today without an app store. The dispatch board, route ordering, assignment and
 on-my-way are built. Every operation kind writes something outside the log, and
 a test fails if one stops.
 
+Photo and signature bytes land. The device declares a hash, the server
+refuses bytes that do not match it as a corrupted file rather than storing
+them, stores what does under a content addressed key so a phone retrying four
+times in a car park does not leave four copies, attaches it to the record it
+was taken for, and serves it at `/files/{key}` scoped by the caller's own
+company rather than by the key. An upload that cannot be stored is counted and
+then abandoned with the error on the row, because a queue with no attempt count
+retries forever and a photograph nobody knew had failed is the worse outcome.
+This paragraph used to say those bytes had no upload path, which stopped being
+true at the server end and stayed written down. It is still true at the other
+end: `/my-day` has no camera control and the client queue carries operations
+rather than files, so the upload path is a server with nobody uploading to it.
+That is the right order to have built it in, because the half that has to be
+idempotent, hash checked and tenant scoped is the half that is hard to change
+later.
+
 Not done, and named so nobody assumes otherwise: the Expo app, which adds
-background sync, reliable camera capture and a home screen icon; photo and
-signature bytes, which are recorded and queued but have no upload path yet; and
-true offline page loads, which need a service worker. A technician with no
-signal can record a day on a page already open; they cannot open the page.
+background sync, reliable camera capture and a home screen icon; object storage,
+because the bytes are columns in Postgres, which is correct for a self hoster
+with a few gigabytes of photographs and not for a company with a terabyte; the
+customer portal reading a job photograph, which needs a token path rather than
+the session one; and true offline page loads, which need a service worker. A
+technician with no signal can record a day on a page already open; they cannot
+open the page.
 
 ---
 

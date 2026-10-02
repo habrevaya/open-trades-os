@@ -219,6 +219,42 @@ describe("every module doc", () => {
     expect(checked).toBeGreaterThan(0);
   });
 
+  it("has one top level heading, and the front matter agrees with it", () => {
+    /**
+     * Structure rather than prose, and it caught a real slip: a doc written with
+     * `# What it does` instead of `##` has two top level headings, which in the
+     * rendered site makes the second one a page title. Cheap to check and
+     * invisible to read, which is the combination worth a test.
+     *
+     * The title is checked against the front matter too, because the front
+     * matter is what the index renders and the heading is what the page shows,
+     * and the two disagreeing means somebody renamed a module in one place.
+     */
+    const wrong: string[] = [];
+    for (const { file, text } of written) {
+      const h1 = [...text.matchAll(/^# (.+)$/gm)].map((m) => m[1]!.trim());
+      if (h1.length !== 1) { wrong.push(`${file}: ${h1.length} top level headings`); continue; }
+      const title = /^title: (.+)$/m.exec(text)?.[1]?.trim();
+      if (title !== h1[0]) wrong.push(`${file}: front matter "${title}" against heading "${h1[0]}"`);
+    }
+    expect(wrong, "docs whose headings do not line up").toEqual([]);
+  });
+
+  it("names its own module in the front matter", () => {
+    /**
+     * `m13-...md` has to say `module: M13`. A doc that names another module's
+     * number sorts into the wrong place in the index and is cited as the wrong
+     * thing from everywhere else.
+     */
+    const wrong: string[] = [];
+    for (const { file, text } of written) {
+      const expected = `M${file.slice(1, 3)}`;
+      const declared = /^module: (.+)$/m.exec(text)?.[1]?.trim();
+      if (declared !== expected) wrong.push(`${file}: says ${declared}, should say ${expected}`);
+    }
+    expect(wrong, "docs whose module number does not match their filename").toEqual([]);
+  });
+
   it("does not call a finished doc a stub", () => {
     /**
      * ONE DIRECTION, and the asymmetry is the point.

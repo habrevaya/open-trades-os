@@ -3,7 +3,7 @@ title: Accounting and General Ledger
 module: M14
 domain: Money
 phase: 5
-status: stub
+status: partial
 ---
 
 # Accounting and General Ledger
@@ -12,33 +12,157 @@ status: stub
 
 ## What it does
 
-<!-- One paragraph a contractor would recognize. No feature list yet. -->
+Keeps a real double entry ledger behind every money movement in the product,
+lets somebody read it, and pushes the documents into QuickBooks Online or Xero,
+both directions.
+
+## The problem
+
+Most field service software holds money as a set of numbers on documents and
+exports a CSV. That works until a number disagrees with another number, and then
+nobody can say which one is right, because there is no account anything was
+posted to.
+
+The other problem is the sync. A sync that runs twice puts two invoices in
+somebody's QuickBooks, and a sync that guesses where money lands produces a year
+of misfiled revenue that an accountant finds in March.
 
 ## Key concepts
 
-<!-- The two or three ideas someone has to hold to use this module.
-     If a concept differs from how ServiceTitan or Jobber models it,
-     say so here and say why. -->
+**Postings are append only, and the database enforces it.** A correction is a
+reversing entry rather than an edit. `ledger_entry` has a trigger refusing
+UPDATE, which is why a customer merge moves everything except the ledger.
+
+**The balance is asserted twice, on purpose.** Once in TypeScript, where the
+error names the imbalance and points at the code that built it, and once in
+Postgres by a deferred constraint trigger, where it is a guarantee rather than a
+convention. The first exists because a trigger firing at commit tells you a
+transaction failed and not which of forty entries was wrong. The second exists
+because the first can be bypassed by anything writing SQL directly, and the
+ledger is the one table where that must not be possible.
+
+**There is no bare journal entry surface, and that is a decision.** A posting is
+a consequence of a guarded business action: invoicing, taking a payment, writing
+one off. An operator who can post freely can make the books say anything with no
+document behind it. `ledger:post` exists in the catalogue for the day a manual
+journal is genuinely needed, and until then it is excused by name in the
+permissions guard rather than quietly unenforced.
+
+**The audit has to be reachable or double entry is pointless.** The postings were
+written, append only and trigger enforced, and nothing could read them back: a
+company could not see a trial balance, could not open a journal, and could not
+answer "why does accounts receivable say that" without a database client.
+
+**Reads are metered and writes are not.** Intuit charges for reads and refuses
+the overage with a 429 instead of billing it, so the sync never asks the
+accounting system what it already knows. "Have I pushed this" is answered
+locally. The only reads on the outbound path are crash recovery, and the only
+read on the inbound path is one change feed request. Running out of reads is
+recorded on the run and the pass keeps going, because the outbound half does not
+need reads at all.
+
+**Idempotency is a unique index, not a check followed by an insert.** Two workers
+both passing a check is not a rare race, it is what happens the first time a pass
+takes longer than the tick.
+
+**Nothing is guessed about where money lands.** An invoice line with no mapped
+account is refused by name rather than defaulted into an income account that
+looked plausible.
+
+**A document is offered a bounded number of times.** Without a ceiling, a document
+QuickBooks will never accept, a line naming a deleted item say, is retried on
+every tick forever and the failure is invisible because each pass looks like the
+last.
+
+**A refund crosses the two systems differently depending on when it happened.**
+One made before its payment reached the books is netted into it. One made after is
+sent on its own date: to QuickBooks as an expense from the bank categorised to
+Accounts Receivable, and to Xero as an invoice for the amount plus Spend Money
+through the mapped customer deposits account, because Xero's receivable is a
+system account nothing else may touch.
 
 ## Setup
 
-<!-- What an admin configures, in order, with the permissions required. -->
+QuickBooks Online or Xero is connected at `/settings/integrations`.
+`GET /v1/accounting/accounts` reads the chart of accounts from over there, and
+`PUT /v1/accounting/mappings` says which of this product's categories lands in
+which account. Nothing syncs until the mappings it needs exist, because a default
+is worse than a refusal.
 
 ## Using it
 
-<!-- Task-oriented. One heading per job to be done. -->
+### Read the books
+
+`GET /v1/ledger/trial-balance` is every account with its two sides and its
+balance, grouped in SQL because this is the one report that reads the whole
+ledger and a company closing its fifth year has a lot of it.
+`GET /v1/ledger/journal` is the entries. Both need `ledger:read`.
+
+### Run the sync
+
+`POST /v1/accounting/sync` runs a pass, `GET /v1/accounting/status` says where it
+stands, `GET /v1/accounting/runs` is the history, and
+`GET /v1/accounting/problems` is the documents it could not place, with
+`POST /v1/accounting/problems/{id}/retry` to offer one again. All of them need
+`accounting:sync`.
+
+### Close a month
+
+`POST /v1/accounting/periods/close` closes a period and
+`POST /v1/accounting/periods/reopen` opens it again. Both need
+`accounting:close`, which is a different permission from running the sync.
+Nothing posts into a closed period, including a back dated document from a
+migration, and the refusal names the period.
 
 ## Permissions
 
 | Role | Access |
 |---|---|
-<!-- owner / admin / manager / dispatcher / csr / technician / accountant -->
+| Owner | Everything |
+| Administrator | Everything except the ledger and closing a period, which are granted explicitly |
+| Office manager | Neither the ledger nor the sync |
+| Accountant | Reads the ledger, runs the sync, closes the period |
+
+`ledger:read` is on the sensitive list. The administrator preset deliberately
+excludes it along with `ledger:post` and `accounting:close`: running the system is
+not the same job as keeping the books, and a company that wants one person doing
+both grants it rather than inheriting it.
 
 ## API
 
-<!-- Link to the generated reference, plus the two or three calls that
-     cover most real integrations. -->
+| Call | Needs |
+|---|---|
+| `GET /v1/ledger/trial-balance` | `ledger:read` |
+| `GET /v1/ledger/journal` | `ledger:read` |
+| `GET /v1/accounting/accounts` | `accounting:sync` |
+| `PUT /v1/accounting/mappings` | `accounting:sync` |
+| `POST /v1/accounting/sync` | `accounting:sync` |
+| `GET /v1/accounting/problems` | `accounting:sync` |
+| `GET /v1/accounting/periods` | `accounting:sync` |
+| `POST /v1/accounting/periods/close` | `accounting:close` |
 
 ## Common questions
 
-<!-- Answer what support would otherwise answer twice a week. -->
+**Is the seeded demo company's ledger real?** Yes. Its invoices and payments are
+raised and paid through the billing service, so the postings behind them are real
+and seeded jobs show the revenue their invoices posted. That is why the seed lives
+in the API package.
+
+**Can the trial balance be filtered by branch?** No, and the omission is
+deliberate rather than forgotten. The column exists and nothing writes it, so a
+filter matched nothing on every ledger. Filling it on the invoice path alone would
+produce a filtered trial balance holding a branch's revenue and none of its
+payments, write offs or deposits: plausible, wrong, and nobody checking it against
+a bank statement would find the cause.
+
+**What happens if the sync is interrupted?** The claim a pass takes is what makes
+overlap safe, and the next tick recovers. A pass that never finishes holds nothing
+open.
+
+## What is not built
+
+No manual journal entry, as above. No branch dimension on a posting. A refund sent
+to the accounting system is not watched for deletion over there. There is no
+reconciliation screen against a bank feed, and no fixed asset or depreciation
+handling: a company that needs those does them in the accounting system, which is
+where they belong.

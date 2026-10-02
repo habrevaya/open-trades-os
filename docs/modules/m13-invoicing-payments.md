@@ -3,7 +3,7 @@ title: Invoicing and Payments
 module: M13
 domain: Money
 phase: 1
-status: stub
+status: partial
 ---
 
 # Invoicing and Payments
@@ -12,33 +12,172 @@ status: stub
 
 ## What it does
 
-<!-- One paragraph a contractor would recognize. No feature list yet. -->
+Raises an invoice from a job, issues it, sends it, takes the money, and keeps a
+record of where every dollar went that still reconciles six years later.
+
+## The problem
+
+Invoicing looks like the easy part and it is where most of this product's hard
+rules live, because money has to agree with itself from four directions: what the
+customer was charged, what arrived, what it was applied to, and what the ledger
+says. Any two of those disagreeing is a dispute, an audit finding, or a
+bookkeeper's afternoon.
 
 ## Key concepts
 
-<!-- The two or three ideas someone has to hold to use this module.
-     If a concept differs from how ServiceTitan or Jobber models it,
-     say so here and say why. -->
+**Totals are computed server side and a client supplied total is ignored.** Not
+distrust of our own web app: the same API serves a third party integration, an AI
+agent and an offline mobile client, and exactly one of them should be allowed to
+decide what something costs.
+
+**A draft is edited, issued or thrown away.** Those are the three things that can
+happen to one, and the pricing rules for editing a draft are the same code as
+pricing a new invoice. Two copies of those rules would be two invoices that
+disagree about the same lines.
+
+**An invoice line names the job line it bills.** That is what makes "what is
+still to invoice" a query. A line billed twice is the customer charged twice for
+one capacitor; a warranty part billed at all is the complaint that ends the
+relationship.
+
+**Allocation is the part that decides whether a month end reconciles.** A payment
+can span invoices and an invoice can take many payments. Left unspecified, money
+is applied oldest balance first, which is what a bookkeeper does by hand and what
+a customer expects.
+
+**"Oldest" has to be a total order.** It was issue date alone, and a company
+invoicing four jobs in one morning gives four invoices the same issue date:
+Postgres then returns them in whatever order the heap holds, and a part payment
+lands on an arbitrary one. The first tie break is the DUE date rather than the
+issue date, because that is the order the aging report buckets by and the order
+the customer is chased in, so it is the one a part payment should clear.
+
+**Where money may be applied is asked the same way whoever is applying it.** This
+customer's invoice (or the invoice's payer's), open, a positive amount, never more
+than the balance, counting every line for the same invoice together. Recording a
+payment with its allocations named used to check none of that: money could land on
+another customer's invoice, on a void or draft one, or for more than was owed,
+leaving a negative balance the receivables report counted as money the company
+owed back.
+
+**A refund is negative allocation rows, not an edit.** The allocations are the
+history of where this money went, and that history now says it came back. Out of
+held money first, because returning a credit nobody used reverses nothing that was
+ever owed; beyond that it reopens what the payment paid, newest allocation first.
+A void or written off invoice is refused rather than reopened, because the money it
+received cannot go back onto a receivable that no longer exists.
+
+**A card refund and a hand recorded refund post identically.** One shared
+function, so the two cannot disagree about which invoices reopen or what the
+posting says.
+
+**A deposit is a liability from the moment it arrives.** It posts distinctly on
+receipt, on application, on refund and on forfeiture, because those are four
+different things happening to somebody else's money.
+
+**A payment is recorded only from a verified webhook.** So is a refund. A card
+refund Stripe reports reopens the invoices it paid and posts to the ledger exactly
+as one recorded by hand does, dated when it was made, booked once per Stripe
+refund id.
+
+**A job already marked paid stays paid when a refund arrives.** Its lifecycle does
+not go backwards, and the invoice is what now shows money owed.
 
 ## Setup
 
-<!-- What an admin configures, in order, with the permissions required. -->
+Stripe is connected at `/settings/integrations`, on the company's own account
+with a restricted key, by the names of the secrets rather than by pasting secrets
+into a form. The webhook address Settings shows has to be pasted into the Stripe
+dashboard; that is not something this product can do on its screens, and the
+screen says so.
 
 ## Using it
 
-<!-- Task-oriented. One heading per job to be done. -->
+### Raise and issue
+
+`POST /v1/invoices` from a job, `POST /v1/invoices/{id}/issue` to issue a draft,
+`POST /v1/invoices/{invoiceId}/send` to send it. `/invoices/new` and
+`/invoices/{id}` are the office screens, and `/invoices/{id}/edit` is a draft.
+
+### Take money
+
+`POST /v1/payments` records one, whatever its method.
+`POST /v1/payments/intents` starts a card, which the office takes from the
+invoice screen through Stripe's Payment Element, and the customer takes from
+`/i/{token}`. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
+
+### Give money back
+
+`POST /v1/payments/{id}/refunds` records one paid by hand and
+`POST /v1/payments/{paymentId}/refund` sends one to the processor.
+`POST /v1/invoices/{id}/void` and
+`POST /v1/invoices/{id}/write-off` are the other two ways an invoice stops being
+owed, and they are different permissions because they are different admissions.
+
+### Deposits
+
+`POST /v1/deposits` asks for one, `POST /v1/deposits/{id}/apply` puts it against
+an invoice and needs `invoice:write` as well, and
+`POST /v1/deposits/{id}/refund` returns or forfeits it.
 
 ## Permissions
 
 | Role | Access |
 |---|---|
-<!-- owner / admin / manager / dispatcher / csr / technician / accountant -->
+| Owner, administrator | Everything |
+| Office manager | Raises, issues, sends, voids, takes payments and deposits |
+| Dispatcher, CSR | Neither |
+| Technician | Reads an invoice and takes a payment on site. Does not raise one |
+| Accountant | Everything on this module, including refunds and write offs |
+
+Four separate permissions on one document, deliberately: `invoice:write`,
+`invoice:send`, `invoice:void` and `invoice:writeoff`. Voiding says the invoice
+should never have existed; writing off says it existed and will not be paid. A
+company usually wants different people doing those.
 
 ## API
 
-<!-- Link to the generated reference, plus the two or three calls that
-     cover most real integrations. -->
+| Call | Needs |
+|---|---|
+| `GET /v1/invoices` | `invoice:read` |
+| `POST /v1/invoices` | `invoice:write` |
+| `POST /v1/invoices/{id}/issue` | `invoice:write` |
+| `POST /v1/invoices/{invoiceId}/send` | `invoice:send` |
+| `POST /v1/invoices/{id}/void` | `invoice:void` |
+| `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
+| `GET /v1/payments` | `payment:read` |
+| `POST /v1/payments` | `payment:collect` |
+| `POST /v1/payments/{id}/apply` | `payment:collect` |
+| `POST /v1/payments/{paymentId}/refund` | `payment:refund` |
+| `GET /v1/deposits` | `deposit:read` |
+| `POST /v1/deposits` | `deposit:collect` |
+| `POST /v1/deposits/{id}/refund` | `deposit:refund` |
+
+A payment list is paged on the received instant and then the id, because a
+migration loads hundreds of payments dated the same day and a cursor on the
+instant alone would skip or repeat them at a page boundary.
 
 ## Common questions
 
-<!-- Answer what support would otherwise answer twice a week. -->
+**Can I invoice part of a job?** Yes. An invoice names the job lines it bills,
+and the rest stay billable.
+
+**What happens with no processor connected?** The customer's invoice page shows
+the balance and tells them to reply to arrange payment, because there is no other
+way to pay from it.
+
+**Why does a card payment only show paid after the webhook?** Because a payment
+intent that was created is not money. The webhook is the only thing that says it
+arrived.
+
+**Can a deposit be taken on a booking request?** No. There is no customer yet to
+hold one for.
+
+## What is not built
+
+There is no credit note object: a negative adjustment is a refund or a write off.
+There is no customer statement across invoices, so a customer asking "what do I
+owe in total" is answered from the balance on their account page rather than from
+a document. Tipping is not built. Tax rate determination is deliberately not
+built: the rate is on the line it was charged on, and BUILD.md says why. Automatic
+dunning is a workflow somebody builds in M29.
