@@ -26,7 +26,8 @@
     "openapi": "tsx src/lib/generate-openapi.ts",
     "worker": "tsx src/bin/worker.ts",
     "seed": "tsx src/seed/index.ts",
-    "mcp": "tsx src/bin/mcp-stdio.ts"
+    "mcp": "tsx src/bin/mcp-stdio.ts",
+    "secrets:rotate": "tsx src/bin/rotate-secrets.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.0",

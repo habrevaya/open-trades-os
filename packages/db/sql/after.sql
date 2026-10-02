@@ -815,6 +815,28 @@ revoke all on function app.pending_event_organizations(text, int) from public;
 grant execute on function app.pending_event_organizations(text, int) to background;
 
 -- =========================================================================
+-- WHICH COMPANIES HAVE SECRETS UNDER AN OLD KEY
+--
+-- Rotating SECRETS_MASTER_KEY re-encrypts every company's stored secrets,
+-- which is a cross tenant job for the same reason as the function above. It
+-- returns ids and nothing else, never a row of `integration_secret`, and the
+-- request path's role cannot call it. The re-encryption itself runs per
+-- company, inside that company's tenant context.
+-- =========================================================================
+
+create or replace function app.secret_organizations(p_current_key_id text)
+returns setof uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select distinct s.organization_id
+      from public.integration_secret s
+     where s.key_id <> p_current_key_id
+  $$;
+
+revoke all on function app.secret_organizations(text) from public;
+grant execute on function app.secret_organizations(text) to background;
+
+-- =========================================================================
 -- WHAT IS DUE ON A CLOCK
 --
 -- The same shape as `pending_event_organizations` and for the same reason:

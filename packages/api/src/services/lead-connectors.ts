@@ -224,6 +224,17 @@ function shape(row: typeof schema.leadSourceConnector.$inferSelect) {
   };
 }
 
+/**
+ * With the database store, the signing secret is put in this company's
+ * store as it is minted, in the same transaction, so the webhook works the
+ * moment the sender has the value and nobody has to paste it back in. With
+ * the environment store the operator sets `secretEnvironmentVariable`.
+ */
+async function keepIfStoreCan(tx: Database, organizationId: string, name: string, secret: string): Promise<void> {
+  const store = secretStore();
+  if (store.kind === "database") await store.write(tx, organizationId, name, secret);
+}
+
 export interface ConnectorInput {
   /** "angi", "thumbtack", "our_website". Free text: the senders are not a closed set. */
   source: string;
@@ -293,6 +304,8 @@ export async function create(ctx: ServiceContext, input: ConnectorInput) {
       .set({ connectionId: connection!.id, updatedAt: new Date() })
       .where(eq(schema.leadSourceConnector.id, row!.id))
       .returning();
+
+    await keepIfStoreCan(tx, ctx.actor.organizationId, refFor(row!.id), secret);
 
     /**
      * The secret is NOT in the audit entry. `audit:read` is a much longer
@@ -373,6 +386,7 @@ export async function rotateSecret(ctx: ServiceContext, input: { id: string }) {
       .set({ webhookToken: newToken(), updatedAt: new Date() })
       .where(eq(schema.leadSourceConnector.id, input.id))
       .returning();
+    await keepIfStoreCan(tx, ctx.actor.organizationId, refFor(input.id), secret);
 
     await audit(tx, ctx, "lead_connector.rotated", "lead_source_connector", input.id, before, after!);
     return { ...shape(after!), secret };

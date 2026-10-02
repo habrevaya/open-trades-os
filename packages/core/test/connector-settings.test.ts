@@ -141,4 +141,17 @@ describe("connection settings", () => {
   it("refuses a secret-name setting that is not a usable name", () => {
     expect(connectors.checkConnectorSettings("stripe", { webhookSecretRef: "kv/stripe" }).ok).toBe(false);
   });
+
+  it("names a pasted secret after its provider and field, so pasting again replaces it", () => {
+    expect(connectors.defaultSecretName("stripe", "credential")).toBe("STRIPE_CREDENTIAL");
+    expect(connectors.defaultSecretName("stripe", "webhookSecretRef")).toBe("STRIPE_WEBHOOK_SECRET");
+    for (const [provider, settings] of Object.entries(connectors.CONNECTOR_SETTINGS)) {
+      expect(connectors.checkSecretName(connectors.defaultSecretName(provider, "credential")).ok).toBe(true);
+      for (const [key, spec] of Object.entries(settings)) {
+        if (spec.kind === "secret_name") {
+          expect(connectors.checkSecretName(connectors.defaultSecretName(provider, key)).ok).toBe(true);
+        }
+      }
+    }
+  });
 });

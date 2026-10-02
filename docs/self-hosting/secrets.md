@@ -41,7 +41,9 @@ start with its own prefix, so it cannot name `AUTH_SECRET`, `DATABASE_URL`,
 
 This store suits a self-hosted install where the person who connects Stripe
 is also the person who sets the server's environment. It is not suitable for a
-deployment that serves several companies; see below.
+deployment that serves several companies: there the environment is the
+operator's, and a company has no way to put its own key in it. Use the
+database store.
 
 ### Upgrading from a version that read the bare name
 
@@ -70,6 +72,55 @@ OAuth refresh tokens (QuickBooks, Xero) rotate. The environment store keeps a
 rotated token in the running process only and logs a warning, so the
 connection needs reauthorizing after a restart. Use the database store for
 accounting connections you want to survive restarts.
+
+## The database store (required for a shared deployment)
+
+```
+SECRET_STORE=database
+SECRETS_MASTER_KEY=<openssl rand -base64 32>
+```
+
+Each company pastes its own secrets on **Settings → Integrations** (or
+`PUT /v1/secrets/{name}`, which needs `integration:write`). A pasted value is
+encrypted by the application with AES-256-GCM before it is written to the
+`integration_secret` table, and the key never reaches the database, so a dump,
+a replica or a SQL injection sees ciphertext only. What comes back is whether a
+secret is set and its last four characters. There is no way to read a value
+back, through the screen, the API or the export; a secret is replaced or
+cleared. Every change is in the audit log by name, never by value.
+
+Each envelope is bound to its company and its name: a row moved to another
+company, or renamed to stand in for a different secret, fails to decrypt
+rather than being used. Row level security scopes the table like every
+other tenant table as well.
+
+A rotated OAuth refresh token is written back to the store as it rotates, so
+QuickBooks and Xero connections survive restarts. A lead webhook's signing
+secret is stored as it is minted.
+
+The worker refuses to start with `SECRET_STORE=database` and no usable key.
+Keep `SECRETS_MASTER_KEY` out of the database and its backups: without it no
+company's secrets can be read, and with it and a dump all of them can.
+
+### Rotating the master key
+
+1. Generate a new key. Set it as `SECRETS_MASTER_KEY`, and move the old one to
+   `SECRETS_MASTER_KEY_PREVIOUS` (comma separated, newest first). Restart.
+   Both keys now decrypt; only the new one encrypts.
+2. Run `pnpm --filter @opentradesos/api secrets:rotate` with the same
+   environment (and `WORKER_DATABASE_URL` pointing at the `background` role,
+   or a `DATABASE_URL` that can call `app.secret_organizations`). It
+   re-encrypts every company's secrets under the new key and is safe to run
+   again.
+3. When it reports nothing left, remove the old key from
+   `SECRETS_MASTER_KEY_PREVIOUS`.
+
+### Moving from the environment store
+
+Paste each secret on **Settings → Integrations** after switching. The names
+the connections already hold keep working: paste the value under the same
+name with `PUT /v1/secrets/{name}`, or paste it in the connect form, which
+stores it under `<PROVIDER>_CREDENTIAL` and points the connection there.
 
 ## Provider addresses are fixed
 

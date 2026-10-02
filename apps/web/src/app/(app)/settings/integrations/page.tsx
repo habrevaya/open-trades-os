@@ -5,7 +5,7 @@ import { leadIntake, payments, secrets } from "@opentradesos/api/services";
 import { can, connectors as connectorRules } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
-import { ConnectForm } from "./ConnectForm";
+import { ConnectForm, SecretRow } from "./ConnectForm";
 import { FORMS } from "./fields";
 // Registers the marketing adapters, so the catalogue's built entries resolve.
 import "@opentradesos/api/marketing";
@@ -75,7 +75,8 @@ export default async function IntegrationsPage() {
    * Where a named secret is read from, said on the form, because the name
    * typed is not the variable read: the server adds this company's prefix.
    */
-  const environmentPrefix = secrets.secretStore().kind === "environment"
+  const store = secrets.secretStore().kind;
+  const environmentPrefix = store === "environment"
     ? connectorRules.environmentVariablePrefix(user.actor.organizationId)
     : null;
   const configuresAi = can(user.actor, "agent:configure");
@@ -146,6 +147,9 @@ export default async function IntegrationsPage() {
                                 <code className="break-all font-mono text-xs">{secret.environmentVariable}</code>
                               </span>
                             )}
+                            {store === "database" && writes && (
+                              <SecretRow name={secret.name} set={secret.set} last4={secret.last4} />
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -184,6 +188,7 @@ export default async function IntegrationsPage() {
                         connected={c.connected}
                         credentialRef={c.credentialRef}
                         environmentPrefix={environmentPrefix}
+                        store={store}
                       />
                     )}
                   </li>

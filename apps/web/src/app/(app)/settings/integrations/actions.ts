@@ -4,7 +4,8 @@ import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { ai, callTracking, leadIntake } from "@opentradesos/api/services";
+import { ai, callTracking, leadIntake, secrets } from "@opentradesos/api/services";
+import { connectors } from "@opentradesos/core";
 import { FORMS, settingsFrom } from "./fields";
 
 export type ActionState = NonNullable<FormState>;
@@ -38,12 +39,34 @@ export async function connect(_previous: ActionState, data: FormData): Promise<A
   if (!form || form.noForm) return refused(data, "That provider is not connected from here.");
 
   const accountLabel = String(data.get("accountLabel") ?? "").trim();
-  const credentialRef = String(data.get("credentialRef") ?? "").trim();
+  let credentialRef = String(data.get("credentialRef") ?? "").trim();
   const settings = settingsFrom(form, data);
   const existing = data.get("existing") === "1";
 
   try {
     const context = await ctx();
+
+    /**
+     * PASTED VALUES, with the database store. Each goes to the secrets
+     * service first (`integration:write`, encrypted, audited by name) under
+     * the provider's default name, and the connection then holds that name,
+     * exactly as if it had been typed. Nothing pasted is echoed back: the
+     * field names contain "secret", which `keptForm` never keeps.
+     */
+    const pasted = String(data.get("secretValue:credential") ?? "").trim();
+    if (pasted) {
+      const name = connectors.defaultSecretName(provider, "credential");
+      await secrets.service.put(context, { name, value: pasted });
+      credentialRef = name;
+    }
+    for (const field of form.fields.filter((f) => f.kind === "secret_name")) {
+      const value = String(data.get(`secretValue:${field.key}`) ?? "").trim();
+      if (!value) continue;
+      const name = connectors.defaultSecretName(provider, field.key);
+      await secrets.service.put(context, { name, value });
+      settings[field.key] = name;
+    }
+
     if (form.via === "ai") {
       if (!credentialRef && !existing) {
         return refused(data, "A model connection needs the name of the secret holding the API key.");
@@ -82,6 +105,33 @@ export async function disconnect(_previous: ActionState, data: FormData): Promis
     const context = await ctx();
     if (FORMS[provider]?.via === "ai") await ai.disconnect(context, { provider });
     else await leadIntake.disconnect(context, provider);
+  } catch (error) {
+    return refused(data, message(error));
+  }
+  revalidatePath("/settings/integrations");
+  return { done: true };
+}
+
+/**
+ * Replace one secret's value, or clear it, by name. Database store only; the
+ * service refuses otherwise and names the variable to set.
+ */
+export async function saveSecret(_previous: ActionState, data: FormData): Promise<ActionState> {
+  const name = String(data.get("name") ?? "");
+  const value = String(data.get("secretValue") ?? "");
+  try {
+    await secrets.service.put(await ctx(), { name, value });
+  } catch (error) {
+    return refused(data, message(error));
+  }
+  revalidatePath("/settings/integrations");
+  return { done: true };
+}
+
+export async function clearSecret(_previous: ActionState, data: FormData): Promise<ActionState> {
+  const name = String(data.get("name") ?? "");
+  try {
+    await secrets.service.remove(await ctx(), { name });
   } catch (error) {
     return refused(data, message(error));
   }

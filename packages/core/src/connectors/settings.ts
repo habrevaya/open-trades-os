@@ -242,6 +242,19 @@ export function environmentVariableFor(organizationId: string, name: string): st
   return `${environmentVariablePrefix(organizationId)}${name}`;
 }
 
+/**
+ * The name a secret pasted on the settings screen is stored under, when the
+ * database store holds it and nobody chose one: `STRIPE_CREDENTIAL`,
+ * `STRIPE_WEBHOOK_SECRET`. Stable, so pasting again replaces rather than
+ * adds, and readable, so the list of a company's secrets says what each is.
+ */
+export function defaultSecretName(provider: string, key: "credential" | string): string {
+  const field = key === "credential"
+    ? "CREDENTIAL"
+    : key.replace(/Ref$/, "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+  return `${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_${field}`;
+}
+
 /** Everything before the name: `OTS_SECRET__<organization id>__`. */
 export function environmentVariablePrefix(organizationId: string): string {
   const org = organizationId.replace(/-/g, "").toUpperCase();

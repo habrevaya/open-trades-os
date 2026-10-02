@@ -435,6 +435,13 @@
       "when": 1790917992644,
       "tag": "0061_motionless_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1790942099338,
+      "tag": "0062_aspiring_madripoor",
+      "breakpoints": true
     }
   ]
 }

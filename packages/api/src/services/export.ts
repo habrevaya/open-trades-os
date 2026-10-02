@@ -51,6 +51,13 @@ import { audit, guardedRead, ConflictError, NotFoundError, type ServiceContext }
  * the file, so they can reissue rather than discover it when the leads stop.
  */
 export const REDACTED: Record<string, Record<string, string>> = {
+  integration_secret: {
+    sealed_secret:
+      "A company's provider secret, encrypted with a key that never leaves the deployment, so the "
+      + "ciphertext is of no use anywhere else. The name is exported, so a company moving away knows "
+      + "which secrets to go and get from the provider.",
+    secret_last4: "Part of a live credential. The name says which secret it was; the provider says the rest.",
+  },
   app_token: {
     token_hash: "The hash of a live app token. Reissue the token in the new system; a hash is a "
       + "cracking target and is useless to you.",
@@ -91,6 +98,9 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  integration_secret: {
+    key_id: "A fingerprint of which master key sealed the secret, not the key, and useless without it.",
+  },
   integration_connection: {
     credential_ref: "The NAME of a secret in the deployment's own store, never the secret. A "
       + "company moving away needs it to know which secrets to go and find.",

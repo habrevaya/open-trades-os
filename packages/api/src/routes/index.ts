@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, secrets, equipment, customerLifecycle, tasks, workflows, inspections, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
 } from "../services/index";
 
 /**
@@ -197,6 +197,9 @@ export const handlers = {
   listConnectors: leadIntake.handlers.listConnectors,
   connectConnector: leadIntake.handlers.connectConnector,
   disconnectConnector: leadIntake.handlers.disconnectConnector,
+  listSecrets: secrets.service.handlers.listSecrets,
+  putSecret: secrets.service.handlers.putSecret,
+  deleteSecret: secrets.service.handlers.deleteSecret,
   importSpendFile: leadIntake.handlers.importSpendFile,
   listLeadOffers: leadIntake.handlers.listLeadOffers,
 

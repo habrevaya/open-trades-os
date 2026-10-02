@@ -1,6 +1,7 @@
 import type { Database } from "@opentradesos/db";
 import { connectors } from "@opentradesos/core";
 import { ConflictError } from "../services/context";
+import { databaseSecretStore, keyringFromEnvironment } from "./database";
 
 /**
  * WHERE A COMPANY'S PROVIDER SECRETS LIVE
@@ -140,6 +141,7 @@ export const environmentSecretStore: SecretStore = {
 /* ---------------------------------------------------------------- selection */
 
 let override: SecretStore | null = null;
+let fromEnvironment: { signature: string; store: SecretStore } | null = null;
 
 /** A deployment, or a test, points this at its own store. `null` puts the configured one back. */
 export function useSecretStore(store: SecretStore | null): void {
@@ -157,8 +159,18 @@ export function secretStore(): SecretStore {
   if (override) return override;
   const configured = (process.env["SECRET_STORE"] ?? "environment").trim() || "environment";
   if (configured === "environment") return environmentSecretStore;
+  if (configured === "database") {
+    // Built once per key configuration, so a test that changes the keys
+    // gets a store with the new ones and a server does not re-derive them
+    // on every read.
+    const signature = `${process.env["SECRETS_MASTER_KEY"] ?? ""}|${process.env["SECRETS_MASTER_KEY_PREVIOUS"] ?? ""}`;
+    if (fromEnvironment?.signature !== signature) {
+      fromEnvironment = { signature, store: databaseSecretStore(keyringFromEnvironment()) };
+    }
+    return fromEnvironment.store;
+  }
   throw new Error(
-    `SECRET_STORE is "${configured}", which this version does not have. Use "environment".`,
+    `SECRET_STORE is "${configured}", which this version does not have. Use "environment" or "database".`,
   );
 }
 
