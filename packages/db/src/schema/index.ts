@@ -25,3 +25,4 @@ export * from "./marketing";
 export * from "./reviews";
 export * from "./ai";
 export * from "./assets";
+export * from "./delivery";
