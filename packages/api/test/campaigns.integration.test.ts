@@ -407,7 +407,7 @@ run("who the rules select", () => {
      */
     const finished = await customer({ name: "Finished", phone: "+15125550041" });
     await agreement(finished, { status: "completed", endsInDays: -10 });
-    const never = await customer({ name: "NeverHad", phone: "+15125550042" });
+    await customer({ name: "NeverHad", phone: "+15125550042" });
 
     const none = await campaigns.preview(owner(), {
       channel: "sms", audience: [{ kind: "no_agreement" }],
@@ -430,7 +430,7 @@ run("who the rules select", () => {
      */
     const byProperty = await customer({ name: "ByProperty", phone: "+15125550051" });
     await property(byProperty, "78704");
-    const byBilling = await customer({
+    await customer({
       name: "ByBilling", phone: "+15125550052", postcode: "78704",
     });
     const elsewhere = await customer({ name: "Elsewhere", phone: "+15125550053" });

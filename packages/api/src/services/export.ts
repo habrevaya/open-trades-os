@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { schema, type Database } from "@opentradesos/db";
+import type { Database } from "@opentradesos/db";
 import { audit, guardedRead, ConflictError, NotFoundError, type ServiceContext } from "./context";
 
 /**

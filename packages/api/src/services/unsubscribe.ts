@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import * as consent from "./consent";
 import { NotFoundError, type RequestMeta } from "./context";
