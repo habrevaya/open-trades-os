@@ -65,7 +65,8 @@ a table that does not exist.
 Elsewhere: [Netlify with Supabase](deploy/templates/netlify/README.md) for the
 web app and a once a minute worker on a free tier, and
 [the worker](docs/self-hosting/worker.md) for what runs automations and why it
-is a separate process.
+is a separate process, and [provider secrets](docs/self-hosting/secrets.md) for
+where a company's Stripe or Twilio key goes.
 
 ## Stack
 

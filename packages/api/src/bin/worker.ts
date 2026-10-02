@@ -15,6 +15,7 @@
 import { createClient } from "@opentradesos/db";
 import { runWorker } from "../services/workflow-worker";
 import { backgroundHooks } from "../services/worker-hooks";
+import { secretStore } from "../secrets/store";
 
 // `||`, not `??`: an env file with `WORKER_DATABASE_URL=` and nothing after it sets
 // an empty string, and that should mean "unset" rather than "connect to nothing".
@@ -23,6 +24,13 @@ if (!url) {
   console.error("Set WORKER_DATABASE_URL or DATABASE_URL.");
   process.exit(1);
 }
+
+/**
+ * The secret store, checked before the first pass rather than at the first
+ * text it fails to send: SECRET_STORE=database with no master key, or a
+ * malformed one, stops the worker here with the sentence that fixes it.
+ */
+secretStore();
 
 const db = createClient(url);
 const controller = new AbortController();

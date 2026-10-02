@@ -34,6 +34,8 @@ export const LeadConnector = z.object({
   webhookPath: z.string().nullable(),
   /** The name the signing secret is expected under in the secret store. Never the secret. */
   secretRef: z.string(),
+  /** With the environment store, the variable to set: this company's prefix, then `secretRef`. Null otherwise. */
+  secretEnvironmentVariable: z.string().nullable(),
   fieldMap: z.record(z.string()),
   autoAcceptEnabled: z.boolean(),
   autoAcceptRules: z.record(z.unknown()),

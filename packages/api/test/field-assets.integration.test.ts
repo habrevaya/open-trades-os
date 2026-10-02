@@ -4,7 +4,7 @@ import type { Actor } from "@opentradesos/core";
 import * as visitAssets from "../src/services/visit-assets";
 import * as deliveries from "../src/services/deliveries";
 import * as equipment from "../src/services/equipment";
-import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
+import { NotFoundError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**

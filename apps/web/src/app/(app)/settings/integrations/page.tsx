@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { leadIntake, payments } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { leadIntake, payments, secrets } from "@opentradesos/api/services";
+import { can, connectors as connectorRules } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
-import { ConnectForm } from "./ConnectForm";
+import { ConnectForm, SecretRow } from "./ConnectForm";
 import { FORMS } from "./fields";
 // Registers the marketing adapters, so the catalogue's built entries resolve.
 import "@opentradesos/api/marketing";
@@ -27,7 +27,9 @@ export const dynamic = "force-dynamic";
  * a button that would connect nothing.
  *
  * Secrets are never typed here. A credential is the NAME of a secret in the
- * deployment's own store, and nothing stored is ever shown back.
+ * deployment's own store, and nothing stored is ever shown back. With the
+ * environment store the name becomes a variable under this company's own
+ * prefix (`OTS_SECRET__<company>__<name>`), and the screen says which.
  */
 const GROUPS: { capability: string; title: string; description: string }[] = [
   { capability: "payments", title: "Card payments",
@@ -69,6 +71,14 @@ export default async function IntegrationsPage() {
     payments.status(ctx),
   ]);
   const writes = can(user.actor, "integration:write");
+  /**
+   * Where a named secret is read from, said on the form, because the name
+   * typed is not the variable read: the server adds this company's prefix.
+   */
+  const store = secrets.secretStore().kind;
+  const environmentPrefix = store === "environment"
+    ? connectorRules.environmentVariablePrefix(user.actor.organizationId)
+    : null;
   const configuresAi = can(user.actor, "agent:configure");
   const marketing = connectors.filter((c) => MARKETING.has(c.capability));
 
@@ -113,10 +123,36 @@ export default async function IntegrationsPage() {
                       <span className="font-medium text-ink-700">Will not tell you: </span>{c.limitation}
                     </p>
 
-                    {c.connected && c.credentialRef && (
-                      <p className="mt-2 text-sm text-ink-700">
-                        Secret name: <code className="font-mono text-xs">{c.credentialRef}</code>
-                      </p>
+                    {c.connected && c.secrets.length > 0 && (
+                      /*
+                        Every secret the connection names, whether anything
+                        is stored under it, and where to put it. With the
+                        environment store that is a variable under this
+                        company's own prefix: the server reads nothing else,
+                        so the name typed below can never reach one of the
+                        deployment's own variables.
+                      */
+                      <ul className="mt-2 grid gap-1 text-sm text-ink-700">
+                        {c.secrets.map((secret) => (
+                          <li key={secret.name} className="flex flex-wrap items-baseline gap-2">
+                            <span>
+                              Secret <code className="font-mono text-xs">{secret.name}</code>
+                            </span>
+                            {secret.set
+                              ? <Chip tone="success">{secret.last4 ? `Set · ends ${secret.last4}` : "Set"}</Chip>
+                              : <Chip tone="danger">Not set</Chip>}
+                            {secret.environmentVariable && (
+                              <span className="text-ink-500">
+                                environment variable{" "}
+                                <code className="break-all font-mono text-xs">{secret.environmentVariable}</code>
+                              </span>
+                            )}
+                            {store === "database" && writes && (
+                              <SecretRow name={secret.name} set={secret.set} last4={secret.last4} />
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                     {c.key === "stripe" && c.connected && !card.webhookConfigured && (
                       /*
@@ -151,6 +187,8 @@ export default async function IntegrationsPage() {
                         form={form}
                         connected={c.connected}
                         credentialRef={c.credentialRef}
+                        environmentPrefix={environmentPrefix}
+                        store={store}
                       />
                     )}
                   </li>

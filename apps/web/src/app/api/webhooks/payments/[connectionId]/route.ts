@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { payments } from "@opentradesos/api/services";
+import { payments, secrets } from "@opentradesos/api/services";
 import { createPaymentProvider } from "@opentradesos/api/payments";
 // Registers the payment adapters.
 import "@opentradesos/api/payments";
@@ -34,12 +34,6 @@ export const dynamic = "force-dynamic";
  * customer is never chased, and the ledger balances perfectly against cash
  * that is not in the bank.
  */
-
-const readSecret = (ref: string): string => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
 
 export async function POST(
   request: Request,
@@ -80,8 +74,13 @@ export async function POST(
     return new Response("Not configured", { status: 409 });
   }
 
+  /**
+   * Both secrets from THIS connection's organization's store, which adds the
+   * organization to every lookup itself.
+   */
+  const readSecret = secrets.readerFor(db, connection.organizationId);
   const provider = createPaymentProvider(
-    connection.provider, connection.settings, readSecret(connection.credentialRef),
+    connection.provider, connection.settings, await readSecret(connection.credentialRef),
   );
 
   const webhookRequest = {
@@ -91,7 +90,7 @@ export async function POST(
     body,
   };
 
-  if (!provider.verify(webhookRequest, readSecret(connection.webhookSecretRef))) {
+  if (!provider.verify(webhookRequest, await readSecret(connection.webhookSecretRef))) {
     return new Response("Bad signature", { status: 401 });
   }
 

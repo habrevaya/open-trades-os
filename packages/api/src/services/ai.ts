@@ -6,6 +6,8 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { toolsFor, type McpTool } from "../mcp/tools";
+import { assertSecretName, readerFor } from "../secrets/store";
+import { providerEndpointOverridesAllowed } from "../secrets/endpoints";
 import {
   createAiProvider, registeredAiProviders, AiProviderNotConfiguredError,
   type AiContent, type AiMessage, type AiProvider, type AiToolDefinition,
@@ -151,38 +153,29 @@ async function connectionFor(
  */
 export type ReadSecret = (ref: string) => Promise<string>;
 
-/**
- * The default, which reads an environment variable named by the reference.
- *
- * It throws rather than returning an empty string. An empty key reaches a
- * vendor as an unauthenticated request and comes back as a 401, which
- * presents to the operator as "Anthropic rejected our key" when the truth is
- * that nobody ever gave us one.
- */
-export const secretFromEnvironment: ReadSecret = async (ref: string) => {
-  const value = process.env[ref];
-  if (!value) {
-    throw new ConflictError(
-      `No AI credential in the environment under "${ref}". The connection points `
-      + "at that name and nothing is set there, so no model can be called.",
-    );
-  }
-  return value;
-};
-
 export interface AiDeps {
-  readSecret: ReadSecret;
+  /**
+   * Omitted in production: the deployment's secret store is read for the
+   * connection's own organization (`readerFor`). A test passes its own.
+   */
+  readSecret?: ReadSecret | undefined;
   /** Injected so a test never reaches a vendor and a deployment never fakes one. */
   provider?: AiProvider | undefined;
   /** Injected so a test can stand at a chosen point in a billing month. */
   now?: (() => Date) | undefined;
 }
 
-const DEFAULT_DEPS: AiDeps = { readSecret: secretFromEnvironment };
+const DEFAULT_DEPS: AiDeps = {};
 
-async function providerFrom(connection: Connection, deps: AiDeps): Promise<AiProvider> {
+async function providerFrom(db: Database, connection: Connection, deps: AiDeps): Promise<AiProvider> {
   if (deps.provider) return deps.provider;
-  const key = await deps.readSecret(connection.credentialRef);
+  /**
+   * Read for the connection's OWN organization. The store prefixes the name
+   * with it, so a credential name can never reach a deployment secret or
+   * another company's.
+   */
+  const read = deps.readSecret ?? readerFor(db, connection.organizationId);
+  const key = await read(connection.credentialRef);
   return createAiProvider(connection.provider, connection.settings, key);
 }
 
@@ -365,7 +358,10 @@ export async function connect(ctx: ServiceContext, input: ConnectInput) {
         + "saved. Put the key in your secret store and send its name.",
       );
     }
-    const checked = connectors.checkConnectorSettings(input.provider, input.settings ?? {});
+    assertSecretName(input.credentialRef);
+    const checked = connectors.checkConnectorSettings(input.provider, input.settings ?? {}, {
+      allowEndpointOverrides: providerEndpointOverridesAllowed(),
+    });
     if (!checked.ok) throw new ConflictError(checked.reason);
 
     const [row] = await tx.insert(schema.integrationConnection).values({
@@ -590,7 +586,7 @@ export async function verify(
   const connection = await guardedRead(ctx, "agent:configure", (tx) =>
     connectionFor(tx, ctx.actor.organizationId, input.provider));
 
-  const provider = await providerFrom(connection, deps);
+  const provider = await providerFrom(ctx.db, connection, deps);
   const outcome = await provider.models();
 
   if (!outcome.ok) {
@@ -734,7 +730,7 @@ export async function runCompletion(
     }
 
     const connection = await connectionFor(tx, ctx.actor.organizationId, input.provider);
-    const provider = await providerFrom(connection, deps);
+    const provider = await providerFrom(tx, connection, deps);
 
     const settingsModel = connection.settings["defaultModel"];
     const model = input.model

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m } from "@opentradesos/core";
 import {

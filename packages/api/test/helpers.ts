@@ -129,6 +129,8 @@ const ORDER = [
    */
   "ai_usage", "ai_budget",
   "integration_connection",
+  // A company's encrypted provider secrets. Nothing points at them.
+  "integration_secret",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.
   "app_token", "connected_app",

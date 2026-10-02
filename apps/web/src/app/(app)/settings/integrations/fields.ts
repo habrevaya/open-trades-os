@@ -7,10 +7,14 @@
  *
  * `credential` is the NAME of a secret in the deployment's secret store,
  * never its value, and so is every `...Ref` field: a provider with a second
- * secret (a webhook signing secret) takes a second name. There is no field
- * kind for a secret's value, so this screen cannot accept one, and the
- * service refuses a settings key it does not declare
- * (`connectors.CONNECTOR_SETTINGS` in core) whatever posts it.
+ * secret (a webhook signing secret) takes a second name. No SETTING can hold
+ * a secret's value, and the service refuses a settings key it does not
+ * declare (`connectors.CONNECTOR_SETTINGS` in core) whatever posts it.
+ *
+ * With the database store (a shared deployment) the company pastes the value
+ * instead, into a password box that is never filled back in. It goes to the
+ * secrets service, encrypted, under `connectors.defaultSecretName`, and the
+ * setting holds that name, exactly as it would hold a name typed here.
  */
 export type FieldKind = "text" | "secret_name" | "number" | "select" | "list";
 
@@ -21,11 +25,15 @@ export interface Field {
   placeholder?: string;
   options?: readonly string[];
   hint?: string;
+  /** For a `secret_name` field, what the box asks for when the value is pasted (database store). */
+  secretLabel?: string;
 }
 
 export interface ProviderForm {
   /** Label for the secret-name field, or null when the provider takes none. */
   credential: string | null;
+  /** The same, for pasting the value itself when the deployment stores secrets in its database. */
+  credentialSecret?: string;
   fields: readonly Field[];
   /** Connected through a dedicated service rather than the generic one. */
   via?: "ai" | "call_tracking";
@@ -36,23 +44,28 @@ export interface ProviderForm {
 export const FORMS: Record<string, ProviderForm> = {
   stripe: {
     credential: "Restricted secret key, as the name of the secret holding it",
+    credentialSecret: "Restricted secret key",
     fields: [
       { key: "publishableKey", label: "Publishable key", kind: "text", placeholder: "pk_live_…",
         hint: "Sent to the customer's browser to show the card form. Without it the invoice page cannot take a card." },
       { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name",
+        secretLabel: "Webhook signing secret",
         hint: "Without it cards are taken and no payment is ever recorded." },
     ],
   },
   quickbooks: {
     credential: "Name of the secret holding refreshToken, clientId and clientSecret as one JSON value",
+    credentialSecret: "refreshToken, clientId and clientSecret, as one JSON value",
     fields: [{ key: "realmId", label: "Company id (realm id)", kind: "text" }],
   },
   xero: {
     credential: "Name of the secret holding refreshToken, clientId and clientSecret as one JSON value",
+    credentialSecret: "refreshToken, clientId and clientSecret, as one JSON value",
     fields: [{ key: "tenantId", label: "Organisation id (tenant id)", kind: "text" }],
   },
   twilio: {
     credential: "Auth token, as the name of the secret holding it",
+    credentialSecret: "Auth token",
     fields: [
       { key: "accountSid", label: "Account SID", kind: "text", placeholder: "AC…" },
       { key: "messagingServiceSid", label: "Messaging service SID (optional)", kind: "text", placeholder: "MG…",
@@ -61,6 +74,7 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   justcall: {
     credential: "Name of the secret holding key:secret",
+    credentialSecret: "API key and secret, as key:secret",
     fields: [
       { key: "webhookUrl", label: "The webhook URL you entered in JustCall", kind: "text",
         hint: "Compared against what each signed webhook claims, so it must match exactly." },
@@ -68,17 +82,19 @@ export const FORMS: Record<string, ProviderForm> = {
   },
   resend: {
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [
       { key: "fromAddress", label: "Send from", kind: "text", placeholder: "office@yourcompany.com" },
       { key: "fromName", label: "Sender name", kind: "text" },
       { key: "verifiedDomains", label: "Domains verified with Resend, comma separated", kind: "list" },
       { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it",
-        kind: "secret_name", placeholder: "RESEND_WEBHOOK_SECRET",
+        kind: "secret_name", placeholder: "RESEND_WEBHOOK_SECRET", secretLabel: "Webhook signing secret",
         hint: "Without it bounces and complaints are never heard." },
     ],
   },
   smtp: {
     credential: "Password, as the name of the secret holding it",
+    credentialSecret: "Password",
     fields: [
       { key: "host", label: "Server", kind: "text", placeholder: "smtp.gmail.com" },
       { key: "port", label: "Port", kind: "number", placeholder: "587" },
@@ -92,16 +108,19 @@ export const FORMS: Record<string, ProviderForm> = {
   anthropic: {
     via: "ai",
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [{ key: "defaultModel", label: "Default model (optional)", kind: "text" }],
   },
   openai: {
     via: "ai",
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [{ key: "defaultModel", label: "Default model", kind: "text" }],
   },
   google: {
     via: "ai",
     credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
     fields: [{ key: "defaultModel", label: "Default model", kind: "text" }],
   },
   callrail: {

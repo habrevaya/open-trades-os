@@ -1,3 +1,4 @@
+import { adapterSettings } from "../secrets/endpoints";
 import { timingSafeEqual } from "node:crypto";
 
 /**
@@ -211,7 +212,8 @@ export function createEmailProvider(
 ): EmailProvider {
   const factory = registry.get(name);
   if (!factory) throw new EmailProviderNotConfiguredError(name);
-  return factory(settings, secret, secrets);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory(adapterSettings(name, settings), secret, secrets);
 }
 
 export const registeredEmailProviders = (): string[] => [...registry.keys()];

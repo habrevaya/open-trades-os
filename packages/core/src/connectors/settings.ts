@@ -42,11 +42,21 @@ export interface SettingSpec {
    * install that set one by hand before the product minted them.
    */
   system?: true;
-  /** Exists so a test can point the adapter at a fake server. */
-  testOnly?: true;
+  /**
+   * Says WHERE the adapter sends its requests, and therefore where it sends
+   * the credential it was handed. Exists so a test can point the adapter at a
+   * fake server, and for nothing else.
+   *
+   * Refused on connect, and dropped from stored settings before an adapter is
+   * built, unless the deployment sets `ALLOW_PROVIDER_BASE_URL=1` (only the
+   * test suites do). Allowed, it lets anybody holding `integration:write`
+   * send the server's copy of a provider credential to a host they choose,
+   * which is a credential leak with a settings form on the front of it.
+   */
+  endpoint?: true;
 }
 
-const BASE_URL: SettingSpec = { kind: "text", testOnly: true };
+const BASE_URL: SettingSpec = { kind: "text", endpoint: true };
 const WEBHOOK_TOKEN: SettingSpec = { kind: "text", system: true };
 
 /**
@@ -155,6 +165,103 @@ export function looksLikeSecretValue(value: string): boolean {
 
 export type SettingsCheck = { ok: true } | { ok: false; reason: string };
 
+/**
+ * Keys that say where a provider's requests go, on any provider.
+ *
+ * Listed apart from the per-provider table as well as in it, so that a
+ * provider added without declaring its override as an `endpoint` still has
+ * the override stripped before its adapter is built.
+ */
+const ENDPOINT_KEYS = new Set(["baseUrl", "tokenUrl", "apiUrl", "endpoint", "apiBase", "authUrl"]);
+
+/** Whether this key, on this provider, says where requests are sent. */
+export function isEndpointSetting(provider: string, key: string): boolean {
+  return ENDPOINT_KEYS.has(key) || CONNECTOR_SETTINGS[provider]?.[key]?.endpoint === true;
+}
+
+/**
+ * The settings an adapter may be built with.
+ *
+ * Endpoint overrides are removed unless the deployment allows them. This is
+ * the use-time half of the rule: a value written before the connect-time
+ * refusal existed, or written straight into the row, is ignored rather than
+ * obeyed, so no stored setting can send a credential anywhere but the
+ * provider's own address.
+ */
+export function withoutEndpointOverrides(
+  provider: string,
+  settings: Record<string, unknown>,
+  options: { allowEndpointOverrides: boolean },
+): Record<string, unknown> {
+  if (options.allowEndpointOverrides) return settings;
+  let stripped: Record<string, unknown> | null = null;
+  for (const key of Object.keys(settings)) {
+    if (!isEndpointSetting(provider, key)) continue;
+    stripped ??= { ...settings };
+    delete stripped[key];
+  }
+  return stripped ?? settings;
+}
+
+/**
+ * What a secret may be called.
+ *
+ * An identifier: letters, digits and underscores, starting with a letter or
+ * an underscore, at most a hundred characters. It has to be, because the
+ * default store turns it into part of an environment variable's name, and a
+ * name with a slash or a dot in it is one no shell can set. Uppercase is the
+ * convention and not a rule.
+ */
+export const SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,99}$/;
+
+export function checkSecretName(name: string): SettingsCheck {
+  if (SECRET_NAME_PATTERN.test(name)) return { ok: true };
+  return {
+    ok: false,
+    reason:
+      `"${name.length > 40 ? `${name.slice(0, 40)}…` : name}" is not a usable secret name. Use letters, `
+      + "digits and underscores, starting with a letter, such as STRIPE_SECRET_KEY.",
+  };
+}
+
+/**
+ * The environment variable the default secret store reads for one company's
+ * secret.
+ *
+ * The company's id is part of the variable's name and the company does not
+ * choose it, which is the whole point. Before this, the name a company typed
+ * was the variable read, so a company could name AUTH_SECRET or DATABASE_URL
+ * and have the server read the deployment's own secrets on its behalf. Now
+ * the most a company can name is a variable under its own prefix.
+ *
+ *   OTS_SECRET__<organization id, no dashes, uppercase>__<name>
+ */
+export function environmentVariableFor(organizationId: string, name: string): string {
+  const checked = checkSecretName(name);
+  if (!checked.ok) throw new Error(checked.reason);
+  return `${environmentVariablePrefix(organizationId)}${name}`;
+}
+
+/**
+ * The name a secret pasted on the settings screen is stored under, when the
+ * database store holds it and nobody chose one: `STRIPE_CREDENTIAL`,
+ * `STRIPE_WEBHOOK_SECRET`. Stable, so pasting again replaces rather than
+ * adds, and readable, so the list of a company's secrets says what each is.
+ */
+export function defaultSecretName(provider: string, key: "credential" | string): string {
+  const field = key === "credential"
+    ? "CREDENTIAL"
+    : key.replace(/Ref$/, "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+  return `${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_${field}`;
+}
+
+/** Everything before the name: `OTS_SECRET__<organization id>__`. */
+export function environmentVariablePrefix(organizationId: string): string {
+  const org = organizationId.replace(/-/g, "").toUpperCase();
+  if (!/^[0-9A-F]{32}$/.test(org)) throw new Error(`Not an organization id: ${organizationId}`);
+  return `OTS_SECRET__${org}__`;
+}
+
 function kindMatches(kind: SettingKind, value: unknown): boolean {
   switch (kind) {
     case "text":
@@ -174,10 +281,22 @@ function kindMatches(kind: SettingKind, value: unknown): boolean {
  * legacy secret key with its replacement named, a value of the wrong kind,
  * and a secret name that is plainly a secret.
  */
-export function checkConnectorSettings(provider: string, settings: Record<string, unknown>): SettingsCheck {
+export function checkConnectorSettings(
+  provider: string,
+  settings: Record<string, unknown>,
+  options: { allowEndpointOverrides?: boolean } = {},
+): SettingsCheck {
   const declared = CONNECTOR_SETTINGS[provider] ?? {};
   const legacy = LEGACY_SECRET_SETTINGS[provider] ?? {};
   for (const [key, value] of Object.entries(settings)) {
+    if (isEndpointSetting(provider, key) && !options.allowEndpointOverrides) {
+      return {
+        ok: false,
+        reason:
+          `"${key}" would change where this server sends ${provider}'s credential, and this deployment `
+          + `does not allow that. Nothing was saved. The adapter always talks to ${provider}'s own address.`,
+      };
+    }
     const replacement = legacy[key];
     if (replacement) {
       return {
@@ -189,7 +308,7 @@ export function checkConnectorSettings(provider: string, settings: Record<string
     }
     const spec = declared[key];
     if (!spec) {
-      const known = Object.keys(declared).filter((k) => !declared[k]!.testOnly && !declared[k]!.system);
+      const known = Object.keys(declared).filter((k) => !declared[k]!.endpoint && !declared[k]!.system);
       return {
         ok: false,
         reason:
@@ -207,6 +326,10 @@ export function checkConnectorSettings(provider: string, settings: Record<string
           `"${key}" takes the NAME a secret is kept under in your secret store, and that looks like the secret `
           + `itself. Nothing was saved. Put the value in the store and send the name.`,
       };
+    }
+    if (spec.kind === "secret_name") {
+      const named = checkSecretName(value as string);
+      if (!named.ok) return { ok: false, reason: `"${key}": ${named.reason}` };
     }
   }
   return { ok: true };

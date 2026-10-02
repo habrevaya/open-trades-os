@@ -61,4 +61,24 @@ describe("the integrations screen", () => {
       host: "smtp.example.com", port: 587, verifiedDomains: ["example.com", "mail.example.com"],
     });
   });
+
+  it("asks for a secret by what it is when the value is pasted, and stores it under a usable name", () => {
+    /**
+     * With the database store the boxes take the value itself, so their
+     * labels cannot be "the name of the secret holding it". Every credential
+     * and every secret-name field says what to paste, and the name the
+     * value is kept under is one the store accepts.
+     */
+    const missing: string[] = [];
+    for (const [provider, form] of Object.entries(FORMS)) {
+      if (form.credential) {
+        if (!form.credentialSecret || /name of/i.test(form.credentialSecret)) missing.push(`${provider}.credential`);
+        expect(connectors.checkSecretName(connectors.defaultSecretName(provider, "credential")).ok).toBe(true);
+      }
+      for (const field of form.fields.filter((f) => f.kind === "secret_name")) {
+        if (!field.secretLabel || /name of/i.test(field.secretLabel)) missing.push(`${provider}.${field.key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
 });

@@ -24,13 +24,19 @@ describe("what the contracts turn into", () => {
     const expected = Object.entries(routes)
       .filter(([, r]) => {
         const route = r as RouteDefinition;
-        return !route.internal && (route.authorization ?? "session") === "session";
+        return !route.internal && route.agentTool !== false && (route.authorization ?? "session") === "session";
       })
       .map(([name]) => toolNameFor(name))
       .sort();
 
     expect(allTools().map((t) => t.name).sort()).toEqual(expected);
     expect(expected.length).toBeGreaterThan(10);
+  });
+
+  it("does not offer pasting a secret, so a value never passes through a model provider", () => {
+    expect(allTools().map((t) => t.name)).not.toContain(toolNameFor("putSecret"));
+    // Reading which secrets are set, and clearing one, carry no value and stay tools.
+    expect(allTools().map((t) => t.name)).toContain(toolNameFor("listSecrets"));
   });
 
   it("does not offer a route a customer's link authorizes", () => {

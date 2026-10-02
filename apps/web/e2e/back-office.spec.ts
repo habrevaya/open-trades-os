@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { test, expect, run, newCustomer } from "./fixtures";
 import { fakeCarrier, flushOutbox } from "./outbox";
+import { E2E_ORGANIZATION_ID } from "./stripe-env";
 
 /**
  * THE BACK OFFICE SCREENS, ONE REAL SUBMIT EACH
@@ -242,6 +243,11 @@ test("Settings, Integrations: Stripe is connected by secret names, a pasted key 
   const connected = owner.getByRole("listitem").filter({ hasText: "Stripe" }).first();
   await expect(connected.getByRole("button", { name: "Disconnect" })).toBeVisible();
   await expect(connected).not.toContainText(pasted);
+  // The name typed is not the variable read: the company's own prefix is
+  // added by the server, and the screen says exactly which variable it is.
+  const prefix = `OTS_SECRET__${E2E_ORGANIZATION_ID.replace(/-/g, "").toUpperCase()}__`;
+  await expect(connected).toContainText(`${prefix}STRIPE_SECRET_KEY`);
+  await expect(connected).toContainText(`${prefix}STRIPE_WEBHOOK_SECRET`);
 
   await connected.getByRole("button", { name: "Disconnect" }).click();
   await expect(connected.getByRole("button", { name: "Connect Stripe" })).toBeVisible();

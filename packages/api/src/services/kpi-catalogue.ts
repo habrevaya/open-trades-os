@@ -136,15 +136,6 @@ const technicianDays = () => (from: string, to: string) => sql`
   ) as days
 `;
 
-const minutesOfKind = (kinds: readonly string[]) => (from: string, to: string) => sql`
-  select coalesce(sum(te.minutes), 0)::numeric as value
-  from public.timeclock_entry te
-  where te.deleted_at is null
-    and te.kind::text = any(${sql.param([...kinds])}::text[])
-    and te.started_at >= ${from}::date
-    and te.started_at < (${to}::date + 1)
-`;
-
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {

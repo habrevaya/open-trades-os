@@ -106,6 +106,9 @@ function eligible(): [string, RouteDefinition][] {
   return Object.entries(routes).filter(([, route]) => {
     const r = route as RouteDefinition;
     if (r.internal) return false;
+    // A secret's value pasted into a tool call is a secret in a model
+    // vendor's logs. See `agentTool` in lib/define.ts.
+    if (r.agentTool === false) return false;
     return (r.authorization ?? "session") === "session";
   }) as [string, RouteDefinition][];
 }

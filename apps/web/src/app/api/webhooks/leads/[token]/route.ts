@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { leadIntake } from "@opentradesos/api/services";
+import { leadIntake, secrets } from "@opentradesos/api/services";
 import { schema } from "@opentradesos/db";
 import { and, eq, isNull } from "drizzle-orm";
 // Registers the marketing adapters.
@@ -41,12 +41,6 @@ function publicUrl(token: string): string {
   }
   return `${base.replace(/\/$/, "")}/api/webhooks/leads/${token}`;
 }
-
-const readSecret = (ref: string): string => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
 
 export async function POST(
   request: Request,
@@ -134,7 +128,13 @@ export async function POST(
     body,
   };
 
-  if (!adapter.verify(webhookRequest, readSecret(connection.credentialRef))) {
+  /**
+   * The signing secret from THIS connector's organization's secrets. The
+   * store adds the organization to the lookup, so the name on the connection
+   * can never reach one of the deployment's own variables.
+   */
+  const signingSecret = await secrets.readerFor(db, connector.organizationId)(connection.credentialRef);
+  if (!adapter.verify(webhookRequest, signingSecret)) {
     return new Response("Bad signature", { status: 401 });
   }
 
