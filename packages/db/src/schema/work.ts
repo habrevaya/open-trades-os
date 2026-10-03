@@ -189,6 +189,17 @@ export const job = pgTable("job", {
   /** Generated from a membership or recurring schedule rather than booked ad hoc. */
   agreementId: uuid("agreement_id"),
   priority: integer("priority").notNull().default(0),
+  /**
+   * SKILLS THIS ONE JOB NEEDS BEYOND ITS JOB TYPE.
+   *
+   * A job type says what its work ordinarily needs. One unusual job (a
+   * service call on a unit that turns out to need a confined space entry, a
+   * repair on a roof that needs a lift ticket) needs something its type does
+   * not, and before this column the only place to say so was a note nobody's
+   * assignment check read. Added to the type's list wherever a person is
+   * checked for the work, never instead of it.
+   */
+  requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
   total: money("total"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
