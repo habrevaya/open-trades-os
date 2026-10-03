@@ -196,7 +196,7 @@ by step.
 
 ### Turn on a recommended one
 
-The top of `/automations` offers two, each with what it does, what it needs from
+The top of `/automations` offers three, each with what it does, what it needs from
 the company, and its one or two settings:
 
 - **Follow up an estimate that has not been answered.** On `estimate.sent`: wait
@@ -206,6 +206,11 @@ the company, and its one or two settings:
 - **Ask for a review after a paid job.** On `invoice.paid`: wait some hours, put
   the job to the reviews module's own decision, waiting again if it says later,
   and send the ask with the review site's link. M20 has the decision.
+- **Text back a missed call.** On `call.missed`: wait some minutes, stop unless
+  nobody has spoken to the caller since, text the number that rang to say the
+  company will ring back, and raise a high priority call back in the office
+  queue. Offered only once the company has a number cleared to text that is not
+  a tracking number. M19 has where the event comes from.
 
 `GET /v1/workflow-templates` lists them with whether each is on, and
 `POST /v1/workflow-templates/{key}/install` turns one on.
@@ -217,7 +222,13 @@ Send a message, raise a task, wait, only if, and four added for these:
 (a fresh link to the estimate by text or email, only while it is undecided, and
 refused as a failed step if the wording has lost its link), `request_review`
 (the reviews module's decision, parking the run when it says later) and
-`send_review_request` (the queued ask, marked sent or failed with the reason).
+`send_review_request` (the queued ask, marked sent or failed with the reason) and
+`text_caller` (text the number on a `call.missed` event, through the consent
+checked transactional sender, from the company's ordinary number and never a
+tracking one; a refusal by STOP is a step that did not send, not a failure).
+`stop_unless` asks `estimate_undecided` or `caller_not_reached` (no later call
+from that number was answered and nobody here rang it). `text_caller` needs
+`message:send`.
 `send_estimate` needs `estimate:send`, `portal:grant` and `message:send`;
 `request_review` needs `review:respond`; `send_review_request` needs both of
 those last two.
@@ -293,7 +304,7 @@ is the second loop guard, because the two upstream ones catch a workflow
 re-triggering itself and not one looping inside a single run. The report step
 emails a report to people picked on the canvas; it cannot send a report to the
 customer the event is about.
-There are two recommended automations and the list is code, not something a
-company or a trade pack can add to. `stop_unless` can ask one question so far.
+There are three recommended automations and the list is code, not something a
+company or a trade pack can add to. `stop_unless` can ask two questions so far.
 The canvas's plain message step is text only; the estimate and review steps
 can email.

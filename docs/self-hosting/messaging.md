@@ -53,6 +53,9 @@ keyed on the customer's address.
 One endpoint serves every provider, because what differs between them is
 parsing and signing and both are the adapter's job.
 
+The same connection answers calls to tracking numbers bought on the settings
+screen; `docs/self-hosting/voice.md` covers that side.
+
 The token in the path is what identifies the tenant. Not the `To` number: a
 company's phone number is printed on their truck, and routing on it would let
 anyone aim a forged message at a tenant they picked. Not a header or a query

@@ -90,8 +90,22 @@ that column, so a list, a read or an update cannot leak it even by accident.
 ### Call the API
 
 Everything is under `/api/v1`, with the generated reference in
-`packages/api/openapi.json`: 341 paths and 413 operations. A session or an app token
+`packages/api/openapi.json`: 435 paths and 527 operations. A session or an app token
 authenticates; the permissions each route needs are in the spec.
+
+### The open routes
+
+A few routes take no session at all, because a stranger's browser calls them:
+the booking widget's three, the portal's link routes (M05), the unsubscribe
+page (M19), and since the website snippet and hosted forms (M19) these:
+`POST /v1/public/touches`, `GET /v1/public/dni`,
+`GET /v1/public/hosted-forms/{key}` and `POST /v1/public/forms/{formSlug}`.
+Each resolves the company from a public key (its slug, or a form's own key),
+returns nothing about anybody, and the website and form routes count their
+callers per key and per address and answer 429 with `Retry-After` past a
+ceiling. The open routes, and only they, answer a browser's preflight and mark
+their answers readable from any origin, which is safe because they read no
+cookie and hold no session for another page to borrow.
 
 ### Register a webhook
 
@@ -136,6 +150,8 @@ particular.
 | `GET /v1/webhooks/events` | `integration:read` |
 | `GET /v1/webhooks/endpoints/{id}/position` | `integration:read` |
 | `GET /v1/apps/me` | nothing: the token is the identity |
+| `POST /v1/public/touches` | nothing: counted per company, address and visitor |
+| `GET /v1/public/dni` | nothing: counted per company and address |
 
 ## Common questions
 
