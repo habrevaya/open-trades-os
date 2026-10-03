@@ -2,7 +2,7 @@ import {
   registerProvider,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
-  type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
+  type ExternalCreditApplication, type ExternalCreditNote, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
@@ -113,6 +113,11 @@ const KEY_FIELD: Record<AccountingEntityKind, { entity: string; field: string }>
   payment: { entity: "Payment", field: "PaymentRefNum" },
   credit_memo: { entity: "CreditMemo", field: "DocNumber" },
   refund: { entity: "Purchase", field: "DocNumber" },
+  credit_note: { entity: "CreditMemo", field: "DocNumber" },
+  /** The zero payment that links a credit memo to an invoice. See `pushCreditApplication`. */
+  credit_note_application: { entity: "Payment", field: "PaymentRefNum" },
+  /** The invoice that reverses a voided credit note. See `pushOutbound` in the sync. */
+  credit_note_void: { entity: "Invoice", field: "DocNumber" },
 };
 
 /**
@@ -212,6 +217,53 @@ function retryAfterOf(response: { headers: { get(name: string): string | null } 
   if (!header) return null;
   const seconds = Number(header);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+/**
+ * Item lines and one tax line, the shape an invoice and a credit memo share.
+ * A credit memo is the same document pointing the other way, so its lines are
+ * built by the same code rather than by a copy that drifts.
+ */
+function salesLines(
+  documentLines: ExternalInvoice["lines"], tax: ExternalInvoice["tax"],
+): Record<string, unknown>[] {
+  const lines = documentLines.map((line) => ({
+    Amount: amountOf(line.amount),
+    DetailType: "SalesItemLineDetail",
+    Description: line.description,
+    SalesItemLineDetail: {
+      /**
+       * A QuickBooks invoice line references an Item, and the Item carries
+       * the income account behind it. That is why the mapping stores an
+       * opaque id plus the kind of object it names: our "4000" maps to
+       * whatever the operator picked, and this adapter is the only code that
+       * knows the picked thing goes in `ItemRef`.
+       */
+      ItemRef: { value: line.accountExternalId },
+      Qty: Number(line.quantity),
+      UnitPrice: amountOf(line.unitPrice),
+    },
+  }));
+
+  /**
+   * Tax as one line against the mapped liability account, rather than
+   * QuickBooks' own automated sales tax.
+   *
+   * Their engine would recompute the tax from the customer's address and its
+   * own rate tables, and where it disagrees with the rate frozen on
+   * `invoice_line.tax_rate` the books and the document we actually sent the
+   * customer would differ. The invoice the customer holds is the authority;
+   * see rule 3 at the top of schema/billing.ts.
+   */
+  const taxLine = tax
+    ? [{
+      Amount: amountOf(tax.amount),
+      DetailType: "SalesItemLineDetail",
+      Description: "Sales tax",
+      SalesItemLineDetail: { ItemRef: { value: tax.accountExternalId }, Qty: 1 },
+    }]
+    : [];
+  return [...lines, ...taxLine];
 }
 
 export function createQuickBooksProvider(
@@ -437,6 +489,25 @@ export function createQuickBooksProvider(
     };
   }
 
+  async function findPushed(
+    kind: AccountingEntityKind, idempotencyKey: string,
+  ): Promise<ReadResult<ExternalRef | null>> {
+    const target = KEY_FIELD[kind];
+    const query = `select Id, SyncToken from ${target.entity} where ${target.field} = ${quote(idempotencyKey)}`;
+    const result = await call({
+      path: `/query?query=${encodeURIComponent(query)}`,
+      method: "GET",
+      metered: true,
+    });
+    if (!result.ok) return readFailure(result);
+
+    const response = result.payload["QueryResponse"] as Record<string, unknown> | undefined;
+    const rows = (response?.[target.entity] ?? []) as { Id?: string; SyncToken?: string }[];
+    const first = rows[0];
+    if (!first?.Id) return { ok: true, value: null };
+    return { ok: true, value: { externalId: first.Id, version: first.SyncToken ?? null } };
+  }
+
   return {
     name: "quickbooks",
 
@@ -455,50 +526,13 @@ export function createQuickBooksProvider(
     },
 
     async pushInvoice(invoice: ExternalInvoice): Promise<PushResult> {
-      const lines = invoice.lines.map((line) => ({
-        Amount: amountOf(line.amount),
-        DetailType: "SalesItemLineDetail",
-        Description: line.description,
-        SalesItemLineDetail: {
-          /**
-           * A QuickBooks invoice line references an Item, and the Item
-           * carries the income account behind it. That is why the mapping
-           * stores an opaque id plus the kind of object it names: our "4000"
-           * maps to whatever the operator picked, and this adapter is the
-           * only code that knows the picked thing goes in `ItemRef`.
-           */
-          ItemRef: { value: line.accountExternalId },
-          Qty: Number(line.quantity),
-          UnitPrice: amountOf(line.unitPrice),
-        },
-      }));
-
-      /**
-       * Tax as one line against the mapped liability account, rather than
-       * QuickBooks' own automated sales tax.
-       *
-       * Their engine would recompute the tax from the customer's address and
-       * its own rate tables, and where it disagrees with the rate frozen on
-       * `invoice_line.tax_rate` the books and the document we actually sent
-       * the customer would differ. The invoice the customer holds is the
-       * authority; see rule 3 at the top of schema/billing.ts.
-       */
-      const taxLine = invoice.tax
-        ? [{
-          Amount: amountOf(invoice.tax.amount),
-          DetailType: "SalesItemLineDetail",
-          Description: "Sales tax",
-          SalesItemLineDetail: { ItemRef: { value: invoice.tax.accountExternalId }, Qty: 1 },
-        }]
-        : [];
-
       return create("Invoice", {
         DocNumber: invoice.idempotencyKey,
         CustomerRef: { value: invoice.customerExternalId },
         TxnDate: invoice.issuedOn,
         ...(invoice.dueOn ? { DueDate: invoice.dueOn } : {}),
         CurrencyRef: { value: invoice.currency },
-        Line: [...lines, ...taxLine],
+        Line: salesLines(invoice.lines, invoice.tax),
         ...(invoice.memo ? { CustomerMemo: { value: invoice.memo } } : {}),
       });
     },
@@ -529,6 +563,65 @@ export function createQuickBooksProvider(
           SalesItemLineDetail: { ItemRef: { value: credit.accountExternalId }, Qty: 1 },
         }],
       });
+    },
+
+    /**
+     * A CreditMemo with the credit note's own lines, keyed by its number.
+     *
+     * Not applied to anything. QuickBooks holds an unapplied credit memo as a
+     * credit in the customer's receivable, which is what an issued and unused
+     * credit note is here; it is applied, if and when it is, by
+     * `pushCreditApplication`.
+     *
+     * One setting on the QuickBooks side matters and cannot be read from
+     * here without a metered call: "Automatically apply credits". With it on,
+     * QuickBooks applies a new credit memo to the customer's oldest open
+     * invoice by itself, which is not necessarily the invoice this company
+     * applied it to, and the application sent afterwards then finds that
+     * invoice already settled and is refused with QuickBooks' own reason.
+     * The accounting settings say to turn it off.
+     */
+    async pushCreditNote(note: ExternalCreditNote): Promise<PushResult> {
+      return create("CreditMemo", {
+        DocNumber: note.idempotencyKey,
+        CustomerRef: { value: note.customerExternalId },
+        TxnDate: note.issuedOn,
+        CurrencyRef: { value: note.currency },
+        Line: salesLines(note.lines, note.tax),
+        ...(note.memo ? { CustomerMemo: { value: note.memo } } : {}),
+      });
+    },
+
+    /**
+     * A ZERO PAYMENT LINKING THE INVOICE AND THE CREDIT MEMO.
+     *
+     * QuickBooks has no "apply this credit memo" call. A credit memo is put
+     * against an invoice by a Payment whose total is zero and whose lines
+     * link both: the invoice for the amount it is settled by, the credit memo
+     * for the same amount used. No money moves and nothing touches a bank
+     * account, which is exactly our posting for an application: customer
+     * deposits down, receivable down, no cash. The key goes in
+     * `PaymentRefNum` so a lost response can be found again.
+     */
+    async pushCreditApplication(application: ExternalCreditApplication): Promise<PushResult> {
+      const amount = amountOf(application.amount);
+      return create("Payment", {
+        PaymentRefNum: application.idempotencyKey,
+        CustomerRef: { value: application.customerExternalId },
+        TxnDate: application.appliedOn,
+        TotalAmt: 0,
+        Line: [
+          { Amount: amount, LinkedTxn: [{ TxnId: application.invoiceExternalId, TxnType: "Invoice" }] },
+          { Amount: amount, LinkedTxn: [{ TxnId: application.creditNoteExternalId, TxnType: "CreditMemo" }] },
+        ],
+      });
+    },
+
+    /** The zero payment carries the key in a field QuickBooks can query. */
+    async findCreditApplication(
+      application: ExternalCreditApplication,
+    ): Promise<ReadResult<ExternalRef | null>> {
+      return findPushed("credit_note_application", application.idempotencyKey);
     },
 
     /**
@@ -584,24 +677,7 @@ export function createQuickBooksProvider(
 
     heldMoneyReachesBooks: true,
 
-    async findPushed(
-      kind: AccountingEntityKind, idempotencyKey: string,
-    ): Promise<ReadResult<ExternalRef | null>> {
-      const target = KEY_FIELD[kind];
-      const query = `select Id, SyncToken from ${target.entity} where ${target.field} = ${quote(idempotencyKey)}`;
-      const result = await call({
-        path: `/query?query=${encodeURIComponent(query)}`,
-        method: "GET",
-        metered: true,
-      });
-      if (!result.ok) return readFailure(result);
-
-      const response = result.payload["QueryResponse"] as Record<string, unknown> | undefined;
-      const rows = (response?.[target.entity] ?? []) as { Id?: string; SyncToken?: string }[];
-      const first = rows[0];
-      if (!first?.Id) return { ok: true, value: null };
-      return { ok: true, value: { externalId: first.Id, version: first.SyncToken ?? null } };
-    },
+    findPushed,
 
     async changes(cursor: string | null): Promise<ReadResult<ChangeSet>> {
       /**

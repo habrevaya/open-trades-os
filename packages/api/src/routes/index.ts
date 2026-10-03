@@ -17,6 +17,7 @@ import {
   agreements, visitChanges,
   acquisition, marketingReport, phoneNumbers,
   customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
+  laborSettings,
 } from "../services/index";
 
 /**
@@ -329,6 +330,20 @@ export const handlers = {
   deleteWebhookEndpoint: webhooks.handlers.deleteWebhookEndpoint,
   getWebhookPosition: webhooks.handlers.getWebhookPosition,
   listWebhookEvents: webhooks.handlers.listWebhookEvents,
+
+  // What people are paid, declared
+  listWageScales: laborSettings.handlers.listWageScales,
+  loadWageScale: laborSettings.handlers.loadWageScale,
+  reviseWageScale: laborSettings.handlers.reviseWageScale,
+  retireWageScale: laborSettings.handlers.retireWageScale,
+  listOvertimePolicies: laborSettings.handlers.listOvertimePolicies,
+  declareOvertimePolicy: laborSettings.handlers.declareOvertimePolicy,
+  listCrewRates: laborSettings.handlers.listCrewRates,
+  setWageClassification: laborSettings.handlers.setWageClassification,
+  listWebhookDeliveries: webhooks.handlers.listWebhookDeliveries,
+  listWebhookEventDeliveries: webhooks.handlers.listWebhookEventDeliveries,
+  replayWebhookDeliveries: webhooks.handlers.replayWebhookDeliveries,
+  listWebhookReplays: webhooks.handlers.listWebhookReplays,
 
   getPaymentsStatus: payments.handlers.getPaymentsStatus,
   createPaymentIntent: payments.handlers.createPaymentIntent,

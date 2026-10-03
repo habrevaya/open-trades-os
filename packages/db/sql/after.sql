@@ -1095,6 +1095,42 @@ returns table (organization_id uuid)
 
 revoke all on function app.agreement_renewal_organizations(int) from public;
 grant execute on function app.agreement_renewal_organizations(int) to background;
+-- WEBHOOK DELIVERIES OWED IN A QUIET COMPANY
+--
+-- Delivery runs after a company's events are drained, so a company that
+-- produced nothing this pass was never visited: a replay somebody asked for
+-- sat waiting for the next job to be booked, and so did the retry a failing
+-- receiver was owed. This returns the companies with either, as ids and
+-- nothing else, in the same shape as the functions above. Whether a retry is
+-- due yet is still decided per endpoint by the service, against its backoff.
+-- =========================================================================
+
+create or replace function app.webhook_work_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select e.organization_id
+    from public.webhook_endpoint e
+    where e.active
+      and e.deleted_at is null
+      and (
+        e.failure_count > 0
+        or exists (
+          select 1 from public.webhook_replay r
+           where r.endpoint_id = e.id and r.status = 'pending'
+        )
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = e.organization_id and o.suspended_at is not null
+      )
+    group by e.organization_id
+    order by min(e.last_delivery_at) nulls first
+    limit p_limit
+  $$;
+
+revoke all on function app.webhook_work_organizations(int) from public;
+grant execute on function app.webhook_work_organizations(int) to background;
 
 -- ---- Companies with task rules to apply ----------------------------------
 -- The task pass in the worker raises recurring tasks and escalates late ones,

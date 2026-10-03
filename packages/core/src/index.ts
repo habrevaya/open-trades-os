@@ -37,3 +37,5 @@ export * as membership from "./membership/index.js";
 export * as tags from "./tags/index.js";
 export * as repricing from "./repricing/index.js";
 export * as taskRules from "./tasks/index.js";
+export * as webhooks from "./webhooks/index.js";
+export * as customFields from "./custom-fields/index.js";

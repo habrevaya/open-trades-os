@@ -225,6 +225,14 @@ export const NAV: NavGroup[] = [
            * not the person entitled to decide what people are paid.
            */
           { href: "/payroll/commissions", label: "Commission plans" },
+          /**
+           * When overtime starts and what each classification is paid. It
+           * inherits `payroll:read` to be SHOWN and the page needs
+           * `timesheet:read` to read and `payroll:configure` to change, for the
+           * reason commission plans give: declaring what people are owed is
+           * not the same job as paying them.
+           */
+          { href: "/payroll/pay-rules", label: "Pay rules" },
         ],
       },
       { href: "/booking", label: "Online booking", permission: "booking:configure", icon: "booking" },
@@ -315,6 +323,13 @@ export const NAV: NavGroup[] = [
            * reading my customer list", and that is not a question about Stripe.
            */
           { href: "/settings/apps", label: "Applications" },
+          /**
+           * Where this company's events are sent, and what each receiver said
+           * back. Beside Applications because both are about other software,
+           * and apart from it because an application reads from here and a
+           * webhook is told.
+           */
+          { href: "/settings/webhooks", label: "Webhooks" },
           /**
            * The group this company is in, and what it has agreed to let the
            * group's operator see. Under Settings because it is a standing

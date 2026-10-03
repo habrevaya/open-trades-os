@@ -2,7 +2,7 @@ import {
   registerProvider,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
-  type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
+  type ExternalCreditApplication, type ExternalCreditNote, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
@@ -143,7 +143,7 @@ const ENTITIES = [
  * Where the deterministic key lives on each kind, and the field has to be one
  * Xero's `where` filter can match on. A note or a description cannot be.
  */
-const KEY_FIELD: Record<AccountingEntityKind, {
+const KEY_FIELD: Record<Exclude<AccountingEntityKind, "credit_note_application">, {
   path: string; collection: string; field: string; id: string;
 }> = {
   customer: { path: "Contacts", collection: "Contacts", field: "Name", id: "ContactID" },
@@ -156,6 +156,16 @@ const KEY_FIELD: Record<AccountingEntityKind, {
   refund: {
     path: "BankTransactions", collection: "BankTransactions", field: "Reference", id: "BankTransactionID",
   },
+  credit_note: {
+    path: "CreditNotes", collection: "CreditNotes", field: "CreditNoteNumber", id: "CreditNoteID",
+  },
+  /** The invoice that reverses a voided credit note. See `pushOutbound` in the sync. */
+  credit_note_void: { path: "Invoices", collection: "Invoices", field: "InvoiceNumber", id: "InvoiceID" },
+  /**
+   * `credit_note_application` is absent, and on purpose: an Allocation has
+   * no reference field and no endpoint of its own to search. It is found by
+   * `findCreditApplication`, which reads the credit note it hangs off.
+   */
 };
 
 /** The receivable half of a refund. Numbered from the refund's key so a retry finds it. */
@@ -632,6 +642,72 @@ export function createXeroProvider(
     };
   }
 
+  /** Tax as its own line against the mapped account, for the reason `lineOf` gives. */
+  function taxLineOf(tax: ExternalInvoice["tax"]): Record<string, unknown>[] {
+    return tax
+      ? [{
+        Description: "Sales tax",
+        Quantity: 1,
+        UnitAmount: lineAmount(tax.amount),
+        LineAmount: lineAmount(tax.amount),
+        AccountID: tax.accountExternalId,
+        TaxType: "NONE",
+        TaxAmount: 0,
+      }]
+      : [];
+  }
+
+  async function findPushed(
+    kind: AccountingEntityKind, idempotencyKey: string,
+  ): Promise<ReadResult<ExternalRef | null>> {
+    if (kind === "credit_note_application") {
+      /**
+       * Refused rather than answered with `null`, which would mean "Xero does
+       * not have one" and have the service send a second allocation on the
+       * strength of a question nobody asked.
+       */
+      return {
+        ok: false,
+        code: "unsearchable",
+        message: "A Xero allocation carries no reference to search by. It is found through its credit note.",
+        retryable: false,
+        budgetExhausted: false,
+        retryAfterSeconds: null,
+      };
+    }
+    const target = KEY_FIELD[kind];
+    let filter: string;
+    try {
+      filter = `${target.field}==${whereValue(idempotencyKey)}`;
+    } catch (error) {
+      /**
+       * A key that cannot be expressed as a filter is reported as a failure
+       * rather than as `null`. `null` means "Xero does not have one", and
+       * answering that here would have the service create a second
+       * document on the strength of a question nobody managed to ask.
+       */
+      return {
+        ok: false,
+        code: "unquotable_key",
+        message: error instanceof Error ? error.message : "The key cannot be looked up",
+        retryable: false,
+        budgetExhausted: false,
+        retryAfterSeconds: null,
+      };
+    }
+
+    const result = await call({
+      path: `/${target.path}?where=${encodeURIComponent(filter)}`,
+      method: "GET",
+    });
+    if (!result.ok) return readFailure(result);
+
+    const rows = (result.payload[target.collection] ?? []) as Record<string, unknown>[];
+    const id = rows[0]?.[target.id];
+    if (typeof id !== "string" || id === "") return { ok: true, value: null };
+    return { ok: true, value: { externalId: id, version: null } };
+  }
+
   return {
     name: "xero",
 
@@ -657,17 +733,7 @@ export function createXeroProvider(
     async pushInvoice(invoice: ExternalInvoice): Promise<PushResult> {
       const lines = invoice.lines.map(lineOf);
 
-      const taxLine = invoice.tax
-        ? [{
-          Description: "Sales tax",
-          Quantity: 1,
-          UnitAmount: lineAmount(invoice.tax.amount),
-          LineAmount: lineAmount(invoice.tax.amount),
-          AccountID: invoice.tax.accountExternalId,
-          TaxType: "NONE",
-          TaxAmount: 0,
-        }]
-        : [];
+      const taxLine = taxLineOf(invoice.tax);
 
       return create(KEY_FIELD.invoice, {
         Invoices: [{
@@ -781,6 +847,112 @@ export function createXeroProvider(
     },
 
     /**
+     * An ACCRECCREDIT credit note with the credit note's own lines, keyed by
+     * its number, AUTHORISED for the reason an invoice is: a draft credit
+     * note sits on no report and can be allocated to nothing.
+     *
+     * Its lines carry the revenue account the ledger debited and its tax
+     * goes on its own line, exactly as an invoice's do, through the same
+     * `lineOf`. Not through `pushCredit`'s single line against the write off
+     * account: a credit note is a smaller sale, not a loss.
+     */
+    async pushCreditNote(note: ExternalCreditNote): Promise<PushResult> {
+      return create(KEY_FIELD.credit_note, {
+        CreditNotes: [{
+          Type: "ACCRECCREDIT",
+          Contact: { ContactID: note.customerExternalId },
+          CreditNoteNumber: note.documentNumber,
+          Reference: note.idempotencyKey,
+          Date: note.issuedOn,
+          CurrencyCode: note.currency,
+          LineAmountTypes: "Exclusive",
+          Status: "AUTHORISED",
+          LineItems: [...note.lines.map(lineOf), ...taxLineOf(note.tax)],
+        }],
+      }, note.idempotencyKey, "&unitdp=4");
+    },
+
+    /**
+     * AN ALLOCATION, which is Xero's own word for exactly this: part of a
+     * credit note put against an invoice, on a date, moving no money.
+     *
+     * PUT on the credit note's `Allocations`, with the key as the request's
+     * idempotency key. An allocation has no id of its own on some versions
+     * of the API, so when none comes back the link is given one built from
+     * the credit note and our key, which is unique per application and is
+     * what `findCreditApplication` produces for the same allocation.
+     */
+    async pushCreditApplication(application: ExternalCreditApplication): Promise<PushResult> {
+      const result = await call({
+        path: `/CreditNotes/${encodeURIComponent(application.creditNoteExternalId)}/Allocations?summarizeErrors=true`,
+        method: "PUT",
+        body: {
+          Allocations: [{
+            Invoice: { InvoiceID: application.invoiceExternalId },
+            Amount: lineAmount(application.amount),
+            Date: application.appliedOn,
+          }],
+        },
+        idempotencyKey: application.idempotencyKey,
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          code: result.code,
+          message: result.message,
+          retryable: result.retryable,
+          duplicate: false,
+        };
+      }
+      const first = ((result.payload["Allocations"] ?? []) as Record<string, unknown>[])[0];
+      const invalid = validationMessage(first);
+      if (invalid) {
+        return { ok: false, code: "validation", message: invalid, retryable: false, duplicate: false };
+      }
+      const id = first?.["AllocationID"];
+      return {
+        ok: true,
+        externalId: typeof id === "string" && id !== ""
+          ? id
+          : allocationRef(application.creditNoteExternalId, application.idempotencyKey),
+        version: null,
+        adopted: false,
+      };
+    },
+
+    /**
+     * Read the credit note and look for an allocation to this invoice, for
+     * this amount, on this date, that no other application of ours already
+     * claims. One read, against the daily limit like any other.
+     */
+    async findCreditApplication(
+      application: ExternalCreditApplication, taken: string[],
+    ): Promise<ReadResult<ExternalRef | null>> {
+      const result = await call({
+        path: `/CreditNotes/${encodeURIComponent(application.creditNoteExternalId)}`,
+        method: "GET",
+      });
+      if (!result.ok) return readFailure(result);
+
+      const note = ((result.payload["CreditNotes"] ?? []) as Record<string, unknown>[])[0];
+      const allocations = (note?.["Allocations"] ?? []) as Record<string, unknown>[];
+      const amount = lineAmount(application.amount);
+      for (const allocation of allocations) {
+        const invoice = allocation["Invoice"] as { InvoiceID?: unknown } | undefined;
+        const on = parseXeroDate(allocation["Date"]);
+        if (invoice?.InvoiceID !== application.invoiceExternalId) continue;
+        if (Number(allocation["Amount"]) !== amount) continue;
+        if (on && on.toISOString().slice(0, 10) !== application.appliedOn) continue;
+        const id = typeof allocation["AllocationID"] === "string" && allocation["AllocationID"] !== ""
+          ? allocation["AllocationID"] as string
+          : allocationRef(application.creditNoteExternalId, application.idempotencyKey);
+        if (taken.includes(id)) continue;
+        return { ok: true, value: { externalId: id, version: null } };
+      }
+      return { ok: true, value: null };
+    },
+
+    /**
      * TWO DOCUMENTS, BECAUSE XERO WILL NOT LET ONE DO IT.
      *
      * A refund here posts cash out and the customer's receivable back up.
@@ -858,41 +1030,7 @@ export function createXeroProvider(
 
     heldMoneyReachesBooks: false,
 
-    async findPushed(
-      kind: AccountingEntityKind, idempotencyKey: string,
-    ): Promise<ReadResult<ExternalRef | null>> {
-      const target = KEY_FIELD[kind];
-      let filter: string;
-      try {
-        filter = `${target.field}==${whereValue(idempotencyKey)}`;
-      } catch (error) {
-        /**
-         * A key that cannot be expressed as a filter is reported as a failure
-         * rather than as `null`. `null` means "Xero does not have one", and
-         * answering that here would have the service create a second
-         * document on the strength of a question nobody managed to ask.
-         */
-        return {
-          ok: false,
-          code: "unquotable_key",
-          message: error instanceof Error ? error.message : "The key cannot be looked up",
-          retryable: false,
-          budgetExhausted: false,
-          retryAfterSeconds: null,
-        };
-      }
-
-      const result = await call({
-        path: `/${target.path}?where=${encodeURIComponent(filter)}`,
-        method: "GET",
-      });
-      if (!result.ok) return readFailure(result);
-
-      const rows = (result.payload[target.collection] ?? []) as Record<string, unknown>[];
-      const id = rows[0]?.[target.id];
-      if (typeof id !== "string" || id === "") return { ok: true, value: null };
-      return { ok: true, value: { externalId: id, version: null } };
-    },
+    findPushed,
 
     async changes(cursor: string | null): Promise<ReadResult<ChangeSet>> {
       /**
@@ -1065,6 +1203,15 @@ function isGone(kind: AccountingEntityKind, row: Record<string, unknown>): boole
   if (kind === "customer") return row["ContactStatus"] === "GDPRREQUEST";
   const status = row["Status"];
   return status === "DELETED" || status === "VOIDED";
+}
+
+/**
+ * What an allocation is called in the link table when Xero gave it no id of
+ * its own: the credit note it hangs off and our key, which together name one
+ * application and nothing else.
+ */
+function allocationRef(creditNoteId: string, idempotencyKey: string): string {
+  return `${creditNoteId}:${idempotencyKey}`;
 }
 
 /** Xero's `Date` response header, which is their clock rather than ours. */

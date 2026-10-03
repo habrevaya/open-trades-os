@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { acquisition } from "@opentradesos/api/services";
+import { acquisition, customFields } from "@opentradesos/api/services";
 import { assertCan } from "@opentradesos/core";
 import { NewCustomerForm } from "./Form";
 
@@ -18,8 +18,10 @@ export default async function NewCustomerPage() {
   const user = await requireSetupUser();
   assertCan(user.actor, "customer:write");
   const ctx = { actor: user.actor, db: getDb() };
-  const [sources, settings] = await Promise.all([
+  const [sources, settings, customerFields, propertyFields] = await Promise.all([
     acquisition.channelOptions(ctx), acquisition.getSettings(ctx),
+    customFields.formFields(ctx, "customer"),
+    customFields.formFields(ctx, "property"),
   ]);
 
   return (
@@ -29,7 +31,8 @@ export default async function NewCustomerPage() {
         The address is optional here and needed before you can book work, so
         most people fill it in now.
       </p>
-      <NewCustomerForm sources={sources} sourceRequired={settings.requireLeadSource} />
+      <NewCustomerForm sources={sources} sourceRequired={settings.requireLeadSource}
+                       customerFields={customerFields} propertyFields={propertyFields} />
     </div>
   );
 }

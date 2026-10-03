@@ -342,3 +342,66 @@ run("who is paid at what", () => {
     expect(rates[0]!.baseRate).toBeNull();
   });
 });
+
+/**
+ * A rate changes from a date, and a retried request does not declare or load
+ * twice. Both were service only until the payroll settings screen, which is
+ * also when changing a rate became something a person could do without
+ * closing one scale and loading another by hand in two separate steps.
+ */
+run("changing a rate from a date", () => {
+  it("closes the old scale the day before and opens a new one with everything else it said", async () => {
+    const scale = await settings.setScale(owner(), {
+      ...SCALE, authority: "collective_agreement", externalReference: "IBEW 520 2026", effectiveFrom: "2026-01-01",
+    });
+    const next = await settings.reviseScale(owner(), { id: scale.id, baseRate: "44.50", effectiveFrom: "2026-09-01" });
+
+    expect(next).toMatchObject({
+      classification: SCALE.classification, baseRate: "44.5000", fringeRate: "13.2500",
+      authority: "collective_agreement", externalReference: "IBEW 520 2026",
+      effectiveFrom: "2026-09-01", effectiveTo: null, active: true,
+    });
+    const all = await settings.scales(owner(), {});
+    expect(all.find((s) => s.id === scale.id)).toMatchObject({ effectiveTo: "2026-08-31", active: false });
+  });
+
+  it("keeps an entry worked before the change at the rate it was costed at", async () => {
+    const scale = await settings.setScale(owner(), { ...SCALE, effectiveFrom: "2026-01-01" });
+    await settings.reviseScale(owner(), { id: scale.id, baseRate: "50.00", effectiveFrom: "2026-09-01" });
+    const before = await inTenant(owner(), (tx) => labor.scaleOn(tx, ORG, SCALE.classification, new Date("2026-08-15T12:00:00Z")));
+    const after = await inTenant(owner(), (tx) => labor.scaleOn(tx, ORG, SCALE.classification, new Date("2026-09-02T12:00:00Z")));
+    expect(before?.baseRate).toBe("42.0000");
+    expect(after?.baseRate).toBe("50.0000");
+  });
+
+  it("refuses a change dated before the scale began, and a change to one already replaced", async () => {
+    const scale = await settings.setScale(owner(), { ...SCALE, effectiveFrom: "2026-06-01" });
+    await expect(settings.reviseScale(owner(), { id: scale.id, baseRate: "45.00", effectiveFrom: "2026-05-01" }))
+      .rejects.toThrow(/retire this scale and load the right one/);
+    await settings.reviseScale(owner(), { id: scale.id, baseRate: "45.00", effectiveFrom: "2026-09-01" });
+    await expect(settings.reviseScale(owner(), { id: scale.id, baseRate: "46.00", effectiveFrom: "2026-10-01" }))
+      .rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("refuses a role without payroll:configure", async () => {
+    const scale = await settings.setScale(owner(), SCALE);
+    await expect(settings.reviseScale(as(["office_manager"]), { id: scale.id, baseRate: "45.00", effectiveFrom: "2026-09-01" }))
+      .rejects.toBeInstanceOf(PermissionError);
+  });
+
+  it("answers a retried load, change or declaration with the first answer, writing nothing twice", async () => {
+    const keyed = (key: string): ServiceContext => ({ ...owner(), idempotencyKey: key });
+    const first = await settings.setScale(keyed("load-1"), SCALE);
+    const again = await settings.setScale(keyed("load-1"), SCALE);
+    expect(again).toEqual(first);
+
+    const changed = await settings.reviseScale(keyed("revise-1"), { id: first.id, baseRate: "45.00", effectiveFrom: "2026-09-01" });
+    expect(await settings.reviseScale(keyed("revise-1"), { id: first.id, baseRate: "45.00", effectiveFrom: "2026-09-01" }))
+      .toEqual(changed);
+    expect(await settings.scales(owner(), {})).toHaveLength(2);
+
+    const declared = await settings.setPolicy(keyed("policy-1"), POLICY);
+    expect(await settings.setPolicy(keyed("policy-1"), POLICY)).toEqual(declared);
+    expect(await settings.policies(owner())).toHaveLength(1);
+  });
+});

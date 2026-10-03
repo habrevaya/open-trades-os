@@ -3,6 +3,7 @@
 import { useKeptAction } from "@/lib/use-kept-action";
 import { LeadSourceSelect, type SourceOption } from "@/components/LeadSourceSelect";
 import { createCustomer } from "../actions";
+import { CustomFieldInputs, type CustomFieldDefinitionView } from "@/components/CustomFieldInputs";
 
 /**
  * A plain form that posts to a server action.
@@ -12,8 +13,14 @@ import { createCustomer } from "../actions";
  * thing to keep in step for the sake of saving one round trip.
  */
 export function NewCustomerForm({
-  sources, sourceRequired,
-}: { sources: SourceOption[]; sourceRequired: boolean }) {
+  sources, sourceRequired, customerFields, propertyFields,
+}: {
+  sources: SourceOption[];
+  sourceRequired: boolean;
+  /** The fields this company added to customers and to addresses, drawn from their definitions. */
+  customerFields: readonly CustomFieldDefinitionView[];
+  propertyFields: readonly CustomFieldDefinitionView[];
+}) {
   const [state, actionForm, pending] = useKeptAction(createCustomer, null);
 
   return (
@@ -59,7 +66,10 @@ export function NewCustomerForm({
           <Field label="State" name="state" autoComplete="address-level1" />
           <Field label="ZIP" name="postalCode" autoComplete="postal-code" inputMode="numeric" />
         </div>
+        <CustomFieldInputs definitions={propertyFields} prefix="pcf" legend="About the address" />
       </fieldset>
+
+      <CustomFieldInputs definitions={customerFields} legend="Your fields" />
 
       <div className="flex gap-3">
         <button type="submit" disabled={pending}

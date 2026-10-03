@@ -10,6 +10,7 @@ import { deliverDue } from "./delivery-schedules";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
+import { deliverOwed, type Transport } from "./webhooks";
 
 /**
  * THE WORKER
@@ -227,6 +228,13 @@ export interface PassOptions {
    * platform's time limit.
    */
   shouldStop?: () => boolean;
+  /**
+   * Whether this pass also delivers the webhooks owed in companies that had
+   * no events: replays somebody asked for and retries a receiver is waiting
+   * on. On by default; `false` turns it off, and an object passes the
+   * transport, which is how a test keeps it off the network.
+   */
+  webhooks?: false | { send?: Transport };
 }
 
 /**
@@ -348,6 +356,24 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       // One organization's carrier being down must not stop the loop for
       // everybody else. The messages stay queued and go on the next pass.
       console.error(`[worker] outbox ${organizationId}:`, (error as Error).message);
+    }
+  }
+
+  /**
+   * Webhooks owed where nothing happened this pass. After the hook above, so
+   * a company that did have events is delivered to once, by it, and skipped
+   * here.
+   */
+  if (options.webhooks !== false) {
+    try {
+      await deliverOwed(options.db, {
+        /** Only when the hook ran: without one, nobody has delivered to them yet. */
+        skip: options.afterDrain ? sending : new Set(),
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.webhooks?.send ? { send: options.webhooks.send } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] webhooks:", (error as Error).message);
     }
   }
 

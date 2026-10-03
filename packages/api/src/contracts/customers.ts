@@ -96,6 +96,12 @@ export const CustomerCreate = z.object({
     nickname: z.string().max(100).optional(),
     address: Address,
     accessNotes: z.string().max(2000).optional(),
+    /**
+     * The address's own custom fields, held to the property definitions as a
+     * property created on its own is. Without this a required property field
+     * was skipped by every customer created with an address.
+     */
+    customFields: z.record(z.unknown()).optional(),
   }).optional(),
   /** Where this came from in another system. See `ExternalRef`. */
   externalRef: ExternalRef.optional(),

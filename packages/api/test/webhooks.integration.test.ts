@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
+import * as core from "@opentradesos/core";
 import { PermissionError, type Actor } from "@opentradesos/core";
 import * as webhooks from "../src/services/webhooks";
 import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
+import { runPass } from "../src/services/workflow-worker";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -72,7 +74,17 @@ beforeAll(async () => {
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Webhook Co", slug: "webhook-co" });
 });
 
-afterAll(async () => { if (raw) await raw.end(); });
+afterAll(async () => {
+  if (!raw) return;
+  /**
+   * Endpoints left failing or with a replay waiting are work the worker goes
+   * looking for in every company, so a worker test running after this file
+   * would try to reach the receivers named here. They are fixtures, not
+   * history, and they go.
+   */
+  await raw`delete from public.webhook_endpoint where organization_id = ${ORG}`;
+  await raw.end();
+});
 
 beforeEach(async () => {
   if (!url) return;
@@ -557,5 +569,285 @@ run("failing endpoints", () => {
 
     expect(pass.attempts).toHaveLength(2);
     expect(pass.attempts.find((a) => a.endpointId === b.id)).toMatchObject({ ok: true });
+  });
+});
+
+/* ------------------------------------------------- the history, and replay */
+
+/**
+ * An endpoint used to report THAT it was failing and never WHY: a failure
+ * count, the time of the last attempt, and nothing a person debugging a
+ * receiver could read. And nothing could send an event again, so a receiver
+ * that lost a day to a bad deploy had lost it for good.
+ */
+const keyed = (key: string): ServiceContext => ({ ...owner(), idempotencyKey: key });
+
+run("delivery history", () => {
+  it("keeps every attempt with what the receiver said and how long it took", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    const event = await emitted("job.completed");
+
+    await webhooks.deliver(db(), ORG, {
+      send: transport(() => ({ status: 503, ok: false, body: "upstream is down" })).send, now: at(0),
+    });
+    await webhooks.deliver(db(), ORG, {
+      send: transport(() => ({ status: 200, ok: true, body: "{\"received\":true}" })).send,
+      now: at(webhooks.backoffMs(1)),
+    });
+
+    const history = await webhooks.history(owner(), { id: endpoint.id });
+    expect(history.data.map((d) => [d.attempt, d.status, d.responseStatus, d.responseExcerpt])).toEqual([
+      [2, "delivered", 200, "{\"received\":true}"],
+      [1, "refused", 503, "upstream is down"],
+    ]);
+    expect(history.data[1]).toMatchObject({
+      eventId: event.id, eventSequence: event.sequence, eventName: "job.completed",
+      requestedAt: new Date(T0).toISOString(), error: "HTTP 503", replayId: null,
+    });
+    expect(history.data.every((d) => d.durationMs >= 0)).toBe(true);
+  });
+
+  it("calls an attempt that got no answer unreachable, with the reason", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, {
+      send: async () => { throw new Error("connect ECONNREFUSED"); }, now: at(0),
+    });
+
+    const [only] = (await webhooks.history(owner(), { id: endpoint.id })).data;
+    expect(only).toMatchObject({ status: "unreachable", responseStatus: null, error: "connect ECONNREFUSED" });
+  });
+
+  it("filters by what happened", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, { send: transport(() => DOWN).send, now: at(0) });
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(webhooks.backoffMs(1)) });
+
+    const refused = await webhooks.history(owner(), { id: endpoint.id, status: "refused" });
+    expect(refused.data.map((d) => d.attempt)).toEqual([1]);
+    const delivered = await webhooks.history(owner(), { id: endpoint.id, status: "delivered" });
+    expect(delivered.data.map((d) => d.attempt)).toEqual([2]);
+    expect((await webhooks.history(owner(), { id: endpoint.id, status: "unreachable" })).data).toEqual([]);
+  });
+
+  it("keeps the start of a long answer and says how much it left out", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, {
+      send: transport(() => ({ status: 500, ok: false, body: "<html>".padEnd(9000, "x") })).send, now: at(0),
+    });
+
+    const [only] = (await webhooks.history(owner(), { id: endpoint.id })).data;
+    expect(only!.responseExcerpt!.startsWith("<html>")).toBe(true);
+    expect(only!.responseExcerpt).toMatch(/\[7000 more characters not kept\]$/);
+  });
+
+  it("pages newest first without skipping an attempt made in the same instant", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await emitted("job.completed");
+    await emitted("job.completed");
+    /** One pass, one clock reading: three attempts with the same time. */
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(0) });
+
+    const first = await webhooks.history(owner(), { id: endpoint.id, limit: 2 });
+    expect(first.hasMore).toBe(true);
+    const second = await webhooks.history(owner(), { id: endpoint.id, limit: 2, cursor: first.nextCursor! });
+    expect(second.hasMore).toBe(false);
+    const seen = [...first.data, ...second.data].map((d) => d.eventSequence).sort();
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("answers for one event across every endpoint it went to", async () => {
+    const a = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    const b = await webhooks.register(owner(), { url: "https://other.example.test/in", events: ["job.completed"] });
+    const event = await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, {
+      send: transport((r) => (r.url === RECEIVER ? OK : DOWN)).send, now: at(0),
+    });
+
+    const answer = await webhooks.eventHistory(owner(), { eventId: event.id });
+    expect(answer.event).toMatchObject({ id: event.id, name: "job.completed", sequence: event.sequence });
+    expect(answer.deliveries.map((d) => [d.endpointId, d.status]).sort()).toEqual([
+      [a.id, "delivered"], [b.id, "refused"],
+    ].sort());
+    expect(answer.deliveries.find((d) => d.endpointId === b.id)!.endpointUrl).toBe("https://other.example.test/in");
+  });
+
+  it("cannot grow without bound: old attempts and attempts past the limit are let go", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    const old = await emitted("job.completed");
+    await raw`
+      insert into public.webhook_delivery
+        (organization_id, endpoint_id, event_id, event_sequence, event_name, attempt,
+         requested_at, duration_ms, response_status, ok)
+      select ${ORG}, ${endpoint.id}, ${old.id}, ${old.sequence}, 'job.completed', n,
+             ${new Date(T0 - 60_000).toISOString()}::timestamptz - (n || ' seconds')::interval, 5, 200, true
+      from generate_series(1, ${core.webhooks.KEEP_PER_ENDPOINT + 10}) as n`;
+    await raw`
+      insert into public.webhook_delivery
+        (organization_id, endpoint_id, event_id, event_sequence, event_name, attempt,
+         requested_at, duration_ms, response_status, ok)
+      values (${ORG}, ${endpoint.id}, ${old.id}, ${old.sequence}, 'job.completed', 99999,
+              ${new Date(T0 - 40 * 86_400_000).toISOString()}::timestamptz, 5, 200, true)`;
+
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(0) });
+
+    const [kept] = await raw<{ n: number; oldest: Date }[]>`
+      select count(*)::int as n, min(requested_at) as oldest
+      from public.webhook_delivery where endpoint_id = ${endpoint.id}`;
+    expect(kept!.n).toBe(core.webhooks.KEEP_PER_ENDPOINT);
+    expect(kept!.oldest.getTime()).toBeGreaterThan(T0 - 30 * 86_400_000);
+    /** The newest attempt, the one this pass made, is never the one let go. */
+    const newest = (await webhooks.history(owner(), { id: endpoint.id, limit: 1 })).data[0]!;
+    expect(newest.requestedAt).toBe(new Date(T0).toISOString());
+  });
+
+  it("is not readable by a role that cannot see integrations", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await expect(webhooks.history(as(["accountant"]), { id: endpoint.id }))
+      .rejects.toBeInstanceOf(PermissionError);
+    await expect(webhooks.requestReplay(as(["accountant"]), { id: endpoint.id, fromSequence: 1 }))
+      .rejects.toBeInstanceOf(PermissionError);
+  });
+});
+
+run("replaying", () => {
+  it("sends a delivery again, re-signed now, with the header a receiver deduplicates on", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed", { jobId: "j-1" });
+    const http = transport();
+    await webhooks.deliver(db(), ORG, { send: http.send, now: at(0) });
+    const [original] = (await webhooks.history(owner(), { id: endpoint.id })).data;
+
+    const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, deliveryId: original!.id });
+    expect(replay).toMatchObject({ status: "pending", eventId: original!.eventId });
+    const later = T0 + 6 * 60 * 60 * 1000;
+    await webhooks.deliver(db(), ORG, { send: http.send, now: () => new Date(later) });
+
+    expect(http.calls).toHaveLength(2);
+    const [first, again] = http.calls as [webhooks.DeliveryRequest, webhooks.DeliveryRequest];
+    expect(again.body).toBe(first.body);
+    expect(again.headers[webhooks.DELIVERY_HEADER]).toBe(first.headers[webhooks.DELIVERY_HEADER]);
+    expect(again.headers[webhooks.REPLAY_HEADER]).toBe(replay.id);
+    expect(first.headers[webhooks.REPLAY_HEADER]).toBeUndefined();
+    /** Valid NOW, which the original signature six hours on is not. */
+    expect(webhooks.verifyDelivery({
+      secret: endpoint.secret, body: again.body, now: later,
+      timestamp: again.headers[webhooks.TIMESTAMP_HEADER]!, signature: again.headers[webhooks.SIGNATURE_HEADER]!,
+    })).toBe(true);
+
+    const history = (await webhooks.history(owner(), { id: endpoint.id })).data;
+    expect(history[0]).toMatchObject({ attempt: 2, replayId: replay.id, status: "delivered" });
+    expect((await webhooks.replays(owner(), { id: endpoint.id }))[0]).toMatchObject({ status: "done" });
+  });
+
+  it("replays a range from a point, only what the endpoint subscribes to, and stops where it was asked to", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    const one = await emitted("job.completed", { n: "1" });
+    await emitted("job.created", { n: "2" });
+    await emitted("job.completed", { n: "3" });
+    const http = transport();
+    await webhooks.deliver(db(), ORG, { send: http.send, now: at(0) });
+    expect(http.calls).toHaveLength(2);
+
+    await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: one.sequence });
+    /** After the request: live, once, and not part of the replay. */
+    await emitted("job.completed", { n: "4" });
+    await webhooks.deliver(db(), ORG, { send: http.send, now: at(60_000) });
+
+    const sent = http.calls.slice(2).map((c) => [
+      (JSON.parse(c.body) as { payload: { n: string } }).payload.n,
+      c.headers[webhooks.REPLAY_HEADER] ? "replay" : "live",
+    ]);
+    expect(sent).toEqual([["4", "live"], ["1", "replay"], ["3", "replay"]]);
+
+    /** The live position is where the live stream left it. */
+    const position = await webhooks.position(owner(), { id: endpoint.id });
+    expect(position).toMatchObject({ deliveredThrough: 4, pending: 0 });
+  });
+
+  it("stops where the receiver refuses and carries on from there", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed", { n: "1" });
+    await emitted("job.completed", { n: "2" });
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(0) });
+
+    const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+    let calls = 0;
+    const flaky = transport(() => (++calls === 2 ? DOWN : OK));
+    await webhooks.deliver(db(), ORG, { send: flaky.send, now: at(60_000) });
+    expect((await webhooks.replays(owner(), { id: endpoint.id }))[0]).toMatchObject({
+      id: replay.id, status: "pending", position: 1, failureCount: 1, lastError: "HTTP 503",
+    });
+
+    const rest = transport();
+    await webhooks.deliver(db(), ORG, { send: rest.send, now: at(60_000 + webhooks.backoffMs(1)) });
+    expect(rest.calls.map((c) => (JSON.parse(c.body) as { payload: { n: string } }).payload.n)).toEqual(["2"]);
+    expect((await webhooks.replays(owner(), { id: endpoint.id }))[0]).toMatchObject({ status: "done", position: 2 });
+  });
+
+  it("gives up on a replay without switching the live stream off", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    await webhooks.deliver(db(), ORG, { send: transport().send, now: at(0) });
+    await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+
+    for (let pass = 1; pass <= 12; pass += 1) {
+      await webhooks.deliver(db(), ORG, { send: transport(() => DOWN).send, now: at(pass * 2 * 60 * 60 * 1000) });
+    }
+    expect((await webhooks.replays(owner(), { id: endpoint.id }))[0]).toMatchObject({ status: "failed", failureCount: 12 });
+    expect((await webhooks.list(owner()))[0]).toMatchObject({ active: true, failureCount: 0 });
+  });
+
+  it("does not queue a second copy of a replay that is still waiting, or of a retried request", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    const first = await webhooks.requestReplay(keyed("replay-1"), { id: endpoint.id, fromSequence: 1 });
+    const retried = await webhooks.requestReplay(keyed("replay-1"), { id: endpoint.id, fromSequence: 1 });
+    const pressedTwice = await webhooks.requestReplay(keyed("replay-2"), { id: endpoint.id, fromSequence: 1 });
+    expect(retried.id).toBe(first.id);
+    expect(pressedTwice.id).toBe(first.id);
+    expect(await webhooks.replays(owner(), { id: endpoint.id })).toHaveLength(1);
+  });
+
+  it("is sent by the worker even when the company has done nothing since", async () => {
+    /**
+     * Delivery runs after a company's events are drained, so a replay asked
+     * for on a quiet afternoon used to wait for the next job to be booked.
+     */
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    await emitted("job.completed");
+    const http = transport();
+    await webhooks.deliver(db(), ORG, { send: http.send, now: at(0) });
+    /** The log drained, so this company has had no events as far as the next pass knows. */
+    await runPass({ db: db(), schedules: false, geocoding: false, webhooks: { send: http.send } });
+    expect(http.calls).toHaveLength(1);
+
+    const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
+    await runPass({ db: db(), schedules: false, geocoding: false, webhooks: { send: http.send } });
+    expect(http.calls).toHaveLength(2);
+    expect(http.calls[1]!.headers[webhooks.REPLAY_HEADER]).toBe(replay.id);
+  });
+
+  it("refuses what it could not send", async () => {
+    const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });
+    const other = await emitted("job.created");
+    await emitted("job.completed");
+
+    await expect(webhooks.requestReplay(owner(), { id: endpoint.id, eventId: other.id }))
+      .rejects.toThrow(/does not subscribe to job\.created/);
+    await expect(webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 9 }))
+      .rejects.toThrow(/log ends at event 2/);
+    await expect(webhooks.requestReplay(owner(), { id: endpoint.id }))
+      .rejects.toThrow(/Say what to send again/);
+    await expect(webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1, eventId: other.id }))
+      .rejects.toThrow(/Say what to send again/);
+
+    await webhooks.update(owner(), { id: endpoint.id, active: false });
+    await expect(webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 }))
+      .rejects.toBeInstanceOf(ConflictError);
   });
 });

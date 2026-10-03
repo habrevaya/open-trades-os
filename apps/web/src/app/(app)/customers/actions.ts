@@ -2,10 +2,11 @@
 
 import { refused, refusalOf } from "@/lib/actions";
 import { sourceFrom } from "@/lib/lead-source";
+import { customFieldsFrom } from "@/lib/custom-field-form";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers } from "@opentradesos/api/services";
+import { customFields, customers } from "@opentradesos/api/services";
 import { CustomerCreate } from "@opentradesos/api/contracts";
 
 /**
@@ -20,6 +21,11 @@ export async function createCustomer(_previous: unknown, form: FormData) {
   const user = await requireSetupUser();
 
   const line1 = String(form.get("line1") ?? "").trim();
+  const ctx = { actor: user.actor, db: getDb() };
+  const [customerFields, propertyFields] = await Promise.all([
+    customFields.formFields(ctx, "customer"),
+    customFields.formFields(ctx, "property"),
+  ]);
 
   const parsed = CustomerCreate.safeParse({
     type: form.get("type") ?? "residential",
@@ -27,6 +33,7 @@ export async function createCustomer(_previous: unknown, form: FormData) {
     ...(form.get("email") ? { email: String(form.get("email")).trim() } : {}),
     ...(form.get("phone") ? { phone: String(form.get("phone")).trim() } : {}),
     ...sourceFrom(form),
+    customFields: customFieldsFrom(form, customerFields),
     // The address is optional, and skipped entirely when blank rather than
     // sent as a set of empty strings, which the schema would reject with a
     // message about a postal code the person never typed.
@@ -40,6 +47,7 @@ export async function createCustomer(_previous: unknown, form: FormData) {
               postalCode: String(form.get("postalCode") ?? "").trim(),
               country: "US",
             },
+            customFields: customFieldsFrom(form, propertyFields, {}, "pcf"),
           },
         }
       : {}),
@@ -50,10 +58,15 @@ export async function createCustomer(_previous: unknown, form: FormData) {
     return refused(form, first ? `${first.path.join(".")}: ${first.message}` : "Check the form.");
   }
 
-  let created;
+  /**
+   * A refusal from the service, such as a required field of the company's
+   * own left empty, comes back as its sentences under the form rather than
+   * as an error page, one per field.
+   */
+  let created: { id: string };
   try {
     created = await customers.create(
-      { actor: user.actor, db: getDb() },
+      ctx,
       { ...parsed.data, customerRole: "owner" } as Parameters<typeof customers.create>[1],
     );
   } catch (error) {

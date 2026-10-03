@@ -45,7 +45,6 @@ test("a call on a tracking campaign's number becomes a paid job, and the funnel 
   const campaign = `Spring AC tune up ${run}`;
   const tracking = `+1737${digits}`;
   const caller = `+1512${String(Number(digits) + 1).padStart(7, "0").slice(-7)}`;
-  const today = new Date().toISOString().slice(0, 10);
   const range = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 
   // A tracking campaign under Google Ads, with its link tag and its budget.
@@ -61,7 +60,12 @@ test("a call on a tracking campaign's number becomes a paid job, and the funnel 
   // What it cost today, typed against the campaign.
   await owner.goto("/marketing/spend");
   await owner.getByLabel("Spent on").selectOption({ label: `Google Ads: ${campaign}` });
-  await owner.getByLabel("Day").fill(today);
+  /**
+   * The day the form offers, which is the company's today. Typing the UTC date
+   * here instead recorded tomorrow's spend every evening in the Americas, and
+   * the list, which ends on the company's today, then had nothing to show.
+   */
+  await expect(owner.getByLabel("Day")).not.toHaveValue("");
   await owner.getByLabel("Amount").fill("300.00");
   await owner.getByRole("button", { name: "Record spend" }).click();
   await expect(owner.getByRole("status").filter({ hasText: "Recorded" })).toBeVisible();

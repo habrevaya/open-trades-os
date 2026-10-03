@@ -180,7 +180,12 @@ const ORDER = [
    */
   "review_request", "review", "review_platform", "review_policy",
   "attachment", "stored_file",
-  "audit_log", "integration_event", "webhook_endpoint",
+  "audit_log", "integration_event",
+  /**
+   * A delivery attempt points at its endpoint and at the replay that sent
+   * it, and a replay at its endpoint, so the attempts go first.
+   */
+  "webhook_delivery", "webhook_replay", "webhook_endpoint",
   /**
    * A held certification points at a technician and at the type it is an
    * instance of, so both go before the technician below and the type goes

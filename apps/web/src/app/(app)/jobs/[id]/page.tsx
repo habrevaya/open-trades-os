@@ -1,9 +1,10 @@
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, NotFoundError,
-  acquisition, marketing,
+  jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
+  NotFoundError, acquisition, marketing,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -424,6 +425,13 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           )}
         </>
       )}
+
+      <CustomFieldsPanel
+        entityType="job" id={id}
+        definitions={await customFields.formFields(ctx, "job")}
+        values={(job.customFields ?? {}) as Record<string, unknown>}
+        canWrite={can(user.actor, "job:write")}
+      />
     </div>
   );
 }

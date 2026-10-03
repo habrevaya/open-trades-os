@@ -188,6 +188,23 @@ years ago is used.
 `POST /v1/custom-fields/validate` checks a set of values against the definitions
 without writing anything.
 
+### Fill one in
+
+The fields a company declared are drawn on the screens that make and change the
+record: `/customers/new` (the customer's fields, and the address's beside the
+address), `/jobs/new`, and a "Your fields" panel on `/customers/{id}`,
+`/properties/{id}` and `/jobs/{id}`, editable by whoever can change that record and
+read only for everybody else. A date is a date picker, a choice is its options, and
+yes or no has a third answer, "not said". The same rules bind
+`POST /v1/customers`, `PATCH /v1/customers/{id}`, `POST /v1/properties`, `PATCH /v1/properties/{id}`,
+`POST /v1/jobs` and `PATCH /v1/jobs/{id}`, and an address created with its customer
+is held to the property fields.
+
+A refused save is a 422 with one sentence per field, each at `customFields.<key>`
+(or `property.customFields.<key>` for an address created with its customer) and
+starting with the field's label: "Permit number is required.", "Units has to be a
+number." A screen shows all of them at once under the form.
+
 ### Build an automation
 
 `/automations` is what exists, what it did and how to stop it. `/automations/new`
@@ -264,10 +281,18 @@ who is asking.
 
 ## Common questions
 
-**Are custom field values validated on save?** Not yet, and the reason is a migration
-rather than an oversight. Every company that already stored custom data under no
-definition would have its next save refused for keys it has been using for a year.
-Switching the validator on is product work; discovering it that way is not.
+**Are custom field values validated on save?** Yes, on create and update of a
+customer, a property and a job, from the API and the screens. Only what the write
+changed is checked: a value contradicting its field's type or options is refused, and
+so is a required field left empty on a create or cleared on an update. A key nothing
+defines is never refused on save, because companies stored custom data under no
+definition for a long time; `GET /v1/custom-fields/usage` is where those show up.
+
+**What happens to records created before a field became required?** They keep
+saving. A field that was empty and is still empty has not been touched by the write,
+so it is not checked; on the screens an empty box for a field never filled in stays
+absent rather than becoming an empty value. Filling it in later is checked, and so is
+clearing it once it holds something. A new record is held to it from the start.
 
 **Can I add a whole new object, not just a field?** No. The module's name says objects
 and what exists is fields on the six entities that have somewhere to put them.
@@ -282,8 +307,10 @@ turned on again from its original wording.
 
 ## What is not built
 
-Custom objects: fields only. The validator is written and not wired into the
-customer, property and job writes. Writing a workflow definition is office only, as
+Custom objects: fields only. Custom field values are checked on customers,
+properties and jobs and on nothing else, because nothing else has a `custom_fields`
+column. There is no settings screen for declaring a field yet: definitions are made
+through `POST /v1/custom-fields`, and the record screens draw whatever exists. Writing a workflow definition is office only, as
 above. The canvas offers `all` conditions only. The engine evaluates `any` and `none`
 too, and a screen offering all three needs a nested group editor to say which
 applies to what; every condition on a branch has to hold, which is what somebody

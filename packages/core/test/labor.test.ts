@@ -1228,3 +1228,28 @@ describe("a shift through an hour that happens twice", () => {
     expect([hours, verdict.ambiguous]).toEqual([8, false]);
   });
 });
+
+describe("changing a wage scale from a date", () => {
+  it("closes the old scale the day before the new rate starts", () => {
+    expect(labor.scaleRevision({ effectiveFrom: "2026-01-01", effectiveTo: null }, "2026-11-01"))
+      .toEqual({ ok: true, closeOn: "2026-10-31" });
+    expect(labor.scaleRevision({ effectiveFrom: null, effectiveTo: null }, "2026-03-01"))
+      .toEqual({ ok: true, closeOn: "2026-02-28" });
+  });
+
+  it("refuses a change dated on or before the day the scale began", () => {
+    const result = labor.scaleRevision({ effectiveFrom: "2026-06-01", effectiveTo: null }, "2026-06-01");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/retire this scale and load the right one/);
+  });
+
+  it("refuses a change after the scale already ended, and allows one the day after it ends", () => {
+    expect(labor.scaleRevision({ effectiveFrom: "2026-01-01", effectiveTo: "2026-06-30" }, "2026-08-01").ok).toBe(false);
+    expect(labor.scaleRevision({ effectiveFrom: "2026-01-01", effectiveTo: "2026-06-30" }, "2026-07-01"))
+      .toEqual({ ok: true, closeOn: "2026-06-30" });
+  });
+
+  it("refuses what is not a date", () => {
+    expect(labor.scaleRevision({ effectiveFrom: null, effectiveTo: null }, "next month").ok).toBe(false);
+  });
+});

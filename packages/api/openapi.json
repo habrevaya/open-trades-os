@@ -42649,6 +42649,135 @@
         ]
       }
     },
+    "/v1/payroll/classifications": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setWageClassification",
+        "summary": "Set the classification a person is paid at",
+        "description": "Refused for a name no scale has ever carried, because a typo here is a person whose time costs nothing. Null clears it.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWageClassificationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Set the classification a person is paid at",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetWageClassificationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
     "/v1/payroll/commission-payments": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -42775,6 +42904,104 @@
         "x-authorization": "session",
         "x-permissions": [
           "payroll:export"
+        ]
+      }
+    },
+    "/v1/payroll/crew-rates": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listCrewRates",
+        "summary": "Who would cost what today, and who would cost nothing",
+        "description": "Each person with their classification and the scale in effect today. A person with no classification, or one no scale covers, is named with the reason, because their time costs nothing and a job with no labour cost reads as a very profitable job.\n\nRequires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "Who would cost what today, and who would cost nothing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCrewRatesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
         ]
       }
     },
@@ -43008,6 +43235,228 @@
         "x-authorization": "session",
         "x-permissions": [
           "payroll:read"
+        ]
+      }
+    },
+    "/v1/payroll/overtime-policies": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "declareOvertimePolicy",
+        "summary": "Declare the overtime policy",
+        "description": "Replaces the current one. Checked by the same rules a timesheet runs on: no rounding that only ever runs down, no double time below overtime, no multiplier under one, and on call time declared rather than guessed. Overtime is worked out when hours are read, so a new policy changes the overtime split on weeks already approved; the answer says when it does. Rates frozen on punches do not move.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareOvertimePolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Declare the overtime policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclareOvertimePolicyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      },
+      "get": {
+        "operationId": "listOvertimePolicies",
+        "summary": "The overtime policy, and every one before it",
+        "description": "Current first. A replaced policy is kept, because it is the answer to what the company was operating under on a past week.\n\nRequires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "The overtime policy, and every one before it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOvertimePoliciesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
         ]
       }
     },
@@ -43597,6 +44046,515 @@
         "x-authorization": "session",
         "x-permissions": [
           "payroll:read"
+        ]
+      }
+    },
+    "/v1/payroll/wage-scales": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listWageScales",
+        "summary": "The rates each classification is paid at, dated",
+        "description": "Every scale, current and past, by classification and newest first. Past ones are kept because entries worked under them were costed at them.\n\nRequires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "classification",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rates each classification is paid at, dated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWageScalesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
+        ]
+      },
+      "post": {
+        "operationId": "loadWageScale",
+        "summary": "Load a wage scale",
+        "description": "A rate for a classification, optionally from and to a date. A prevailing wage determination or a collective agreement needs the reference it comes from, because without one the rate cannot be checked against anything.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadWageScaleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Load a wage scale",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadWageScaleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/wage-scales/{id}/retire": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "retireWageScale",
+        "summary": "Stop a scale on a date",
+        "description": "The scale stays on the record and stops being the rate after that day. It is never deleted, because entries already approved and paid were costed against it.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireWageScaleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop a scale on a date",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireWageScaleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/wage-scales/{id}/revisions": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "reviseWageScale",
+        "summary": "Change a scale's rate from a date",
+        "description": "Closes this scale the day before `effectiveFrom` and loads a new one from that day with everything else it said. Entries worked before keep the rate they were costed at. Refused when the change would start on or before the day this scale began: retire it and load the right one instead.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviseWageScaleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Change a scale's rate from a date",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviseWageScaleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
         ]
       }
     },
@@ -66539,6 +67497,115 @@
         ]
       }
     },
+    "/v1/webhooks/deliveries": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listWebhookEventDeliveries",
+        "summary": "Every attempt to deliver one event, to every endpoint",
+        "description": "The question asked from the receiving end: this happened and our system never heard about it, so what did you send and what did we say. Removed endpoints are included.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every attempt to deliver one event, to every endpoint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWebhookEventDeliveriesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
+    },
     "/v1/webhooks/endpoints": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -67022,6 +68089,156 @@
         ]
       }
     },
+    "/v1/webhooks/endpoints/{id}/deliveries": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listWebhookDeliveries",
+        "summary": "What was sent to this endpoint and what it answered",
+        "description": "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for thirty days and at most a thousand attempts per endpoint, whichever is shorter. Filter by status or by one event.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "delivered",
+                "refused",
+                "unreachable"
+              ]
+            }
+          },
+          {
+            "name": "eventId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What was sent to this endpoint and what it answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWebhookDeliveriesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
+    },
     "/v1/webhooks/endpoints/{id}/position": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -67128,6 +68345,248 @@
         "x-authorization": "session",
         "x-permissions": [
           "integration:read"
+        ]
+      }
+    },
+    "/v1/webhooks/endpoints/{id}/replays": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listWebhookReplays",
+        "summary": "The replays asked for on this endpoint",
+        "description": "Newest first, with how far each has got and why one stopped.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The replays asked for on this endpoint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWebhookReplaysOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      },
+      "post": {
+        "operationId": "replayWebhookDeliveries",
+        "summary": "Send an event, or everything from a point in the log, again",
+        "description": "Name one of `eventId`, `deliveryId` or `fromSequence` (with `throughSequence` to stop early). Queued and sent by the worker in order, after the endpoint's live deliveries, signed afresh and carrying the same `x-otos-delivery` header as the original, so a receiver that deduplicates on it is never made to process an event twice. A range covers only events the endpoint subscribes to, ends at the newest event when it is asked for, and is at most five thousand events. Asking again for a replay that is still waiting returns it rather than queuing a second.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayWebhookDeliveriesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Send an event, or everything from a point in the log, again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplayWebhookDeliveriesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
         ]
       }
     },
@@ -75424,6 +76883,10 @@
               "accessNotes": {
                 "type": "string",
                 "maxLength": 2000
+              },
+              "customFields": {
+                "type": "object",
+                "additionalProperties": {}
               }
             },
             "required": [
@@ -79752,6 +81215,131 @@
           "note",
           "active",
           "wrongAbout"
+        ]
+      },
+      "DeclareOvertimePolicyInput": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "timeZone": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "weekStartsOn": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "dayAttribution": {
+            "type": "string",
+            "enum": [
+              "shift_start",
+              "split_at_midnight"
+            ]
+          },
+          "weeklyThresholdMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "weeklyDoubleTimeThresholdMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "dailyThresholdMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "dailyDoubleTimeThresholdMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "overtimeMultiplier": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "doubleTimeMultiplier": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "onCallTreatment": {
+            "type": "string",
+            "enum": [
+              "separate_rate_not_hours_worked",
+              "hours_worked_at_base"
+            ]
+          },
+          "roundingMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 60
+          },
+          "roundingMode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "nearest",
+              "up",
+              "down"
+            ]
+          }
+        },
+        "required": [
+          "label",
+          "note",
+          "onCallTreatment"
+        ]
+      },
+      "DeclareOvertimePolicyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string"
+          },
+          "replaced": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reclassifiesApprovedTime": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "replaced",
+          "reclassifiesApprovedTime"
         ]
       },
       "DeclarePayPeriodInput": {
@@ -95063,7 +96651,10 @@
                     "invoice",
                     "payment",
                     "credit_memo",
-                    "refund"
+                    "refund",
+                    "credit_note",
+                    "credit_note_application",
+                    "credit_note_void"
                   ]
                 },
                 "entityId": {
@@ -98057,6 +99648,65 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "ListCrewRatesOutput": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "classification": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "baseRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fringeRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unpricedBecause": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "displayName",
+                "active",
+                "classification",
+                "baseRate",
+                "fringeRate",
+                "unpricedBecause"
+              ]
+            }
+          }
+        },
+        "required": [
+          "people"
         ]
       },
       "ListCrewsOutput": {
@@ -102012,6 +103662,93 @@
         },
         "required": [
           "shifts"
+        ]
+      },
+      "ListOvertimePoliciesOutput": {
+        "type": "object",
+        "properties": {
+          "policies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timeZone": {
+                  "type": "string"
+                },
+                "weekStartsOn": {
+                  "type": "integer"
+                },
+                "dayAttribution": {
+                  "type": "string"
+                },
+                "weeklyThresholdMinutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "dailyThresholdMinutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "overtimeMultiplier": {
+                  "type": "string"
+                },
+                "doubleTimeMultiplier": {
+                  "type": "string"
+                },
+                "onCallTreatment": {
+                  "type": "string"
+                },
+                "rounding": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "declaredOn": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "note",
+                "timeZone",
+                "weekStartsOn",
+                "dayAttribution",
+                "weeklyThresholdMinutes",
+                "dailyThresholdMinutes",
+                "overtimeMultiplier",
+                "doubleTimeMultiplier",
+                "onCallTreatment",
+                "rounding",
+                "active",
+                "declaredOn"
+              ]
+            }
+          }
+        },
+        "required": [
+          "policies"
         ]
       },
       "ListPayPeriodsOutput": {
@@ -106758,6 +108495,189 @@
           "requests"
         ]
       },
+      "ListWageScalesOutput": {
+        "type": "object",
+        "properties": {
+          "scales": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "authority": {
+                  "type": "string"
+                },
+                "classification": {
+                  "type": "string"
+                },
+                "jurisdiction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalReference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "baseRate": {
+                  "type": "string"
+                },
+                "fringeRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "apprenticeRatio": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "effectiveFrom": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "effectiveTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "authority",
+                "classification",
+                "jurisdiction",
+                "externalReference",
+                "baseRate",
+                "fringeRate",
+                "apprenticeRatio",
+                "effectiveFrom",
+                "effectiveTo",
+                "active"
+              ]
+            }
+          }
+        },
+        "required": [
+          "scales"
+        ]
+      },
+      "ListWebhookDeliveriesOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "endpointId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "eventId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "eventSequence": {
+                  "type": "integer"
+                },
+                "eventName": {
+                  "type": "string"
+                },
+                "attempt": {
+                  "type": "integer"
+                },
+                "replayId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "requestedAt": {
+                  "type": "string"
+                },
+                "durationMs": {
+                  "type": "integer"
+                },
+                "responseStatus": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "responseExcerpt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "delivered",
+                    "refused",
+                    "unreachable"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "endpointId",
+                "eventId",
+                "eventSequence",
+                "eventName",
+                "attempt",
+                "replayId",
+                "requestedAt",
+                "durationMs",
+                "responseStatus",
+                "responseExcerpt",
+                "error",
+                "status"
+              ]
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
       "ListWebhookEndpointsOutput": {
         "type": "object",
         "properties": {
@@ -106811,6 +108731,126 @@
           "endpoints"
         ]
       },
+      "ListWebhookEventDeliveriesOutput": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sequence": {
+                "type": "integer"
+              },
+              "occurredAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "sequence",
+              "occurredAt"
+            ]
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "endpointId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "eventId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "eventSequence": {
+                  "type": "integer"
+                },
+                "eventName": {
+                  "type": "string"
+                },
+                "attempt": {
+                  "type": "integer"
+                },
+                "replayId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "requestedAt": {
+                  "type": "string"
+                },
+                "durationMs": {
+                  "type": "integer"
+                },
+                "responseStatus": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "responseExcerpt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "delivered",
+                    "refused",
+                    "unreachable"
+                  ]
+                },
+                "endpointUrl": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "endpointId",
+                "eventId",
+                "eventSequence",
+                "eventName",
+                "attempt",
+                "replayId",
+                "requestedAt",
+                "durationMs",
+                "responseStatus",
+                "responseExcerpt",
+                "error",
+                "status",
+                "endpointUrl"
+              ]
+            }
+          }
+        },
+        "required": [
+          "event",
+          "deliveries"
+        ]
+      },
       "ListWebhookEventsOutput": {
         "type": "object",
         "properties": {
@@ -106838,6 +108878,85 @@
         },
         "required": [
           "events"
+        ]
+      },
+      "ListWebhookReplaysOutput": {
+        "type": "object",
+        "properties": {
+          "replays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "endpointId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "eventId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "fromSequence": {
+                  "type": "integer"
+                },
+                "throughSequence": {
+                  "type": "integer"
+                },
+                "position": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "done",
+                    "failed"
+                  ]
+                },
+                "failureCount": {
+                  "type": "integer"
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "finishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "endpointId",
+                "eventId",
+                "fromSequence",
+                "throughSequence",
+                "position",
+                "status",
+                "failureCount",
+                "lastError",
+                "createdAt",
+                "finishedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "replays"
         ]
       },
       "ListWithheldOutput": {
@@ -107380,6 +109499,160 @@
         },
         "required": [
           "workflows"
+        ]
+      },
+      "LoadWageScaleInput": {
+        "type": "object",
+        "properties": {
+          "classification": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "baseRate": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "employee_default",
+              "collective_agreement",
+              "wage_determination",
+              "contract",
+              "manual_override"
+            ]
+          },
+          "jurisdiction": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "externalReference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "fringeRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "overtimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "doubleTimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "apprenticeRatio": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "effectiveFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "effectiveTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "classification",
+          "baseRate"
+        ]
+      },
+      "LoadWageScaleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authority": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string"
+          },
+          "jurisdiction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "baseRate": {
+            "type": "string"
+          },
+          "fringeRate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "apprenticeRatio": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "authority",
+          "classification",
+          "jurisdiction",
+          "externalReference",
+          "baseRate",
+          "fringeRate",
+          "apprenticeRatio",
+          "effectiveFrom",
+          "effectiveTo",
+          "active"
         ]
       },
       "LogCallInput": {
@@ -113960,6 +116233,95 @@
           "ordered"
         ]
       },
+      "ReplayWebhookDeliveriesInput": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deliveryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromSequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "throughSequence": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ReplayWebhookDeliveriesOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "endpointId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "fromSequence": {
+            "type": "integer"
+          },
+          "throughSequence": {
+            "type": "integer"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "done",
+              "failed"
+            ]
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "endpointId",
+          "eventId",
+          "fromSequence",
+          "throughSequence",
+          "position",
+          "status",
+          "failureCount",
+          "lastError",
+          "createdAt",
+          "finishedAt"
+        ]
+      },
       "ReplyToConversationInput": {
         "type": "object",
         "properties": {
@@ -114910,6 +117272,88 @@
           "retired"
         ]
       },
+      "RetireWageScaleInput": {
+        "type": "object",
+        "properties": {
+          "effectiveTo": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "effectiveTo"
+        ]
+      },
+      "RetireWageScaleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authority": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string"
+          },
+          "jurisdiction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "baseRate": {
+            "type": "string"
+          },
+          "fringeRate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "apprenticeRatio": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "authority",
+          "classification",
+          "jurisdiction",
+          "externalReference",
+          "baseRate",
+          "fringeRate",
+          "apprenticeRatio",
+          "effectiveFrom",
+          "effectiveTo",
+          "active"
+        ]
+      },
       "RetryAccountingDocumentInput": {
         "type": "object",
         "properties": {}
@@ -114928,7 +117372,10 @@
               "invoice",
               "payment",
               "credit_memo",
-              "refund"
+              "refund",
+              "credit_note",
+              "credit_note_application",
+              "credit_note_void"
             ]
           },
           "attempts": {
@@ -115360,6 +117807,100 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "ReviseWageScaleInput": {
+        "type": "object",
+        "properties": {
+          "baseRate": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "fringeRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "baseRate",
+          "effectiveFrom"
+        ]
+      },
+      "ReviseWageScaleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authority": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string"
+          },
+          "jurisdiction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "baseRate": {
+            "type": "string"
+          },
+          "fringeRate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "apprenticeRatio": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "authority",
+          "classification",
+          "jurisdiction",
+          "externalReference",
+          "baseRate",
+          "fringeRate",
+          "apprenticeRatio",
+          "effectiveFrom",
+          "effectiveTo",
+          "active"
         ]
       },
       "RevokeAppInput": {
@@ -119490,6 +122031,49 @@
           "averageKmh",
           "roadFactor",
           "dayStartsAt"
+        ]
+      },
+      "SetWageClassificationInput": {
+        "type": "object",
+        "properties": {
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "classification": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "technicianId",
+          "classification"
+        ]
+      },
+      "SetWageClassificationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "classification": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "classification"
         ]
       },
       "SetWorkflowEnabledInput": {
