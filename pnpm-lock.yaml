@@ -277,6 +277,33 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.4)(lightningcss@1.33.0)(terser@5.51.2)
 
+  packages/sdk:
+    devDependencies:
+      '@opentradesos/api':
+        specifier: workspace:*
+        version: link:../api
+      '@opentradesos/core':
+        specifier: workspace:*
+        version: link:../core
+      '@opentradesos/db':
+        specifier: workspace:*
+        version: link:../db
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.20.4
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.4)(lightningcss@1.33.0)(terser@5.51.2)
+
   packages/trade-packs:
     dependencies:
       zod:

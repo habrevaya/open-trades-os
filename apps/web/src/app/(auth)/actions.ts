@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { safeNext } from "@/lib/safe-next";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
@@ -122,7 +123,7 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
   );
 
   (await cookies()).set(SESSION_COOKIE, token, sessionCookieOptions);
-  redirect("/");
+  redirect(safeNext(formData.get("next")) ?? "/");
 }
 
 export async function signOut(): Promise<void> {

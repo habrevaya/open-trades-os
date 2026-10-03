@@ -2,9 +2,10 @@ import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { todayIn } from "@/lib/dates";
-import { dispatch, fieldOps } from "@opentradesos/api/services";
+import { dispatch, fieldOps, safety } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Day } from "./Day";
+import { SafetyTalks } from "./SafetyTalks";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,23 @@ export default async function MyDayPage({
     days: 1,
   });
 
+  /**
+   * The toolbox talks waiting for this technician's signature, above the
+   * route, and a way to report something that went wrong. Both are their own
+   * business: the register is somebody else's screen.
+   */
+  const talks = await safety.mine(ctx);
+
   return (
+    <>
+    <SafetyTalks talks={talks} timezone={user.organizationTimezone} />
+    {can(user.actor, "safety:report") ? (
+      <p className="mx-4 mt-3 text-sm">
+        <a href="/compliance/incidents/new" className="text-blue-600 underline underline-offset-4">
+          Report an incident or a near miss
+        </a>
+      </p>
+    ) : null}
     <Day
       date={date}
       deviceId={device.deviceId}
@@ -82,5 +99,6 @@ export default async function MyDayPage({
       technicianName={user.name ?? user.email}
       timezone={user.organizationTimezone}
     />
+    </>
   );
 }

@@ -5324,6 +5324,391 @@
         ]
       }
     },
+    "/v1/apps/{id}/approve": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "approveAppRequest",
+        "summary": "Approve exactly what an app asked for",
+        "description": "Through the same check as installing: refused, naming them, when the app asks for anything the approver does not hold. Approving does not hand anybody a credential; the app collects it with its claim secret. Approving an app already approved changes nothing and succeeds.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveAppRequestInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Approve exactly what an app asked for",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveAppRequestOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
+    "/v1/apps/{id}/refuse": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "refuseAppRequest",
+        "summary": "Refuse an app's request",
+        "description": "The app is told no, with the reason if one is given, when it next comes for its credential, and it gets nothing. Kept rather than deleted, so a list of what asked and was refused survives. Refusing twice succeeds; refusing an approved app is refused, because that is turning it off.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefuseAppRequestInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Refuse an app's request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefuseAppRequestOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
+    "/v1/apps/{id}/request": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "reviewAppRequest",
+        "summary": "What an app is asking for, in plain words",
+        "description": "Every permission the app asked for with the catalogue's own words, the ones that expose money flagged, and whether the person looking holds each. `approvable` is false with the reason when they could not approve it as it stands: nobody can give an app what they do not hold.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What an app is asking for, in plain words",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewAppRequestOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
     "/v1/apps/{id}/revoke": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -9488,6 +9873,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-otos-dry-run",
+            "in": "header",
+            "required": false,
+            "description": "Send `true` to run this bulk change and roll it back. The answer is then `{ dryRun: true, wouldReturn, tables, audit, auditTotal }`: what it would have returned, the rows it would have written per table, and the audit lines naming each record. Nothing is kept.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            }
           }
         ],
         "requestBody": {
@@ -9593,7 +9990,8 @@
         "x-authorization": "session",
         "x-permissions": [
           "job:write"
-        ]
+        ],
+        "x-dry-run": true
       }
     },
     "/v1/branch-overview": {
@@ -16580,6 +16978,956 @@
         ]
       }
     },
+    "/v1/compliance/retention/holds": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listRetentionHolds",
+        "summary": "Records kept whatever their age",
+        "description": "Requires a session holding: compliance:read.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "includeReleased",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Records kept whatever their age",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRetentionHoldsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      },
+      "post": {
+        "operationId": "placeRetentionHold",
+        "summary": "Keep a record whatever its age",
+        "description": "For a dispute, a claim or an inspector's letter. Honoured by the purge and by the recordings sweep. A record already held keeps its one hold.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaceRetentionHoldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Keep a record whatever its age",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceRetentionHoldOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/compliance/retention/holds/{id}/release": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "releaseRetentionHold",
+        "summary": "Release a hold",
+        "description": "The hold is kept as history with when and why it was released. Releasing twice changes nothing.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseRetentionHoldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Release a hold",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseRetentionHoldOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/compliance/retention/preview": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "previewRetentionPurge",
+        "summary": "What a purge would remove today, rule by rule",
+        "description": "From the same function the purge uses, so what this lists is what goes. Where two rules cover one record the longer wins, a rule with purging off keeps it outright, a hold keeps it, and a record whose clock cannot be worked out is kept.\n\nRequires a session holding: compliance:read.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sample",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What a purge would remove today, rule by rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewRetentionPurgeOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      }
+    },
+    "/v1/compliance/retention/purges": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listRetentionPurgeRuns",
+        "summary": "Purge passes, newest first, with what each removed and what it could not",
+        "description": "Requires a session holding: compliance:read.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purge passes, newest first, with what each removed and what it could not",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRetentionPurgeRunsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      },
+      "post": {
+        "operationId": "runRetentionPurge",
+        "summary": "Purge now",
+        "description": "The pass the worker runs once a day, run now. Only rules with purging on act; every record removed has an audit line naming the rule. A retry with the same key returns the pass the first call made.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRetentionPurgeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Purge now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRetentionPurgeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/compliance/retention/rules": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listRetentionPolicies",
+        "summary": "The retention rules, and which of them may purge",
+        "description": "Each read back as a sentence, with whether this product can act on the records it is about.\n\nRequires a session holding: compliance:read.",
+        "tags": [
+          "M23"
+        ],
+        "responses": {
+          "200": {
+            "description": "The retention rules, and which of them may purge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRetentionPoliciesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      }
+    },
+    "/v1/compliance/retention/rules/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateRetentionPolicy",
+        "summary": "Change a retention rule's period, or let it purge",
+        "description": "The clock start is not changeable: it comes from the rule the policy cites. Turning `purgeAllowed` on is what lets the daily purge remove the records the preview lists; read the preview first.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRetentionPolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a retention rule's period, or let it purge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateRetentionPolicyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
     "/v1/compliance/submissions": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -21967,6 +23315,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-otos-dry-run",
+            "in": "header",
+            "required": false,
+            "description": "Send `true` to run this bulk change and roll it back. The answer is then `{ dryRun: true, wouldReturn, tables, audit, auditTotal }`: what it would have returned, the rows it would have written per table, and the audit lines naming each record. Nothing is kept.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            }
           }
         ],
         "requestBody": {
@@ -22072,7 +23432,8 @@
         "x-authorization": "session",
         "x-permissions": [
           "customer:write"
-        ]
+        ],
+        "x-dry-run": true
       }
     },
     "/v1/customer-tags/rename": {
@@ -22095,6 +23456,18 @@
             "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "x-otos-dry-run",
+            "in": "header",
+            "required": false,
+            "description": "Send `true` to run this bulk change and roll it back. The answer is then `{ dryRun: true, wouldReturn, tables, audit, auditTotal }`: what it would have returned, the rows it would have written per table, and the audit lines naming each record. Nothing is kept.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
             }
           }
         ],
@@ -22201,7 +23574,8 @@
         "x-authorization": "session",
         "x-permissions": [
           "customer:write"
-        ]
+        ],
+        "x-dry-run": true
       }
     },
     "/v1/customers": {
@@ -35487,6 +36861,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-otos-dry-run",
+            "in": "header",
+            "required": false,
+            "description": "Send `true` to run this bulk change and roll it back. The answer is then `{ dryRun: true, wouldReturn, tables, audit, auditTotal }`: what it would have returned, the rows it would have written per table, and the audit lines naming each record. Nothing is kept.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            }
           }
         ],
         "requestBody": {
@@ -35592,7 +36978,8 @@
         "x-authorization": "session",
         "x-permissions": [
           "pricebook:write"
-        ]
+        ],
+        "x-dry-run": true
       }
     },
     "/v1/job-types": {
@@ -55565,6 +56952,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-otos-dry-run",
+            "in": "header",
+            "required": false,
+            "description": "Send `true` to run this bulk change and roll it back. The answer is then `{ dryRun: true, wouldReturn, tables, audit, auditTotal }`: what it would have returned, the rows it would have written per table, and the audit lines naming each record. Nothing is kept.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            }
           }
         ],
         "requestBody": {
@@ -55670,7 +57069,8 @@
         "x-authorization": "session",
         "x-permissions": [
           "pricebook:write"
-        ]
+        ],
+        "x-dry-run": true
       },
       "get": {
         "operationId": "listPriceChanges",
@@ -59358,6 +60758,195 @@
         "x-permissions": [
           "settings:write"
         ]
+      }
+    },
+    "/v1/public/app-requests": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "requestAppInstall",
+        "summary": "Ask a company to let your application in",
+        "description": "For a third party with no credential yet. Names the company by its public slug and says exactly what the app wants: its permissions from the catalogue and the record scope on each resource. Nothing is granted by asking. The answer carries `decisionUrl`, the page where somebody at the company sees the request in plain words and approves or refuses that exact list, and `claimSecret`, shown once, which the app presents to `POST /v1/public/app-requests/{id}/claim` to collect its credential after approval. An unknown permission is refused rather than dropped. Requests expire after seven days unanswered, a company holds at most twenty waiting, and asking is counted per network address. NOT IDEMPOTENT: the claim secret is stored only as a hash, so a retry cannot be handed the first one, and leaves a second request that the company can refuse or let expire.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
+        "tags": [
+          "M26"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestAppInstallInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ask a company to let your application in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestAppInstallOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "public",
+        "x-permissions": []
+      }
+    },
+    "/v1/public/app-requests/{id}/claim": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "claimAppCredential",
+        "summary": "Collect the credential an approved request earned",
+        "description": "Answers `pending` until somebody decides, `refused` or `expired` when the answer is no, and `approved` with the token, ONCE, when it is yes. The token is stored only as a hash, so a second collection answers `claimed` with no token and the company issues a new one if it was lost. A wrong claim secret is the same not found as an id that does not exist. NOT IDEMPOTENT for the same reason: what it hands over cannot be handed over again.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimAppCredentialInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Collect the credential an approved request earned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimAppCredentialOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "public",
+        "x-permissions": []
       }
     },
     "/v1/public/availability": {
@@ -67865,6 +69454,1915 @@
         "x-authorization": "session",
         "x-permissions": [
           "settings:write"
+        ]
+      }
+    },
+    "/v1/safety/incidents": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listIncidents",
+        "summary": "Incident reports, newest first",
+        "description": "The register for whoever holds `safety:read`; a reporter without it sees their own reports and only those.\n\nRequires a session holding: safety:report.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Incident reports, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListIncidentsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:report"
+        ]
+      },
+      "post": {
+        "operationId": "reportIncident",
+        "summary": "Report an incident or a near miss",
+        "description": "What happened in the reporter's own words, when, where, who was there and how, and photographs. An injury report has to say who was hurt. The office is told by a task in its queue, raised in the same transaction.\n\nRequires a session holding: safety:report.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportIncidentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Report an incident or a near miss",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportIncidentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:report"
+        ]
+      }
+    },
+    "/v1/safety/incidents/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getIncident",
+        "summary": "One incident report, its people, photographs and follow ups",
+        "description": "Another person's report is the same not found as one that does not exist, for a reporter without `safety:read`.\n\nRequires a session holding: safety:report.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One incident report, its people, photographs and follow ups",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetIncidentOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:report"
+        ]
+      }
+    },
+    "/v1/safety/incidents/{id}/close": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "closeIncident",
+        "summary": "Close an incident report, saying what was learned",
+        "description": "Refused while a follow up, including the review task raised with the report, is still open. Closing a closed report changes nothing.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseIncidentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Close an incident report, saying what was learned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseIncidentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/incidents/{id}/follow-ups": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addIncidentFollowUp",
+        "summary": "Add a follow up action, as a task",
+        "description": "A task in the office queue tied to the report, so it is tracked by the same queue as everything else. The report cannot be closed while one is open.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddIncidentFollowUpInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a follow up action, as a task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddIncidentFollowUpOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/incidents/{id}/photos": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addIncidentPhoto",
+        "summary": "Add a photograph to an incident report",
+        "description": "By the person who reported it, or by whoever follows it up. The same bytes twice are one photograph.\n\nRequires a session holding: safety:report.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddIncidentPhotoInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a photograph to an incident report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddIncidentPhotoOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:report"
+        ]
+      }
+    },
+    "/v1/safety/meetings": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createSafetyMeeting",
+        "summary": "Record a toolbox talk",
+        "description": "A topic, when, where, who led it and who was there. Each of the company's own people on the list can then sign it from their phone; anybody else is marked signed from the paper sheet.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSafetyMeetingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record a toolbox talk",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSafetyMeetingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      },
+      "get": {
+        "operationId": "listSafetyMeetings",
+        "summary": "Toolbox talks, newest first",
+        "description": "Each with who was on the list and who has signed.\n\nRequires a session holding: safety:read.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Toolbox talks, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSafetyMeetingsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:read"
+        ]
+      }
+    },
+    "/v1/safety/meetings/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getSafetyMeeting",
+        "summary": "One toolbox talk, its sign in sheet and its photographs",
+        "description": "Requires a session holding: safety:read.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One toolbox talk, its sign in sheet and its photographs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSafetyMeetingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:read"
+        ]
+      }
+    },
+    "/v1/safety/meetings/{id}/attendees": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addSafetyMeetingAttendees",
+        "summary": "Add people to a talk's sign in sheet",
+        "description": "Refused once the sheet is closed, and for somebody already on it.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSafetyMeetingAttendeesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add people to a talk's sign in sheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddSafetyMeetingAttendeesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/meetings/{id}/attendees/{attendeeId}/signed": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "markSafetyMeetingSigned",
+        "summary": "Mark somebody signed from the paper sheet",
+        "description": "Recorded as signed in the office, never as a signature the person gave themselves. Photograph the paper sheet onto the talk as the evidence. Marking somebody already signed changes nothing.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "attendeeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkSafetyMeetingSignedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Mark somebody signed from the paper sheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkSafetyMeetingSignedOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/meetings/{id}/close": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "closeSafetyMeeting",
+        "summary": "Close a talk's sign in sheet",
+        "description": "After this nobody signs and nobody is added. Closing a closed sheet changes nothing.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseSafetyMeetingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Close a talk's sign in sheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseSafetyMeetingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/meetings/{id}/photos": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addSafetyMeetingPhoto",
+        "summary": "Add a photograph to a talk, such as the paper sign in sheet",
+        "description": "The same bytes twice are one photograph.\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSafetyMeetingPhotoInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a photograph to a talk, such as the paper sign in sheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddSafetyMeetingPhotoOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
+    "/v1/safety/meetings/{id}/sign": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "signSafetyMeeting",
+        "summary": "Sign a toolbox talk, from the field",
+        "description": "The signed in technician signs their own line with a drawn signature, sent as a PNG. Refused before the talk was held, after the sheet was closed, and for somebody not on the list. A retry after it worked answers with the time it was signed.\n\nRequires a session holding: field:sync.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignSafetyMeetingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Sign a toolbox talk, from the field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignSafetyMeetingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "field:sync"
+        ]
+      }
+    },
+    "/v1/safety/my-meetings": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listMySafetyMeetings",
+        "summary": "The talks I am on, waiting for my signature first",
+        "description": "The signed in technician's own lines and nothing about anybody else's. `cannotSign` says why one cannot be signed yet: not held yet, sheet closed.\n\nRequires a session holding: field:sync.",
+        "tags": [
+          "M23"
+        ],
+        "responses": {
+          "200": {
+            "description": "The talks I am on, waiting for my signature first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMySafetyMeetingsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "field:sync"
         ]
       }
     },
@@ -76520,6 +80018,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-otos-dry-run",
+            "in": "header",
+            "required": false,
+            "description": "Send `true` to run this bulk change and roll it back. The answer is then `{ dryRun: true, wouldReturn, tables, audit, auditTotal }`: what it would have returned, the rows it would have written per table, and the audit lines naming each record. Nothing is kept.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            }
           }
         ],
         "requestBody": {
@@ -76626,7 +80136,8 @@
         "x-permissions": [
           "vendor:write",
           "pricebook:write"
-        ]
+        ],
+        "x-dry-run": true
       }
     },
     "/v1/vendor-catalogue/preview": {
@@ -79301,7 +82812,7 @@
       "patch": {
         "operationId": "updateWebhookEndpoint",
         "summary": "Change the URL, the events, or whether it is on",
-        "description": "The signing secret is not changeable here. Rotating it breaks every receiver still holding the old one, and an operator fixing a typo in a URL should not find that out from their own error log.\n\nRequires a session holding: integration:write.",
+        "description": "The signing secret is not changeable here: that is `POST /v1/webhooks/endpoints/{id}/secret`, with an overlap. Changing it here would break every receiver still holding the old one, and an operator fixing a typo in a URL should not find that out from their own error log.\n\nRequires a session holding: integration:write.",
         "tags": [
           "M26"
         ],
@@ -79843,6 +83354,144 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReplayWebhookDeliveriesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
+    "/v1/webhooks/endpoints/{id}/secret": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "rotateWebhookSecret",
+        "summary": "Give an endpoint a new signing secret",
+        "description": "Returns the new secret, once. For `overlapHours` (24 unless you say, 0 to 168) every delivery is signed with BOTH the new and the old secret, the `x-otos-signature` header carrying two signatures separated by a comma, newest first, so the receiver keeps accepting deliveries whichever secret it holds and can switch on its owner's own day. A receiver must accept a delivery when any one signature matches. Send 0 when the old secret leaked: it then stops signing at once. Rotating again during an overlap retires the oldest secret immediately, so at most two ever sign. A retry with the same idempotency key returns the same secret rather than rotating twice.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateWebhookSecretInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give an endpoint a new signing secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateWebhookSecretOutput"
                 }
               }
             }
@@ -81128,6 +84777,73 @@
           "notToExceed"
         ]
       },
+      "AddIncidentFollowUpInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "assigneeUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "AddIncidentFollowUpOutput": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      },
+      "AddIncidentPhotoInput": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "contentType": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "bytes": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "fileName",
+          "bytes"
+        ]
+      },
+      "AddIncidentPhotoOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
       "AddProjectPhaseInput": {
         "type": "object",
         "properties": {
@@ -81320,6 +85036,77 @@
           "currentPropertyId",
           "purchaseCost",
           "active"
+        ]
+      },
+      "AddSafetyMeetingAttendeesInput": {
+        "type": "object",
+        "properties": {
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              }
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "attendees"
+        ]
+      },
+      "AddSafetyMeetingAttendeesOutput": {
+        "type": "object",
+        "properties": {
+          "added": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "added"
+        ]
+      },
+      "AddSafetyMeetingPhotoInput": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "contentType": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "bytes": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "fileName",
+          "bytes"
+        ]
+      },
+      "AddSafetyMeetingPhotoOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
         ]
       },
       "AddServiceRouteStopInput": {
@@ -82984,6 +86771,33 @@
           "linked",
           "updated",
           "itemCostsRevised"
+        ]
+      },
+      "ApproveAppRequestInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ApproveAppRequestOutput": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "returnTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app",
+          "status",
+          "returnTo"
         ]
       },
       "ApproveEstimateInput": {
@@ -85652,6 +89466,48 @@
           "heldFrom"
         ]
       },
+      "ClaimAppCredentialInput": {
+        "type": "object",
+        "properties": {
+          "claimSecret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "claimSecret"
+        ]
+      },
+      "ClaimAppCredentialOutput": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "expired",
+              "refused",
+              "revoked",
+              "claimed",
+              "approved"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ]
+      },
       "ClaimTaskInput": {
         "type": "object",
         "properties": {}
@@ -85766,6 +89622,30 @@
           "closedAt"
         ]
       },
+      "CloseIncidentInput": {
+        "type": "object",
+        "properties": {
+          "closingNote": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          }
+        },
+        "required": [
+          "closingNote"
+        ]
+      },
+      "CloseIncidentOutput": {
+        "type": "object",
+        "properties": {
+          "closedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "closedAt"
+        ]
+      },
       "ClosePayPeriodInput": {
         "type": "object",
         "properties": {
@@ -85816,6 +89696,21 @@
           "closedAt",
           "periodStart",
           "periodEnd"
+        ]
+      },
+      "CloseSafetyMeetingInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "CloseSafetyMeetingOutput": {
+        "type": "object",
+        "properties": {
+          "closedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "closedAt"
         ]
       },
       "CloseTaskInput": {
@@ -93777,6 +97672,69 @@
           "ringSeconds",
           "members",
           "noAnswerTo"
+        ]
+      },
+      "CreateSafetyMeetingInput": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "heldAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ledBy": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              }
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "topic",
+          "heldAt"
+        ]
+      },
+      "CreateSafetyMeetingOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
         ]
       },
       "CreateServiceRouteInput": {
@@ -104410,6 +108368,227 @@
           "thankYou"
         ]
       },
+      "GetIncidentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "injury",
+              "near_miss",
+              "property_damage",
+              "vehicle",
+              "environmental",
+              "other"
+            ]
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string"
+          },
+          "immediateAction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "reportedByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closingNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "injured",
+                    "involved",
+                    "witness"
+                  ]
+                },
+                "injury": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "name",
+                "role",
+                "injury"
+              ]
+            }
+          },
+          "followUps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "dueAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "assigneeUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "status",
+                "dueAt",
+                "assigneeUserId"
+              ]
+            }
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "storageKey": {
+                  "type": "string"
+                },
+                "fileName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contentType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "storageKey",
+                "fileName",
+                "contentType",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "occurredAt",
+          "location",
+          "propertyId",
+          "jobId",
+          "description",
+          "immediateAction",
+          "status",
+          "reportedByUserId",
+          "closedAt",
+          "closingNote",
+          "createdAt",
+          "people",
+          "followUps",
+          "photos"
+        ]
+      },
       "GetInvoiceOutput": {
         "type": "object",
         "properties": {
@@ -110037,6 +114216,154 @@
           "travel"
         ]
       },
+      "GetSafetyMeetingOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "heldAt": {
+            "type": "string"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "ledBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "hasSignature": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "name",
+                "signedAt",
+                "signedVia",
+                "hasSignature"
+              ]
+            }
+          },
+          "signed": {
+            "type": "integer"
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "storageKey": {
+                  "type": "string"
+                },
+                "fileName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contentType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "storageKey",
+                "fileName",
+                "contentType",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "topic",
+          "notes",
+          "heldAt",
+          "location",
+          "jobId",
+          "ledBy",
+          "closedAt",
+          "attendees",
+          "signed",
+          "photos"
+        ]
+      },
       "GetServiceReportOutput": {
         "type": "object",
         "properties": {
@@ -113936,6 +118263,70 @@
                     "null"
                   ]
                 },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "operator",
+                    "request",
+                    "oauth"
+                  ]
+                },
+                "request": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expired": {
+                      "type": "boolean"
+                    },
+                    "returnsTo": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requestedFrom": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refusedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refusedReason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "claimedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "expiresAt",
+                    "expired",
+                    "returnsTo",
+                    "requestedFrom",
+                    "refusedAt",
+                    "refusedReason",
+                    "claimedAt"
+                  ]
+                },
                 "tokens": {
                   "type": "array",
                   "items": {
@@ -114003,6 +118394,8 @@
                 "approvedAt",
                 "revokedAt",
                 "revokedReason",
+                "source",
+                "request",
                 "tokens",
                 "live"
               ]
@@ -119004,6 +123397,88 @@
           "forms"
         ]
       },
+      "ListIncidentsOutput": {
+        "type": "object",
+        "properties": {
+          "incidents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "injury",
+                    "near_miss",
+                    "property_damage",
+                    "vehicle",
+                    "environmental",
+                    "other"
+                  ]
+                },
+                "occurredAt": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "closed"
+                  ]
+                },
+                "people": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "injured",
+                          "involved",
+                          "witness"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "role"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "occurredAt",
+                "location",
+                "description",
+                "status",
+                "people"
+              ]
+            }
+          }
+        },
+        "required": [
+          "incidents"
+        ]
+      },
       "ListInspectionProgramsOutput": {
         "type": "object",
         "properties": {
@@ -120850,6 +125325,72 @@
         },
         "required": [
           "brands"
+        ]
+      },
+      "ListMySafetyMeetingsOutput": {
+        "type": "object",
+        "properties": {
+          "meetings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "meetingId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "heldAt": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ledBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "cannotSign": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "meetingId",
+                "topic",
+                "notes",
+                "heldAt",
+                "location",
+                "ledBy",
+                "signedAt",
+                "cannotSign"
+              ]
+            }
+          }
+        },
+        "required": [
+          "meetings"
         ]
       },
       "ListNetworkMembersOutput": {
@@ -124316,6 +128857,223 @@
           "people"
         ]
       },
+      "ListRetentionHoldsOutput": {
+        "type": "object",
+        "properties": {
+          "holds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "entityType": {
+                  "type": "string"
+                },
+                "entityId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "placedAt": {
+                  "type": "string"
+                },
+                "releasedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "releaseNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "entityType",
+                "entityId",
+                "reason",
+                "placedAt",
+                "releasedAt",
+                "releaseNote"
+              ]
+            }
+          }
+        },
+        "required": [
+          "holds"
+        ]
+      },
+      "ListRetentionPoliciesOutput": {
+        "type": "object",
+        "properties": {
+          "policies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "entityType": {
+                  "type": "string"
+                },
+                "entityKind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "clockStart": {
+                  "type": "string"
+                },
+                "retainMonths": {
+                  "type": "integer"
+                },
+                "sentence": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tradePackId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "purgeAllowed": {
+                  "type": "boolean"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "actsOn": {
+                  "type": "boolean"
+                },
+                "actsOnWhy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kindRule": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "entityType",
+                "entityKind",
+                "clockStart",
+                "retainMonths",
+                "sentence",
+                "basis",
+                "tradePackId",
+                "purgeAllowed",
+                "active",
+                "actsOn",
+                "actsOnWhy",
+                "kindRule"
+              ]
+            }
+          }
+        },
+        "required": [
+          "policies"
+        ]
+      },
+      "ListRetentionPurgeRunsOutput": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "trigger": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "finishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "purged": {
+                  "type": "integer"
+                },
+                "held": {
+                  "type": "integer"
+                },
+                "failed": {
+                  "type": "integer"
+                },
+                "failures": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "entityType": {
+                        "type": "string"
+                      },
+                      "entityId": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "entityType",
+                      "entityId",
+                      "reason"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "trigger",
+                "startedAt",
+                "finishedAt",
+                "purged",
+                "held",
+                "failed",
+                "failures"
+              ]
+            }
+          }
+        },
+        "required": [
+          "runs"
+        ]
+      },
       "ListReviewPlatformsOutput": {
         "type": "object",
         "properties": {
@@ -124570,6 +129328,123 @@
         },
         "required": [
           "ringGroups"
+        ]
+      },
+      "ListSafetyMeetingsOutput": {
+        "type": "object",
+        "properties": {
+          "meetings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "heldAt": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "ledBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attendees": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "technicianId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "signedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "signedVia": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "hasSignature": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "technicianId",
+                      "name",
+                      "signedAt",
+                      "signedVia",
+                      "hasSignature"
+                    ]
+                  }
+                },
+                "signed": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "topic",
+                "notes",
+                "heldAt",
+                "location",
+                "jobId",
+                "ledBy",
+                "closedAt",
+                "attendees",
+                "signed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "meetings"
         ]
       },
       "ListScheduledRevisionsOutput": {
@@ -127236,6 +132111,18 @@
                     "null"
                   ]
                 },
+                "secretRotatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "previousSecretExpiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "createdAt": {
                   "type": "string"
                 }
@@ -127247,6 +132134,8 @@
                 "active",
                 "failureCount",
                 "lastDeliveryAt",
+                "secretRotatedAt",
+                "previousSecretExpiresAt",
                 "createdAt"
               ]
             }
@@ -128830,6 +133719,21 @@
         "required": [
           "id",
           "recoveredAt"
+        ]
+      },
+      "MarkSafetyMeetingSignedInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "MarkSafetyMeetingSignedOutput": {
+        "type": "object",
+        "properties": {
+          "signedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "signedAt"
         ]
       },
       "MarkSetupStepInput": {
@@ -130453,6 +135357,51 @@
           "position"
         ]
       },
+      "PlaceRetentionHoldInput": {
+        "type": "object",
+        "properties": {
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "incident_report",
+              "safety_meeting",
+              "service_report",
+              "inspection",
+              "call_recording"
+            ]
+          },
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "entityType",
+          "entityId",
+          "reason"
+        ]
+      },
+      "PlaceRetentionHoldOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "placedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "placedAt"
+        ]
+      },
       "PlanProjectDrawInput": {
         "type": "object",
         "properties": {
@@ -131044,6 +135993,183 @@
           "scheduleId",
           "occurrences",
           "onlyOneKnowable"
+        ]
+      },
+      "PreviewRetentionPurgeOutput": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "policy": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "entityType": {
+                      "type": "string"
+                    },
+                    "entityKind": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "clockStart": {
+                      "type": "string"
+                    },
+                    "retainMonths": {
+                      "type": "integer"
+                    },
+                    "sentence": {
+                      "type": "string"
+                    },
+                    "basis": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "tradePackId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "purgeAllowed": {
+                      "type": "boolean"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "actsOn": {
+                      "type": "boolean"
+                    },
+                    "actsOnWhy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kindRule": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "entityType",
+                    "entityKind",
+                    "clockStart",
+                    "retainMonths",
+                    "sentence",
+                    "basis",
+                    "tradePackId",
+                    "purgeAllowed",
+                    "active",
+                    "actsOn",
+                    "actsOnWhy",
+                    "kindRule"
+                  ]
+                },
+                "counts": {
+                  "type": "object",
+                  "properties": {
+                    "due": {
+                      "type": "integer"
+                    },
+                    "held": {
+                      "type": "integer"
+                    },
+                    "notYet": {
+                      "type": "integer"
+                    },
+                    "kept": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "due",
+                    "held",
+                    "notYet",
+                    "kept"
+                  ]
+                },
+                "records": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "entityType": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "due",
+                          "held",
+                          "not_yet",
+                          "no_clock",
+                          "kept"
+                        ]
+                      },
+                      "why": {
+                        "type": "string"
+                      },
+                      "policyId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "purgeableFrom": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "entityType",
+                      "id",
+                      "label",
+                      "state",
+                      "why",
+                      "policyId",
+                      "purgeableFrom"
+                    ]
+                  }
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "policy",
+                "counts",
+                "records",
+                "summary"
+              ]
+            }
+          }
+        },
+        "required": [
+          "rules"
         ]
       },
       "PreviewTradePackUpgradeOutput": {
@@ -134366,6 +139492,38 @@
           "settled"
         ]
       },
+      "RefuseAppRequestInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "RefuseAppRequestOutput": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "returnTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app",
+          "status",
+          "returnTo"
+        ]
+      },
       "RegisterAssetInput": {
         "type": "object",
         "properties": {
@@ -134913,6 +140071,18 @@
               "null"
             ]
           },
+          "secretRotatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previousSecretExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -134927,6 +140097,8 @@
           "active",
           "failureCount",
           "lastDeliveryAt",
+          "secretRotatedAt",
+          "previousSecretExpiresAt",
           "createdAt",
           "secret"
         ]
@@ -134964,6 +140136,26 @@
           "id",
           "released",
           "nowSendingFrom"
+        ]
+      },
+      "ReleaseRetentionHoldInput": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "ReleaseRetentionHoldOutput": {
+        "type": "object",
+        "properties": {
+          "releasedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "releasedAt"
         ]
       },
       "ReleaseStockInput": {
@@ -135840,6 +141032,220 @@
         "required": [
           "messageId",
           "status"
+        ]
+      },
+      "ReportIncidentInput": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "injury",
+              "near_miss",
+              "property_damage",
+              "vehicle",
+              "environmental",
+              "other"
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "immediateAction": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "injured",
+                    "involved",
+                    "witness"
+                  ]
+                },
+                "injury": {
+                  "type": "string",
+                  "maxLength": 2000
+                }
+              },
+              "required": [
+                "role"
+              ]
+            },
+            "maxItems": 50
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fileName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "contentType": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "bytes": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "fileName",
+                "bytes"
+              ]
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "kind",
+          "occurredAt",
+          "description"
+        ]
+      },
+      "ReportIncidentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "RequestAppInstallInput": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "publisher": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "homepageUrl": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 200
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "own",
+                "crew",
+                "business_unit",
+                "location",
+                "all"
+              ]
+            }
+          },
+          "redirectUri": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "state": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "company",
+          "name",
+          "permissions"
+        ]
+      },
+      "RequestAppInstallOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          },
+          "decisionPath": {
+            "type": "string"
+          },
+          "decisionUrl": {
+            "type": "string"
+          },
+          "claimSecret": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "decisionPath",
+          "decisionUrl",
+          "claimSecret",
+          "expiresAt"
         ]
       },
       "RequestDepositInput": {
@@ -137317,6 +142723,273 @@
           "skipped"
         ]
       },
+      "ReviewAppRequestOutput": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "homepageUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string"
+              },
+              "permissions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "approvedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "operator",
+                  "request",
+                  "oauth"
+                ]
+              },
+              "request": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "expiresAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expired": {
+                    "type": "boolean"
+                  },
+                  "returnsTo": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "requestedFrom": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "refusedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "refusedReason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "claimedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "expiresAt",
+                  "expired",
+                  "returnsTo",
+                  "requestedFrom",
+                  "refusedAt",
+                  "refusedReason",
+                  "claimedAt"
+                ]
+              },
+              "tokens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "hint": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    },
+                    "lastUsedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "revokedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expired": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "hint",
+                    "expiresAt",
+                    "lastUsedAt",
+                    "revokedAt",
+                    "expired"
+                  ]
+                }
+              },
+              "live": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "publisher",
+              "description",
+              "homepageUrl",
+              "status",
+              "permissions",
+              "scopes",
+              "approvedAt",
+              "revokedAt",
+              "revokedReason",
+              "source",
+              "request",
+              "tokens",
+              "live"
+            ]
+          },
+          "asks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "permission": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "held": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "permission",
+                "label",
+                "sensitive",
+                "held"
+              ]
+            }
+          },
+          "reach": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "widerThanYours": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "resource",
+                "scope",
+                "widerThanYours"
+              ]
+            }
+          },
+          "approvable": {
+            "type": "boolean"
+          },
+          "blockedBecause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app",
+          "asks",
+          "reach",
+          "approvable",
+          "blockedBecause"
+        ]
+      },
       "RevisePriceBookItemInput": {
         "type": "object",
         "properties": {
@@ -138066,6 +143739,76 @@
           "secret"
         ]
       },
+      "RotateWebhookSecretInput": {
+        "type": "object",
+        "properties": {
+          "overlapHours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 168
+          }
+        }
+      },
+      "RotateWebhookSecretOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastDeliveryAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secretRotatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previousSecretExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "active",
+          "failureCount",
+          "lastDeliveryAt",
+          "secretRotatedAt",
+          "previousSecretExpiresAt",
+          "createdAt",
+          "secret"
+        ]
+      },
       "RunAccountingSyncInput": {
         "type": "object",
         "properties": {
@@ -138529,6 +144272,72 @@
           "estimatedCostMicros",
           "spentThisMonthMicros",
           "monthlyLimitMicros"
+        ]
+      },
+      "RunRetentionPurgeInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RunRetentionPurgeOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purged": {
+            "type": "integer"
+          },
+          "held": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "failures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entityType": {
+                  "type": "string"
+                },
+                "entityId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "entityType",
+                "entityId",
+                "reason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "trigger",
+          "startedAt",
+          "finishedAt",
+          "purged",
+          "held",
+          "failed",
+          "failures"
         ]
       },
       "SatisfyObligationInput": {
@@ -143274,6 +149083,29 @@
         },
         "required": [
           "ok"
+        ]
+      },
+      "SignSafetyMeetingInput": {
+        "type": "object",
+        "properties": {
+          "signature": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "signature"
+        ]
+      },
+      "SignSafetyMeetingOutput": {
+        "type": "object",
+        "properties": {
+          "signedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "signedAt"
         ]
       },
       "SkipAgreementVisitInput": {
@@ -149532,6 +155364,101 @@
           "lastError"
         ]
       },
+      "UpdateRetentionPolicyInput": {
+        "type": "object",
+        "properties": {
+          "retainMonths": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1200
+          },
+          "purgeAllowed": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateRetentionPolicyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityKind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clockStart": {
+            "type": "string"
+          },
+          "retainMonths": {
+            "type": "integer"
+          },
+          "sentence": {
+            "type": "string"
+          },
+          "basis": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tradePackId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purgeAllowed": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "actsOn": {
+            "type": "boolean"
+          },
+          "actsOnWhy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kindRule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "entityType",
+          "entityKind",
+          "clockStart",
+          "retainMonths",
+          "sentence",
+          "basis",
+          "tradePackId",
+          "purgeAllowed",
+          "active",
+          "actsOn",
+          "actsOnWhy",
+          "kindRule"
+        ]
+      },
       "UpdateRingGroupInput": {
         "type": "object",
         "properties": {
@@ -150890,6 +156817,18 @@
               "null"
             ]
           },
+          "secretRotatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previousSecretExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string"
           }
@@ -150901,6 +156840,8 @@
           "active",
           "failureCount",
           "lastDeliveryAt",
+          "secretRotatedAt",
+          "previousSecretExpiresAt",
           "createdAt"
         ]
       },

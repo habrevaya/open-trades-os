@@ -80,7 +80,8 @@ export async function requireUser(): Promise<CurrentUser> {
     throw error;
   }
   if (!user) {
-    const path = (await headers()).get("x-pathname") ?? "/";
+    const sent = await headers();
+    const path = `${sent.get("x-pathname") ?? "/"}${sent.get("x-search") ?? ""}`;
     redirect(`/login?next=${encodeURIComponent(path)}`);
   }
   return user;

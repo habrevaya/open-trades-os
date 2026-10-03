@@ -19,7 +19,8 @@
     "db:seed": "pnpm --filter @opentradesos/api seed",
     "lint:fix": "eslint . --fix",
     "screenshots": "node scripts/screenshots.mjs",
-    "e2e": "pnpm --filter @opentradesos/web e2e"
+    "e2e": "pnpm --filter @opentradesos/web e2e",
+    "mcp:bridge": "node packages/sdk/bin/opentradesos-mcp.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.9",

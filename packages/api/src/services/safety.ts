@@ -634,6 +634,23 @@ export async function addIncidentPhoto(ctx: ServiceContext, input: { id: string 
   });
 }
 
+/**
+ * The company's own people, for the "who was there" boxes on a talk and an
+ * incident report. Names only, and only to somebody who runs safety or can
+ * report: the people on a crew already know each other's names.
+ */
+export async function people(ctx: ServiceContext): Promise<Array<{ value: string; label: string }>> {
+  if (!can(ctx.actor, "safety:write")) assertCan(ctx.actor, "safety:report");
+  return inTenant(ctx, async (tx) => {
+    const rows = await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
+      .from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(eq(schema.membership.active, true))
+      .orderBy(asc(schema.technician.displayName));
+    return rows.map((row) => ({ value: row.id, label: row.name }));
+  });
+}
+
 /* --------------------------------------------------------------- handlers */
 
 export const handlers = {

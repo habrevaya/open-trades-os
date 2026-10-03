@@ -38,6 +38,20 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
         };
       }
 
+      case "rotate": {
+        const overlapHours = Number(field(form, "overlapHours") ?? "24");
+        const endpoint = await webhooks.rotateSecret(ctx, { id, overlapHours });
+        return {
+          secret: {
+            value: endpoint.secret,
+            caption: overlapHours === 0
+              ? "The new signing secret. The old one stopped working just now, so put this in the receiver straight away. It is not shown again."
+              : `The new signing secret. The old one also signs for ${overlapHours === 1 ? "an hour" : `${overlapHours} hours`}, `
+                + "so put this in the receiver before then. It is not shown again.",
+          },
+        };
+      }
+
       case "on":
         await webhooks.update(ctx, { id, active: true });
         return { message: "Switched on. It carries on from where it stopped." };
