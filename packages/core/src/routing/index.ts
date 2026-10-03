@@ -191,15 +191,26 @@ export function construct(plan: DayPlan): string[] {
  * service day and the result at the bound is still a valid order, just not
  * the last word.
  */
-export function improve(plan: DayPlan, start: readonly string[], maxPasses = 200): Evaluation {
+export function improve(
+  plan: DayPlan, start: readonly string[], maxPasses = 200, pinned: ReadonlySet<string> = new Set(),
+): Evaluation {
   let current = evaluate(plan, start);
   const n = start.length;
+  /**
+   * A stop a dispatcher locked keeps its place in the day: any candidate that
+   * moves one is not a candidate. Checked on the order rather than built into
+   * the moves, so 2-opt and or-opt stay the simple scans they are.
+   */
+  const at = new Map(start.map((id, i) => [id, i]));
+  const keeps = (order: readonly string[]) =>
+    pinned.size === 0 || order.every((id, i) => !pinned.has(id) || at.get(id) === i);
   for (let pass = 0; pass < maxPasses; pass++) {
     let moved = false;
 
     twoOpt: for (let i = 0; i < n - 1; i++) {
       for (let j = i + 1; j < n; j++) {
         const order = [...current.order.slice(0, i), ...current.order.slice(i, j + 1).reverse(), ...current.order.slice(j + 1)];
+        if (!keeps(order)) continue;
         const candidate = evaluate(plan, order);
         if (better(candidate, current)) {
           current = candidate;
@@ -217,6 +228,7 @@ export function improve(plan: DayPlan, start: readonly string[], maxPasses = 200
         for (let k = 0; k <= rest.length; k++) {
           if (k === i) continue;
           const order = [...rest.slice(0, k), ...segment, ...rest.slice(k)];
+          if (!keeps(order)) continue;
           const candidate = evaluate(plan, order);
           if (better(candidate, current)) {
             current = candidate;
@@ -252,14 +264,22 @@ export interface Proposal {
  * never handed back worse: if nothing beats it, the proposal IS the current
  * order and `improved` is false.
  */
-export function optimise(plan: DayPlan, current: readonly string[]): Proposal {
+export function optimise(
+  plan: DayPlan, current: readonly string[], options: { pinned?: ReadonlySet<string> } = {},
+): Proposal {
+  const pinned = options.pinned ?? new Set<string>();
   const ids = new Set(plan.stops.map((s) => s.id));
   if (current.length !== ids.size || new Set(current).size !== current.length || current.some((id) => !ids.has(id))) {
     throw new RangeError("The current order must name every stop in the plan exactly once.");
   }
   const now = evaluate(plan, current);
-  const fromScratch = improve(plan, construct(plan));
-  const fromCurrent = improve(plan, current);
+  /**
+   * Built from scratch only when nothing is locked: a constructed order puts
+   * every stop wherever it likes, locked ones included, and improving from
+   * it could never put them back.
+   */
+  const fromCurrent = improve(plan, current, 200, pinned);
+  const fromScratch = pinned.size === 0 ? improve(plan, construct(plan)) : fromCurrent;
   let proposed = better(fromScratch, fromCurrent) ? fromScratch : fromCurrent;
   if (!better(proposed, now)) proposed = now;
 
@@ -406,3 +426,5 @@ export function suggestAssignments(input: {
   }
   return out;
 }
+
+export * from "./rebalance.js";

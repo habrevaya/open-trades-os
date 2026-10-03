@@ -135,6 +135,24 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     minIntervalMs: { kind: "number" },
     baseUrl: BASE_URL,
   },
+  osrm: {
+    /** The address of the company's own OSRM server. Required: there is no public default. */
+    endpoint: { kind: "text" },
+    /** The OSRM profile, `driving` unless the server was built with another. */
+    profile: { kind: "text" },
+  },
+  mapbox_directions: {
+    /** `driving`, or `driving-traffic` for live traffic at ten points a request. */
+    profile: { kind: "text" },
+    baseUrl: BASE_URL,
+  },
+  openrouteservice: {
+    /** A self hosted server; the hosted service when absent. */
+    endpoint: { kind: "text" },
+    /** `driving-car` unless a truck profile suits the vans better. */
+    profile: { kind: "text" },
+    baseUrl: BASE_URL,
+  },
   whisper: {
     /** Where the API lives: OpenAI's, or a Whisper server the company runs itself. */
     endpoint: { kind: "text" },

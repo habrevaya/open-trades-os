@@ -17,6 +17,7 @@ import { templateFor } from "./field";
 import { portalBase } from "../lib/portal-base";
 import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
 import { priorityWithin } from "./agreements";
+import * as location from "./location";
 
 
 /**
@@ -63,12 +64,14 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       addressLine1: schema.property.addressLine1,
       postalCode: schema.property.postalCode,
       technicianId: schema.visitAssignment.technicianId,
+      routeName: schema.route.name,
     })
       .from(schema.visit)
       .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
       .innerJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
       .innerJoin(schema.property, eq(schema.property.id, schema.job.propertyId))
       .leftJoin(schema.visitAssignment, eq(schema.visitAssignment.visitId, schema.visit.id))
+      .leftJoin(schema.route, eq(schema.route.id, schema.visit.routeId))
       .where(and(
         gte(schema.visit.windowStart, dayStart),
         lte(schema.visit.windowStart, dayEnd),
@@ -118,14 +121,25 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       customerName: r.customerName,
       addressLine1: r.addressLine1,
       isLate: isLate(r.visit),
+      routeName: r.routeName ?? null,
+      locked: r.visit.dispatchLocked,
     });
 
     const assigned = new Map<string, ReturnType<typeof shape>[]>();
     const unassigned: Array<ReturnType<typeof shape> & { postalCode: string }> = [];
+    /**
+     * CREW WORK IS NOT UNASSIGNED. A visit sent to a crew is on
+     * `visit.crew_id` with nobody in `visit_assignment`, and the board used to
+     * file it in the unassigned pile, where a dispatcher would give it to
+     * somebody else. It has its own lane now.
+     */
+    const byCrew = new Map<string, ReturnType<typeof shape>[]>();
 
     for (const r of rows) {
       if (r.technicianId) {
         assigned.set(r.technicianId, [...(assigned.get(r.technicianId) ?? []), shape(r)]);
+      } else if (r.visit.crewId) {
+        byCrew.set(r.visit.crewId, [...(byCrew.get(r.visit.crewId) ?? []), shape(r)]);
       } else {
         unassigned.push({ ...shape(r), postalCode: r.postalCode });
       }
@@ -161,8 +175,75 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       .map((v, index) => ({ v, index, plan: priority.get(v.id) ?? null }))
       .sort((a, b) => Number(b.plan !== null) - Number(a.plan !== null) || a.index - b.index);
 
+    /** The crews with work today, their people, and who leads. */
+    const crewIds = [...byCrew.keys()];
+    const crewRows = crewIds.length === 0 ? [] : await tx.select({
+      id: schema.crew.id, name: schema.crew.name, color: schema.crew.color,
+    }).from(schema.crew).where(inArray(schema.crew.id, crewIds)).orderBy(asc(schema.crew.name));
+    const crewPeople = crewIds.length === 0 ? [] : await tx.select({
+      crewId: schema.crewMember.crewId, isLead: schema.crewMember.isLead, name: schema.technician.displayName,
+    }).from(schema.crewMember)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+      .where(inArray(schema.crewMember.crewId, crewIds));
+
+    /**
+     * The route businesses' days: every route with stops today, how many,
+     * and whose they are, so a pool company watching the board sees its
+     * Tuesday routes rather than forty unrelated cards.
+     */
+    const routeStops = new Map<string, { name: string; stops: number; done: number }>();
+    for (const r of rows) {
+      if (!r.visit.routeId || !r.routeName) continue;
+      const entry = routeStops.get(r.visit.routeId) ?? { name: r.routeName, stops: 0, done: 0 };
+      entry.stops += 1;
+      if (["completed", "completed_after_cancellation"].includes(r.visit.status)) entry.done += 1;
+      routeStops.set(r.visit.routeId, entry);
+    }
+    const routeOwners = routeStops.size === 0 ? [] : await tx.select({
+      id: schema.route.id, technicianName: schema.technician.displayName, crewName: schema.crew.name,
+    }).from(schema.route)
+      .leftJoin(schema.technician, eq(schema.technician.id, schema.route.technicianId))
+      .leftJoin(schema.crew, eq(schema.crew.id, schema.route.crewId))
+      .where(inArray(schema.route.id, [...routeStops.keys()]));
+
+    /**
+     * The rota for the day: every on call shift that overlaps it, so the
+     * board says who has the phone tonight, and says so in words when
+     * nobody does.
+     */
+    const rota = await tx.select({
+      technicianName: schema.technician.displayName,
+      startsAt: schema.onCallRotation.startsAt,
+      endsAt: schema.onCallRotation.endsAt,
+    }).from(schema.onCallRotation)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.onCallRotation.technicianId))
+      .where(and(
+        eq(schema.onCallRotation.organizationId, ctx.actor.organizationId),
+        lte(schema.onCallRotation.startsAt, dayEnd),
+        gte(schema.onCallRotation.endsAt, dayStart),
+      ))
+      .orderBy(asc(schema.onCallRotation.startsAt));
+
     return {
       date: input.date,
+      crews: crewRows.map((c) => {
+        const people = crewPeople.filter((p) => p.crewId === c.id);
+        return {
+          id: c.id,
+          name: c.name,
+          color: c.color,
+          leadName: people.find((p) => p.isLead)?.name ?? null,
+          memberNames: people.map((p) => p.name).sort(),
+          visits: byCrew.get(c.id) ?? [],
+        };
+      }),
+      routes: [...routeStops.entries()].map(([id, r]) => {
+        const owner = routeOwners.find((o) => o.id === id);
+        return { id, name: r.name, stops: r.stops, done: r.done, runBy: owner?.technicianName ?? owner?.crewName ?? null };
+      }).sort((a, b) => a.name.localeCompare(b.name)),
+      onCall: rota.map((r) => ({
+        technicianName: r.technicianName, startsAt: r.startsAt.toISOString(), endsAt: r.endsAt.toISOString(),
+      })),
       technicians: technicians.map((t) => ({
         id: t.id,
         displayName: t.displayName,
@@ -412,6 +493,7 @@ export async function onMyWay(ctx: ServiceContext, input: z.infer<typeof sendArr
           sentByUserId: ctx.actor.userId,
           body: await arrivalBody(tx, ctx.actor.organizationId, {
             company: await companyName(tx, ctx.actor.organizationId),
+            technician: await technicianFirstName(tx, ctx, input.id),
             etaMinutes: input.etaMinutes ?? null,
             trackingUrl,
           }),
@@ -507,6 +589,33 @@ async function notifiableAddress(
   return fallback === "" ? null : fallback;
 }
 
+/**
+ * The first name the customer is told to expect at the door: the lead on the
+ * visit, or failing that whoever is sending it, if they are a technician here.
+ * A first name only, the same rule the tracking page keeps, because a last
+ * name is not the customer's to have.
+ */
+async function technicianFirstName(tx: Database, ctx: ServiceContext, visitId: string): Promise<string | null> {
+  const [lead] = await tx.select({ name: schema.technician.displayName })
+    .from(schema.visitAssignment)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
+    .where(eq(schema.visitAssignment.visitId, visitId))
+    .orderBy(sql`${schema.visitAssignment.isLead} desc`).limit(1);
+  let name = lead?.name ?? null;
+  if (!name) {
+    const [own] = await tx.select({ name: schema.technician.displayName })
+      .from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(and(
+        eq(schema.technician.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.userId, ctx.actor.userId),
+      )).limit(1);
+    name = own?.name ?? null;
+  }
+  const first = name?.trim().split(/\s+/)[0] ?? "";
+  return first === "" ? null : first;
+}
+
 /** The name the text signs off with. */
 async function companyName(tx: Database, organizationId: string): Promise<string> {
   const [org] = await tx.select({ name: schema.organization.name })
@@ -544,10 +653,11 @@ async function companyName(tx: Database, organizationId: string): Promise<string
 async function arrivalBody(
   tx: Database,
   organizationId: string,
-  input: { company: string; etaMinutes: number | null; trackingUrl: string | null },
+  input: { company: string; technician: string | null; etaMinutes: number | null; trackingUrl: string | null },
 ): Promise<string> {
   const rendered = await renderWithin(tx, organizationId, "arrival_notice", {
     company: input.company,
+    technician: input.technician,
     eta: input.etaMinutes === null ? "on the way" : `about ${input.etaMinutes} minutes away`,
     etaMinutes: input.etaMinutes,
     trackingUrl: input.trackingUrl,
@@ -556,13 +666,14 @@ async function arrivalBody(
 }
 
 function noticeBody(input: {
-  company: string; etaMinutes: number | null; trackingUrl: string | null;
+  company: string; technician: string | null; etaMinutes: number | null; trackingUrl: string | null;
 }): string {
   const eta = input.etaMinutes
     ? `about ${input.etaMinutes} minutes away`
     : "on the way";
-  const line = `${input.company}: your technician is ${eta}.`;
-  return input.trackingUrl ? `${line} Track them here: ${input.trackingUrl}` : line;
+  const who = input.technician ? `your technician, ${input.technician},` : "your technician";
+  const line = `${input.company}: ${who} is ${eta}.`;
+  return input.trackingUrl ? `${line} See where they are: ${input.trackingUrl}` : line;
 }
 
 /**
@@ -618,7 +729,10 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
     const revision = await computeRevision(tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId));
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
-      return { revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [] };
+      return {
+        revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [],
+        locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
+      };
     }
 
     const priceBook = await tx.select({
@@ -710,6 +824,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
         ? { id: open.id, kind: open.kind, startedAt: open.startedAt.toISOString() }
         : null,
       inspectionPrograms: await programsForField(tx, ctx),
+      locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
     };
   });
 }

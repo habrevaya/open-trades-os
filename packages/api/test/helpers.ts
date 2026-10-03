@@ -96,7 +96,7 @@ const ORDER = [
    * anything.
    */
   "discount_policy",
-  "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
+  "technician_position", "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.
@@ -239,7 +239,7 @@ const ORDER = [
    */
   "review_request", "review", "review_platform", "review_policy",
   "attachment", "stored_file",
-  "audit_log", "integration_event",
+  "audit_log", "integration_event", "travel_time",
   /**
    * A delivery attempt points at its endpoint and at the replay that sent
    * it, and a replay at its endpoint, so the attempts go first.

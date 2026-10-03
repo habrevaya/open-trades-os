@@ -11,13 +11,15 @@
  *   Web Mercator tile arithmetic, which is what turns a latitude into a pixel
  *   on a slippy map.
  *
- * WHY A STRAIGHT LINE AND NOT A ROAD NETWORK. A drive time matrix is a paid
- * routing API or a routing engine somebody has to run, and this product has
- * neither. A haversine distance stretched by a road factor and divided by an
- * average speed is wrong for any one pair of houses and about right across a
- * day, which is the scale an order of stops is decided at. Every figure that
- * comes out of it is called an estimate wherever it is shown, and a company
- * that has declared its own drive time on a route has that used instead.
+ * WHY A STRAIGHT LINE IS STILL HERE. A drive time matrix is a paid routing
+ * API or a routing engine somebody has to run. A company can connect one
+ * (OSRM it hosts itself, Mapbox or OpenRouteService, see
+ * `packages/api/src/routing`), and one that has not still gets a day ordered:
+ * a haversine distance stretched by a road factor and divided by an average
+ * speed is wrong for any one pair of houses and about right across a day,
+ * which is the scale an order of stops is decided at. Every figure that comes
+ * out of it is called an estimate wherever it is shown, and a company that has
+ * declared its own drive time on a route has that used instead.
  */
 
 export interface LatLng {
@@ -106,6 +108,21 @@ export function driveMinutes(a: LatLng, b: LatLng, assumptions: DriveAssumptions
   }
   const km = haversineKm(a, b) * assumptions.roadFactor;
   return Math.max(1, Math.ceil((km / assumptions.averageKmh) * 60));
+}
+
+/**
+ * The key a drive time is cached under: the point rounded to four decimal
+ * places, which is about eleven metres. Close enough that two pins on one
+ * house share an answer, and far enough apart that the house next door does
+ * not, because on a cul de sac the neighbour can be a different road.
+ */
+export function coordinateKey(point: LatLng, decimals = 4): string {
+  const round = (n: number) => {
+    const fixed = n.toFixed(decimals);
+    // "-0.0000" and "0.0000" are the same place and must be the same key.
+    return Number(fixed) === 0 ? (0).toFixed(decimals) : fixed;
+  };
+  return `${round(point.lat)},${round(point.lng)}`;
 }
 
 /* ------------------------------------------------------- web mercator */

@@ -1174,6 +1174,59 @@ returns table (organization_id uuid, entity text, entity_id uuid)
 
 revoke all on function app.addresses_to_geocode(int) from public;
 grant execute on function app.addresses_to_geocode(int) to background;
+
+-- =========================================================================
+-- WHERE TECHNICIANS WERE, DELETED ON TIME
+--
+-- Live positions are kept for the company's retention (`organization.settings
+-- -> 'locationSharing' -> 'retentionDays'`, three days when unset, never more
+-- than thirty) and then deleted, across every tenant in one statement, which
+-- is why this is a definer function: the worker has no tenant. A company
+-- that turned sharing off keeps nothing past the same retention either. The
+-- bound is enforced here as well as in the service, so a settings row edited
+-- by hand cannot keep a person's movements for a year.
+--
+-- And drive times past their provider's expiry, for the same worker pass.
+-- =========================================================================
+
+create or replace function app.purge_technician_positions(p_limit int default 5000)
+returns table (organization_id uuid, removed bigint)
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with doomed as (
+      select p.id
+      from public.technician_position p
+      join public.organization o on o.id = p.organization_id
+      where p.recorded_at < now() - make_interval(days => least(30, greatest(1, coalesce(
+              case when (o.settings -> 'locationSharing' ->> 'retentionDays') ~ '^[0-9]{1,3}$'
+                   then (o.settings -> 'locationSharing' ->> 'retentionDays')::int end, 3))))
+      limit p_limit
+    ),
+    gone as (
+      delete from public.technician_position t
+      using doomed d where t.id = d.id
+      returning t.organization_id
+    )
+    select g.organization_id, count(*)::bigint from gone g group by g.organization_id
+  $$;
+
+revoke all on function app.purge_technician_positions(int) from public;
+grant execute on function app.purge_technician_positions(int) to background;
+
+create or replace function app.purge_travel_times(p_limit int default 5000)
+returns bigint
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with doomed as (
+      select id from public.travel_time where expires_at < now() limit p_limit
+    ), gone as (
+      delete from public.travel_time t using doomed d where t.id = d.id returning 1
+    )
+    select count(*)::bigint from gone
+  $$;
+
+revoke all on function app.purge_travel_times(int) from public;
+grant execute on function app.purge_travel_times(int) to background;
 -- REPORTS AND STATEMENTS THAT ARRIVE ON THEIR OWN
 --
 -- The same shape as the three above: which schedules are due, across every

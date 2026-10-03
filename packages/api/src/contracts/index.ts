@@ -64,6 +64,7 @@ import { exportRoutes } from "./export";
 import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
 import { dispatchMapRoutes } from "./dispatch-map";
+import { locationRoutes } from "./location";
 import { acquisitionRoutes } from "./acquisition";
 import { customerTagRoutes } from "./customer-tags";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
@@ -132,6 +133,7 @@ export * from "./field-assets";
 export * from "./credit-notes";
 export * from "./statements";
 export * from "./dispatch-map";
+export * from "./location";
 export * from "./agreements";
 export * from "./visit-changes";
 export * from "./customer-tags";
@@ -229,6 +231,7 @@ export const routes = {
   ...externalWorkRoutes,
   ...kpiRoutes,
   ...dispatchMapRoutes,
+  ...locationRoutes,
   ...reportRoutes,
   ...customerTagRoutes,
   ...priceBookBulkRoutes,

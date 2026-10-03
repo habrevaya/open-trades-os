@@ -45,6 +45,8 @@ import { registeredProviders as registeredMessagingProviders } from "../src/comm
  * registry stops covering it in both directions at once.
  */
 import { registeredGeocoders } from "../src/maps/index";
+/** The routing services, on the `routing` seam beside the geocoders, for the same reason. */
+import { registeredRouters } from "../src/routing/index";
 /**
  * The ad platforms, analytics and the review listing, which share one seam
  * because they move the same things in the same directions.
@@ -86,7 +88,7 @@ describe("the connector catalogue", () => {
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
-      ...registeredMessagingProviders(), ...registeredGeocoders(),
+      ...registeredMessagingProviders(), ...registeredGeocoders(), ...registeredRouters(),
       ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
     ]);
     const lying = cat.builtConnectors()
@@ -111,7 +113,7 @@ describe("the connector catalogue", () => {
       ...registeredPaymentProviders(), ...registeredEmailProviders(),
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
-      ...registeredMessagingProviders(), ...registeredGeocoders(),
+      ...registeredMessagingProviders(), ...registeredGeocoders(), ...registeredRouters(),
       ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");

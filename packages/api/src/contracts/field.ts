@@ -44,6 +44,24 @@ export const FieldOperationInput = z.object({
   accuracyMeters: z.number().int().min(0).max(100_000).optional(),
 });
 
+/**
+ * Where the phone was, sent with the queue rather than queued in it.
+ *
+ * Not an operation, deliberately: a position is not a thing the technician
+ * did, it needs no sequence and no conflict rule, and one that never arrives
+ * costs nothing. The phone takes these only while its person is working,
+ * and the server judges each one again against its own record of the clock
+ * and the visits, dropping any that falls outside working time.
+ */
+export const PositionInput = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracyMeters: z.number().min(0).max(100_000).optional(),
+  heading: z.number().min(0).max(360).optional(),
+  speed: z.number().min(0).max(100).optional(),
+  recordedAt: z.string().datetime(),
+});
+
 export const OperationResult = z.object({
   clientId: Uuid,
   status: OperationStatus,
@@ -71,13 +89,15 @@ export const syncOperations = defineRoute({
   path: "/v1/field/sync",
   summary: "Submit queued field operations",
   description:
-    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`.",
+    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`. Positions ride along in `positions` and are kept only when the company shares locations, the person's sharing is on, and the server's own record puts the fix inside working time: clocked in, on the way to a visit or working one. Anything else is dropped and counted in the answer, never stored.",
   module: "M11",
   permissions: ["field:sync"],
   idempotent: true,
   input: z.object({
     deviceId: Uuid,
-    operations: z.array(FieldOperationInput).min(1).max(500),
+    /** May be empty when the phone has only positions to send. */
+    operations: z.array(FieldOperationInput).max(500),
+    positions: z.array(PositionInput).max(500).optional(),
     /**
      * Sequences this device numbered and will never send: the phone died
      * between numbering an operation and writing it, or the technician
@@ -94,6 +114,11 @@ export const syncOperations = defineRoute({
     /** Bumped when the device's slice of the schedule changed, so the client
      *  knows to pull rather than diffing what it already has. */
     snapshotRevision: z.number().int(),
+    /** What became of the positions: how many were kept, and why the rest were not. */
+    positions: z.object({
+      stored: z.number().int(),
+      dropped: z.record(z.number().int()),
+    }),
   }),
 });
 
@@ -280,6 +305,17 @@ export const getFieldSnapshot = defineRoute({
      * phone offers nothing it would then refuse.
      */
     inspectionPrograms: z.array(InspectionProgramForField),
+    /**
+     * Whether this phone may share where its person is, so it can decide for
+     * itself offline and show them which it is. It still shares only while
+     * they are clocked in or on a visit.
+     */
+    locationSharing: z.object({
+      companyEnabled: z.boolean(),
+      personEnabled: z.boolean(),
+      intervalSeconds: z.number().int(),
+      retentionDays: z.number().int(),
+    }),
   }),
 });
 
@@ -324,7 +360,51 @@ export const getDispatchBoard = defineRoute({
         /** Running late against its own window, computed once here rather
          *  than by every client that renders a board. */
         isLate: z.boolean(),
+        /** The service route this stop is on, for route work. */
+        routeName: z.string().nullable(),
+        /** Locked by the office: the rebalance and the optimiser leave it where it is. */
+        locked: z.boolean(),
       })),
+    })),
+    /**
+     * Crews with work on the day, each a lane of its own. Crew work used to
+     * land in the unassigned pile, because nobody is in its assignment list.
+     */
+    crews: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      color: z.string().nullable(),
+      leadName: z.string().nullable(),
+      memberNames: z.array(z.string()),
+      visits: z.array(z.object({
+        id: Uuid,
+        jobNumber: z.number().int(),
+        summary: z.string(),
+        status: z.string(),
+        windowStart: z.string().datetime().nullable(),
+        windowEnd: z.string().datetime().nullable(),
+        routeOrder: z.number().int().nullable(),
+        estimatedDurationMinutes: z.number().int(),
+        customerName: z.string(),
+        addressLine1: z.string(),
+        isLate: z.boolean(),
+        routeName: z.string().nullable(),
+        locked: z.boolean(),
+      })),
+    })),
+    /** Service routes with stops on the day, how many are done, and who runs each. */
+    routes: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      stops: z.number().int(),
+      done: z.number().int(),
+      runBy: z.string().nullable(),
+    })),
+    /** On call shifts overlapping the day, in order. Empty means nobody is on call. */
+    onCall: z.array(z.object({
+      technicianName: z.string(),
+      startsAt: z.string().datetime(),
+      endsAt: z.string().datetime(),
     })),
     /** Not yet assigned to anyone. The pile a dispatcher works from. */
     unassigned: z.array(z.object({
@@ -337,6 +417,8 @@ export const getDispatchBoard = defineRoute({
       customerName: z.string(),
       addressLine1: z.string(),
       postalCode: z.string(),
+      routeName: z.string().nullable(),
+      locked: z.boolean(),
       /**
        * The plan that promised this customer priority, when one covers this
        * job. The pile comes sorted with these first and is otherwise in the

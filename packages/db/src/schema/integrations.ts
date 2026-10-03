@@ -74,6 +74,34 @@ export const integrationConnection = pgTable("integration_connection", {
   statusIdx: index("integration_connection_status_idx").on(t.status, t.expiresAt),
 }));
 
+/**
+ * DRIVE TIMES, ASKED ONCE
+ *
+ * The road network's answer for one pair of points, kept so the optimiser,
+ * the rebalance and a customer refreshing their tracking link do not ask the
+ * routing provider the same question every time. Keyed on the two points
+ * rounded to about eleven metres (`geo.coordinateKey`) and on the provider,
+ * so connecting a different one is not answered from another's cache.
+ *
+ * `expires_at` is the provider's: a self hosted OSRM's answers are kept for
+ * weeks because roads change slowly, a commercial one's only as long as its
+ * terms allow. An expired pair is asked again; the worker deletes the rest.
+ */
+export const travelTime = pgTable("travel_time", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  originKey: text("origin_key").notNull(),
+  destinationKey: text("destination_key").notNull(),
+  minutes: integer("minutes").notNull(),
+  meters: integer("meters"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => ({
+  pairIdx: uniqueIndex("travel_time_pair_idx").on(t.organizationId, t.provider, t.originKey, t.destinationKey),
+  expiresIdx: index("travel_time_expires_idx").on(t.expiresAt),
+}));
+
 export const syncDirection = pgEnum("sync_direction", ["inbound", "outbound", "bidirectional"]);
 
 export const syncRun = pgTable("sync_run", {

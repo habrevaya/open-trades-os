@@ -129,6 +129,8 @@ export * as dataExport from "./export";
 export * as externalWork from "./external-work";
 export * as kpis from "./kpis";
 export * as dispatchMap from "./dispatch-map";
+export * as liveLocation from "./location";
+export * as travelTimes from "./travel-times";
 export * as geocoding from "./geocoding";
 export * as qualification from "./qualification";
 export * as visitChanges from "./visit-changes";

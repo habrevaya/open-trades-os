@@ -17,6 +17,7 @@ import { taskPass } from "./task-rules";
 import { purgePass } from "./retention";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
+import { purgePositions } from "./location";
 import type { PushProvider } from "../push/provider";
 
 /**
@@ -264,7 +265,17 @@ export interface PassOptions {
    * network.
    */
   push?: false | { provider?: PushProvider };
+  /**
+   * Whether this pass also deletes technicians' positions past their
+   * company's retention, and drive times past their provider's expiry. At
+   * most every ten minutes, because nothing about a three day retention
+   * needs a delete every five seconds.
+   */
+  positions?: false;
 }
+
+let positionsPurgedAt = 0;
+const POSITION_PURGE_INTERVAL_MS = 10 * 60_000;
 
 /**
  * ONE PASS: the clock, then the log, then whatever the drain left to send.
@@ -388,6 +399,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       } catch (error) {
         console.error("[worker] agents:", (error as Error).message);
       }
+    }
+  }
+
+  /**
+   * Where technicians were, deleted on time. Its own try, like everything
+   * here: a purge that fails is tried again on a later pass, and must not
+   * hold up a text. A worker that has not purged recently (a restart) purges
+   * on its first pass.
+   */
+  if (options.positions !== false && Date.now() - positionsPurgedAt >= POSITION_PURGE_INTERVAL_MS) {
+    try {
+      await purgePositions(options.db);
+      positionsPurgedAt = Date.now();
+    } catch (error) {
+      console.error("[worker] positions:", (error as Error).message);
     }
   }
 

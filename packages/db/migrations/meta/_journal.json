@@ -575,6 +575,13 @@
       "when": 1791053482438,
       "tag": "0081_parched_ben_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1791066420909,
+      "tag": "0082_awesome_wild_pack",
+      "breakpoints": true
     }
   ]
 }

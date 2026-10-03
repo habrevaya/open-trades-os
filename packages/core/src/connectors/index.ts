@@ -86,6 +86,13 @@ export type ConnectorCapability =
    * reason `property.latitude` was a column nothing filled.
    */
   | "maps"
+  /**
+   * How long the drive is by road. In the capability enum since the first
+   * migration with nothing behind it, so every drive time was a straight line
+   * stretched by a factor. The optimiser, the rebalance and a customer's ETA
+   * all ask it, and all fall back to the straight line without it.
+   */
+  | "routing"
   /** Speech to text, for the call recordings and voicemails this product keeps. */
   | "transcription";
 
@@ -180,7 +187,13 @@ export type ConnectorFlow =
    * product for the geocoder, which is worth an owner knowing before they
    * connect one, and a coordinate with its precision comes back to be kept.
    */
-  | "locations_in";
+  | "locations_in"
+  /**
+   * Drive times back for pairs of points sent out. The points are customers'
+   * houses and where technicians are, which is worth an owner knowing before
+   * they point this at somebody else's server.
+   */
+  | "drive_times_in";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -572,6 +585,50 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "A Mapbox account with permanent geocoding enabled, which is a paid tier, and an access token scoped to geocoding only. Put the token in your secret store and enter its name here; this product holds the name and never the value.",
     limitation:
       "Only the permanent tier may be stored, and this product stores every answer, so it always asks for that tier and a token without it is refused. The token travels in the request's URL because that is the only place Mapbox accepts it, which is why it should be scoped to geocoding and nothing else. Google is deliberately not offered: its terms cap keeping coordinates at thirty days and bar drawing them on a map that is not Google's.",
+  },
+
+  /* -------------------------------------------------------------- routing */
+  {
+    key: "osrm",
+    label: "OSRM (your own routing server)",
+    capability: "routing",
+    auth: "none",
+    flows: ["drive_times_in"],
+    state: "built",
+    purpose:
+      "Drive times by road for the route optimiser, the day rebalance and the arrival time a customer sees on their tracking link, from a routing engine you run yourself on OpenStreetMap roads. Nothing leaves your own servers.",
+    setup:
+      "Run OSRM with your state's OpenStreetMap extract (the project publishes a container that does it in three commands) and enter its address here. There is no account and no key. The project's public demo server is not offered: it asks not to be used for real traffic.",
+    limitation:
+      "No live traffic: a time is what the roads allow, not what the motorway is doing at five. Answers are kept thirty days, so a road that opens or closes takes that long to show unless you refresh your extract and reconnect. Without a routing service connected, or when it does not answer, every drive is a straight line estimate and the screens say so.",
+  },
+  {
+    key: "mapbox_directions",
+    label: "Mapbox (drive times)",
+    capability: "routing",
+    auth: "api_key",
+    flows: ["drive_times_in"],
+    state: "built",
+    purpose:
+      "The same drive times by road from Mapbox's Matrix API, for a company that would rather pay per request than run a routing server.",
+    setup:
+      "A Mapbox access token scoped to the Matrix API, in your secret store with its name entered here. This is a separate connection from the Mapbox geocoder, so a company can geocode with one service and route with another.",
+    limitation:
+      "Each request costs money on Mapbox's pricing, and a customer watching their tracking link asks for the drive from the van's newest position. Answers are kept for a day at most, the cautious reading of terms that restrict storing what Mapbox returns. Twenty five points a request, so a big day is several requests. The token travels in the URL, which is why it should be scoped to this API alone.",
+  },
+  {
+    key: "openrouteservice",
+    label: "OpenRouteService",
+    capability: "routing",
+    auth: "api_key",
+    flows: ["drive_times_in"],
+    state: "built",
+    purpose:
+      "Drive times by road over OpenStreetMap from Heidelberg's hosted routing service, which has a free tier, or from the same software run on your own server.",
+    setup:
+      "For the hosted service, a free key from openrouteservice.org in your secret store with its name entered here. For your own server, enter its address and leave the key empty.",
+    limitation:
+      "The hosted free tier has a daily request quota and fifty points a request; a company that outgrows it runs its own. No live traffic. Answers are kept a week. Your customers' locations are sent to whichever server you point it at.",
   },
 
   /* ------------------------------------------------------- call transcripts */

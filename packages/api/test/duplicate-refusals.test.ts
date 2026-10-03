@@ -255,6 +255,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   reorder_policy_item_location_idx: "One policy per item and location, upserted.",
   recording_policy_jurisdiction_idx: "One policy per jurisdiction, upserted.",
   device_installation_idx: "One row per installation of the app, upserted on registration.",
+  technician_position_fix_idx:
+    "One row per fix a phone took. A batch resent after a dropped answer is the same fixes, inserted with on conflict do nothing.",
+  travel_time_pair_idx: "One cached drive time per pair of points per routing provider, upserted when asked again.",
   project_job_job_idx: "One project link per job, which is what stops a job being in two.",
   web_form_slug_idx: "Upserted on the slug, because publishing a form again is an edit.",
   network_grant_uniq_idx:

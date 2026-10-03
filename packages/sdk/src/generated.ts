@@ -495,6 +495,25 @@ export interface ApplyPriceChangeOutput {
   }>;
 }
 
+export interface ApplyRebalanceInput {
+  date: string;
+  basis: string;
+  moves: Array<{
+    visitId: string;
+    technicianId: string;
+  }>;
+  orders: Array<{
+    technicianId: string;
+    visitIds: string[];
+  }>;
+}
+
+export interface ApplyRebalanceOutput {
+  ok: true;
+  moved: number;
+  reordered: number;
+}
+
 export type ApplyTradePackInput = Record<string, unknown>;
 
 export interface ApplyTradePackOutput {
@@ -4424,6 +4443,8 @@ export interface GetAssignmentSuggestionsOutput {
     }>;
   }>;
   unplaced: string[];
+  driveSource: "road" | "estimate" | "mixed";
+  driveNote: string;
 }
 
 export interface GetAvailabilityOutput {
@@ -4940,7 +4961,43 @@ export interface GetDispatchBoardOutput {
       customerName: string;
       addressLine1: string;
       isLate: boolean;
+      routeName: string | null;
+      locked: boolean;
     }>;
+  }>;
+  crews: Array<{
+    id: string;
+    name: string;
+    color: string | null;
+    leadName: string | null;
+    memberNames: string[];
+    visits: Array<{
+      id: string;
+      jobNumber: number;
+      summary: string;
+      status: string;
+      windowStart: string | null;
+      windowEnd: string | null;
+      routeOrder: number | null;
+      estimatedDurationMinutes: number;
+      customerName: string;
+      addressLine1: string;
+      isLate: boolean;
+      routeName: string | null;
+      locked: boolean;
+    }>;
+  }>;
+  routes: Array<{
+    id: string;
+    name: string;
+    stops: number;
+    done: number;
+    runBy: string | null;
+  }>;
+  onCall: Array<{
+    technicianName: string;
+    startsAt: string;
+    endsAt: string;
   }>;
   unassigned: Array<{
     id: string;
@@ -4952,6 +5009,8 @@ export interface GetDispatchBoardOutput {
     customerName: string;
     addressLine1: string;
     postalCode: string;
+    routeName: string | null;
+    locked: boolean;
     priorityPlan: string | null;
   }>;
 }
@@ -4977,6 +5036,23 @@ export interface GetDispatchMapOutput {
     startIsCompanyDefault: boolean;
     route: string[];
   }>;
+  crews: Array<{
+    id: string;
+    name: string;
+    color: string | null;
+    start: {
+      locationId: string;
+      name: string;
+      position: {
+        lat: number;
+        lng: number;
+        precision: "rooftop" | "interpolated" | "street" | "postal_code" | "locality" | "placed" | null;
+        source: string | null;
+      } | null;
+    } | null;
+    memberIds: string[];
+    route: string[];
+  }>;
   visits: Array<{
     id: string;
     jobId: string;
@@ -4993,6 +5069,8 @@ export interface GetDispatchMapOutput {
     isLate: boolean;
     technicianId: string | null;
     technicianIds: string[];
+    crewId: string | null;
+    locked: boolean;
     position: {
       lat: number;
       lng: number;
@@ -5007,6 +5085,23 @@ export interface GetDispatchMapOutput {
     dayStartsAt: string;
   };
   geocoder: string | null;
+  routing: string | null;
+  live: {
+    enabled: boolean;
+    positions: Array<{
+      technicianId: string;
+      displayName: string;
+      color: string | null;
+      lat: number;
+      lng: number;
+      accuracyMeters: number | null;
+      recordedAt: string;
+      reason: "on_the_way" | "working" | "on_the_clock";
+      visitId: string | null;
+      freshness: "live" | "recent" | "stale";
+      lastSeen: string;
+    }>;
+  } | null;
 }
 
 export interface GetEquipmentHistoryOutput {
@@ -5320,6 +5415,12 @@ export interface GetFieldSnapshotOutput {
       max: number | null;
     }>;
   }>;
+  locationSharing: {
+    companyEnabled: boolean;
+    personEnabled: boolean;
+    intervalSeconds: number;
+    retentionDays: number;
+  };
 }
 
 export interface GetFleetReportOutput {
@@ -5819,6 +5920,29 @@ export interface GetKpiScorecardOutput {
   }>;
 }
 
+export interface GetLivePositionsOutput {
+  enabled: boolean;
+  positions: Array<{
+    technicianId: string;
+    displayName: string;
+    color: string | null;
+    lat: number;
+    lng: number;
+    accuracyMeters: number | null;
+    recordedAt: string;
+    reason: "on_the_way" | "working" | "on_the_clock";
+    visitId: string | null;
+    freshness: "live" | "recent" | "stale";
+    lastSeen: string;
+  }>;
+}
+
+export interface GetLocationSharingOutput {
+  enabled: boolean;
+  retentionDays: number;
+  intervalSeconds: number;
+}
+
 export interface GetMarketingCallOutput {
   id: string;
   startedAt: string;
@@ -6145,6 +6269,28 @@ export interface GetPhoneMenuOutput {
     e164: string;
     label: string | null;
   }>;
+}
+
+export interface GetPortalJobLiveOutput {
+  tracking: boolean;
+  status: "not_on_the_way" | "on_the_way" | "arrived" | "finished";
+  etaMinutes: number | null;
+  etaBasis: "road" | "estimate" | "technician" | null;
+  technician: {
+    firstName: string;
+    photoUrl: string | null;
+  } | null;
+  position: {
+    lat: number;
+    lng: number;
+    recordedAt: string;
+    lastSeen: string;
+  } | null;
+  destination: {
+    lat: number;
+    lng: number;
+  } | null;
+  explanation: string;
 }
 
 export interface GetPortalSettingsOutput {
@@ -6536,6 +6682,88 @@ export interface GetRatingOutput {
   };
 }
 
+export interface GetRebalanceOutput {
+  date: string;
+  basis: string;
+  changed: boolean;
+  technicians: Array<{
+    technicianId: string;
+    displayName: string;
+    color: string | null;
+    timeOff: boolean;
+    before: {
+      order: string[];
+      driveMinutes: number;
+      finishAt: string;
+      overtimeMinutes: number;
+      overLimitMinutes: number;
+      lunchAt: string | null;
+      lunchLateMinutes: number;
+      late: Array<{
+        visitId: string;
+        lateByMinutes: number;
+      }>;
+      refused: string[];
+    };
+    after: {
+      order: string[];
+      driveMinutes: number;
+      finishAt: string;
+      overtimeMinutes: number;
+      overLimitMinutes: number;
+      lunchAt: string | null;
+      lunchLateMinutes: number;
+      late: Array<{
+        visitId: string;
+        lateByMinutes: number;
+      }>;
+      refused: string[];
+    };
+  }>;
+  moves: Array<{
+    visitId: string;
+    customerName: string;
+    fromTechnicianId: string | null;
+    fromName: string | null;
+    toTechnicianId: string;
+    toName: string;
+  }>;
+  unplaced: Array<{
+    visitId: string;
+    customerName: string;
+    reason: string;
+  }>;
+  leftOut: Array<{
+    technicianId: string;
+    displayName: string;
+    reason: string;
+  }>;
+  untouched: string[];
+  driveBeforeMinutes: number;
+  driveAfterMinutes: number;
+  driveSavedMinutes: number;
+  overtimeBeforeMinutes: number;
+  overtimeAfterMinutes: number;
+  newlyAssigned: number;
+  moveAssignments: Array<{
+    visitId: string;
+    technicianId: string;
+  }>;
+  apply: Array<{
+    technicianId: string;
+    visitIds: string[];
+  }>;
+  workday: {
+    dayEndsAt: string;
+    lunchMinutes: number;
+    lunchEarliest: string;
+    lunchLatest: string;
+    maxOvertimeMinutes: number;
+  };
+  driveSource: "road" | "estimate" | "mixed";
+  driveNote: string;
+}
+
 export interface GetRecordHistoryOutput {
   rows: Array<{
     id: string;
@@ -6689,6 +6917,7 @@ export interface GetRouteProposalOutput {
     unreachable: boolean;
   }>;
   locked: string[];
+  pinned: string[];
   unplaced: string[];
   applyOrder: string[];
   declaredLegs: number;
@@ -6697,6 +6926,8 @@ export interface GetRouteProposalOutput {
     roadFactor: number;
     dayStartsAt: string;
   };
+  driveSource: "road" | "estimate" | "mixed";
+  driveNote: string;
 }
 
 export interface GetSafetyMeetingOutput {
@@ -7021,6 +7252,14 @@ export interface GetWebsiteTrackingOutput {
     label: string | null;
     heldSince: string | null;
   }>;
+}
+
+export interface GetWorkdaySettingsOutput {
+  dayEndsAt: string;
+  lunchMinutes: number;
+  lunchEarliest: string;
+  lunchLatest: string;
+  maxOvertimeMinutes: number;
 }
 
 export interface GetWorkflowRunsOutput {
@@ -10257,6 +10496,12 @@ export interface ListTechniciansOutput {
     active: boolean;
     skills: string[];
     homeLocationId: string | null;
+    workday: {
+      startsAt: string;
+      endsAt: string;
+    } | null;
+    shareLocation: boolean;
+    hasPhoto: boolean;
   }>;
   companyStart: {
     locationId: string;
@@ -10697,6 +10942,15 @@ export interface LoadWageScaleOutput {
   effectiveFrom: string | null;
   effectiveTo: string | null;
   active: boolean;
+}
+
+export interface LockVisitInput {
+  locked: boolean;
+}
+
+export interface LockVisitOutput {
+  id: string;
+  locked: boolean;
 }
 
 export interface LogCallInput {
@@ -13988,6 +14242,18 @@ export interface SetJobPartiesOutput {
   }>;
 }
 
+export interface SetLocationSharingInput {
+  enabled?: boolean;
+  retentionDays?: number;
+  intervalSeconds?: number;
+}
+
+export interface SetLocationSharingOutput {
+  enabled: boolean;
+  retentionDays: number;
+  intervalSeconds: number;
+}
+
 export interface SetMarketingSettingsInput {
   attributionModel?: "first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based";
   requireLeadSource?: boolean;
@@ -14417,6 +14683,25 @@ export interface SetTechnicianMobileOutput {
   mobilePhone: string | null;
 }
 
+export interface SetTechnicianPhotoInput {
+  bytes: string | null;
+}
+
+export interface SetTechnicianPhotoOutput {
+  id: string;
+  displayName: string;
+  color: string | null;
+  active: boolean;
+  skills: string[];
+  homeLocationId: string | null;
+  workday: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
+  shareLocation: boolean;
+  hasPhoto: boolean;
+}
+
 export interface SetTravelSettingsInput {
   averageKmh?: number;
   roadFactor?: number;
@@ -14467,6 +14752,22 @@ export interface SetWebsiteTrackingInput {
 
 export interface SetWebsiteTrackingOutput {
   idleMinutes: number;
+}
+
+export interface SetWorkdaySettingsInput {
+  dayEndsAt?: string;
+  lunchMinutes?: number;
+  lunchEarliest?: string;
+  lunchLatest?: string;
+  maxOvertimeMinutes?: number;
+}
+
+export interface SetWorkdaySettingsOutput {
+  dayEndsAt: string;
+  lunchMinutes: number;
+  lunchEarliest: string;
+  lunchLatest: string;
+  maxOvertimeMinutes: number;
 }
 
 export interface SetWorkflowEnabledInput {
@@ -14837,6 +15138,14 @@ export interface SyncOperationsInput {
     longitude?: string;
     accuracyMeters?: number;
   }>;
+  positions?: Array<{
+    latitude: number;
+    longitude: number;
+    accuracyMeters?: number;
+    heading?: number;
+    speed?: number;
+    recordedAt: string;
+  }>;
   skipped?: number[];
 }
 
@@ -14851,6 +15160,10 @@ export interface SyncOperationsOutput {
   }>;
   awaiting: number[];
   snapshotRevision: number;
+  positions: {
+    stored: number;
+    dropped: Record<string, number>;
+  };
 }
 
 export type SyncReviewsInput = Record<string, unknown>;
@@ -16221,6 +16534,11 @@ export interface UpdateTechnicianInput {
   skills?: string[];
   homeLocationId?: string | null;
   color?: string | null;
+  workday?: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
+  shareLocation?: boolean;
 }
 
 export interface UpdateTechnicianOutput {
@@ -16230,6 +16548,12 @@ export interface UpdateTechnicianOutput {
   active: boolean;
   skills: string[];
   homeLocationId: string | null;
+  workday: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
+  shareLocation: boolean;
+  hasPhoto: boolean;
 }
 
 export interface UpdateTerritoryInput {
@@ -17537,6 +17861,10 @@ export interface GetKpiScorecardInput {
   to: string;
 }
 
+export type GetLivePositionsInput = Record<string, never>;
+
+export type GetLocationSharingInput = Record<string, never>;
+
 export interface GetMarketingCallInput {
   id: string;
 }
@@ -17585,6 +17913,10 @@ export interface GetPerformanceInput {
 
 export interface GetPhoneMenuInput {
   id: string;
+}
+
+export interface GetPortalJobLiveInput {
+  token: string;
 }
 
 export type GetPortalSettingsInput = Record<string, never>;
@@ -17652,6 +17984,10 @@ export interface GetRatingInput {
 }
 
 export type GetRatingByTechnicianInput = Record<string, never>;
+
+export interface GetRebalanceInput {
+  date: string;
+}
 
 export interface GetRecordHistoryInput {
   entityType: string;
@@ -17749,6 +18085,8 @@ export interface GetWebhookPositionInput {
 }
 
 export type GetWebsiteTrackingInput = Record<string, never>;
+
+export type GetWorkdaySettingsInput = Record<string, never>;
 
 export interface GetWorkflowRunsInput {
   id: string;
@@ -18513,6 +18851,10 @@ export type ListWorkflowTemplatesInput = Record<string, never>;
 
 export type ListWorkflowsInput = Record<string, never>;
 
+export interface LockVisitParams {
+  id: string;
+}
+
 export interface MapPlatformCampaignParams {
   id: string;
 }
@@ -19061,6 +19403,10 @@ export interface SetTechnicianMobileParams {
   id: string;
 }
 
+export interface SetTechnicianPhotoParams {
+  id: string;
+}
+
 export interface SetWorkflowEnabledParams {
   id: string;
 }
@@ -19379,6 +19725,7 @@ export interface OperationTypes {
   applyExternalWorkOrderRemote: { input: ApplyExternalWorkOrderRemoteParams & ApplyExternalWorkOrderRemoteInput; output: ApplyExternalWorkOrderRemoteOutput };
   applyPayment: { input: ApplyPaymentParams & ApplyPaymentInput; output: ApplyPaymentOutput };
   applyPriceChange: { input: ApplyPriceChangeInput; output: ApplyPriceChangeOutput };
+  applyRebalance: { input: ApplyRebalanceInput; output: ApplyRebalanceOutput };
   applyTradePack: { input: ApplyTradePackParams & ApplyTradePackInput; output: ApplyTradePackOutput };
   applyVendorCatalogue: { input: ApplyVendorCatalogueInput; output: ApplyVendorCatalogueOutput };
   approveAppRequest: { input: ApproveAppRequestParams & ApproveAppRequestInput; output: ApproveAppRequestOutput };
@@ -19582,6 +19929,8 @@ export interface OperationTypes {
   getJobMaterialCost: { input: GetJobMaterialCostInput; output: GetJobMaterialCostOutput };
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
+  getLivePositions: { input: GetLivePositionsInput; output: GetLivePositionsOutput };
+  getLocationSharing: { input: GetLocationSharingInput; output: GetLocationSharingOutput };
   getMarketingCall: { input: GetMarketingCallInput; output: GetMarketingCallOutput };
   getMarketingFunnel: { input: GetMarketingFunnelInput; output: GetMarketingFunnelOutput };
   getMarketingSettings: { input: GetMarketingSettingsInput; output: GetMarketingSettingsOutput };
@@ -19594,6 +19943,7 @@ export interface OperationTypes {
   getPayrollRegister: { input: GetPayrollRegisterInput; output: GetPayrollRegisterOutput };
   getPerformance: { input: GetPerformanceInput; output: GetPerformanceOutput };
   getPhoneMenu: { input: GetPhoneMenuInput; output: GetPhoneMenuOutput };
+  getPortalJobLive: { input: GetPortalJobLiveInput; output: GetPortalJobLiveOutput };
   getPortalSettings: { input: GetPortalSettingsInput; output: GetPortalSettingsOutput };
   getPortalVisitChange: { input: GetPortalVisitChangeInput; output: GetPortalVisitChangeOutput };
   getPriceBookItem: { input: GetPriceBookItemInput; output: GetPriceBookItemOutput };
@@ -19610,6 +19960,7 @@ export interface OperationTypes {
   getRateCardTerms: { input: GetRateCardTermsInput; output: GetRateCardTermsOutput };
   getRating: { input: GetRatingInput; output: GetRatingOutput };
   getRatingByTechnician: { input: GetRatingByTechnicianInput; output: GetRatingByTechnicianOutput };
+  getRebalance: { input: GetRebalanceInput; output: GetRebalanceOutput };
   getRecordHistory: { input: GetRecordHistoryInput; output: GetRecordHistoryOutput };
   getReferrals: { input: GetReferralsInput; output: GetReferralsOutput };
   getRegulatoryConstant: { input: GetRegulatoryConstantInput; output: GetRegulatoryConstantOutput };
@@ -19635,6 +19986,7 @@ export interface OperationTypes {
   getWarrantyWatch: { input: GetWarrantyWatchInput; output: GetWarrantyWatchOutput };
   getWebhookPosition: { input: GetWebhookPositionInput; output: GetWebhookPositionOutput };
   getWebsiteTracking: { input: GetWebsiteTrackingInput; output: GetWebsiteTrackingOutput };
+  getWorkdaySettings: { input: GetWorkdaySettingsInput; output: GetWorkdaySettingsOutput };
   getWorkflowRuns: { input: GetWorkflowRunsInput; output: GetWorkflowRunsOutput };
   grantConsent: { input: GrantConsentInput; output: GrantConsentOutput };
   handOverAsset: { input: HandOverAssetParams & HandOverAssetInput; output: HandOverAssetOutput };
@@ -19825,6 +20177,7 @@ export interface OperationTypes {
   listWorkflowTemplates: { input: ListWorkflowTemplatesInput; output: ListWorkflowTemplatesOutput };
   listWorkflows: { input: ListWorkflowsInput; output: ListWorkflowsOutput };
   loadWageScale: { input: LoadWageScaleInput; output: LoadWageScaleOutput };
+  lockVisit: { input: LockVisitParams & LockVisitInput; output: LockVisitOutput };
   logCall: { input: LogCallInput; output: LogCallOutput };
   mapPlatformCampaign: { input: MapPlatformCampaignParams & MapPlatformCampaignInput; output: MapPlatformCampaignOutput };
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
@@ -19999,6 +20352,7 @@ export interface OperationTypes {
   setJobContract: { input: SetJobContractParams & SetJobContractInput; output: SetJobContractOutput };
   setJobCoverage: { input: SetJobCoverageParams & SetJobCoverageInput; output: SetJobCoverageOutput };
   setJobParties: { input: SetJobPartiesParams & SetJobPartiesInput; output: SetJobPartiesOutput };
+  setLocationSharing: { input: SetLocationSharingInput; output: SetLocationSharingOutput };
   setMarketingSettings: { input: SetMarketingSettingsInput; output: SetMarketingSettingsOutput };
   setMemberBranch: { input: SetMemberBranchParams & SetMemberBranchInput; output: SetMemberBranchOutput };
   setMemberRole: { input: SetMemberRoleParams & SetMemberRoleInput; output: SetMemberRoleOutput };
@@ -20026,10 +20380,12 @@ export interface OperationTypes {
   setServiceRouteStopActive: { input: SetServiceRouteStopActiveParams & SetServiceRouteStopActiveInput; output: SetServiceRouteStopActiveOutput };
   setStatementSchedule: { input: SetStatementScheduleInput; output: SetStatementScheduleOutput };
   setTechnicianMobile: { input: SetTechnicianMobileParams & SetTechnicianMobileInput; output: SetTechnicianMobileOutput };
+  setTechnicianPhoto: { input: SetTechnicianPhotoParams & SetTechnicianPhotoInput; output: SetTechnicianPhotoOutput };
   setTravelSettings: { input: SetTravelSettingsInput; output: SetTravelSettingsOutput };
   setVendorItem: { input: SetVendorItemInput; output: SetVendorItemOutput };
   setWageClassification: { input: SetWageClassificationInput; output: SetWageClassificationOutput };
   setWebsiteTracking: { input: SetWebsiteTrackingInput; output: SetWebsiteTrackingOutput };
+  setWorkdaySettings: { input: SetWorkdaySettingsInput; output: SetWorkdaySettingsOutput };
   setWorkflowEnabled: { input: SetWorkflowEnabledParams & SetWorkflowEnabledInput; output: SetWorkflowEnabledOutput };
   settleCommission: { input: SettleCommissionInput; output: SettleCommissionOutput };
   settleReferralReward: { input: SettleReferralRewardParams & SettleReferralRewardInput; output: SettleReferralRewardOutput };
@@ -20149,6 +20505,7 @@ export const OPERATIONS = {
   applyExternalWorkOrderRemote: { method: "POST", path: "/v1/external-work-orders/{id}/remote", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   applyPayment: { method: "POST", path: "/v1/payments/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   applyPriceChange: { method: "POST", path: "/v1/pricebook/price-changes", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  applyRebalance: { method: "POST", path: "/v1/dispatch/rebalance/apply", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch","visit:reschedule"] },
   applyTradePack: { method: "POST", path: "/v1/trade-packs/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   applyVendorCatalogue: { method: "POST", path: "/v1/vendor-catalogue/apply", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["vendor:write","pricebook:write"] },
   approveAppRequest: { method: "POST", path: "/v1/apps/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -20352,6 +20709,8 @@ export const OPERATIONS = {
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getLivePositions: { method: "GET", path: "/v1/dispatch/positions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
+  getLocationSharing: { method: "GET", path: "/v1/dispatch/location-sharing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getMarketingCall: { method: "GET", path: "/v1/marketing/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel", pathParams: [], queryParams: ["from","to","by","model"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingSettings: { method: "GET", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -20364,6 +20723,7 @@ export const OPERATIONS = {
   getPayrollRegister: { method: "GET", path: "/v1/payroll/register", pathParams: [], queryParams: ["periodId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
   getPerformance: { method: "GET", path: "/v1/marketing/performance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getPhoneMenu: { method: "GET", path: "/v1/phone-menus/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  getPortalJobLive: { method: "GET", path: "/v1/portal/job/live", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalSettings: { method: "GET", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalVisitChange: { method: "GET", path: "/v1/portal/visit-change", pathParams: [], queryParams: ["token","visitId","from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPriceBookItem: { method: "GET", path: "/v1/pricebook/items/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
@@ -20380,6 +20740,7 @@ export const OPERATIONS = {
   getRateCardTerms: { method: "GET", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getRating: { method: "GET", path: "/v1/reviews/rating", pathParams: [], queryParams: ["platform"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRatingByTechnician: { method: "GET", path: "/v1/reviews/by-technician", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
+  getRebalance: { method: "GET", path: "/v1/dispatch/rebalance", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getRecordHistory: { method: "GET", path: "/v1/audit/history", pathParams: [], queryParams: ["entityType","entityId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["audit:read"] },
   getReferrals: { method: "GET", path: "/v1/marketing/referrals", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getRegulatoryConstant: { method: "GET", path: "/v1/compliance/constants", pathParams: [], queryParams: ["key","on","jurisdiction"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -20405,6 +20766,7 @@ export const OPERATIONS = {
   getWarrantyWatch: { method: "GET", path: "/v1/equipment-warranties", pathParams: [], queryParams: ["withinDays","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getWebhookPosition: { method: "GET", path: "/v1/webhooks/endpoints/{id}/position", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getWebsiteTracking: { method: "GET", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  getWorkdaySettings: { method: "GET", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getWorkflowRuns: { method: "GET", path: "/v1/workflows/{id}/runs", pathParams: ["id"], queryParams: ["runs"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
   grantConsent: { method: "POST", path: "/v1/consent", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   handOverAsset: { method: "POST", path: "/v1/assets/{assetId}/hand-over", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
@@ -20595,6 +20957,7 @@ export const OPERATIONS = {
   listWorkflowTemplates: { method: "GET", path: "/v1/workflow-templates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
   listWorkflows: { method: "GET", path: "/v1/workflows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
   loadWageScale: { method: "POST", path: "/v1/payroll/wage-scales", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
+  lockVisit: { method: "POST", path: "/v1/visits/{id}/lock", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   logCall: { method: "POST", path: "/v1/calls", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   mapPlatformCampaign: { method: "PATCH", path: "/v1/marketing/platform-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -20769,6 +21132,7 @@ export const OPERATIONS = {
   setJobContract: { method: "PUT", path: "/v1/jobs/{id}/contract", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobCoverage: { method: "PUT", path: "/v1/jobs/{id}/coverage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobParties: { method: "PUT", path: "/v1/jobs/{id}/parties", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  setLocationSharing: { method: "PUT", path: "/v1/dispatch/location-sharing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMarketingSettings: { method: "PATCH", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMemberBranch: { method: "POST", path: "/v1/memberships/{membershipId}/branch", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   setMemberRole: { method: "POST", path: "/v1/memberships/{membershipId}/role", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -20796,10 +21160,12 @@ export const OPERATIONS = {
   setServiceRouteStopActive: { method: "POST", path: "/v1/service-routes/stops/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setStatementSchedule: { method: "POST", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   setTechnicianMobile: { method: "POST", path: "/v1/field/technicians/{id}/mobile", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setTechnicianPhoto: { method: "POST", path: "/v1/technicians/{id}/photo", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setTravelSettings: { method: "PUT", path: "/v1/dispatch/travel", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setVendorItem: { method: "PUT", path: "/v1/vendor-items", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   setWageClassification: { method: "POST", path: "/v1/payroll/classifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setWebsiteTracking: { method: "PATCH", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setWorkdaySettings: { method: "PUT", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setWorkflowEnabled: { method: "POST", path: "/v1/workflows/{id}/enabled", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:write"] },
   settleCommission: { method: "POST", path: "/v1/commissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   settleReferralReward: { method: "POST", path: "/v1/marketing/referral-rewards/{id}/settle", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
@@ -21113,6 +21479,15 @@ export abstract class GeneratedOperations {
    */
   applyPriceChange(input: ApplyPriceChangeInput, options?: CallOptions): Promise<ApplyPriceChangeOutput> {
     return this.call("applyPriceChange", input, options);
+  }
+
+  /**
+   * Apply a rebalanced day somebody looked at.
+   *
+   * POST /v1/dispatch/rebalance/apply. Needs visit:dispatch, visit:reschedule.
+   */
+  applyRebalance(input: ApplyRebalanceInput, options?: CallOptions): Promise<ApplyRebalanceOutput> {
+    return this.call("applyRebalance", input, options);
   }
 
   /**
@@ -22943,6 +23318,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Where each technician is now.
+   *
+   * GET /v1/dispatch/positions. Needs visit:dispatch.
+   */
+  getLivePositions(input: GetLivePositionsInput = {} as GetLivePositionsInput, options?: CallOptions): Promise<GetLivePositionsOutput> {
+    return this.call("getLivePositions", input, options);
+  }
+
+  /**
+   * Whether the company shares technicians' locations, and for how long it keeps them.
+   *
+   * GET /v1/dispatch/location-sharing. Needs visit:read.
+   */
+  getLocationSharing(input: GetLocationSharingInput = {} as GetLocationSharingInput, options?: CallOptions): Promise<GetLocationSharingOutput> {
+    return this.call("getLocationSharing", input, options);
+  }
+
+  /**
    * One inbound call.
    *
    * GET /v1/marketing/calls/{id}. Needs adspend:read.
@@ -23048,6 +23441,15 @@ export abstract class GeneratedOperations {
    */
   getPhoneMenu(input: GetPhoneMenuInput, options?: CallOptions): Promise<GetPhoneMenuOutput> {
     return this.call("getPhoneMenu", input, options);
+  }
+
+  /**
+   * The live part of a tracking link: an ETA and where the technician is.
+   *
+   * GET /v1/portal/job/live.
+   */
+  getPortalJobLive(input: GetPortalJobLiveInput, options?: CallOptions): Promise<GetPortalJobLiveOutput> {
+    return this.call("getPortalJobLive", input, options);
   }
 
   /**
@@ -23192,6 +23594,15 @@ export abstract class GeneratedOperations {
    */
   getRatingByTechnician(input: GetRatingByTechnicianInput = {} as GetRatingByTechnicianInput, options?: CallOptions): Promise<GetRatingByTechnicianOutput> {
     return this.call("getRatingByTechnician", input, options);
+  }
+
+  /**
+   * Propose the whole day rebalanced across the technicians.
+   *
+   * GET /v1/dispatch/rebalance. Needs visit:read.
+   */
+  getRebalance(input: GetRebalanceInput, options?: CallOptions): Promise<GetRebalanceOutput> {
+    return this.call("getRebalance", input, options);
   }
 
   /**
@@ -23417,6 +23828,15 @@ export abstract class GeneratedOperations {
    */
   getWebsiteTracking(input: GetWebsiteTrackingInput = {} as GetWebsiteTrackingInput, options?: CallOptions): Promise<GetWebsiteTrackingOutput> {
     return this.call("getWebsiteTracking", input, options);
+  }
+
+  /**
+   * The working day the rebalance plans inside.
+   *
+   * GET /v1/dispatch/workday. Needs visit:read.
+   */
+  getWorkdaySettings(input: GetWorkdaySettingsInput = {} as GetWorkdaySettingsInput, options?: CallOptions): Promise<GetWorkdaySettingsOutput> {
+    return this.call("getWorkdaySettings", input, options);
   }
 
   /**
@@ -25130,6 +25550,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Lock a visit to whoever has it, or unlock it.
+   *
+   * POST /v1/visits/{id}/lock. Needs visit:dispatch.
+   */
+  lockVisit(input: LockVisitParams & LockVisitInput, options?: CallOptions): Promise<LockVisitOutput> {
+    return this.call("lockVisit", input, options);
+  }
+
+  /**
    * Record that a call happened.
    *
    * POST /v1/calls. Needs message:send.
@@ -26696,6 +27125,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Turn location sharing on or off, and set how long positions are kept.
+   *
+   * PUT /v1/dispatch/location-sharing. Needs settings:write.
+   */
+  setLocationSharing(input: SetLocationSharingInput = {} as SetLocationSharingInput, options?: CallOptions): Promise<SetLocationSharingOutput> {
+    return this.call("setLocationSharing", input, options);
+  }
+
+  /**
    * Choose the attribution model, or require a lead source on new work.
    *
    * PATCH /v1/marketing/settings. Needs settings:write.
@@ -26939,6 +27377,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set or clear the photo customers see on their tracking link.
+   *
+   * POST /v1/technicians/{id}/photo. Needs user:write.
+   */
+  setTechnicianPhoto(input: SetTechnicianPhotoParams & SetTechnicianPhotoInput, options?: CallOptions): Promise<SetTechnicianPhotoOutput> {
+    return this.call("setTechnicianPhoto", input, options);
+  }
+
+  /**
    * Change how drive time is estimated.
    *
    * PUT /v1/dispatch/travel. Needs settings:write.
@@ -26972,6 +27419,15 @@ export abstract class GeneratedOperations {
    */
   setWebsiteTracking(input: SetWebsiteTrackingInput, options?: CallOptions): Promise<SetWebsiteTrackingOutput> {
     return this.call("setWebsiteTracking", input, options);
+  }
+
+  /**
+   * Change the working day the rebalance plans inside.
+   *
+   * PUT /v1/dispatch/workday. Needs settings:write.
+   */
+  setWorkdaySettings(input: SetWorkdaySettingsInput = {} as SetWorkdaySettingsInput, options?: CallOptions): Promise<SetWorkdaySettingsOutput> {
+    return this.call("setWorkdaySettings", input, options);
   }
 
   /**

@@ -88,6 +88,7 @@ describe("permissions", () => {
        */
       "GET /v1/portal/invoice",
       "GET /v1/portal/job",
+    "GET /v1/portal/job/live",
       /** A payer's own invoices, through a link of the `payer` scope. */
       "GET /v1/portal/payer",
       /**

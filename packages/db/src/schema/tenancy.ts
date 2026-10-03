@@ -364,6 +364,26 @@ export const technician = pgTable("technician", {
   licenses: jsonb("licenses").$type<Array<{ type: string; number: string; expiresOn: string }>>().notNull().default([]),
   homeLocationId: uuid("home_location_id").references(() => location.id, { onDelete: "set null" }),
   /**
+   * The hours of this person's working day, local time, when they are not
+   * the company's. The rebalance plans their day inside these and counts
+   * anything past `endsAt` as overtime. Null is the company's day.
+   */
+  workday: jsonb("workday").$type<{ startsAt: string; endsAt: string } | null>(),
+  /**
+   * Whether this person's phone shares where they are while they work, when
+   * the company shares locations at all. On by default once the company
+   * turns sharing on; the office turns it off for somebody, and the person
+   * sees which it is on their own phone. Never shared off the clock either
+   * way: see `packages/core/src/location`.
+   */
+  shareLocation: boolean("share_location").notNull().default(true),
+  /**
+   * The photograph a customer sees on their tracking link, a `stored_file`
+   * id. No foreign key, because `stored_file` is declared in a file that
+   * imports this one; a photo whose file has gone is simply not shown.
+   */
+  photoFileId: uuid("photo_file_id"),
+  /**
    * The wage classification this person is normally paid at.
    *
    * It is a name rather than a foreign key to `wage_scale`, because a scale
