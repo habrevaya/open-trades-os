@@ -20,9 +20,10 @@ import { MoneyString, Uuid } from "./common";
  * rows, the lines and the punches behind every number on it, which is what
  * somebody wants the moment they do not believe the roll-up.
  *
- * WHAT THESE NUMBERS ARE NOT. Gross margin, with no overhead allocated,
- * because this product holds no overhead pool and would have to invent a
- * rate. Labour at the loaded rate frozen onto each punch and not including
+ * WHAT THESE NUMBERS ARE NOT. Gross margin has no overhead allocated,
+ * because a rate nobody chose would be an opinion in every margin; the
+ * fully loaded margin beside it uses the burden and overhead rates the
+ * company itself set, and equals the gross margin until it sets any. Labour at the loaded rate frozen onto each punch and not including
  * the overtime premium, because overtime belongs to a person's week rather
  * than to a job. Every response carries those caveats as text, so a figure
  * cannot travel without them.
@@ -82,7 +83,7 @@ export const getJobProfitability = defineRoute({
   path: "/v1/profitability/jobs/{id}",
   summary: "What one job earned, and the rows behind every number",
   description:
-    "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because nothing in this product posts to COGS. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. No overhead is allocated. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.",
+    "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because nothing in this product posts to COGS. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.",
   module: "M15",
   permissions: ["report.financial:read", "job.cost:read"],
   input: z.object({ id: Uuid }),
@@ -103,6 +104,13 @@ export const getJobProfitability = defineRoute({
     grossMargin: MoneyString,
     /** Null, never zero. A warranty job has cost and no income; 0% says it broke even. */
     grossMarginPercent: z.number().nullable(),
+    /** Employer's payroll taxes, benefits and workers' compensation at the company's own dated rates. */
+    labourBurden: MoneyString,
+    /** Overhead at the company's own rate for the job's day. */
+    overhead: MoneyString,
+    /** Gross margin less burden and overhead. Beside the gross margin, never instead of it. */
+    fullyLoadedMargin: MoneyString,
+    fullyLoadedMarginPercent: z.number().nullable(),
 
     scheduledHours: HoursString,
     actualHours: HoursString,

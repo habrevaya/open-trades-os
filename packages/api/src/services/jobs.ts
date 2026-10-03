@@ -53,7 +53,7 @@ type CreateInput = z.infer<typeof JobCreate>;
  */
 async function nextNumber(
   tx: Database, organizationId: string,
-  table: "job" | "invoice" | "estimate" | "purchase_order" | "credit_note",
+  table: "job" | "invoice" | "estimate" | "purchase_order" | "credit_note" | "journal_entry",
 ): Promise<number> {
   await tx.execute(sql`
     select pg_advisory_xact_lock(hashtext(${`number:${table}:${organizationId}`}))

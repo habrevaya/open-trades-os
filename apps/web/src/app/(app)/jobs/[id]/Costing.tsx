@@ -7,6 +7,11 @@ export interface CostingData {
   processingFees: string;
   grossMargin: string;
   grossMarginPercent: number | null;
+  /** At the company's own burden and overhead rates; equal to the gross margin until any are set. */
+  labourBurden?: string;
+  overhead?: string;
+  fullyLoadedMargin?: string;
+  fullyLoadedMarginPercent?: number | null;
   scheduledHours: string;
   actualHours: string;
   hoursOverPlan: string;
@@ -59,6 +64,19 @@ export function Costing({ data }: { data: CostingData }) {
             <span className="ml-1 text-ink-500">({data.grossMarginPercent.toFixed(1)}%)</span>
           )}
         </Figure>
+        {data.fullyLoadedMargin !== undefined && (Number(data.labourBurden ?? "0") !== 0 || Number(data.overhead ?? "0") !== 0) ? (
+          <>
+            <Figure label="Burden and overhead">
+              <Money value={data.labourBurden ?? "0"} /> <span className="text-ink-500">and</span> <Money value={data.overhead ?? "0"} />
+            </Figure>
+            <Figure label="Fully loaded margin">
+              <span className={Number(data.fullyLoadedMargin) < 0 ? "text-red-600" : undefined}><Money value={data.fullyLoadedMargin} /></span>
+              {data.fullyLoadedMarginPercent !== null && data.fullyLoadedMarginPercent !== undefined && (
+                <span className="ml-1 text-ink-500">({data.fullyLoadedMarginPercent.toFixed(1)}%)</span>
+              )}
+            </Figure>
+          </>
+        ) : null}
         <Figure label="Hours, planned and actual">
           {Number(data.scheduledHours)} / {Number(data.actualHours)}
           {over && <span className="ml-1 text-red-600">({Number(data.hoursOverPlan)} over)</span>}

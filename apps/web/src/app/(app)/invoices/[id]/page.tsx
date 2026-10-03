@@ -3,7 +3,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
-  claims as claimService, entitlements,
+  claims as claimService, entitlements, financing,
 } from "@opentradesos/api/services";
 import { can, claims, rates } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
@@ -19,6 +19,7 @@ import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm
 import { fileClaim } from "../claims/actions";
 import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../credit-notes/labels";
 import { creditInvoice } from "../credit-notes/actions";
+import { FinancingPanel } from "@/components/FinancingPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const coveredBy = invoice.jobId && can(user.actor, "job:read")
     ? await entitlements.forJob(ctx, { jobId: invoice.jobId })
     : null;
+  /** Financing on this invoice: the monthly figure for the balance and every application. */
+  const loan = invoice.status === "draft" ? null : await financing.forInvoice(ctx, { invoiceId: id });
   const claimable = !claim && can(user.actor, "invoice:write") && job !== null && coveredBy?.profile.billsAThirdParty === true
     && invoice.customerId !== job.customerId && invoice.status !== "draft" && invoice.status !== "void";
 
@@ -203,6 +206,21 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           )}
         </section>
       )}
+
+      {loan && (loan.connected ? (owed || loan.applications.length > 0) : collects) ? (
+        <FinancingPanel
+          subject={{ invoiceId: id }}
+          connected={loan.connected}
+          lender={loan.lender}
+          offers={[{
+            optionId: null, name: null, total: invoice.balance ?? "0",
+            sentence: loan.offer?.sentence ?? null, applicable: loan.applicable,
+          }]}
+          applications={loan.applications}
+          canSend={collects}
+          timezone={tz}
+        />
+      ) : null}
 
       <InvoiceActions
         action={actOnInvoice}

@@ -92,6 +92,8 @@ export function legacySecretNotice(provider: string, settings: Record<string, un
 function webhookPathOf(row: typeof schema.integrationConnection.$inferSelect): string | null {
   const token = (row.settings as Record<string, unknown> | null)?.["webhookToken"];
   if (row.capability === "payments") return `/api/webhooks/payments/${row.id}`;
+  /** A lender verifies with its signing secret, like a card processor, so it routes on the connection too. */
+  if (row.capability === "financing") return `/api/webhooks/financing/${row.id}`;
   if (typeof token !== "string" || token === "") return null;
   if (row.capability === "messaging") return `/api/webhooks/messaging/${token}`;
   if (row.capability === "email") return `/api/webhooks/email/${token}`;

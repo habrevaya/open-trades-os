@@ -12829,6 +12829,515 @@
         ]
       }
     },
+    "/v1/budgets/{year}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getBudgetReport",
+        "summary": "The year's budget against the ledger, by line and month, with variance",
+        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled.\n\nRequires a session holding: report.financial:read.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "year",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The year's budget against the ledger, by line and month, with variance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBudgetReportOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report.financial:read"
+        ]
+      }
+    },
+    "/v1/budgets/{year}/import": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "importBudget",
+        "summary": "Load a year's budget from a spreadsheet",
+        "description": "CSV with a header row of months (Jan to Dec, or 1 to 12) and one row per line. Each line in the file replaces that line entirely; lines not in the file are left alone. Every problem is reported at once and nothing is written unless the whole file reads. Importing the same file twice leaves the same budget.\n\nRequires a session holding: finance:configure.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "year",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportBudgetInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Load a year's budget from a spreadsheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportBudgetOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "finance:configure"
+        ]
+      }
+    },
+    "/v1/budgets/{year}/lines": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setBudgetLine",
+        "summary": "Set one budget line's twelve months",
+        "description": "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month.\n\nRequires a session holding: finance:configure.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "year",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBudgetLineInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set one budget line's twelve months",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetBudgetLineOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "finance:configure"
+        ]
+      }
+    },
+    "/v1/budgets/{year}/lines/{line}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeBudgetLine",
+        "summary": "Take a line out of the year's budget",
+        "description": "Requires a session holding: finance:configure.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "year",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100
+            }
+          },
+          {
+            "name": "line",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveBudgetLineInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a line out of the year's budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveBudgetLineOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "finance:configure"
+        ]
+      }
+    },
     "/v1/business-units": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -24088,6 +24597,347 @@
         ]
       }
     },
+    "/v1/costing/rates": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listCostingRates",
+        "summary": "Labour burden and overhead rates, with the dates they took effect",
+        "description": "Every rate the company has set, oldest first per component, with `current` on the one in effect today. These are what turn the direct margin on job costing into the fully loaded one beside it.\n\nRequires a session holding: job.cost:read.",
+        "tags": [
+          "M15"
+        ],
+        "responses": {
+          "200": {
+            "description": "Labour burden and overhead rates, with the dates they took effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCostingRatesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job.cost:read"
+        ]
+      },
+      "post": {
+        "operationId": "setCostingRate",
+        "summary": "Set a burden or overhead rate from a date",
+        "description": "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one component on one day is refused. Sending the same rate again returns it.\n\nRequires a session holding: finance:configure.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCostingRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Set a burden or overhead rate from a date",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCostingRateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "finance:configure"
+        ]
+      }
+    },
+    "/v1/costing/rates/{id}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeCostingRate",
+        "summary": "Remove a rate entered by mistake",
+        "description": "Requires a session holding: finance:configure.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveCostingRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Remove a rate entered by mistake",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveCostingRateOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "finance:configure"
+        ]
+      }
+    },
     "/v1/credit-notes": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -33473,6 +34323,115 @@
         ]
       }
     },
+    "/v1/estimates/{estimateId}/financing": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getEstimateFinancing",
+        "summary": "Financing on one estimate: a monthly figure per option and the applications",
+        "description": "Requires a session holding: estimate:read.",
+        "tags": [
+          "M07"
+        ],
+        "parameters": [
+          {
+            "name": "estimateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Financing on one estimate: a monthly figure per option and the applications",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEstimateFinancingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "estimate:read"
+        ]
+      }
+    },
     "/v1/estimates/{id}": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -37962,6 +38921,513 @@
         ]
       }
     },
+    "/v1/financing/applications": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listFinancingApplications",
+        "summary": "Loan applications customers were sent, and where each stands",
+        "description": "Newest first. The status is what the lender last returned, read back from the lender rather than taken from a webhook. Nothing about the customer's credit is kept beyond it.\n\nRequires a session holding: payment:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "sent",
+                "applied",
+                "approved",
+                "declined",
+                "expired",
+                "funded",
+                "cancelled"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loan applications customers were sent, and where each stands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListFinancingApplicationsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:read"
+        ]
+      },
+      "post": {
+        "operationId": "sendFinancingLink",
+        "summary": "Open a loan application for an invoice or an estimate, and text or email the customer its link",
+        "description": "The amount is read from the invoice's balance or the estimate option's total, never taken from the request. A live application for the same amount is reused rather than a second one opened. `channel` link sends nothing and returns the link to hand over. A text or email that cannot go (no number, the customer opted out, no provider) is reported in `delivery` with the reason, and the application stands. Idempotent on the request's key: a retry does not message the customer twice.\n\nRequires a session holding: payment:collect.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendFinancingLinkInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Open a loan application for an invoice or an estimate, and text or email the customer its link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendFinancingLinkOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:collect"
+        ]
+      }
+    },
+    "/v1/financing/applications/{id}/refresh": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "refreshFinancingApplication",
+        "summary": "Ask the lender where an application stands now",
+        "description": "Reads the application back from the lender and records it, as a webhook would. When it has become funded the payment is recorded on the invoice with the lender's fee as an expense. Safe to repeat: an application only moves forward, and a funding is recorded once.\n\nRequires a session holding: payment:collect.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshFinancingApplicationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ask the lender where an application stands now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshFinancingApplicationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:collect"
+        ]
+      }
+    },
+    "/v1/financing/report": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getFinancingReport",
+        "summary": "Applications, approval rate, funded volume and fees",
+        "description": "Over applications opened in the window. The approval rate is approved or funded over everything the lender decided, so a link nobody opened is not counted as a decline. Fees are what lenders reported keeping; funded loans with no reported fee are counted separately rather than as free.\n\nRequires a session holding: report.financial:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Applications, approval rate, funded volume and fees",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetFinancingReportOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report.financial:read"
+        ]
+      }
+    },
     "/v1/fleet-report": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -40670,6 +42136,115 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListInvoiceDeliveriesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:read"
+        ]
+      }
+    },
+    "/v1/invoices/{invoiceId}/financing": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getInvoiceFinancing",
+        "summary": "Financing on one invoice: the monthly figure and the applications",
+        "description": "The \"as low as\" offer for the balance, worked out from the plans on the company's lender connection and always carried with its \"subject to approval\" sentence, and every application on the invoice. `offer` is null when no lender is connected, the company hid the figure, no plans were entered, or the balance is outside what the lender finances.\n\nRequires a session holding: invoice:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Financing on one invoice: the monthly figure and the applications",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetInvoiceFinancingOutput"
                 }
               }
             }
@@ -44833,6 +46408,487 @@
         "x-authorization": "session",
         "x-permissions": [
           "ledger:read"
+        ]
+      }
+    },
+    "/v1/ledger/journal-entries": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createJournalEntry",
+        "summary": "Post a manual journal entry",
+        "description": "Lines with an account code and a debit or a credit. Refused, with every problem named against its line, when it does not balance, when a line touches an account the product keeps in step with documents (receivable, customer deposits, tips and commission payable, deferred revenue), when the date is in the future, or when it falls in a closed period. Audited, and sent to the accounting system on the next sync once its accounts are mapped.\n\nRequires a session holding: ledger:post.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJournalEntryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Post a manual journal entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateJournalEntryOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:post"
+        ]
+      },
+      "get": {
+        "operationId": "listJournalEntries",
+        "summary": "Manual journal entries, newest first",
+        "description": "Requires a session holding: ledger:read.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Manual journal entries, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListJournalEntriesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:read"
+        ]
+      }
+    },
+    "/v1/ledger/journal-entries/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getJournalEntry",
+        "summary": "One manual journal entry and its lines",
+        "description": "Requires a session holding: ledger:read.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One manual journal entry and its lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetJournalEntryOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:read"
+        ]
+      }
+    },
+    "/v1/ledger/journal-entries/{id}/reverse": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "reverseJournalEntry",
+        "summary": "Reverse a manual journal entry",
+        "description": "A new entry with every line on the other side, each pointing at the entry it takes back. Dated today unless another open day is given, never before the original. An entry is reversed once, and a reversal is not itself reversed.\n\nRequires a session holding: ledger:post.",
+        "tags": [
+          "M14"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReverseJournalEntryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reverse a manual journal entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReverseJournalEntryOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:post"
         ]
       }
     },
@@ -64341,7 +66397,7 @@
       "get": {
         "operationId": "getJobProfitability",
         "summary": "What one job earned, and the rows behind every number",
-        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because nothing in this product posts to COGS. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. No overhead is allocated. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
+        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because nothing in this product posts to COGS. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
         "tags": [
           "M15"
         ],
@@ -106643,6 +108699,171 @@
           "updatedAt"
         ]
       },
+      "CreateJournalEntryInput": {
+        "type": "object",
+        "properties": {
+          "occurredOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "memo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accountCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 12
+                },
+                "debit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "credit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "memo": {
+                  "type": "string",
+                  "maxLength": 500
+                }
+              },
+              "required": [
+                "accountCode"
+              ]
+            },
+            "minItems": 2,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "memo",
+          "lines"
+        ]
+      },
+      "CreateJournalEntryOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "occurredOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "memo": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "reversesJournalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reversesNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reversedByJournalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reversedByNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "createdByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "accountCode": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "debit",
+                    "credit"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "memo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "entryId",
+                "accountCode",
+                "direction",
+                "amount",
+                "memo"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "occurredOn",
+          "memo",
+          "total",
+          "currency",
+          "reversesJournalId",
+          "reversesNumber",
+          "reversedByJournalId",
+          "reversedByNumber",
+          "createdByUserId",
+          "createdAt",
+          "lines"
+        ]
+      },
       "CreateLeadConnectorInput": {
         "type": "object",
         "properties": {
@@ -117033,6 +119254,158 @@
           "peopleWithoutBranch"
         ]
       },
+      "GetBudgetReportOutput": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "through": {
+            "type": "integer"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "months": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "month": {
+                        "type": "integer"
+                      },
+                      "budget": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "actual": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "variance": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "favourable": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "month",
+                      "budget",
+                      "actual",
+                      "variance",
+                      "favourable"
+                    ]
+                  }
+                },
+                "toDate": {
+                  "type": "object",
+                  "properties": {
+                    "budget": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "actual": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "variance": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "percent": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "favourable": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "budget",
+                    "actual",
+                    "variance",
+                    "percent",
+                    "favourable"
+                  ]
+                },
+                "year": {
+                  "type": "object",
+                  "properties": {
+                    "budget": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "budget"
+                  ]
+                }
+              },
+              "required": [
+                "line",
+                "label",
+                "months",
+                "toDate",
+                "year"
+              ]
+            }
+          },
+          "net": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "budget": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "actual": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "budget",
+              "actual"
+            ]
+          },
+          "caveat": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "year",
+          "through",
+          "lines",
+          "net",
+          "caveat"
+        ]
+      },
       "GetCallOutput": {
         "type": "object",
         "properties": {
@@ -120600,6 +122973,280 @@
           "updatedAt"
         ]
       },
+      "GetEstimateFinancingOutput": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "lender": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "optionId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "offer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "lender": {
+                      "type": "string"
+                    },
+                    "monthly": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "months": {
+                      "type": "integer"
+                    },
+                    "aprPercent": {
+                      "type": "string"
+                    },
+                    "sentence": {
+                      "type": "string"
+                    },
+                    "short": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lender",
+                    "monthly",
+                    "months",
+                    "aprPercent",
+                    "sentence",
+                    "short"
+                  ]
+                },
+                "applicable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "optionId",
+                "name",
+                "total",
+                "offer",
+                "applicable"
+              ]
+            }
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "sent",
+                    "applied",
+                    "approved",
+                    "declined",
+                    "expired",
+                    "funded",
+                    "cancelled"
+                  ]
+                },
+                "statusLabel": {
+                  "type": "string"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "estimateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "estimateNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "approvedAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "chosenOffer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "months": {
+                      "type": "integer"
+                    },
+                    "aprPercent": {
+                      "type": "string"
+                    },
+                    "monthlyPayment": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "months",
+                    "aprPercent",
+                    "monthlyPayment"
+                  ]
+                },
+                "fundedAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "fundedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "applicationUrl": {
+                  "type": "string"
+                },
+                "sentVia": {
+                  "type": "string"
+                },
+                "sentTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attention": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "provider",
+                "status",
+                "statusLabel",
+                "customerId",
+                "customerName",
+                "invoiceId",
+                "invoiceNumber",
+                "estimateId",
+                "estimateNumber",
+                "amount",
+                "approvedAmount",
+                "chosenOffer",
+                "fundedAmount",
+                "feeAmount",
+                "fundedAt",
+                "paymentId",
+                "applicationUrl",
+                "sentVia",
+                "sentTo",
+                "attention",
+                "expiresAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "connected",
+          "lender",
+          "options",
+          "applications"
+        ]
+      },
       "GetEstimateProposalOutput": {
         "type": "object",
         "properties": {
@@ -121628,6 +124275,99 @@
           "priceBook",
           "openTimeEntry",
           "inspectionPrograms"
+        ]
+      },
+      "GetFinancingReportOutput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applications": {
+            "type": "integer"
+          },
+          "byStatus": {
+            "type": "object",
+            "properties": {
+              "sent": {
+                "type": "integer"
+              },
+              "applied": {
+                "type": "integer"
+              },
+              "approved": {
+                "type": "integer"
+              },
+              "declined": {
+                "type": "integer"
+              },
+              "expired": {
+                "type": "integer"
+              },
+              "funded": {
+                "type": "integer"
+              },
+              "cancelled": {
+                "type": "integer"
+              }
+            }
+          },
+          "approvalRate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "decided": {
+            "type": "integer"
+          },
+          "fundedCount": {
+            "type": "integer"
+          },
+          "fundedVolume": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "fees": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "feesUnknown": {
+            "type": "integer"
+          },
+          "feePercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pendingVolume": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "applications",
+          "byStatus",
+          "approvalRate",
+          "decided",
+          "fundedCount",
+          "fundedVolume",
+          "fees",
+          "feesUnknown",
+          "feePercent",
+          "pendingVolume"
         ]
       },
       "GetFleetReportOutput": {
@@ -123187,6 +125927,255 @@
           "updatedAt"
         ]
       },
+      "GetInvoiceFinancingOutput": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "lender": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "offer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lender": {
+                "type": "string"
+              },
+              "monthly": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "months": {
+                "type": "integer"
+              },
+              "aprPercent": {
+                "type": "string"
+              },
+              "sentence": {
+                "type": "string"
+              },
+              "short": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "lender",
+              "monthly",
+              "months",
+              "aprPercent",
+              "sentence",
+              "short"
+            ]
+          },
+          "applicable": {
+            "type": "boolean"
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "sent",
+                    "applied",
+                    "approved",
+                    "declined",
+                    "expired",
+                    "funded",
+                    "cancelled"
+                  ]
+                },
+                "statusLabel": {
+                  "type": "string"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "estimateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "estimateNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "approvedAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "chosenOffer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "months": {
+                      "type": "integer"
+                    },
+                    "aprPercent": {
+                      "type": "string"
+                    },
+                    "monthlyPayment": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "months",
+                    "aprPercent",
+                    "monthlyPayment"
+                  ]
+                },
+                "fundedAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "fundedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "applicationUrl": {
+                  "type": "string"
+                },
+                "sentVia": {
+                  "type": "string"
+                },
+                "sentTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attention": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "provider",
+                "status",
+                "statusLabel",
+                "customerId",
+                "customerName",
+                "invoiceId",
+                "invoiceNumber",
+                "estimateId",
+                "estimateNumber",
+                "amount",
+                "approvedAmount",
+                "chosenOffer",
+                "fundedAmount",
+                "feeAmount",
+                "fundedAt",
+                "paymentId",
+                "applicationUrl",
+                "sentVia",
+                "sentTo",
+                "attention",
+                "expiresAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "connected",
+          "lender",
+          "offer",
+          "applicable",
+          "applications"
+        ]
+      },
       "GetJobOutput": {
         "type": "object",
         "properties": {
@@ -123809,6 +126798,24 @@
               "null"
             ]
           },
+          "labourBurden": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "overhead": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "fullyLoadedMargin": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "fullyLoadedMarginPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "scheduledHours": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,2})?$"
@@ -124082,6 +127089,10 @@
           "processingFees",
           "grossMargin",
           "grossMarginPercent",
+          "labourBurden",
+          "overhead",
+          "fullyLoadedMargin",
+          "fullyLoadedMarginPercent",
           "scheduledHours",
           "actualHours",
           "hoursOverPlan",
@@ -124097,6 +127108,123 @@
           "feeEntries",
           "lines",
           "labour"
+        ]
+      },
+      "GetJournalEntryOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "occurredOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "memo": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "reversesJournalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reversesNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reversedByJournalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reversedByNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "createdByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "accountCode": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "debit",
+                    "credit"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "memo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "entryId",
+                "accountCode",
+                "direction",
+                "amount",
+                "memo"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "occurredOn",
+          "memo",
+          "total",
+          "currency",
+          "reversesJournalId",
+          "reversesNumber",
+          "reversedByJournalId",
+          "reversedByNumber",
+          "createdByUserId",
+          "createdAt",
+          "lines"
         ]
       },
       "GetKpiScorecardOutput": {
@@ -131130,6 +134258,38 @@
           "to"
         ]
       },
+      "ImportBudgetInput": {
+        "type": "object",
+        "properties": {
+          "csv": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000
+          }
+        },
+        "required": [
+          "csv"
+        ]
+      },
+      "ImportBudgetOutput": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "lines": {
+            "type": "integer"
+          },
+          "cells": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "lines",
+          "cells"
+        ]
+      },
       "ImportSpendInput": {
         "type": "object",
         "properties": {
@@ -136886,6 +140046,87 @@
           "sends"
         ]
       },
+      "ListCostingRatesOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "component": {
+                  "type": "string",
+                  "enum": [
+                    "payroll_taxes",
+                    "benefits",
+                    "workers_comp",
+                    "overhead"
+                  ]
+                },
+                "componentLabel": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "percent_of_wages",
+                    "per_hour",
+                    "per_job",
+                    "percent_of_revenue"
+                  ]
+                },
+                "basisLabel": {
+                  "type": "string"
+                },
+                "rate": {
+                  "type": "string"
+                },
+                "effectiveFrom": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "component",
+                "componentLabel",
+                "basis",
+                "basisLabel",
+                "rate",
+                "effectiveFrom",
+                "note",
+                "current",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "rates"
+        ]
+      },
       "ListCreditNotesOutput": {
         "type": "object",
         "properties": {
@@ -139629,6 +142870,204 @@
           "technicians"
         ]
       },
+      "ListFinancingApplicationsOutput": {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "sent",
+                    "applied",
+                    "approved",
+                    "declined",
+                    "expired",
+                    "funded",
+                    "cancelled"
+                  ]
+                },
+                "statusLabel": {
+                  "type": "string"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "estimateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "estimateNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "approvedAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "chosenOffer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "months": {
+                      "type": "integer"
+                    },
+                    "aprPercent": {
+                      "type": "string"
+                    },
+                    "monthlyPayment": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "months",
+                    "aprPercent",
+                    "monthlyPayment"
+                  ]
+                },
+                "fundedAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "fundedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "applicationUrl": {
+                  "type": "string"
+                },
+                "sentVia": {
+                  "type": "string"
+                },
+                "sentTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attention": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "provider",
+                "status",
+                "statusLabel",
+                "customerId",
+                "customerName",
+                "invoiceId",
+                "invoiceNumber",
+                "estimateId",
+                "estimateNumber",
+                "amount",
+                "approvedAmount",
+                "chosenOffer",
+                "fundedAmount",
+                "feeAmount",
+                "fundedAt",
+                "paymentId",
+                "applicationUrl",
+                "sentVia",
+                "sentTo",
+                "attention",
+                "expiresAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "applications"
+        ]
+      },
       "ListFormsOutput": {
         "type": "object",
         "properties": {
@@ -141078,6 +144517,134 @@
         },
         "required": [
           "transactions"
+        ]
+      },
+      "ListJournalEntriesOutput": {
+        "type": "object",
+        "properties": {
+          "journals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "occurredOn": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "memo": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "reversesJournalId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reversesNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "reversedByJournalId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reversedByNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "createdByUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "entryId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "accountCode": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "type": "string",
+                        "enum": [
+                          "debit",
+                          "credit"
+                        ]
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "memo": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "entryId",
+                      "accountCode",
+                      "direction",
+                      "amount",
+                      "memo"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "number",
+                "occurredOn",
+                "memo",
+                "total",
+                "currency",
+                "reversesJournalId",
+                "reversesNumber",
+                "reversedByJournalId",
+                "reversedByNumber",
+                "createdByUserId",
+                "createdAt",
+                "lines"
+              ]
+            }
+          }
+        },
+        "required": [
+          "journals"
         ]
       },
       "ListKpiCatalogueOutput": {
@@ -157374,6 +160941,197 @@
           "deficiencyCount"
         ]
       },
+      "RefreshFinancingApplicationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RefreshFinancingApplicationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "applied",
+              "approved",
+              "declined",
+              "expired",
+              "funded",
+              "cancelled"
+            ]
+          },
+          "statusLabel": {
+            "type": "string"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estimateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "estimateNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "approvedAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "chosenOffer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "months": {
+                "type": "integer"
+              },
+              "aprPercent": {
+                "type": "string"
+              },
+              "monthlyPayment": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "months",
+              "aprPercent",
+              "monthlyPayment"
+            ]
+          },
+          "fundedAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "feeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "fundedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "paymentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "applicationUrl": {
+            "type": "string"
+          },
+          "sentVia": {
+            "type": "string"
+          },
+          "sentTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attention": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "status",
+          "statusLabel",
+          "customerId",
+          "customerName",
+          "invoiceId",
+          "invoiceNumber",
+          "estimateId",
+          "estimateNumber",
+          "amount",
+          "approvedAmount",
+          "chosenOffer",
+          "fundedAmount",
+          "feeAmount",
+          "fundedAt",
+          "paymentId",
+          "applicationUrl",
+          "sentVia",
+          "sentTo",
+          "attention",
+          "expiresAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "RefundDepositInput": {
         "type": "object",
         "properties": {
@@ -158342,6 +162100,32 @@
           "movements"
         ]
       },
+      "RemoveBudgetLineInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveBudgetLineOutput": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "line": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "year",
+          "line",
+          "removed"
+        ]
+      },
       "RemoveChangeOrderLineInput": {
         "type": "object",
         "properties": {}
@@ -158564,6 +162348,29 @@
           "voidReason",
           "createdAt",
           "lines"
+        ]
+      },
+      "RemoveCostingRateInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveCostingRateOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
         ]
       },
       "RemoveCustomerInput": {
@@ -161303,6 +165110,136 @@
           "occurredAt",
           "explanation",
           "ledgerTransactionId",
+          "lines"
+        ]
+      },
+      "ReverseJournalEntryInput": {
+        "type": "object",
+        "properties": {
+          "occurredOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "memo": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "ReverseJournalEntryOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "occurredOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "memo": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "reversesJournalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reversesNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reversedByJournalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reversedByNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "createdByUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "accountCode": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "debit",
+                    "credit"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "memo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "entryId",
+                "accountCode",
+                "direction",
+                "amount",
+                "memo"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "occurredOn",
+          "memo",
+          "total",
+          "currency",
+          "reversesJournalId",
+          "reversesNumber",
+          "reversedByJournalId",
+          "reversedByNumber",
+          "createdByUserId",
+          "createdAt",
           "lines"
         ]
       },
@@ -164608,6 +168545,285 @@
           "delivery"
         ]
       },
+      "SendFinancingLinkInput": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estimateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "optionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "email",
+              "link"
+            ]
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 320
+          }
+        },
+        "required": [
+          "channel"
+        ]
+      },
+      "SendFinancingLinkOutput": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "sent",
+                  "applied",
+                  "approved",
+                  "declined",
+                  "expired",
+                  "funded",
+                  "cancelled"
+                ]
+              },
+              "statusLabel": {
+                "type": "string"
+              },
+              "customerId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "customerName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "invoiceId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "invoiceNumber": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "estimateId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "estimateNumber": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "approvedAmount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "chosenOffer": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "months": {
+                    "type": "integer"
+                  },
+                  "aprPercent": {
+                    "type": "string"
+                  },
+                  "monthlyPayment": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  }
+                },
+                "required": [
+                  "months",
+                  "aprPercent",
+                  "monthlyPayment"
+                ]
+              },
+              "fundedAmount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "feeAmount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fundedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "paymentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "applicationUrl": {
+                "type": "string"
+              },
+              "sentVia": {
+                "type": "string"
+              },
+              "sentTo": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attention": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "provider",
+              "status",
+              "statusLabel",
+              "customerId",
+              "customerName",
+              "invoiceId",
+              "invoiceNumber",
+              "estimateId",
+              "estimateNumber",
+              "amount",
+              "approvedAmount",
+              "chosenOffer",
+              "fundedAmount",
+              "feeAmount",
+              "fundedAt",
+              "paymentId",
+              "applicationUrl",
+              "sentVia",
+              "sentTo",
+              "attention",
+              "expiresAt",
+              "createdAt",
+              "updatedAt"
+            ]
+          },
+          "reused": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "sent": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  },
+                  "channel": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sent",
+                  "channel"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "sent": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ]
+                  },
+                  "channel": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sent",
+                  "channel",
+                  "reason"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "application",
+          "reused",
+          "delivery"
+        ]
+      },
       "SendInvoiceInput": {
         "type": "object",
         "properties": {
@@ -165196,6 +169412,49 @@
           "expiresOn"
         ]
       },
+      "SetBudgetLineInput": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "amounts": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 30
+            }
+          }
+        },
+        "required": [
+          "line",
+          "amounts"
+        ]
+      },
+      "SetBudgetLineOutput": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "line": {
+            "type": "string"
+          },
+          "months": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "line",
+          "months"
+        ]
+      },
       "SetBusinessHoursInput": {
         "type": "object",
         "properties": {
@@ -165300,6 +169559,112 @@
           "id",
           "status",
           "statusReason"
+        ]
+      },
+      "SetCostingRateInput": {
+        "type": "object",
+        "properties": {
+          "component": {
+            "type": "string",
+            "enum": [
+              "payroll_taxes",
+              "benefits",
+              "workers_comp",
+              "overhead"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "percent_of_wages",
+              "per_hour",
+              "per_job",
+              "percent_of_revenue"
+            ]
+          },
+          "rate": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "component",
+          "basis",
+          "rate",
+          "effectiveFrom"
+        ]
+      },
+      "SetCostingRateOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "component": {
+            "type": "string",
+            "enum": [
+              "payroll_taxes",
+              "benefits",
+              "workers_comp",
+              "overhead"
+            ]
+          },
+          "componentLabel": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "percent_of_wages",
+              "per_hour",
+              "per_job",
+              "percent_of_revenue"
+            ]
+          },
+          "basisLabel": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "string"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "component",
+          "componentLabel",
+          "basis",
+          "basisLabel",
+          "rate",
+          "effectiveFrom",
+          "note",
+          "current",
+          "createdAt"
         ]
       },
       "SetCrewMembersInput": {

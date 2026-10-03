@@ -34,7 +34,7 @@ catalogue cannot drift into optimism.
 
 **What counts as built is deliberately narrow.** A parser with no transport is not a
 connector. A connector is built when a company can set it up from the settings screen
-and data arrives. Twenty two entries are built today and five are declared.
+and data arrives. Twenty three entries are built today and five are declared.
 
 **A capability is a seam, not a vendor.** Payments, email, accounting, messaging,
 telephony, ads, lead source, reviews, maps, tax, payroll, financing, storage,
@@ -112,6 +112,18 @@ then looked up by the worker, oldest priority first, which is the backfill.
 waiting, and which the geocoder could not find. `POST /v1/properties/{id}/pin`
 places one by hand and `DELETE /v1/properties/{id}/pin` hands it back.
 
+### Let customers pay over time
+
+Connect Wisetack under "Customer financing" with the name of the secret holding
+the API token, the merchant id, the name of the webhook signing secret, and the
+plans on the agreement as months@APR. The webhook address the screen then shows
+goes into Wisetack's dashboard, and is also handed to Wisetack on every
+application. The seam is `financing` (`src/financing/provider.ts`): open an
+application for an amount, read one back, verify and read a webhook. M13 says
+what it does on an invoice and an estimate. The adapter is tested against a
+fake of Wisetack's API, not a live account, and needs a Wisetack merchant
+account.
+
 ### Connect a model
 
 `POST /v1/ai/connections` connects an AI provider the company already pays for,
@@ -150,7 +162,7 @@ catalogue says why.
 ## Common questions
 
 **Which integrations are built?** The catalogue answers it at runtime, and the
-settings screen shows it. Stripe, QuickBooks Online, Xero, Twilio, JustCall, Resend,
+settings screen shows it. Stripe, Wisetack, QuickBooks Online, Xero, Twilio, JustCall, Resend,
 SMTP, CallRail, the AI model providers, the OpenStreetMap and Mapbox geocoders,
 Google Ads, Google Local Services, Meta Ads, Google Analytics and Google Business
 Profile are the ones a company can set up and see data arrive from. The last

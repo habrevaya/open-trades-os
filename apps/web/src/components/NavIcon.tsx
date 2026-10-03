@@ -21,9 +21,17 @@ export type IconName =
   | "invoices" | "estimates" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance";
+  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance"
+  | "books";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /** Books: a ledger open flat, two pages and a spine, for the journal and the budget. */
+  books: (
+    <>
+      <path d="M12 6.5c-2-1.6-4.8-2-8-1.5v13c3.2-.5 6 0 8 1.5 2-1.5 4.8-2 8-1.5V5c-3.2-.5-6-.1-8 1.5Z" />
+      <path d="M12 6.5V19.5" />
+    </>
+  ),
   /** Compliance: a shield, for what keeps the company allowed to work. */
   compliance: (
     <>

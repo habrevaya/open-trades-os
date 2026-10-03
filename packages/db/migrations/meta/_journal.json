@@ -575,6 +575,13 @@
       "when": 1791053482438,
       "tag": "0081_parched_ben_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1791066467934,
+      "tag": "0082_luxuriant_pixie",
+      "breakpoints": true
     }
   ]
 }

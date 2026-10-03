@@ -205,6 +205,12 @@ export const NAV: NavGroup[] = [
            * invoice to a third party, and it is chased by whoever chases those.
            */
           { href: "/invoices/claims", label: "Claims" },
+          /**
+           * Loan applications customers were sent, and what financing brought
+           * in. Under Invoices because a funded loan is how an invoice gets
+           * paid, and it is chased by whoever chases those.
+           */
+          { href: "/invoices/financing", label: "Financing" },
         ],
       },
       {
@@ -252,6 +258,19 @@ export const NAV: NavGroup[] = [
            * two screens here for the same one.
            */
           { href: "/fleet/containers", label: "Containers" },
+        ],
+      },
+      /**
+       * The accountant's own screens: journal entries for what has no
+       * document here, and the year's budget against the ledger. Shown to
+       * whoever may read the ledger; the budget page itself needs
+       * `report.financial:read`, which every role holding the ledger has.
+       */
+      {
+        href: "/books", label: "Books", permission: "ledger:read", icon: "books",
+        children: [
+          { href: "/books", label: "Journal entries" },
+          { href: "/books/budget", label: "Budget" },
         ],
       },
       { href: "/timesheets", label: "Timesheets", permission: "timesheet:read", icon: "timesheets" },
@@ -397,6 +416,13 @@ export const NAV: NavGroup[] = [
           { href: "/settings/roles", label: "Roles" },
           { href: "/settings/custom-fields", label: "Custom fields" },
           { href: "/settings/service-area", label: "Service area" },
+          /**
+           * Labour burden and overhead rates, with their dates, which turn the
+           * direct margin on job costing into the fully loaded one beside it.
+           * Inherits `settings:read` to be shown; the page reads with
+           * `job.cost:read` and changes with `finance:configure`.
+           */
+          { href: "/settings/costing", label: "Costing" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
            * The agents that run on the model connected above: on or off, who

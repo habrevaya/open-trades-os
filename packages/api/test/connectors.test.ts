@@ -50,6 +50,8 @@ import { registeredGeocoders } from "../src/maps/index";
  * because they move the same things in the same directions.
  */
 import { registeredAdsAdapters } from "../src/ads/index";
+/** The lenders, on the financing seam, for the reason every registry above is named. */
+import { registeredFinancingProviders } from "../src/financing/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -88,6 +90,7 @@ describe("the connector catalogue", () => {
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(),
       ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
+      ...registeredFinancingProviders(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -113,6 +116,7 @@ describe("the connector catalogue", () => {
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(),
       ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
+      ...registeredFinancingProviders(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);
@@ -156,6 +160,8 @@ describe("the connector catalogue", () => {
       "ics_feed",
       /** And maps, which sat there longer: the reason a property's coordinates were never filled. */
       "nominatim", "mapbox",
+      /** And financing, the last capability that sat in the enum with nothing behind it that an owner asks for by name. */
+      "wisetack",
     ]) {
       expect(keys.has(needed), `${needed} is not in the catalogue`).toBe(true);
     }

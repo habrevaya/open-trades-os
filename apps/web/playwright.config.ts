@@ -2,6 +2,7 @@ import { defineConfig, devices, chromium } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
+import { E2E_WISETACK_ENV } from "./e2e/wisetack-env";
 import { E2E_CALLRAIL_ENV } from "./e2e/callrail-env";
 import { E2E_TWILIO_ENV } from "./e2e/twilio-env";
 import { E2E_ADS_ENV } from "./e2e/ads-env";
@@ -103,9 +104,10 @@ export default defineConfig({
      * the same again for the voice webhooks (e2e/twilio-env.ts). The ad
      * platforms' sealing key and secret names are the same arrangement again
      * (e2e/ads-env.ts), for a local fake of Google, and so is the model key
-     * for the AI agents (e2e/ai-env.ts).
+     * for the AI agents (e2e/ai-env.ts), and for the lender behind customer
+     * financing (e2e/wisetack-env.ts).
      */
-    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...E2E_ADS_ENV, ...E2E_AI_ENV },
+    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...E2E_ADS_ENV, ...E2E_AI_ENV, ...E2E_WISETACK_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },

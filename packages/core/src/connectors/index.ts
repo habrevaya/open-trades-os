@@ -87,7 +87,13 @@ export type ConnectorCapability =
    */
   | "maps"
   /** Speech to text, for the call recordings and voicemails this product keeps. */
-  | "transcription";
+  | "transcription"
+  /**
+   * Consumer financing: a lender the customer borrows from to pay the
+   * company. In the database's capability enum since the first migration with
+   * nothing behind it, as `calendar` and `maps` were.
+   */
+  | "financing";
 
 /**
  * How the operator proves who they are.
@@ -180,7 +186,15 @@ export type ConnectorFlow =
    * product for the geocoder, which is worth an owner knowing before they
    * connect one, and a coordinate with its precision comes back to be kept.
    */
-  | "locations_in";
+  | "locations_in"
+  /**
+   * A loan application out to a lender, its decision back, and the lender's
+   * payment in. One flow rather than three, because none of the three is
+   * worth anything without the others: an application whose decision never
+   * comes back is a customer left waiting, and a decision with no payment is
+   * an invoice nobody closes.
+   */
+  | "financing_in";
 
 /**
  * Built, or named but not built. Two values, no middle.
@@ -620,6 +634,22 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "A restricted API key from your own Stripe account, scoped to payment intents, charges and refunds, plus a webhook endpoint pointed at the URL on this screen and the signing secret it gives you. Both go in your secret store; this product holds the names of them, never the values. The money goes to your account, on your rate, and nothing here takes a cut.",
     limitation:
       "The webhook is what closes an invoice, so a connection whose signing secret is missing or wrong takes cards perfectly well and never learns that any of them succeeded. It also means a payment taken while this product is down is reconciled when it comes back, not at the moment the customer pays.",
+  },
+
+  /* ---------------------------------------------------------- financing in */
+  {
+    key: "wisetack",
+    label: "Wisetack",
+    capability: "financing",
+    auth: "api_key",
+    flows: ["financing_in"],
+    state: "built",
+    purpose:
+      "Let customers pay over time. Estimates and invoices show an \"as low as\" monthly figure from your Wisetack plans, always with \"subject to approval\" beside it; the customer applies from their link or from a text or email the office sends; the application's status shows on the estimate or invoice; and when Wisetack funds the loan the payment lands on the invoice with Wisetack's fee booked as an expense.",
+    setup:
+      "A Wisetack merchant account with API access, which Wisetack grants to merchants it has signed: an API token, your merchant id, and a webhook endpoint pointed at the URL on this screen with its signing secret. The token and the signing secret go in your secret store; this product holds their names. Enter the plans on your Wisetack agreement (months and APR, such as 60@17.9) and the smallest and largest amount Wisetack finances for you, which is what the monthly figure is worked out from.",
+    limitation:
+      "Tested against a fake of Wisetack's API, not a live account: run one application through Wisetack's sandbox before turning it on for customers. The monthly figure is worked out from the plans you enter, not asked of Wisetack per customer, so it is only as right as those plans. Nothing about a customer's credit is kept beyond the status Wisetack returns. A loan Wisetack refunds after funding is shown and not reversed: record the refund on the payment.",
   },
 ];
 
