@@ -22,6 +22,7 @@ import {
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
   setup, team, branches, tradePacks,
   phoneMenus, transcription,
+  agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch,
 } from "../services/index";
 
 /**
@@ -477,6 +478,12 @@ export const handlers = {
   testAiConnection: ai.handlers.testAiConnection,
   setAiSpendLimit: ai.handlers.setAiSpendLimit,
   runAiCompletion: ai.handlers.runAiCompletion,
+  ...agents.handlers,
+  ...agentIntake.handlers,
+  ...agentEstimates.handlers,
+  ...agentCollections.handlers,
+  ...agentDispatch.handlers,
+  ...agentChat.handlers,
 
   listAssets: assets.handlers.listAssets,
   registerAsset: assets.handlers.registerAsset,

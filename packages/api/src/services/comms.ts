@@ -225,6 +225,13 @@ export async function markRead(ctx: ServiceContext, input: { id: string }) {
  */
 async function replyDecision(tx: Database, conversation: typeof schema.conversation.$inferSelect):
   Promise<{ allowed: true } | { allowed: false; reason: string; explanation: string }> {
+  if (conversation.channel === "webchat") {
+    const [session] = await tx.select({ status: schema.aiChatSession.status }).from(schema.aiChatSession)
+      .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1);
+    return session && session.status !== "closed"
+      ? { allowed: true }
+      : { allowed: false, reason: "chat_closed", explanation: "This website chat has ended, so a reply has nowhere to go." };
+  }
   if (conversation.channel === "email") {
     const decision = await email.emailability(tx, conversation.organizationId, conversation.externalAddress, "transactional");
     if (decision.allowed && decision.sender) return { allowed: true };
@@ -277,7 +284,12 @@ export async function reply(ctx: ServiceContext, input: { id: string; body: stri
     const repeat = await sentBefore(tx, ctx);
     if (repeat) return clean(ctx, "message", repeat);
 
-    if (conversation.channel === "email") return replyByEmail(tx, ctx, conversation, body, pictures);
+    if (conversation.channel === "email") {
+      await takeOverChat(tx, conversation.id);
+      return replyByEmail(tx, ctx, conversation, body, pictures);
+    }
+    if (conversation.channel === "webchat") return replyInChat(tx, ctx, conversation, body, pictures);
+    await takeOverChat(tx, conversation.id);
 
     const decision = await sendability(tx, conversation.organizationId, conversation.externalAddress);
     if (!decision.allowed) throw new ConflictError(refusal(decision.reason));
@@ -317,6 +329,55 @@ export async function reply(ctx: ServiceContext, input: { id: string; body: stri
     await rememberSend(tx, ctx, message!.id);
     return clean(ctx, "message", message!);
   });
+}
+
+/**
+ * A person answering a website chat, from the inbox.
+ *
+ * The visitor's open chat reads the conversation, so the reply is written as
+ * sent: there is no carrier between the inbox and the widget, and no consent
+ * question either, because the visitor opened the chat and is waiting in it.
+ * Answering takes the chat over from the automated assistant.
+ */
+async function replyInChat(
+  tx: Database, ctx: ServiceContext, conversation: typeof schema.conversation.$inferSelect,
+  body: string, pictures: readonly Picture[],
+) {
+  if (pictures.length > 0) throw new ConflictError("A website chat takes words only. Send the picture by text or email instead.");
+  const decision = await replyDecision(tx, conversation);
+  if (!decision.allowed) throw new ConflictError(decision.explanation);
+  await takeOverChat(tx, conversation.id);
+  const [message] = await tx.insert(schema.message).values({
+    organizationId: conversation.organizationId,
+    conversationId: conversation.id,
+    direction: "outbound",
+    channel: "webchat",
+    purpose: "transactional",
+    fromAddress: "website",
+    toAddress: conversation.externalAddress,
+    body,
+    status: "sent",
+    sentByUserId: ctx.actor.userId,
+  }).returning();
+  await tx.update(schema.conversation).set({
+    lastMessageAt: new Date(), lastMessagePreview: body.slice(0, 200), status: "open", updatedAt: new Date(),
+  }).where(eq(schema.conversation.id, conversation.id));
+  await rememberSend(tx, ctx, message!.id);
+  return clean(ctx, "message", message!);
+}
+
+/**
+ * A person writing in a conversation the automated assistant is answering
+ * takes it over. From then on the assistant stays quiet, because two voices
+ * answering one customer is worse than either.
+ */
+async function takeOverChat(tx: Database, conversationId: string): Promise<void> {
+  await tx.update(schema.aiChatSession).set({
+    status: "handed_off",
+    handedOffAt: sql`coalesce(${schema.aiChatSession.handedOffAt}, now())`,
+    handoffReason: sql`coalesce(${schema.aiChatSession.handoffReason}, 'A person replied.')`,
+    updatedAt: new Date(),
+  }).where(and(eq(schema.aiChatSession.conversationId, conversationId), eq(schema.aiChatSession.status, "open")));
 }
 
 /**

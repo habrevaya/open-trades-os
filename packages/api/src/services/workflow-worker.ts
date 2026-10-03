@@ -7,6 +7,7 @@ import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { deliverDue } from "./delivery-schedules";
+import { agentPass } from "./agent-worker";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
@@ -198,6 +199,12 @@ export interface PassOptions {
    */
   schedules?: boolean;
   /**
+   * The AI agents' own pass, inside the clock. On by default; a deployment
+   * that wants no agent to run in the background turns it off here, and an
+   * agent nobody turned on costs a single read either way.
+   */
+  agents?: boolean;
+  /**
    * Whether this pass also puts a few addresses on the map, and with what.
    *
    * On by default, for companies that have connected a geocoder and nobody
@@ -324,6 +331,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] deliveries:", (error as Error).message);
+    }
+    /**
+     * The AI agents a company left running on their own (intake, text chat,
+     * collections). Its own try, and each company's failure is kept to that
+     * company inside it. A reply or reminder it queued goes out on this pass.
+     */
+    if (options.agents !== false) {
+      try {
+        for (const result of await agentPass(options.db, stop ? { shouldStop: stop } : {})) {
+          if (result.queued) delivered.add(result.organizationId);
+          for (const failure of result.failed) console.error(`[worker] agents ${result.organizationId}: ${failure}`);
+        }
+      } catch (error) {
+        console.error("[worker] agents:", (error as Error).message);
+      }
     }
   }
 
