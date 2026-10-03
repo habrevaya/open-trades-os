@@ -32,7 +32,7 @@ right answer is different for different things.
 ## Key concepts
 
 **Writes are named intents, not row diffs.** Sixteen operation kinds and the
-list is closed: a new kind is a schema decision and a conflict decision, not
+list is closed (the sixteenth, `payment.collect`, is money taken on site): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -100,7 +100,7 @@ hoster can use without an app store at all.
 ### The phone app
 
 The technician types the company's server address, then their email and
-password. `POST /v1/field/sign-in` checks them with the sign in form's own
+password, or asks for a one time code instead (below). `POST /v1/field/sign-in` checks them with the sign in form's own
 password check and lockout and hands back a device token, `otd_` and then a
 secret, which the phone keeps in the Keychain or Keystore and presents as a
 bearer token. The token is a session underneath: it acts as the person,
@@ -113,9 +113,41 @@ per install, and registering with a device token binds the token to the device.
 That binding is what makes it revocable: `POST /v1/field/devices/{id}/sign-out`
 is the phone signing itself out (its own device only, `field:sync`), and
 `POST /v1/field/devices/{id}/revoke` is the office taking a lost phone away
-(`user:write`), which stops it syncing and ends its token on every route at
-once. `GET /v1/field/devices` lists the phones (`user:read`). Signing in again
-on the same phone ends the token it had, so a handset never holds two.
+(`user:write`), which stops it syncing, ends its token on every route at once
+and stops its notices. `GET /v1/field/devices` lists the phones (`user:read`).
+Signing in again on the same phone ends the token it had, so a handset never
+holds two.
+
+### Signing in with a code
+
+A technician who has no password, or has forgotten it, signs in with a six
+digit code instead. `POST /v1/field/sign-in/code` sends one by text to the
+mobile number the office recorded for them, or to their email, and
+`POST /v1/field/sign-in/verify` trades it for the same device token a password
+gets. Both are public, like the password sign in.
+
+The rules are in `packages/core/src/field/codes.ts` and the database functions
+that keep them: a code lives ten minutes, is spent the moment it works, dies
+after five wrong guesses, and only the newest one works; a person may ask
+three times in fifteen minutes, and an address is limited per minute on both
+calls. Only a hash is kept. Asking answers the same sentence whether or not
+the address belongs to anybody, so the form cannot be used to find out who
+works where; what actually happened (sent, no number on file, asked too often)
+is in the company's audit log.
+
+The code goes straight to the carrier or the mail provider and not through the
+outbox, because the outbox keeps every body in the inbox where the office reads
+it, and a code there would be a sign in anybody in the office could use. And it
+goes only to the number the office set with
+`POST /v1/field/technicians/{id}/mobile` (`user:write`), never to one typed at
+the sign in screen.
+
+### The office's view of the phones
+
+`/settings/phones` is each technician, the number their code is texted to, and
+every phone they have signed in on: when it was last heard from, whether it is
+signed in, and whether changes to their day reach it, with a button to take a
+lost one away. `GET /v1/field/technicians` is the same list (`user:read`).
 
 On the phone: the day in route order, today and then tomorrow, each visit with
 the customer, the job, the address (a tap opens the phone's own maps app), the
@@ -125,6 +157,73 @@ along, on my way, I have arrived, start work, finish (which asks first); clock
 in and out; notes; photos from the camera; a signature from the customer's
 finger; and the text to the customer that they are on the way, which is sent
 there and then or not at all, because queued it would arrive an hour late.
+
+### The rest of the visit
+
+On the phone, a visit also has its checklist to tick (`visit.checklist_item`),
+the readings its job type's service report template asks for
+(`service_report.set_field`, with a number refused as a number before it is
+saved and a reading outside the template's range said), sending the report
+(`service_report.submit`), parts picked from the price book the phone carries
+or typed when they are not in it (`visit.add_line`, a job line the office
+prices), and money. Each is an operation in the queue like everything else, so
+it is recorded in a basement and drawn from the queue until the server has it,
+marked "waiting to send". The snapshot carries what the phone needs for them:
+the template's fields with the last value recorded, the parts already on the
+visit, the price book, and what is owed on the job's invoices.
+
+A report made on the phone is filed against the job type's template and its
+version, so the office reads it against the fields the technician was asked
+for.
+
+### Money on site
+
+Cash and checks are `payment.collect`: a fact that always applies, because the
+money is in the technician's hand whether or not the office still wants the
+visit. The server records it through the same `billing.pay` the office uses,
+dated when it was handed over, applied to this job's open invoices oldest first
+and held for the customer when nothing has been invoiced. A check needs its
+number. A refusal (a closed period, a date too far back) is said to the
+technician in the office's own words.
+
+A card never touches the phone. `POST /v1/visits/{id}/payment-link`
+(`payment:collect`) fetches the job's invoice link, the same one an emailed
+invoice carries, and texts it to the customer or hands it to the phone's share
+sheet; the payment lands when the card processor's webhook says it did. Only
+the technician on the visit, or somebody who may send invoices, can ask.
+
+`/my-day` takes cash, checks and the card link the same way.
+
+### Notices about the day
+
+When the office puts a visit on somebody's day, takes it off, moves it or
+cancels it, the change emits `visit.assigned`, `visit.unassigned`,
+`visit.rescheduled` or `visit.cancelled`, naming the technicians it is about.
+Every path that does those things emits them: the board, booking a job with
+people on it, adding a visit, and the office answering a customer's request to
+move or cancel.
+
+The worker reads them from its own place in each company's log and pushes a
+notice through Expo's push service to every phone of those technicians with a
+push token ("Job cancelled: Job 1042, Nina Patel, Tue, Oct 6, 1:00 PM, is
+cancelled. Do not go."), one per change per phone however often the event is
+read, and a tap opens the visit. The customer's name and the time are on the
+lock screen; the address is not. Each notice is a `push_delivery` row saying
+whether it went and why not.
+
+Inside the company's quiet hours (the same window its customer texts keep,
+nine to eight unless it says otherwise) a notice is sent without a sound,
+unless the work starts before the quiet hours end: an emergency put on the on
+call technician's day at ten for eleven rings. A change read more than twelve
+hours after it was made is skipped as old news. When Expo says the app is gone
+from a phone, at the send or in the receipt a quarter of an hour later, the
+phone's token is forgotten.
+
+The app asks for permission on its first launch, makes the two Android
+channels the server sends to, and registers its token with
+`POST /v1/field/devices`, the call it already makes. Signing out and taking a
+phone away both clear the token. A company can require an access token for its
+Expo project and set `EXPO_ACCESS_TOKEN` for the worker.
 
 ### Offline, and sending
 
@@ -186,7 +285,10 @@ storage and never reached the job is a photograph nobody will ever find. And the
 attempt is counted, so an upload that can never succeed is abandoned with the
 error on the row rather than circling forever.
 
-The phone app sends them; `/my-day` in a browser has no camera control.
+The phone app sends them, and so does `/my-day` in a browser: its camera
+control makes the picture smaller, hashes it (with the field client's own
+SHA-256 where the page is not on HTTPS and the browser offers none), keeps it
+in IndexedDB and sends it through the same upload queue.
 
 A refusal here is RETURNED rather than thrown, which is not a style choice: the
 first version threw after writing the attempt count, the throw rolled the
@@ -217,7 +319,7 @@ wrote is a different decision from writing it.
 
 | Role | Access |
 |---|---|
-| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work |
+| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`) |
 | Crew lead | The same, scoped to the crew |
 | Dispatcher | Reads and resolves conflicts |
 | Office manager | Reads service reports and publishes them |
@@ -250,16 +352,34 @@ device, and so an Expo app and the web page share one implementation.
 ## What is not built
 
 The phone app has not been run on a device or a simulator. It is typechecked,
-its logic is unit tested and it bundles for Android and iOS, and that is all.
-There is no store listing and no icon of its own; a company builds and
-distributes it. Push notifications for a newly assigned or changed visit: the
-device row has a push token column and nothing writes or reads it, and
-assigning a visit emits no event a worker could send from. Signing in with a
-one time code rather than a password. A screen in the office for the phones
-and revoking one: it is the API only. Recording a payment from the phone,
-which the web page does not do either. Service report readings, checklist
-ticks and parts from the phone: the operations exist and the app offers none
-of them. A camera control on `/my-day`.
+its logic is unit tested and it bundles for Android and iOS, and that is all,
+so no push notice has been seen on a real phone: the server side is tested
+against a fake of the push service, and a build needs an Expo project id
+(`eas init`) before the app can get a token at all. There is no store listing
+and no icon of its own; a company builds and distributes it.
+
+Notices go to the technicians on a visit's assignment list. A visit sent to a
+crew is not on any one technician's phone day, so a change to it tells nobody.
+Cancelling a whole job does not cancel its visits, so it sends no notice; a
+visit is cancelled today when the office agrees to a customer's request.
+A notice that could not be sent is tried again on the worker's next passes for
+twelve hours and then left, with the reason on its row; nobody is told about
+a phone that missed one.
+
+A code is sent only by a company with a text number or a mail provider
+connected; with neither, the person is told a code is on its way and none
+comes, and the office sees why in the audit log. The mobile number a code goes
+to is set only on `/settings/phones`.
+
+Readings cover the kinds a keyboard can fill in: numbers, measurements, text,
+yes or no, a choice, and a chemical application; a photo or signature field on
+a template is taken with the camera and the signature pad instead. A report
+cannot be changed on the phone after it is sent.
+
+The phone records cash and checks and fetches a card link; it does not take a
+tip, and the technician cannot raise an invoice, so a card link needs the
+office to have issued one.
+
 Object storage: the bytes are columns in Postgres, which is right
 for a self hoster with a few gigabytes of photographs and wrong for a company
 with a terabyte. The customer portal cannot show a job photograph, because every

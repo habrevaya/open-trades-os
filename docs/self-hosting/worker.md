@@ -77,6 +77,31 @@ to the after-pass hooks (texts, email, webhooks, accounting) even if it had no
 events, so the email goes on that pass. The email hook is new with this: queued
 email used to wait for `POST /v1/email/send-queued`.
 
+## Telling a technician's phone
+
+After the drain, each pass reads every company's log from its own position
+(the `push` consumer) for the four changes to somebody's day:
+`visit.assigned`, `visit.unassigned`, `visit.rescheduled` and
+`visit.cancelled`. It writes a `push_delivery` row per change per phone with a
+push token and sends them through Expo's push service
+(`https://exp.host/--/api/v2/push/send`), then asks for the receipts a quarter
+of an hour later. Nothing to configure: the phones register their own tokens.
+A company that requires an access token for its Expo project sets
+`EXPO_ACCESS_TOKEN` in the worker's environment.
+
+| What happens | What the pass does |
+|---|---|
+| A change is read twice, by a restart or a second worker | Nothing. One row per change per phone, under a unique index |
+| Two workers send at once | Each claims different rows; a claim left by a worker that died goes back after five minutes |
+| The push service does not answer | Tried again on later passes, five times, then marked failed with the reason |
+| Expo says the app is gone from the phone | The phone's token is forgotten, so it is not asked about again |
+| A change is read more than twelve hours after it was made | Skipped as old news, said on the row |
+| It is inside the company's quiet hours | Sent without a sound, unless the work starts before they end |
+
+Finding the companies with something to do is a cross tenant read, through
+`app.push_work_organizations`, granted to the `background` role like the
+others.
+
 ## Waiting for something not to happen
 
 The third trigger kind, and the one the other two cannot express. An event
