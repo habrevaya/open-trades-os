@@ -54,7 +54,7 @@ export function PayInvoice({
   tipping: TipOffer;
   /** A server action bound to whatever reaches the invoice, taking the tip as typed. */
   start: (options: { tip?: string }) => Promise<StartPayment>;
-  savedCards?: { id: string; label: string }[];
+  savedCards?: { id: string; label: string; kind?: "card" | "bank_account" }[];
   payWithSaved?: (cardId: string, options: { tip?: string }) => Promise<SavedCardPay>;
 }) {
   const [choice, setChoice] = useState<string>("none");
@@ -106,9 +106,12 @@ export function PayInvoice({
         return;
       }
     }
-    setDone(result.status === "processing"
-      ? "Your payment is processing. It will show here once your bank confirms it."
-      : "Thank you. Your payment went through and will show here in a moment.");
+    const fromBank = savedCards.find((card) => card.id === cardId)?.kind === "bank_account";
+    setDone(fromBank
+      ? `Your bank payment of ${total} is on its way. Bank payments take a few business days to arrive; this invoice will show paid once your bank confirms it.`
+      : result.status === "processing"
+        ? "Your payment is processing. It will show here once your bank confirms it."
+        : "Thank you. Your payment went through and will show here in a moment.");
     setBusy(false);
   }
 
@@ -183,6 +186,11 @@ export function PayInvoice({
             </button>
           ))}
           {error && <p className="rounded bg-red-tint px-3 py-2 text-sm text-red-600">{error}</p>}
+          {savedCards.some((card) => card.kind === "bank_account") && (
+            <p className="text-center text-xs text-ink-500">
+              Paying from a bank account allows {total} to be taken from it once, and takes a few business days to arrive.
+            </p>
+          )}
           <p className="text-center text-xs text-ink-500">Or pay with a different card below.</p>
         </div>
       )}

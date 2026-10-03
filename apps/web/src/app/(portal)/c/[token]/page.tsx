@@ -42,6 +42,8 @@ export default async function AccountPage({
         returned={returned}
         statementHref={`/c/${token}/statement`}
         changeHref={(visitId) => `/c/${token}/change/${visitId}`}
+        photoHref={(photoId) => `/c/${token}/photos/${photoId}`}
+        referral={referral ? <ReferralBlock referral={referral} /> : null}
         pay={(invoice) => (
           <PayInvoice
             start={startAccountPayment.bind(null, token, invoice.id)}
@@ -52,7 +54,6 @@ export default async function AccountPage({
           />
         )}
       />
-      {referral ? <ReferralBlock referral={referral} /> : null}
     </PortalBrand>
   );
 }

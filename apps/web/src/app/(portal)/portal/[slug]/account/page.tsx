@@ -5,7 +5,8 @@ import { PortalBrand } from "../../../PortalBrand";
 import { PayInvoice } from "../../../PayInvoice";
 import { AccountView } from "../../../c/[token]/AccountView";
 import { ReferralBlock } from "../../../c/[token]/ReferralBlock";
-import { SavedCards, cardLabel } from "./SavedCards";
+import { SavedCards } from "./SavedCards";
+import { cardLabel } from "./card-label";
 import {
   openRecord, payWithSavedCard, removeCard, signOut, startCardSetup, startSessionPayment,
 } from "./actions";
@@ -45,7 +46,12 @@ export default async function SignedInAccountPage({
   const setupId = typeof query["setup_intent"] === "string" ? query["setup_intent"] : null;
   if (setupId) {
     notice = await savedCards.confirmSave(db, { token, setupId })
-      .then((card) => ({ ok: true, text: `${cardLabel(card)} is saved.` }))
+      .then((card) => ({
+        ok: true,
+        text: card.kind === "bank_account"
+          ? `${cardLabel(card)} is saved. Paying from it takes a few business days to arrive.`
+          : `${cardLabel(card)} is saved.`,
+      }))
       .catch((error: unknown) => ({
         ok: false,
         text: error instanceof Error && error.name === "ConflictError"
@@ -60,7 +66,8 @@ export default async function SignedInAccountPage({
     referrals.forPortal(db, { token }).catch(() => null),
   ]);
   const returned = typeof query["redirect_status"] === "string" && !setupId ? query["redirect_status"] : null;
-  const usable = cards.cards.map((card) => ({ id: card.id, label: cardLabel(card) }));
+  const asked = query["asked"] === "1";
+  const usable = cards.cards.map((card) => ({ id: card.id, label: cardLabel(card), kind: card.kind }));
   const base = `/portal/${encodeURIComponent(slug)}`;
 
   return (
@@ -71,12 +78,25 @@ export default async function SignedInAccountPage({
         closing={`Questions? Call or text ${account.organizationName}, or reply to any message from them.`}
         statementHref={`${base}/account/statement`}
         changeHref={(visitId) => `${base}/account/change/${visitId}`}
+        photoHref={(photoId) => `${base}/account/photos/${photoId}`}
+        bookHref={`${base}/account/book`}
+        referral={referral ? <ReferralBlock referral={referral} /> : null}
         top={(
-          <form action={signOut.bind(null, slug)} className="mt-2">
-            <button type="submit" className="text-sm text-ink-700 underline underline-offset-4">
-              Sign out
-            </button>
-          </form>
+          <>
+            {asked && (
+              <p role="status" className="mt-3 rounded-md border border-steel-200 bg-canvas p-3 text-sm text-ink-700">
+                Thank you. We have your request and will confirm the time with you.
+              </p>
+            )}
+            {session.contact && (
+              <p className="mt-1 text-sm text-ink-500">Signed in as {session.contact.name}</p>
+            )}
+            <form action={signOut.bind(null, slug)} className="mt-2">
+              <button type="submit" className="text-sm text-ink-700 underline underline-offset-4">
+                Sign out
+              </button>
+            </form>
+          </>
         )}
         open={(kind, id, label) => (
           <form action={openRecord.bind(null, slug, kind, id)} className="inline">
@@ -98,13 +118,13 @@ export default async function SignedInAccountPage({
           <SavedCards
             cards={cards.cards}
             canSave={cards.canSave}
+            canSaveBank={cards.canSaveBank}
             start={startCardSetup.bind(null, slug)}
             remove={removeCard.bind(null, slug)}
             notice={notice}
           />
         )}
       />
-      {referral ? <ReferralBlock referral={referral} /> : null}
     </PortalBrand>
   );
 }

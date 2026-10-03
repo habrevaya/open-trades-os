@@ -20,6 +20,7 @@ import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { Referral } from "./Referral";
+import { PortalSignIns } from "./PortalSignIns";
 import { AdData } from "./AdData";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
@@ -234,6 +235,7 @@ export default async function CustomerPage({
       <Contacts
         customerId={id}
         contacts={people}
+        portalControl={can(user.actor, "customer:write") && can(user.actor, "portal:revoke")}
         properties={addresses.map((property) => ({
           id: property.id,
           label: [property.addressLine1, property.city].filter(Boolean).join(", "),
@@ -320,6 +322,8 @@ export default async function CustomerPage({
                       hidden={{ customerId: id }} className="mt-2 space-y-2" />
         </section>
       )}
+
+      <PortalSignIns ctx={ctx} customerId={id} timezone={user.organizationTimezone} />
 
       {quotes && (
         <section aria-label="Estimates">
