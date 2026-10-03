@@ -77,6 +77,9 @@ export const REDACTED: Record<string, Record<string, string>> = {
     push_token:
       "A live push credential for a specific phone. It identifies a device to a notification "
       + "service and is reissued by the app on first run, so it is of no use in a copy.",
+    session_token_hash:
+      "The hash of the phone app's live sign in on this device. Phones sign in again against "
+      + "the new system; a hash is a cracking target and is useless to you.",
   },
 };
 

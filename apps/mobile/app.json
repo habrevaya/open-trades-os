@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "OpenTradesOS Field",
+    "slug": "opentradesos-field",
+    "scheme": "opentradesos",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "org.opentradesos.field",
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["fetch", "processing"]
+      }
+    },
+    "android": {
+      "package": "org.opentradesos.field"
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-background-task",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "The camera is used to photograph the work you do on a job, so the office and the customer can see it.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ]
+  }
+}
