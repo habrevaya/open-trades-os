@@ -195,6 +195,12 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   web_form_public_key_idx:
     "A hosted form's key made from 72 random bits on save, kept through every edit, never chosen.",
   credential_user_idx: "One credential row per user, written by the signup path.",
+  payment_profile_customer_idx:
+    "One processor customer per customer per payment connection, made the first time a card is "
+    + "saved and inserted with on conflict do nothing, so two first saves racing are one profile.",
+  saved_payment_method_external_idx:
+    "The processor's own id for a saved card. Recording the same setup twice (a refresh of the page "
+    + "the processor returned to) inserts with on conflict do nothing and records the card once.",
 
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",

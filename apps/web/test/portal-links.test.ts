@@ -56,9 +56,15 @@ describe("portal links", () => {
   it("have a page for every link a service builds by hand, too", () => {
     const paths = handBuiltPaths();
     expect(paths.length).toBeGreaterThan(0);
+    /**
+     * A link to a token, or to a company's own page by its public key: the
+     * sign in page is `/portal/{slug}`, built by hand from the slug the
+     * same way, and it needs a page behind it just as much.
+     */
     const missing = paths.filter((entry) => {
       const segment = entry.split("/")[1]!;
-      return !existsSync(join(PORTAL_APP, segment, "[token]", "page.tsx"));
+      return !existsSync(join(PORTAL_APP, segment, "[token]", "page.tsx"))
+        && !existsSync(join(PORTAL_APP, segment, "[slug]", "page.tsx"));
     });
     expect(missing).toEqual([]);
   });

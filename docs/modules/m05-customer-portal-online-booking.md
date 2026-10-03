@@ -13,8 +13,11 @@ status: partial
 ## What it does
 
 Lets a customer approve a quote, track a visit, pay an invoice, put down a
-deposit and see their whole account, without creating an account. And lets a
-stranger on the company's website book a real slot.
+deposit and see their whole account, without creating an account. Lets a
+customer who comes back sign in with a code sent to the email or mobile
+number the company has for them, save a card, pay with it, and add a tip for
+the technicians. And lets a stranger on the company's website book a real
+slot.
 
 ## The problem
 
@@ -55,6 +58,28 @@ resolution runs inside the tenant boundary as a synthetic actor scoped to the
 resolved company, so a bug in a handler cannot reach across tenants even if it
 tries.
 
+**A sign in is a customer scope grant held in a cookie.** No password, ever.
+A customer types the email or mobile number on their record and gets a six
+digit code through the company's own email or text sender; typing it back
+opens a customer scope grant that names the code that opened it. Everything
+true of the account link is true of it, because it is the same capability
+resolved by the same function. What sets it apart is where it lives (an
+HttpOnly cookie scoped to the company's portal pages, never a URL) and that
+only it may save a card or open one of the customer's own records as a
+narrower link: a link can be forwarded, and a code went to an address on the
+customer's own record.
+
+**A code says nothing to a stranger.** Asking for a code for an address
+nobody has gets the same answer as asking for one on file. A wrong code, an
+expired one, a spent one and one for an address nobody has all get the same
+refusal. A code lives ten minutes, works once, dies after five wrong tries
+and is ended by a newer one. Only a salted hash of it is stored, which stops
+it being read off the table and does not stop six digits being worked out
+from the hash: the expiry, the single use and the attempt limit are what make
+it safe. Asking is counted per address (three in fifteen minutes, ten a day)
+and per network address (ten an hour), and checking is counted per network
+address, before anything is sent.
+
 **A booking grant precedes its customer.** It is the one case where a grant has
 no customer on it: somebody has asked for work and nobody has confirmed it yet.
 They still want to see that something happened, and the gap before a human
@@ -80,6 +105,13 @@ had been requested.
 arrival windows it is willing to offer, and which days it is open. All three
 need `booking:configure`. The public widget is served at `/book/{slug}`.
 
+`/settings/portal` shows the address customers sign in at (`/portal/{slug}`),
+turns tipping on and sets the suggested percentages, and chooses whether
+customers see every job photograph or only the ones somebody chose. Reading
+it needs `settings:read` and changing it `settings:write`. Both choices start
+off. Signing in needs an email provider or a registered texting number
+connected, because that is how the code is sent.
+
 ## Using it
 
 ### Hand a customer a link
@@ -102,6 +134,57 @@ Sending an estimate issues the grant as part of sending, so the normal path is
 | `/pay/{token}` | One deposit, asked for by an approved estimate |
 | `/b/{token}` | One booking request, before anybody has confirmed it |
 | `/c/{token}` | The whole account: visits, documents, agreements, history |
+
+### Sign in
+
+`/portal/{slug}` is the sign in page. `POST /v1/public/portal/{organizationSlug}/codes`
+sends the code and `POST /v1/public/portal/{organizationSlug}/sign-in` checks
+it and returns the session token; the web page puts that in a cookie. An
+address on more than one customer record is answered with the records by
+name and first address, and the same code is sent again with the one chosen.
+`POST /v1/portal/sign-out` ends the session everywhere.
+
+`/portal/{slug}/account` is the signed in account: the same view the account
+link draws (`GET /v1/portal/account`), with the customer's homes, their work,
+what is coming, what is owed and paid, estimates, plans and the statement at
+`/portal/{slug}/account/statement`. A visit is moved or cancelled from
+`/portal/{slug}/account/change/{visitId}`, exactly as from the account link.
+Each estimate, job and invoice opens on the page made for it (approve, track
+with photographs, pay) through `POST /v1/portal/account/open`, which mints a
+link for that one record for one day; an estimate's is spent by approving,
+like one the office sends. Every link a customer was ever sent keeps working
+without signing in.
+
+### Save a card and pay with it
+
+From the signed in account only. `POST /v1/portal/card-setup` starts Stripe's
+own setup flow, the browser collects the card in Stripe's element, and
+`POST /v1/portal/card-setup/confirm` records it once the setup has been read
+back from Stripe and found to have succeeded for the Stripe customer made for
+this customer. The card number never reaches this server; the brand, the last
+four digits and the expiry are all that is kept. `GET /v1/portal/cards` lists
+them, `POST /v1/portal/cards/{cardId}/remove` tells Stripe to forget one and
+then marks it removed, and `POST /v1/portal/cards/{cardId}/pay` pays one
+invoice with it, confirmed on the spot. The invoice still changes only when
+Stripe's signed webhook says the money moved. A card pays only invoices the
+signed in customer is the one paying.
+
+### Tip the technicians
+
+When the company has turned tipping on, paying an invoice from the portal
+(the invoice link, the account link or the signed in account) offers the
+suggested percentages of the balance and a box for any amount, for the
+technicians named by first name. M13 says what a tip is on the books.
+
+### See the job's photographs
+
+The job link (`/j/{token}`) shows the job's photographs the company chose to
+show, or every one when it shows them all, served through the same link at
+`/j/{token}/photos/{id}`. Never a signature, never another job's, never a
+private one by guessing its id. A photograph is chosen on the job's page with
+**Show the customer**, which is `POST /v1/attachments/{id}/customer-sharing`
+and needs `servicereport:publish`, because showing a customer what a
+technician recorded is the same decision as publishing their report.
 
 ### Ask to move or cancel a visit
 
@@ -193,6 +276,18 @@ approving on their behalf.
 | `GET /v1/visit-change-requests` | `visit:read` |
 | `POST /v1/visit-change-requests/{id}/approve` | `visit:reschedule` |
 | `POST /v1/visit-change-requests/{id}/decline` | `visit:reschedule` |
+| `POST /v1/public/portal/{organizationSlug}/codes` | nothing: counted per address and network address |
+| `POST /v1/public/portal/{organizationSlug}/sign-in` | nothing: the code is the authority |
+| `POST /v1/portal/sign-out` | nothing: a sign in |
+| `GET /v1/portal/account` | nothing: a sign in or the account link |
+| `POST /v1/portal/account/open` | nothing: a sign in only |
+| `GET /v1/portal/cards` | nothing: a sign in only |
+| `POST /v1/portal/card-setup` | nothing: a sign in only |
+| `POST /v1/portal/card-setup/confirm` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/remove` | nothing: a sign in only |
+| `POST /v1/attachments/{id}/customer-sharing` | `servicereport:publish` |
+| `GET /v1/portal-settings` | `settings:read` |
+| `PATCH /v1/portal-settings` | `settings:write` |
 | `GET /v1/bookings` | `booking:read` |
 | `POST /v1/bookings/{id}/confirm` | `booking:decide`, `job:write` |
 | `PUT /v1/booking/hours` | `booking:configure` |
@@ -210,11 +305,34 @@ way to pay from it and pretending otherwise wastes their time.
 **Does a booking request hold a deposit?** No. There is no customer yet to hold
 one for.
 
+**A customer says the code never arrived.** Check that their record has the
+address they typed. A code goes only to the email or mobile number on the
+customer record itself (not a contact's), and an address that replied STOP or
+bounced is not written to. What happened to each request is kept in
+`portal_sign_in`, including whether the message was queued and, if not, why;
+there is no screen for it yet.
+
+**Can somebody in the office see a sign in code?** The text or email it went
+out in sits in the conversation log like any other message, so whoever may
+read messages can read it while it is still good, for ten minutes. Whoever
+may issue links (`portal:grant`) can already open the customer's account,
+so this is not a wider door, and it is said here rather than hidden.
+
 ## What is not built
 
-A customer cannot log in: every route into the portal is a link somebody sent
-them. There is no account creation, no password and no saved payment method.
-The portal blocks a trade pack declares are data with nothing reading them yet,
+A customer signs in with a code and nothing else: there is no password and
+no account creation, so somebody not already a customer cannot sign in, and a
+customer with neither an email nor a mobile number on their record cannot be
+sent a code. Contacts on a customer cannot sign in as that customer. The
+office has no screen listing sign ins or sign in failures, and no way to end
+a customer's sign in: it lasts its week or until the customer signs out. The sign in
+page shows the company's name and not its logo or colour, because both are
+served from a grant and there is none before signing in. Only cards are
+saved, through Stripe; a bank account is not, and no other processor's
+adapter holds cards. A saved card is used only with the customer on the page
+pressing Pay: there is no charging a saved card from the office and no
+automatic payment of an invoice when it is issued. A photograph is shown on
+the job link and nowhere else on the account. The portal blocks a trade pack declares are data with nothing reading them yet,
 so the customer view is the same shape for every trade. Rescheduling from the
 portal is a request the office answers, deliberately: nothing a customer does
 from a link moves a visit by itself. Windows are offered by the online booking

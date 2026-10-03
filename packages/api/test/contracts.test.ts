@@ -61,6 +61,15 @@ describe("permissions", () => {
       .sort();
 
     expect(open).toEqual([
+      /**
+       * A signed in customer's account and saved cards. The token is a
+       * customer scope grant opened by a code sent to the address on the
+       * customer's own record, reaching that customer and nobody else. The
+       * cards route answers a sign in only, never an account link, and
+       * returns the brand, last four and expiry, which is all that is kept.
+       */
+      "GET /v1/portal/account",
+      "GET /v1/portal/cards",
       "GET /v1/portal/estimate",
       /**
        * An invoice a customer opens from the link in the email, and the pay
@@ -112,9 +121,25 @@ describe("permissions", () => {
        * is what stops guessing.
        */
       "POST /v1/field/sign-in",
+      /**
+       * What a signed in customer does with their own account: open one of
+       * their records as a narrower link (sign in only), pay an invoice
+       * with a tip, save, remove and pay with a card (sign in only). Every
+       * id in these requests is checked against the customer the token
+       * names; another customer's is the same not found as one that does
+       * not exist. A card's number never reaches the server, and no payment
+       * is recorded here: the processor's signed webhook still decides.
+       */
+      "POST /v1/portal/account/open",
+      "POST /v1/portal/account/pay",
+      "POST /v1/portal/card-setup",
+      "POST /v1/portal/card-setup/confirm",
+      "POST /v1/portal/cards/{cardId}/pay",
+      "POST /v1/portal/cards/{cardId}/remove",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/portal/invoice/pay",
+      "POST /v1/portal/sign-out",
       "POST /v1/portal/visit-change",
       "POST /v1/public/bookings",
       /**
@@ -130,6 +155,15 @@ describe("permissions", () => {
        * in front of it, the same as for the booking endpoint.
        */
       "POST /v1/public/forms/{formSlug}",
+      /**
+       * A customer signing in: ask for a code, then trade it for a session.
+       * Open because nobody is signed in yet. Neither says whether an
+       * address belongs to anybody. Asking is counted per address and per
+       * network address before anything is sent; a code lives ten minutes,
+       * works once, dies after five wrong tries, and only its hash is kept.
+       */
+      "POST /v1/public/portal/{organizationSlug}/codes",
+      "POST /v1/public/portal/{organizationSlug}/sign-in",
       "POST /v1/public/touches",
       /**
        * UNSUBSCRIBE, AND IT HAS TO BE OPEN. A recipient pressing the
@@ -191,6 +225,15 @@ describe("money routes are idempotent", () => {
    * whole module is built to avoid.
    */
   const NOT_REPLAYABLE: Record<string, string> = {
+    "/v1/public/portal/{organizationSlug}/sign-in":
+      "The response is the customer's session token and only its hash is "
+      + "stored, so a replay has nothing to return. The code is spent by the "
+      + "first request, so a retry is refused and the customer asks for a new "
+      + "code, which is the same thing that happens when a code expires.",
+    "/v1/portal/account/open":
+      "The response is a new link for one record and only its hash is "
+      + "stored, so a replay has nothing to return. A retry leaves a second "
+      + "link to the same record, for the same customer, which expires in a day.",
     "/v1/apps/{appId}/tokens":
       "The response is a secret and only its hash is stored, so a replay has "
       + "nothing to return. A retry leaves a second token, visible in the list "
