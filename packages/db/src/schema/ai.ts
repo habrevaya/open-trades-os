@@ -1,8 +1,10 @@
-import { pgTable, pgEnum, uuid, text, integer, bigint, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, bigint, boolean, jsonb, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
 import { integrationConnection } from "./integrations";
+import { conversation } from "./comms";
+import { bookingRequest } from "./portal";
 
 /**
  * BRING YOUR OWN MODEL, AND THE BILL THAT COMES WITH IT
@@ -176,4 +178,192 @@ export const aiBudget = pgTable("ai_budget", {
   ...timestamps,
 }, (t) => ({
   orgIdx: uniqueIndex("ai_budget_org_idx").on(t.organizationId),
+}));
+
+/* ================================================================ agents */
+
+/**
+ * THE AGENTS THEMSELVES
+ *
+ * Everything above is the seam: a key, a bill and a ceiling. These four tables
+ * are what sits on it, and their shape follows from one rule the module keeps:
+ * an agent PROPOSES, a person or the company's own standing choice DECIDES,
+ * and both halves are written down. "What did the agent do, and who let it" is
+ * the first question an owner asks after turning one on, and it has to be a
+ * query rather than a guess.
+ */
+
+/** The five agents. `core/agents` holds what each one may do. */
+export const aiAgentKind = pgEnum("ai_agent_kind", ["intake", "chat", "estimate", "collections", "dispatch"]);
+
+/**
+ * How a company has set up one agent.
+ *
+ * The settings are one jsonb document rather than columns, read through
+ * `agents.readSettings` in core, because they are a form an owner fills in
+ * (tone, limits, the chat agent's questions and answers, the collection steps)
+ * and every field has a default that core owns. Columns would put a migration
+ * between an owner and a new limit; a document read leniently puts a default
+ * there instead.
+ *
+ * `run_as_user_id` is a column of its own, outside the document, because it
+ * is the one setting with a foreign key behind it: a person removed from the
+ * company must stop being somebody an agent can act as, and a uuid inside a
+ * document would go on naming them.
+ */
+export const aiAgentSetting = pgTable("ai_agent_setting", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  agent: aiAgentKind("agent").notNull(),
+  runAsUserId: uuid("run_as_user_id").references(() => user.id, { onDelete: "set null" }),
+  settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  updatedByUserId: uuid("updated_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  agentIdx: uniqueIndex("ai_agent_setting_agent_idx").on(t.organizationId, t.agent),
+}));
+
+/**
+ * Where a proposal is in its life.
+ *
+ * `superseded` exists so a person asking for a fresh draft does not leave two
+ * open proposals for one message: the old one is closed with a word that says
+ * why, rather than dismissed as if somebody had said no to it.
+ */
+export const aiProposalStatus = pgEnum("ai_proposal_status", [
+  "proposed", "applied", "dismissed", "failed", "superseded",
+]);
+
+/**
+ * Something an agent drafted, and what became of it.
+ *
+ * `draft` is the model's answer AFTER the guardrails: the tool input checked
+ * against its schema and against the company's records (windows that are
+ * open, items that are in the price book, technicians the board allows), with
+ * whatever the checks resolved added beside it. It is what a person approves,
+ * so it is what is stored, rather than the raw answer that might have named a
+ * window that had gone.
+ *
+ * Unlike `ai_usage`, this DOES hold the content, and the difference is the
+ * point of each table. Usage is read by whoever reconciles a bill and holds
+ * no word of any conversation. A proposal is a piece of work for the office,
+ * read by the people who would read the customer's message it came from,
+ * under the same permission.
+ */
+export const aiAgentProposal = pgTable("ai_agent_proposal", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  agent: aiAgentKind("agent").notNull(),
+  /** The tool the model answered with, such as `propose_booking`. */
+  action: text("action").notNull(),
+  status: aiProposalStatus("status").notNull().default("proposed"),
+  /**
+   * What it is about: `conversation`, `call`, `form_submission`, `job`,
+   * `invoice`, `schedule_day`. Text rather than a foreign key, because the
+   * subjects are six different tables and a day on the board is not a row.
+   */
+  sourceKind: text("source_kind").notNull(),
+  sourceId: text("source_id").notNull(),
+  /** One line for a list. */
+  summary: text("summary").notNull(),
+  draft: jsonb("draft").$type<Record<string, unknown>>().notNull().default({}),
+  /** The model call it came from. Null for a proposal no model was asked for. */
+  usageId: uuid("usage_id").references(() => aiUsage.id, { onDelete: "set null" }),
+  /** Whose authority the agent ran under. */
+  runAsUserId: uuid("run_as_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Who pressed the button that started it. Null when nobody did. */
+  startedByUserId: uuid("started_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** True when it was applied by the company's standing choice rather than a click. */
+  appliedAutomatically: boolean("applied_automatically").notNull().default(false),
+  decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /** What applying it made: a job, an estimate, a message. Ids, not copies. */
+  outcome: jsonb("outcome").$type<Record<string, unknown>>(),
+  /** Why it failed, or why it was dismissed, in words. */
+  note: text("note"),
+  idempotencyKey: text("idempotency_key"),
+  ...timestamps,
+}, (t) => ({
+  /**
+   * ONE OPEN PROPOSAL PER THING PER AGENT. A worker pass and a person pressing
+   * "draft" at the same moment would otherwise put two booking drafts for one
+   * text on the office's list, and the office would book it twice.
+   */
+  openIdx: uniqueIndex("ai_agent_proposal_open_idx")
+    .on(t.organizationId, t.agent, t.sourceKind, t.sourceId)
+    .where(sql`${t.status} = 'proposed'`),
+  idemIdx: uniqueIndex("ai_agent_proposal_idempotency_idx")
+    .on(t.organizationId, t.idempotencyKey)
+    .where(sql`${t.idempotencyKey} is not null`),
+  listIdx: index("ai_agent_proposal_list_idx").on(t.organizationId, t.agent, t.status, t.createdAt),
+  sourceIdx: index("ai_agent_proposal_source_idx").on(t.organizationId, t.sourceKind, t.sourceId),
+}));
+
+/**
+ * Everything each agent did, in order: drafted, applied, dismissed, refused,
+ * failed, answered, handed over, skipped.
+ *
+ * Its own table rather than the audit log, because most of what belongs here
+ * is not a mutation: a refused tool call changed nothing and is the single
+ * most important line an owner can read about an agent, and an answer in a
+ * chat is a message rather than a change to a record. The audit log still
+ * gets every mutation, with the agent's id on it, through the services that
+ * make them.
+ */
+export const aiAgentActivity = pgTable("ai_agent_activity", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  agent: aiAgentKind("agent").notNull(),
+  kind: text("kind").notNull(),
+  proposalId: uuid("proposal_id").references(() => aiAgentProposal.id, { onDelete: "set null" }),
+  /** One sentence. Never a prompt and never a key. */
+  detail: text("detail").notNull(),
+  /** The person who decided, or whose authority the agent ran under. */
+  actorUserId: uuid("actor_user_id").references(() => user.id, { onDelete: "set null" }),
+  automatic: boolean("automatic").notNull().default(false),
+  ...timestamps,
+}, (t) => ({
+  listIdx: index("ai_agent_activity_list_idx").on(t.organizationId, t.agent, t.createdAt),
+}));
+
+/** Whether the agent is still answering a chat, or a person has it. */
+export const aiChatStatus = pgEnum("ai_chat_status", ["open", "handed_off", "closed"]);
+
+/**
+ * One chat with the agent, on the website widget or by text.
+ *
+ * The words themselves are messages on the conversation, in the inbox, where
+ * a person taking over reads them and where every other message the company
+ * has with that customer already is. This row is what the inbox does not
+ * hold: whether the agent may still answer, how many turns it has taken, and
+ * the booking request it took.
+ *
+ * The website's chat is reached with a token the visitor's browser holds, and
+ * only its hash is kept, for the reason every other token here is hashed: a
+ * copy of this table is not a way into anybody's conversation.
+ */
+export const aiChatSession = pgTable("ai_chat_session", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").notNull()
+    .references(() => conversation.id, { onDelete: "cascade" }),
+  /** `web` or `text`. */
+  channel: text("channel").notNull(),
+  status: aiChatStatus("status").notNull().default("open"),
+  tokenHash: text("token_hash"),
+  visitorId: text("visitor_id"),
+  agentTurns: integer("agent_turns").notNull().default(0),
+  bookingRequestId: uuid("booking_request_id").references(() => bookingRequest.id, { onDelete: "set null" }),
+  handedOffAt: timestamp("handed_off_at", { withTimezone: true }),
+  handoffReason: text("handoff_reason"),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+}, (t) => ({
+  tokenIdx: uniqueIndex("ai_chat_session_token_idx").on(t.tokenHash)
+    .where(sql`${t.tokenHash} is not null`),
+  conversationIdx: uniqueIndex("ai_chat_session_conversation_idx").on(t.conversationId),
 }));
