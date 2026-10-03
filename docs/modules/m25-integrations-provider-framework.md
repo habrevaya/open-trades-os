@@ -34,7 +34,7 @@ catalogue cannot drift into optimism.
 
 **What counts as built is deliberately narrow.** A parser with no transport is not a
 connector. A connector is built when a company can set it up from the settings screen
-and data arrives. Sixteen entries are built today and ten are declared.
+and data arrives. Twenty two entries are built today and five are declared.
 
 **A capability is a seam, not a vendor.** Payments, email, accounting, messaging,
 telephony, ads, lead source, reviews, maps, tax, payroll, financing, storage,
@@ -48,6 +48,15 @@ an environment variable or a secret store entry, so a company's live keys are ne
 in this product's database and never in a form post. The screen says which names it
 is looking for and shows the webhook address to paste into the vendor's dashboard,
 because neither of those is something this product can do on a customer's behalf.
+
+**A sign in is the one credential this product keeps.** An ad platform's access
+is granted by a person on the platform's own consent screen, and what comes back
+is handed to this product, not fetched by the operator from a vendor screen, so
+something here has to keep it. It is sealed with AES-256-GCM under
+`CREDENTIAL_SEALING_KEY`, a key the deployment holds in its environment and the
+database never sees, bound to its connection so it cannot be moved onto another
+one. An operator who would rather keep it in their own store names a token as
+the connection's credential and never presses the button.
 
 **One connection per provider per company.** A company with two is a company whose
 customers hear from two different From addresses at random, so where it matters the
@@ -81,7 +90,10 @@ secrets. `/marketing/connectors` is the marketing half of the same list.
 
 `GET /v1/connectors` is the catalogue with each entry's state and this company's
 connection. `POST /v1/connectors/{provider}` connects one and
-`DELETE /v1/connectors/{provider}` disconnects it.
+`DELETE /v1/connectors/{provider}` disconnects it. An ad platform that signs in
+waits as pending until somebody has: `POST /v1/connectors/{provider}/authorize`
+returns the address of the platform's consent screen and
+`POST /v1/oauth/finish` takes what it sends the person back with (M19).
 
 ### Take leads from somebody else's form
 
@@ -126,6 +138,8 @@ catalogue says why.
 | `GET /v1/connectors` | `integration:read` |
 | `POST /v1/connectors/{provider}` | `integration:write` |
 | `DELETE /v1/connectors/{provider}` | `integration:write` |
+| `POST /v1/connectors/{provider}/authorize` | `integration:write` |
+| `POST /v1/oauth/finish` | `integration:write` |
 | `GET /v1/lead-connectors` | `integration:read` |
 | `POST /v1/lead-connectors` | `integration:write` |
 | `POST /v1/lead-connectors/test` | `integration:read` |
@@ -137,8 +151,11 @@ catalogue says why.
 
 **Which integrations are built?** The catalogue answers it at runtime, and the
 settings screen shows it. Stripe, QuickBooks Online, Xero, Twilio, JustCall, Resend,
-SMTP, CallRail, the AI model providers, and the OpenStreetMap and Mapbox geocoders
-are the ones a company can set up and see data arrive from.
+SMTP, CallRail, the AI model providers, the OpenStreetMap and Mapbox geocoders,
+Google Ads, Google Local Services, Meta Ads, Google Analytics and Google Business
+Profile are the ones a company can set up and see data arrive from. The last
+five need each platform's own developer approval and are tested against fakes of
+each, not live accounts.
 
 **Where do the map's pictures come from?** Raster tiles from `MAP_TILE_URL`,
 OpenStreetMap's own servers by default with their attribution on the map. That
@@ -166,7 +183,7 @@ and an application, which every adapter already supports.
 
 ## What is not built
 
-Ten catalogue entries are declared and have no adapter, and the catalogue names each
+Five catalogue entries are declared and have no adapter, and the catalogue names each
 one rather than hiding them. The geocoders' rate limit is per process, so a
 deployment running several workers against the public OpenStreetMap server sends
 that many requests a second; run one worker, or your own geocoder. There is no
@@ -174,4 +191,7 @@ batch geocoding endpoint and no routing provider: drive time is estimated from t
 straight line (M09). There is no marketplace, no adapter plugin loading at
 runtime and no per connector health dashboard beyond each one's state on the settings
 screen. Secrets are read from the environment or a secret store by name, so a company
-that wants them managed in the product does not get that, deliberately.
+that wants them managed in the product does not get that, deliberately; the one
+exception is an ad platform's sign in, which is sealed as described above.
+Rotating `CREDENTIAL_SEALING_KEY` has no path but signing in to every platform
+again.

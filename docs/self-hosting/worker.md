@@ -273,3 +273,27 @@ instead: `deploy/templates/netlify/README.md` says when.
 
 It is not a queue. The event log is already durable and already ordered, and a
 queue beside it would be a second source of truth about what happened.
+
+## Ad platforms, analytics and review listings
+
+Each pass also visits every company with a connected Google Ads, Local
+Services, Meta, Google Analytics or Google Business Profile, through
+`app.ad_work_organizations`, which returns company ids and nothing else, least
+recently visited first. Inside each company every connection does what is due
+by its own clock:
+
+| What | How often |
+|---|---|
+| Spend per campaign per day, the last three days again each time | Every six hours |
+| Local Services calls, messages and bookings into the lead offers | Every ten minutes |
+| Google reviews read, and replies written here posted | Every hour; waiting replies on every pass |
+| Booked and paid jobs sent to the platform whose click won them | Every quarter hour |
+
+Every pull is a `sync_run` row with what it read, what it wrote and why it
+stopped, written before the platform is asked, so a platform that is down is
+asked again at the next cadence and not on every tick. A platform that stops
+accepting the sign in marks the connection as needing a person and the worker
+leaves it alone until somebody signs in again. Nothing to configure beyond the
+connections themselves and `CREDENTIAL_SEALING_KEY`, which the worker needs
+with the same value as the web app to open the grants it keeps. Turn the visits
+off for a deployment with `ads: false` on the pass.
