@@ -69,7 +69,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   ]);
   const filter = listed.agents.some((x) => x.agent === params.agent) ? params.agent as coreAgents.AgentKind : undefined;
   const log = await agents.activity(ctx, { agent: filter, limit: 100 });
-  const people = roster.filter((m) => m.active && !m.waiting);
+  const people = roster.filter((m) => m.active);
   const connected = status.connections.filter((c) => c.connected);
 
   return (

@@ -200,10 +200,11 @@ test.describe("the AI agents", () => {
 
     // One click from the conversation.
     await owner.goto(`/inbox/${conversationId}`);
-    await owner.getByRole("article", { name: `Booking draft for Dana E2E ${run}` })
-      .getByRole("button", { name: "Book it" }).click();
-    await expect(owner.getByRole("status").filter({ hasText: "Booked. The job is on the board." })).toBeVisible();
-    await owner.getByRole("link", { name: "Open the job" }).click();
+    const card = owner.getByRole("article", { name: `Booking draft for Dana E2E ${run}` });
+    await card.getByRole("button", { name: "Book it" }).click();
+    // The card turns into what was booked, with the job one click away.
+    await expect(card.getByText("Booked.")).toBeVisible();
+    await card.getByRole("link", { name: "Open the job" }).click();
     await expect(owner.getByText("Water heater leaking in the garage.").first()).toBeVisible();
 
     // And the agent's log says who decided.
@@ -243,8 +244,19 @@ test.describe("the AI agents", () => {
     await owner.goto("/inbox");
     await expect(owner.getByText("Website chat").first()).toBeVisible();
     await owner.goto("/inbox/drafts");
-    await owner.getByRole("listitem", { name: `Booking request from Robin E2E ${run}` })
-      .getByRole("button", { name: "Book it" }).click();
-    await expect(owner.getByRole("status").filter({ hasText: "Booked. The job is on the board." })).toBeVisible();
+    const request = owner.getByRole("listitem", { name: `Booking request from Robin E2E ${run}` });
+    await request.getByRole("button", { name: "Book it" }).click();
+    // Booked, it leaves the list of requests waiting, and it is a job with its visit.
+    await expect(request).toHaveCount(0);
+    const check = createClient();
+    try {
+      const [booked] = await check.select({ status: schema.bookingRequest.status, jobId: schema.bookingRequest.jobId })
+        .from(schema.bookingRequest).where(eq(schema.bookingRequest.contactName, `Robin E2E ${run}`)).limit(1);
+      expect(booked?.status).toBe("confirmed");
+      const visits = await check.select({ id: schema.visit.id }).from(schema.visit).where(eq(schema.visit.jobId, booked!.jobId!));
+      expect(visits).toHaveLength(1);
+    } finally {
+      await check.$close();
+    }
   });
 });
