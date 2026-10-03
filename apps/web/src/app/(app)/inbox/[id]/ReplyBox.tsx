@@ -29,7 +29,7 @@ export function ReplyBox({ conversationId, byEmail = false }: { conversationId: 
         />
       </label>
       <label className="mt-2 block text-sm">
-        <span className="text-ink-700">{byEmail ? "Attach pictures" : "Send pictures"}</span>
+        <span className="text-ink-700">{byEmail ? "Attach pictures" : "Add pictures"}</span>
         <input type="file" name="pictures" accept="image/jpeg,image/png,image/gif" multiple
                className="mt-1 block text-sm" />
         <span className="mt-1 block text-xs text-ink-500">
