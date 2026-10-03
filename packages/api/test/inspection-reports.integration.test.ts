@@ -295,7 +295,7 @@ run("an inspection from the phone", () => {
     const result = await fieldOps.sync(inspector(), { deviceId: device, operations: [op] });
     expect(result.results[0]!.status).toBe("rejected");
     expect(result.results[0]!.rejection).toMatch(/not on the register at this property/);
-    const [{ n }] = await raw<{ n: number }[]>`select count(*)::int as n from public.inspection where organization_id = ${ORG}`;
+    const [{ n } = { n: -1 }] = await raw<{ n: number }[]>`select count(*)::int as n from public.inspection where organization_id = ${ORG}`;
     expect(n).toBe(0);
   });
 });

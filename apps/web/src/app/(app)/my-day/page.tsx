@@ -81,6 +81,7 @@ export default async function MyDayPage({
       openTimeEntry={snapshot.openTimeEntry}
       technicianName={user.name ?? user.email}
       timezone={user.organizationTimezone}
+      inspectionPrograms={snapshot.inspectionPrograms}
     />
   );
 }

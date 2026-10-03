@@ -7,6 +7,7 @@ import { Chip } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { ActionForm } from "../ActionForm";
 import { PHASE_STATUS, PROJECT_STATUS, ProjectView } from "../ProjectView";
+import { ProjectTabs } from "../ProjectTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <h1 className="text-xl font-semibold">{project.name}</h1>
         <Chip tone="neutral">{PROJECT_STATUS[project.status] ?? project.status}</Chip>
       </div>
+      <ProjectTabs projectId={id} current="overview" money={can(user.actor, "invoice:read")} />
 
       {writes && (
         <div className="mt-3 flex flex-wrap gap-3">
@@ -55,6 +57,17 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               {Object.entries(PROJECT_STATUS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
             </select>
           </ActionForm>
+          {bills && (
+            <ActionForm op="retainage" projectId={id} label="Set retainage" tone="quiet">
+              <label className="flex items-center gap-1 text-sm text-ink-700">
+                Retainage
+                <input name="retainagePercent" inputMode="decimal" aria-label="Retainage per cent"
+                       defaultValue={project.retainageRate === null ? "" : String(Number(project.retainageRate) * 100)}
+                       placeholder="10" className={`${input} w-16`} />
+                %
+              </label>
+            </ActionForm>
+          )}
           {project.phaseList.some((p) => p.jobIds.length === 0) && (
             <ActionForm op="materialise" projectId={id} label="Create a job for each phase without one" tone="quiet" />
           )}
@@ -86,6 +99,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <input name="name" required placeholder="Rough-in" className={input} />
             <input name="billingValue" inputMode="decimal" placeholder="Billing value" className={`${input} w-32`} />
             <input name="budgetCost" inputMode="decimal" placeholder="Budgeted cost" className={`${input} w-32`} />
+            <label className="flex items-center gap-1 text-sm text-ink-700">Starts
+              <input type="date" name="startsOn" className={input} /></label>
+            <label className="flex items-center gap-1 text-sm text-ink-700">Ends
+              <input type="date" name="endsOn" className={input} /></label>
             <select name="dependsOnPhaseId" defaultValue="" className={input}>
               <option value="">Waits for nothing</option>
               {project.phaseList.map((p) => <option key={p.id} value={p.id}>Waits for {p.name}</option>)}

@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  formatAmount, isOwing, outOfRange, parseAmount, readingValue,
+  formatAmount, isOwing, outOfRange, parseAmount, readingValue, resultLabel,
   type DayReportField, type DayVisit,
 } from "@opentradesos/field-client";
+import type { Navigate } from "../shell/App";
 import { useField } from "../state/FieldProvider";
 import { missingReadings, parseQuantity, searchPriceBook } from "../lib/work";
 import { Button, Card, Notice, Section } from "../components/ui";
@@ -356,3 +357,34 @@ const styles = StyleSheet.create({
   },
   problem: { color: color.red, fontSize: 15, marginTop: space.xs },
 });
+
+/**
+ * Inspections on this visit: the ones filed, with the server's verdict once
+ * it has drawn one, and a button per programme this person may run. Shown
+ * only when there is something to show, so a technician who does not do
+ * inspection work never sees the section.
+ */
+export function InspectionsSection({ visit, nav }: { visit: DayVisit; nav: Navigate }) {
+  const field = useField();
+  const programs = field.view?.inspectionPrograms ?? [];
+  if (programs.length === 0 && visit.inspections.length === 0) return null;
+  return (
+    <Section title="Inspections">
+      {visit.inspections.length > 0 ? (
+        <Card>
+          {visit.inspections.map((i) => (
+            <Text key={i.id} style={type.body}>
+              {i.programName}: {i.waiting ? "waiting to send" : resultLabel(i.result)}
+            </Text>
+          ))}
+        </Card>
+      ) : null}
+      {programs.map((program) => (
+        <View key={program.id} style={{ marginTop: space.sm }}>
+          <Button label={`Run: ${program.name}`} kind="secondary"
+                  onPress={() => nav.push({ name: "inspection", visitId: visit.id, programId: program.id })} />
+        </View>
+      ))}
+    </Section>
+  );
+}

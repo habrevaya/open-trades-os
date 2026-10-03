@@ -4,7 +4,7 @@ import { addressOf, arrivalWindow, mapsUrl, nextStep, statusLabel } from "@opent
 import { useField } from "../state/FieldProvider";
 import { ETA_CHOICES, photoSummary, telUrl } from "../lib/format";
 import { Button, Notice, Section } from "../components/ui";
-import { ChecklistSection, PartsSection, PaymentSection, ReadingsSection } from "./VisitWork";
+import { ChecklistSection, InspectionsSection, PartsSection, PaymentSection, ReadingsSection } from "./VisitWork";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -176,6 +176,7 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
           </View>
         </Section>
 
+        <InspectionsSection visit={visit} nav={nav} />
         <ChecklistSection visit={visit} />
         <ReadingsSection visit={visit} />
         <PartsSection visit={visit} />

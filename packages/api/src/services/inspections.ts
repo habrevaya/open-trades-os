@@ -598,6 +598,10 @@ export async function backlog(
         correctByOn: deficiency.correctByOn,
         ageDays: standing.ageDays,
         overdue: standing.overdue,
+        /** The quote it became, once somebody quoted it. */
+        estimateId: deficiency.estimateId,
+        /** Whether the checkpoint declared a repair, so quoting it needs no typed price. */
+        hasRemedy: deficiency.remedies.length > 0,
         /** Core's sentence. For the list, not for a chart. */
         statement: standing.statement,
       };

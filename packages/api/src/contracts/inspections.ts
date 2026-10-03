@@ -163,6 +163,10 @@ export const listDeficiencies = defineRoute({
       correctByOn: IsoDate.nullable(),
       ageDays: z.number().int(),
       overdue: z.boolean(),
+      /** The quote it became, once somebody quoted it. */
+      estimateId: Uuid.nullable(),
+      /** Whether its checkpoint declared a repair to price it from. */
+      hasRemedy: z.boolean(),
       /** Core's sentence about where this one stands. */
       statement: z.string(),
     })),

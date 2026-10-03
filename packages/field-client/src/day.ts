@@ -426,7 +426,7 @@ export function dateOf(iso: string | null, zone: string): string | null {
   return iso ? todayIn(zone, new Date(iso)) : null;
 }
 
-export function addressOf(visit: FieldVisit): string {
+export function addressOf(visit: Pick<FieldVisit, "property">): string {
   const p = visit.property;
   return `${p.addressLine1}, ${p.city}, ${p.state} ${p.postalCode}`;
 }

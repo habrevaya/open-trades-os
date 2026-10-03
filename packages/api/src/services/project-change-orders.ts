@@ -948,6 +948,38 @@ export async function declineForCustomer(
   });
 }
 
+/**
+ * Everything the printed change order needs: the office's view of it, and
+ * the names and address that head the page. The figures are the customer's
+ * view's, so the paper and the link cannot disagree about what the change
+ * does to the contract.
+ */
+export async function documentFor(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const order = await loadIn(tx, ctx.actor.organizationId, input.id);
+    const view = await viewIn(tx, ctx, order.id);
+    const customer = await customerView(tx, order);
+    const [signature] = await tx.select({ signedAt: schema.documentSignature.signedAt })
+      .from(schema.documentSignature)
+      .where(and(
+        eq(schema.documentSignature.subject, "change_order"),
+        eq(schema.documentSignature.subjectId, order.id),
+      ))
+      .orderBy(asc(schema.documentSignature.signedAt)).limit(1);
+    return {
+      ...view,
+      organizationName: customer.organizationName,
+      projectName: customer.projectName,
+      customerName: customer.customerName,
+      propertyAddress: customer.propertyAddress,
+      contractValueNow: customer.contractValue,
+      contractValueIfAgreed: customer.contractValueAfter,
+      signedAt: signature?.signedAt ?? null,
+      documentHash: order.documentHash,
+    };
+  });
+}
+
 /* ------------------------------------------------------------------ handlers */
 
 export const handlers = {

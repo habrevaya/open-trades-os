@@ -357,7 +357,7 @@ run("an application for payment", () => {
     expect(invoice).toEqual({ total: "22750.0000", customer_id: customerId });
     const again = await applications.raise(owner(), { id: first.id });
     expect(again).toEqual({ applicationId: first.id, invoiceId: raised.invoiceId, amount: "22750.0000", created: false });
-    const [{ n }] = await raw<{ n: number }[]>`select count(*)::int as n from public.invoice where organization_id = ${ORG}`;
+    const [{ n } = { n: -1 }] = await raw<{ n: number }[]>`select count(*)::int as n from public.invoice where organization_id = ${ORG}`;
     expect(n).toBe(1);
 
     await expect(applications.updateDraft(owner(), { id: first.id, notes: "late" })).rejects.toThrow(/has been invoiced/);
