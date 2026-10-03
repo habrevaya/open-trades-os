@@ -209,20 +209,38 @@ export const ADAPTERS: Record<string, Adapter> = {
         inspection: schema.inspection,
         programName: schema.inspectionProgram.name,
         programPack: schema.inspectionProgram.tradePackId,
-        /**
-         * The next inspection of the same programme at the same address that
-         * has been performed, for the clock that runs from the next one.
-         */
-        nextOn: sql<string | null>`(
-          select min(n.performed_on)::text from public.inspection n
-          where n.property_id = ${schema.inspection.propertyId}
-            and n.program_id is not distinct from ${schema.inspection.programId}
-            and n.performed_on > ${schema.inspection.performedOn}
-        )`,
       }).from(schema.inspection)
         .leftJoin(schema.inspectionProgram, eq(schema.inspectionProgram.id, schema.inspection.programId))
         .orderBy(asc(schema.inspection.createdAt)).limit(limit);
-      return rows.map(({ inspection, programName, programPack, nextOn }) => {
+
+      /**
+       * Every performed date per address and programme, for the clock that
+       * runs from the NEXT inspection of the same kind at the same place. Read
+       * whole and matched here rather than as a correlated subquery, because
+       * the next one is usually newer than anything in the oldest first window
+       * above, and a subquery's outer reference is one rendering away from
+       * comparing a table to itself.
+       */
+      const performedDates = await tx.select({
+        propertyId: schema.inspection.propertyId,
+        programId: schema.inspection.programId,
+        performedOn: schema.inspection.performedOn,
+      }).from(schema.inspection).where(sql`${schema.inspection.performedOn} is not null`);
+      const byPlace = new Map<string, string[]>();
+      for (const row of performedDates) {
+        const place = `${row.propertyId}|${row.programId ?? ""}`;
+        const list = byPlace.get(place) ?? [];
+        list.push(row.performedOn!);
+        byPlace.set(place, list);
+      }
+      const nextAfter = (propertyId: string, programId: string | null, on: string | null): string | null => {
+        if (!on) return null;
+        const later = (byPlace.get(`${propertyId}|${programId ?? ""}`) ?? []).filter((date) => date > on).sort();
+        return later[0] ?? null;
+      };
+
+      return rows.map(({ inspection, programName, programPack }) => {
+        const nextOn = nextAfter(inspection.propertyId, inspection.programId, inspection.performedOn);
         const performed = inspection.performedOn ? new Date(`${inspection.performedOn}T12:00:00Z`) : null;
         return {
           id: inspection.id,
