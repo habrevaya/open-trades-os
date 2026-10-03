@@ -74,6 +74,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  */
 export function AccountView({
   account, pay, returned = null, statementHref, changeHref, open, top, after,
+  closing = "Questions? Reply to the message that brought you here.",
 }: {
   account: AccountViewData;
   /** Where asking to move or cancel one coming visit opens, when the page offers it. */
@@ -93,6 +94,8 @@ export function AccountView({
   top?: ReactNode;
   /** After the history, before the closing line: saved cards, for a signed in customer. */
   after?: ReactNode;
+  /** The last line. A signed in customer did not arrive from a message, so is told something else. */
+  closing?: string;
 }) {
   const now = Date.now();
   const upcoming = account.visits
@@ -299,9 +302,7 @@ export function AccountView({
 
       {after}
 
-      <p className="text-center text-sm text-ink-700">
-        Questions? Reply to the message that brought you here.
-      </p>
+      <p className="text-center text-sm text-ink-700">{closing}</p>
     </>
   );
 }

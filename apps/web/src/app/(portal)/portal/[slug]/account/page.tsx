@@ -68,6 +68,7 @@ export default async function SignedInAccountPage({
       <AccountView
         account={account}
         returned={returned}
+        closing={`Questions? Call or text ${account.organizationName}, or reply to any message from them.`}
         statementHref={`${base}/account/statement`}
         changeHref={(visitId) => `${base}/account/change/${visitId}`}
         top={(

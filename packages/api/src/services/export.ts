@@ -59,6 +59,11 @@ export const REDACTED: Record<string, Record<string, string>> = {
     token_hash: "The hash of a live customer link. The links themselves cannot be reconstructed "
       + "and should not be: they are capabilities.",
   },
+  portal_sign_in: {
+    code_hash: "The salted hash of a customer's six digit sign in code. Six digits are a million "
+      + "guesses away from it, which is why it is kept from the file even though every code is "
+      + "dead within ten minutes. Who signed in, when and from where is exported.",
+  },
   calendar_feed: {
     token_hash: "The hash of a live calendar subscription URL. Reissue it; a technician's phone "
       + "will need the new one either way.",
@@ -115,6 +120,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     secret_ref: "A name in the deployment's secret store, as above, never the signing secret "
       + "itself. A company rebuilding its webhooks elsewhere needs to know which secret each "
       + "endpoint was signed with.",
+  },
+  portal_sign_in: {
+    request_key: "The key a customer's browser sent with a press of Send me a code, so a double "
+      + "press sends one code. Chosen by the browser for that one press, and grants nothing.",
   },
   attachment: {
     storage_key: "Where the bytes are in object storage. Without it an export cannot be matched "
