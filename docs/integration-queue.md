@@ -76,6 +76,7 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `meta_ads` | ads | Spend per campaign per day, and booked and paid jobs through the Conversions API with hashed details only where consent allows. Meta's sign in lasts sixty days. |
 | `ga4` | analytics | Leads and purchases through the Measurement Protocol, tied to the visit by the analytics id the website snippet reads. An API secret, no sign in. |
 | `google_business_profile` | reviews | Reviews read hourly into the review work list, replies posted back, and who wrote one suggested rather than asserted. Needs Google's separate approval for the API. |
+| `wisetack` | financing | Consumer financing: an application link for an invoice or estimate, the decision read back from Wisetack after every signed webhook, and the funded loan recorded as a payment with Wisetack's fee as an expense. Tested against a fake of its API; needs a Wisetack merchant account. |
 
 ---
 
@@ -184,7 +185,10 @@ Hard because of what they are, not because of their APIs.
 - **Consumer financing**: GreenSky, Synchrony, Wells Fargo, Service Finance,
   Financeit, TURNS, Bluevine, Coral. Every one needs a contract, a dealer
   agreement and in most cases a lending licence held by the contractor. The
-  integration is the smallest part.
+  integration is the smallest part, and since Wisetack shipped it is an
+  adapter on the `financing` seam rather than a module: `src/financing/provider.ts`
+  is the interface, and the estimate, invoice, portal and payment paths
+  already speak it.
 - **Permitting**: PermitFlow, iPermit. Jurisdiction by jurisdiction, with
   authority-specific forms. The code is easy and the coverage is the product.
 - **Warranties**: JB Warranties. Registration flows tied to manufacturer

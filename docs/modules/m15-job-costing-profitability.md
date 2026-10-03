@@ -56,6 +56,32 @@ there to be one copy.
 rating uses: the caveat is part of the answer rather than a footnote somebody
 can drop.
 
+**Two margins, never one instead of the other.** The direct (gross) margin is
+revenue less materials, hours at the loaded wage frozen on each punch, and card
+and financing fees. Beside it, the fully loaded margin takes off labour burden
+and overhead at rates the company sets itself. No rate is a default somebody did
+not choose: with none set the two margins are equal. An allocation is a choice
+and not a measurement, and the statement says what each basis does to it: by
+revenue every job keeps its margin percentage, by the hour a job that ran long
+is charged twice for the overrun, per job a quick call carries as much as an
+install.
+
+**Rates are dated.** Payroll taxes, benefits, workers' compensation and overhead
+are each a history: the rate in effect on a day is the latest one on or before
+it, so a punch is burdened at the rate of the day it started and a job carries
+the overhead of the day it finished. Raising workers' compensation in July does
+not reprice March, and a zero switches a component off from a date. A
+percentage burden is of the BASE wage on the punch, because those costs are
+charged on wages and the fringe already in the loaded rate is a benefit.
+
+**The budget is read against the ledger.** Twelve numbers a line, a line being
+Revenue, Materials, Labour, Overhead or one account, and the actual is the
+ledger grouped by month in the company's calendar, so it agrees with the trial
+balance. Revenue is the 4xxx accounts net of discounts, materials is 5000,
+labour the other 5xxx accounts, overhead 6xxx and above. This product posts no
+wages or materials itself, so those lines are only as complete as the journals
+an accountant posts (M14), and the report says so.
+
 **Revenue is read from the ledger, not from the invoice total.** That is what
 makes the job costing report agree with the trial balance to the cent, and it is
 what the booked-to-paid browser test asserts.
@@ -89,6 +115,27 @@ reporting at all" and the other is "may this person see what work costs". A
 company that gives an office manager cost visibility on a job and not the P and L
 is a normal company.
 
+### Burden and overhead
+
+`/settings/costing` holds the rates with the day each took effect, what an hour
+at a $30 wage costs today with them, and a form to add one. `GET /v1/costing/rates`
+lists them, `POST /v1/costing/rates` adds one (a second rate for one component on
+one day is refused) and `DELETE /v1/costing/rates/{id}` removes one entered by
+mistake. The job statement, `/jobs/{id}` and the job costing report then show
+labour burden, overhead and the fully loaded margin; the profitability dataset has
+`labour_burden`, `overhead` and `fully_loaded_margin` as measures.
+
+### The budget
+
+`/books/budget` shows the year by line and month: the budget, the ledger's
+actual, the difference and whether it is better or worse, and year to date. A
+line is set there all twelve months at once, or the year is loaded from a CSV
+with a header row of months (`Line,Jan,...,Dec`), where each line in the file
+replaces that line and nothing loads unless the whole file reads.
+`GET /v1/budgets/{year}` is the report, `PUT /v1/budgets/{year}/lines` sets a
+line, `DELETE /v1/budgets/{year}/lines/{line}` removes one and
+`POST /v1/budgets/{year}/import` loads a CSV.
+
 ## Permissions
 
 | Role | Access |
@@ -101,6 +148,11 @@ is a normal company.
 
 `job.cost:read` and `report.financial:read` are both on the sensitive list.
 
+Setting burden and overhead rates and the budget needs `finance:configure`,
+which the owner, the administrator and the accountant hold and the office
+manager does not: a rate changes what every fully loaded margin says. The rates
+are read with `job.cost:read`, the budget with `report.financial:read`.
+
 ## API
 
 | Call | Needs |
@@ -109,6 +161,12 @@ is a normal company.
 | `GET /v1/profitability/summary` | `report.financial:read`, `job.cost:read` |
 | `GET /v1/jobs/{jobId}/material-cost` | `inventory:read` |
 | `POST /v1/reports/drill` | `report:read`, and the report's own permissions |
+| `GET /v1/costing/rates` | `job.cost:read` |
+| `POST /v1/costing/rates` | `finance:configure` |
+| `DELETE /v1/costing/rates/{id}` | `finance:configure` |
+| `GET /v1/budgets/{year}` | `report.financial:read` |
+| `PUT /v1/budgets/{year}/lines` | `finance:configure` |
+| `POST /v1/budgets/{year}/import` | `finance:configure` |
 
 ## Common questions
 
@@ -125,6 +183,10 @@ attached to it.
 
 ## What is not built
 
-There is no overhead allocation model: the
-statement is direct cost against revenue, and a burden rate is not applied. No
-budget against actual at the company level, though M12 does it per project.
+Overhead has one basis at a time: a company that wants part per hour and part
+per job picks the one that matters most. The overtime premium is still not on a
+job, for the reason above. Burden and overhead are applied in reporting only;
+nothing posts them to the ledger, which keeps them as the company's choice
+rather than an entry in its books. The budget has no per branch or per job type
+split and no forecast; labour and materials actuals depend on journals, because
+nothing here posts wages or supplier bills.

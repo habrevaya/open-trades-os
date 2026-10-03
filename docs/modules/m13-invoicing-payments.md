@@ -209,6 +209,49 @@ then, and what became of it.
 an invoice and needs `invoice:write` as well, and
 `POST /v1/deposits/{id}/refund` returns or forfeits it.
 
+### Customer financing
+
+With a lender connected under "Customer financing" on `/settings/integrations`
+(Wisetack is the one adapter), an open invoice shows "as low as" a monthly
+figure for its balance, and so do the customer's invoice link at `/i/{token}`,
+their estimate link and the printable proposal, per option. The figure is worked
+out from the plans on the company's own Wisetack agreement, entered on the
+connection as months and APR (such as `60@17.9`), as the lowest payment any plan
+gives, exactly and rounded up to the cent; it is never shown without the
+sentence saying it is subject to the lender's approval and that the customer's
+terms may differ, and the company can hide the figure and keep the button. An
+amount outside what the lender finances shows nothing.
+
+The customer presses **Apply for financing** on their link and is taken to the
+lender's own page, or the office opens the application from the **Financing**
+panel on the invoice (or the estimate) and texts it, emails it or takes the link
+to hand over. Pressing again for the same amount reuses the open application.
+The application's status (link sent, applied, approved, declined, expired,
+funded, cancelled), the amount approved and the offer the customer chose show
+in the same panel. Nothing about the customer's credit is kept beyond the status
+the lender returns.
+
+Status changes arrive on a signed webhook at the address the settings screen
+shows. The signature is checked, the application is read back from the lender,
+and only the lender's own answer is applied, forward only, so a late, repeated or
+forged delivery changes nothing. **Ask the lender** on the panel does the same
+read by hand. When the loan is funded the payment is recorded through the same
+path as any payment, method financing, applied to the invoice up to its balance
+(anything more, or a loan on an estimate with no invoice yet, is held on the
+customer's account to apply later), with the lender's fee as the payment's fee:
+cash net of the fee, and the fee posted to processing fees (6100) as an expense.
+It is recorded once, however many deliveries say so. A fee the lender did not
+report is not guessed at: none is booked and the application says so.
+
+`/invoices/financing` lists every application, and for whoever reads financial
+reports: applications, the approval rate over the lender's decisions, funded
+volume, fees and what is still waiting.
+
+The Wisetack adapter has been tested against a fake of Wisetack's API in this
+repository, not against a live account, and it needs a Wisetack merchant
+account with API access. Run one application through Wisetack's sandbox before
+customers see a link.
+
 ## Permissions
 
 | Role | Access |
@@ -251,6 +294,11 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/payments/{id}/apply` | `payment:collect` |
 | `POST /v1/payments/{paymentId}/refund` | `payment:refund` |
 | `GET /v1/invoices/{id}/tips` | `invoice:read` |
+| `GET /v1/invoices/{invoiceId}/financing` | `invoice:read` |
+| `GET /v1/financing/applications` | `payment:read` |
+| `POST /v1/financing/applications` | `payment:collect` |
+| `POST /v1/financing/applications/{id}/refresh` | `payment:collect` |
+| `GET /v1/financing/report` | `report.financial:read` |
 | `GET /v1/deposits` | `deposit:read` |
 | `POST /v1/deposits` | `deposit:collect` |
 | `POST /v1/deposits/{id}/refund` | `deposit:refund` |
@@ -294,4 +342,9 @@ Stripe's own dashboard for the whole charge books only the invoice part, and the
 until somebody corrects it by hand. Saved cards are
 Stripe's only. Tax rate determination is deliberately not
 built: the rate is on the line it was charged on, and BUILD.md says why. Automatic
-dunning is a workflow somebody builds in M29.
+dunning is a workflow somebody builds in M29. Financing has one lender adapter, Wisetack, tested against a fake rather
+than a live account; a loan Wisetack refunds after funding is flagged on the
+application and not reversed, so the refund is recorded on the payment by hand,
+and the payment is dated when the funding was heard about rather than the
+lender's settlement date. "As low as" uses the plans entered on the connection
+and is not asked of the lender per customer.

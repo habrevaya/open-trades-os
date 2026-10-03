@@ -203,6 +203,17 @@ below governs only what somebody types. M08 has the rules.
 `GET /v1/estimate-discount-policy` reads it back, and
 `POST /v1/estimate-discount-policy/clear` takes it away.
 
+### Financing on an estimate
+
+With a lender connected (M13), each option on the estimate, on the customer's
+estimate link and on the printable proposal shows "as low as" a monthly figure,
+always with the sentence saying it is subject to the lender's approval. The
+customer applies from their link for the option they want, which does not use up
+the link they approve with, or the office sends the link from the **Financing**
+panel on `/estimates/{id}`, choosing the option. `GET /v1/estimates/{estimateId}/financing`
+is the same over the API. A loan funded before there is an invoice is held on the
+customer's account and applied when the work is invoiced.
+
 ## Permissions
 
 | Role | Access |
