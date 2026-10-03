@@ -323,7 +323,7 @@ run("the contract's clocks", () => {
     expect((await obligations.open(owner(), {})).filter((o) => o.entityId === jobId)).toEqual([]);
 
     /** The worker records it as met, late, with the fact that met it, and closes the tasks. */
-    await clockPass(db());
+    await clockPass(db(), { force: true });
     const { clocks } = await jobBilling.clocks(owner(), { jobId });
     expect(clocks.find((c) => c.kind === "sla.arrive")).toMatchObject({ standing: "met_late" });
     expect(clocks.find((c) => c.kind === "sla.arrive")!.satisfiedByEvent).toMatch(/technician arrived/);

@@ -243,13 +243,23 @@ async function closeTasksFor(
   ));
 }
 
-/** The jobs in a company whose contract clocks need looking at. */
+/**
+ * The jobs in a company whose contract clocks need looking at.
+ *
+ * Two kinds, and only two, because this runs on every worker pass and a
+ * company with ten thousand open jobs must not be reconciled ten thousand
+ * times a minute. A job with a live clock, which is the one a fact can meet
+ * or the clock can run out on. And a job touched in the last day under a
+ * contract, which is how a new job gets its clocks raised and a finished one
+ * its invoicing window: booking, finishing and invoicing all touch the job.
+ */
 async function jobsToReconcile(tx: Database, organizationId: string, limit: number): Promise<string[]> {
   const rows = await tx.execute<{ id: string }>(sql`
     select j.id from public.job j
     where j.organization_id = ${organizationId}
       and (
-        (j.deleted_at is null and j.status not in ('paid', 'cancelled') and (
+        (j.deleted_at is null and j.status not in ('paid', 'cancelled')
+          and j.updated_at > now() - interval '1 day' and (
           j.contract_id is not null
           or exists (
             select 1 from public.service_contract c
@@ -337,6 +347,8 @@ export async function passIn(
 
 /* ------------------------------------------------------------ the worker */
 
+let lastPass: number | null = null;
+
 /** What the worker acts as. Reconciles clocks and raises tasks; nothing else. */
 function workerActor(organizationId: string): Actor {
   return {
@@ -356,8 +368,17 @@ function workerActor(organizationId: string): Actor {
  * company's deadlines being raised.
  */
 export async function clockPass(
-  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean; force?: boolean } = {},
 ): Promise<Array<{ organizationId: string; escalated: number; failed: string | null }>> {
+  /**
+   * Once a minute at most, per process. The worker goes round every few
+   * seconds, and a clock measured in minutes and hours gains nothing from
+   * being looked at more often; the queue reads met clocks from the facts
+   * itself, so nothing waits on this.
+   */
+  const now = (options.now ?? new Date()).getTime();
+  if (!options.force && lastPass !== null && now - lastPass < 60_000 && now >= lastPass) return [];
+  lastPass = now;
   const rows = await db.execute<{ organization_id: string }>(
     sql`select organization_id from app.contract_clock_organizations(${options.limit ?? 200})`,
   );
