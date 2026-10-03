@@ -2064,8 +2064,8 @@ grant execute on function app.issue_sign_in_code(text, text, text, timestamptz, 
 grant execute on function app.consume_sign_in_code(text, text, int) to authenticated;
 
 -- ---- Companies with a push to send ----------------------------------------
--- The push pass reads each company's event log from its own position (the
--- `push` consumer) and sends what it writes. The same shape as the functions
+-- The push pass reads each company's changes to somebody's day from its own
+-- position in the event log (the `push` consumer) and sends what it writes. The same shape as the functions
 -- above: which companies have a change it has not read, a notice still
 -- waiting to go, or a receipt still owed, as ids and nothing else. Whether
 -- any of it is due is decided per company by the service.
@@ -2079,6 +2079,9 @@ returns table (organization_id uuid)
         left join public.event_cursor c
           on c.organization_id = e.organization_id and c.consumer = 'push'
        where e.sequence > coalesce(c.last_sequence, 0)
+         -- Only the changes a phone is told about, so a company busy with
+         -- everything else is not visited on every pass for nothing.
+         and e.name in ('visit.assigned', 'visit.unassigned', 'visit.rescheduled', 'visit.cancelled')
        group by e.organization_id
       union
       select d.organization_id

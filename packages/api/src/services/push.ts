@@ -123,8 +123,17 @@ async function readEvents(ctx: ServiceContext, now: Date): Promise<number> {
     const staleBefore = new Date(now.getTime() - STALE_HOURS * 3_600_000);
     const cursor = await cursorFor(tx, organizationId, staleBefore);
 
+    /**
+     * Only the four changes a phone is told about, from the name index, so a
+     * company busy with invoices and texts costs this pass nothing. The cursor
+     * moves to the last of them read; the events between are not this
+     * consumer's business.
+     */
     const events = await tx.select().from(schema.domainEvent)
-      .where(gt(schema.domainEvent.sequence, cursor))
+      .where(and(
+        gt(schema.domainEvent.sequence, cursor),
+        inArray(schema.domainEvent.name, Object.keys(field.NOTICE_FOR_EVENT)),
+      ))
       .orderBy(asc(schema.domainEvent.sequence))
       .limit(READ_BATCH);
     if (events.length === 0) return 0;
@@ -134,8 +143,8 @@ async function readEvents(ctx: ServiceContext, now: Date): Promise<number> {
     let written = 0;
 
     for (const event of events) {
-      const kind = field.NOTICE_FOR_EVENT[event.name];
-      if (!kind || event.occurredAt < staleBefore) continue;
+      const kind = field.NOTICE_FOR_EVENT[event.name]!;
+      if (event.occurredAt < staleBefore) continue;
 
       const payload = event.payload;
       const technicianIds = Array.isArray(payload["technicianIds"])
