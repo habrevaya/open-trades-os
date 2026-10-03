@@ -47,6 +47,7 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
         </h1>
         <div className="flex items-center gap-3">
           <a href={`/estimates/${id}/proposal`} className="text-sm underline underline-offset-4">Proposal to print</a>
+          <a href={`/estimates/${id}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>
           <Chip tone={tone(ESTIMATE_TONE, estimate.status)}>{label(ESTIMATE_STATUS, estimate.status)}</Chip>
         </div>
       </div>

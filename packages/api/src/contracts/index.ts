@@ -63,6 +63,7 @@ import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
 import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
+import { visitRoutes } from "./visits";
 import { dispatchMapRoutes } from "./dispatch-map";
 import { acquisitionRoutes } from "./acquisition";
 import { customerTagRoutes } from "./customer-tags";
@@ -76,6 +77,7 @@ import { safetyRoutes } from "./safety";
 import { retentionRoutes } from "./retention";
 
 export * from "./common";
+export * from "./visits";
 export * from "./customers";
 export * from "./properties";
 export * from "./jobs";
@@ -228,6 +230,7 @@ export const routes = {
   ...exportRoutes,
   ...externalWorkRoutes,
   ...kpiRoutes,
+  ...visitRoutes,
   ...dispatchMapRoutes,
   ...reportRoutes,
   ...customerTagRoutes,

@@ -41,6 +41,7 @@ export default async function AccountPage({
         account={account}
         returned={returned}
         statementHref={`/c/${token}/statement`}
+        pdfHref={(invoiceId) => `/c/${token}/invoices/${invoiceId}/pdf`}
         changeHref={(visitId) => `/c/${token}/change/${visitId}`}
         pay={(invoice) => (
           <PayInvoice

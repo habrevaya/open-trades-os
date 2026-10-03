@@ -151,3 +151,5 @@ export * as adConversions from "./ad-conversions";
 export * as reviewSync from "./review-sync";
 export * as safety from "./safety";
 export * as retention from "./retention";
+export * as documents from "./documents";
+export * as visits from "./visits";

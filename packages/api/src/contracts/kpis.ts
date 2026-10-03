@@ -82,4 +82,42 @@ export const listKpiCatalogue = defineRoute({
   }),
 });
 
-export const kpiRoutes = { getKpiScorecard, listKpiCatalogue } as const;
+export const getKpiRecords = defineRoute({
+  method: "get",
+  /** Flat, beside `/v1/kpis` rather than under it, so no literal sits beside a key at one depth. */
+  path: "/v1/kpi-records",
+  summary: "The records behind one half of one KPI",
+  description:
+    "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money numerator without report.financial:read.",
+  module: "M21",
+  permissions: ["report:read"],
+  input: z.object({
+    key: z.string().min(1).max(80),
+    half: z.enum(["numerator", "denominator"]),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  output: z.object({
+    key: z.string(),
+    label: z.string(),
+    definition: z.string(),
+    format: z.enum(["percent", "money", "number", "duration"]),
+    half: z.enum(["numerator", "denominator"]),
+    halfLabel: z.string(),
+    from: z.string(),
+    to: z.string(),
+    records: z.array(z.object({
+      kind: z.string(),
+      id: z.string(),
+      label: z.string(),
+      onDay: z.string().nullable(),
+      value: z.string(),
+      href: z.string(),
+    })),
+    count: z.number().int(),
+    total: z.string(),
+    truncated: z.boolean(),
+  }),
+});
+
+export const kpiRoutes = { getKpiScorecard, listKpiCatalogue, getKpiRecords } as const;

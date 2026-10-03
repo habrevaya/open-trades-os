@@ -29,6 +29,8 @@ export interface DwellShape {
   key: string;
   label: string;
   question: string;
+  /** After the record entered a state, or before a date on it. Absent reads as after. */
+  counts?: "since" | "until";
 }
 
 export function Builder({
@@ -175,7 +177,7 @@ export function Builder({
                 </select>
               </label>
               <label className="text-sm">
-                <span className="block text-ink-700">After how many days</span>
+                <span className="block text-ink-700">How many days</span>
                 <input
                   name="dwellDays" type="number" min="0" max="365"
                   defaultValue={initial?.dwell?.afterDays ?? 5}
@@ -186,11 +188,15 @@ export function Builder({
             <p className="mt-2 text-xs text-ink-500">
               Measured from when the record entered that state, not from when
               anybody last touched it. A customer opening a quote without
-              deciding is exactly the one worth chasing.
+              deciding is exactly the one worth chasing. A warranty is the other
+              way round: the days are counted back from the day cover ends.
             </p>
             <ul className="mt-2 space-y-1 text-xs text-ink-500">
               {shapes.map((shape) => (
-                <li key={shape.key}>{shape.label}: {shape.question}</li>
+                <li key={shape.key}>
+                  {shape.label}: {shape.question}{" "}
+                  {shape.counts === "until" ? "Fires that many days before." : "Fires after that many days."}
+                </li>
               ))}
             </ul>
           </div>

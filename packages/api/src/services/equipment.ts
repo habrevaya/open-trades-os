@@ -43,6 +43,127 @@ export const MOVE_REASONS = [
 ] as const;
 export type MoveReason = (typeof MOVE_REASONS)[number];
 
+/**
+ * A SERIAL AS A MATCH KEY: letters and digits, upper case.
+ *
+ * The same plate is typed "ab-1234 x", "AB1234X" and "AB 1234X" by three
+ * people on three days, and a comparison of the strings as typed finds none
+ * of them. Punctuation and spacing on a rating plate are never what tells two
+ * units apart; the characters are.
+ */
+export function serialKey(serial: string): string {
+  return serial.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+const SERIAL_KEY_SQL = sql`regexp_replace(upper(coalesce(${schema.equipment.serialNumber}, '')), '[^A-Z0-9]', '', 'g')`;
+
+export interface SerialMatch {
+  id: string;
+  propertyId: string;
+  address: string;
+  category: string;
+  tag: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  serialNumber: string;
+  /** Taken off the register: retired, replaced or removed. */
+  retired: boolean;
+  /** Who to ask about it: the customer linked to that address now. */
+  customer: { id: string; name: string } | null;
+}
+
+/**
+ * Who is linked to each address now, primary first and owners before tenants,
+ * because the person who decides about a replacement furnace is the owner.
+ */
+async function customersAt(tx: Database, propertyIds: string[]): Promise<Map<string, { id: string; name: string }>> {
+  const out = new Map<string, { id: string; name: string }>();
+  if (propertyIds.length === 0) return out;
+  const links = await tx.select({
+    propertyId: schema.customerProperty.propertyId,
+    customerId: schema.customer.id,
+    name: schema.customer.name,
+  }).from(schema.customerProperty)
+    .innerJoin(schema.customer, eq(schema.customer.id, schema.customerProperty.customerId))
+    .where(and(
+      inArray(schema.customerProperty.propertyId, [...new Set(propertyIds)]),
+      isNull(schema.customerProperty.endedOn),
+      isNull(schema.customer.deletedAt),
+    ))
+    .orderBy(
+      desc(schema.customerProperty.isPrimary),
+      sql`(${schema.customerProperty.role} = 'owner') desc`,
+      schema.customerProperty.createdAt,
+    );
+  for (const link of links) {
+    if (!out.has(link.propertyId)) out.set(link.propertyId, { id: link.customerId, name: link.name });
+  }
+  return out;
+}
+
+async function serialMatchesWithin(
+  tx: Database, organizationId: string, serial: string, excludeId?: string,
+): Promise<SerialMatch[]> {
+  const key = serialKey(serial);
+  if (key === "") return [];
+  const rows = await tx.select({
+    equipment: schema.equipment,
+    line1: schema.property.addressLine1,
+    city: schema.property.city,
+  }).from(schema.equipment)
+    .innerJoin(schema.property, eq(schema.property.id, schema.equipment.propertyId))
+    .where(and(
+      eq(schema.equipment.organizationId, organizationId),
+      sql`${SERIAL_KEY_SQL} = ${key}`,
+      ...(excludeId ? [sql`${schema.equipment.id} <> ${excludeId}`] : []),
+    ))
+    .orderBy(asc(schema.equipment.deletedAt), desc(schema.equipment.createdAt))
+    .limit(20);
+  const who = await customersAt(tx, rows.map((r) => r.equipment.propertyId));
+  return rows.map(({ equipment, line1, city }) => ({
+    id: equipment.id,
+    propertyId: equipment.propertyId,
+    address: [line1, city].filter(Boolean).join(", "),
+    category: equipment.category,
+    tag: equipment.tag,
+    manufacturer: equipment.manufacturer,
+    model: equipment.model,
+    serialNumber: equipment.serialNumber ?? "",
+    retired: equipment.deletedAt !== null || !equipment.active,
+    customer: who.get(equipment.propertyId) ?? null,
+  }));
+}
+
+/**
+ * Every unit in the company carrying this serial, wherever it is and whether
+ * or not it is still on a register.
+ *
+ * The office's half of the split history guard. The field sync matches on the
+ * serial at the address it is standing in; somebody in the office typing a
+ * unit off a warranty card has no address match to make, and the furnace they
+ * are about to add may already be on file at the address the customer moved
+ * from, or retired from a rental the landlord moved it out of. Asked as the
+ * serial is typed, so the warning arrives before the second record does.
+ */
+export function matchSerial(
+  ctx: ServiceContext, input: { serialNumber: string; excludeId?: string | undefined },
+): Promise<SerialMatch[]> {
+  return guardedRead(ctx, "equipment:read", (tx) =>
+    serialMatchesWithin(tx, ctx.actor.organizationId, input.serialNumber, input.excludeId));
+}
+
+/** The matches as one sentence, for a refusal a person reads. */
+function describeMatches(serial: string, matches: SerialMatch[]): string {
+  const said = matches.slice(0, 3).map((m) => {
+    const what = [m.tag, m.manufacturer, m.model].filter(Boolean).join(" ") || m.category;
+    return `${what} at ${m.address}${m.retired ? " (taken off the register)" : ""}`;
+  });
+  const more = matches.length > 3 ? ` and ${matches.length - 3} more` : "";
+  return `Serial ${serial} is already on file: ${said.join("; ")}${more}. If it is the same unit, `
+    + "record a move on that one rather than adding it again, or its history splits in two. If it "
+    + "really is a different unit with the same serial, confirm that and add it.";
+}
+
 export interface EquipmentInput {
   propertyId: string;
   category: string;
@@ -57,6 +178,13 @@ export interface EquipmentInput {
   location?: string | null | undefined;
   parentEquipmentId?: string | null | undefined;
   attributes?: Record<string, unknown> | undefined;
+  /**
+   * The person adding it has seen that this serial is on file elsewhere in
+   * the company and says this is a different unit. Never enough to add a
+   * second live unit with the same serial at the SAME address, which is a
+   * duplicate whatever anybody confirms.
+   */
+  serialElsewhereConfirmed?: boolean | undefined;
 }
 
 /* -------------------------------------------------------------- the register */
@@ -79,20 +207,24 @@ export async function register(ctx: ServiceContext, input: EquipmentInput) {
        * THE SPLIT HISTORY GUARD. Two records for the same furnace is the
        * failure this whole table exists to avoid, and it happens most often
        * when the office adds a unit the phone already recorded.
+       *
+       * Matched on the serial's characters across the WHOLE company, retired
+       * units included. The same address is a refusal outright. Anywhere
+       * else is a warning the person adding it has to answer: the unit may
+       * have moved with a landlord or come back from a warranty swap, which
+       * is a move on the existing row, or it may really be another unit with
+       * the same plate, which happens with some makers' short serials.
        */
-      const [twin] = await tx.select({ id: schema.equipment.id, tag: schema.equipment.tag })
-        .from(schema.equipment)
-        .where(and(
-          eq(schema.equipment.organizationId, ctx.actor.organizationId),
-          eq(schema.equipment.propertyId, input.propertyId),
-          eq(schema.equipment.serialNumber, serial),
-          isNull(schema.equipment.deletedAt),
-        )).limit(1);
+      const matches = await serialMatchesWithin(tx, ctx.actor.organizationId, serial);
+      const twin = matches.find((m) => m.propertyId === input.propertyId && !m.retired);
       if (twin) {
         throw new ConflictError(
           `Serial ${serial} is already on file at this property${twin.tag ? ` as ${twin.tag}` : ""}. `
           + "Two records for one unit split its history down the middle. Edit the existing one instead.",
         );
+      }
+      if (matches.length > 0 && !input.serialElsewhereConfirmed) {
+        throw new ConflictError(describeMatches(serial, matches));
       }
     }
 
@@ -186,13 +318,8 @@ export async function update(
     const serial = input.serialNumber !== undefined
       ? (input.serialNumber?.trim() || null) : before.serialNumber;
     if (serial && serial !== before.serialNumber) {
-      const [twin] = await tx.select({ id: schema.equipment.id }).from(schema.equipment)
-        .where(and(
-          eq(schema.equipment.organizationId, ctx.actor.organizationId),
-          eq(schema.equipment.propertyId, propertyId),
-          eq(schema.equipment.serialNumber, serial),
-          isNull(schema.equipment.deletedAt),
-        )).limit(1);
+      const twin = (await serialMatchesWithin(tx, ctx.actor.organizationId, serial, input.id))
+        .find((m) => m.propertyId === propertyId && !m.retired);
       if (twin) throw new ConflictError(`Serial ${serial} is already on file at this property.`);
     }
 
@@ -476,7 +603,32 @@ export async function get(ctx: ServiceContext, input: { id: string; on?: string 
       .where(eq(schema.equipmentMove.equipmentId, input.id))
       .orderBy(desc(schema.equipmentMove.movedOn));
 
-    return { ...shape(row, today), moves };
+    const [place] = await tx.select({
+      line1: schema.property.addressLine1, line2: schema.property.addressLine2,
+      city: schema.property.city, state: schema.property.state, postalCode: schema.property.postalCode,
+    }).from(schema.property).where(eq(schema.property.id, row.propertyId)).limit(1);
+    const customer = (await customersAt(tx, [row.propertyId])).get(row.propertyId) ?? null;
+
+    /** What it sits in and what sits in it, so the page can walk the nesting both ways. */
+    const [parent] = row.parentEquipmentId ? await tx.select({
+      id: schema.equipment.id, tag: schema.equipment.tag, category: schema.equipment.category,
+    }).from(schema.equipment).where(eq(schema.equipment.id, row.parentEquipmentId)).limit(1) : [];
+    const children = await tx.select({
+      id: schema.equipment.id, tag: schema.equipment.tag, category: schema.equipment.category,
+    }).from(schema.equipment)
+      .where(and(eq(schema.equipment.parentEquipmentId, input.id), isNull(schema.equipment.deletedAt)))
+      .orderBy(asc(schema.equipment.category), asc(schema.equipment.tag));
+
+    return {
+      ...shape(row, today),
+      moves,
+      address: place
+        ? [place.line1, place.line2, `${place.city}, ${place.state} ${place.postalCode}`].filter(Boolean).join(", ")
+        : "",
+      customer,
+      parent: parent ?? null,
+      children,
+    };
   });
 }
 
@@ -540,7 +692,100 @@ export async function history(ctx: ServiceContext, input: { id: string }) {
       ))
       .orderBy(desc(schema.deficiency.createdAt));
 
-    return { jobs, inspected, deficiencies };
+    /**
+     * READINGS TAKEN ON THIS UNIT, from the service reports that named it:
+     * the superheat on a condenser, the gas pressure on a water heater, in the
+     * order they were taken, so the page can show a number drifting.
+     */
+    const readings = await tx.select({
+      id: schema.serviceReportField.id,
+      key: schema.serviceReportField.key,
+      label: schema.serviceReportField.label,
+      valueNumeric: schema.serviceReportField.valueNumeric,
+      valueText: schema.serviceReportField.valueText,
+      valueBoolean: schema.serviceReportField.valueBoolean,
+      unit: schema.serviceReportField.unit,
+      outOfRange: schema.serviceReportField.outOfRange,
+      recordedAt: schema.serviceReportField.recordedAt,
+      visitId: schema.serviceReport.visitId,
+    }).from(schema.serviceReportField)
+      .innerJoin(schema.serviceReport, eq(schema.serviceReport.id, schema.serviceReportField.reportId))
+      .where(and(
+        eq(schema.serviceReportField.organizationId, ctx.actor.organizationId),
+        eq(schema.serviceReportField.equipmentId, input.id),
+        sql`${schema.serviceReportField.kind} not in ('photo', 'signature')`,
+      ))
+      .orderBy(desc(schema.serviceReportField.recordedAt))
+      .limit(200);
+
+    /**
+     * INSPECTIONS THAT NAMED IT. A checkpoint answered against this unit is
+     * how a backflow assembly gets its test history, and it is the date its
+     * next test is counted from.
+     */
+    const inspectionRows = await tx.select({
+      id: schema.inspection.id,
+      performedOn: schema.inspection.performedOn,
+      result: schema.inspection.result,
+      programme: schema.inspectionProgram.name,
+      visitId: schema.inspection.visitId,
+      jobId: schema.inspection.jobId,
+      answers: schema.inspection.answers,
+    }).from(schema.inspection)
+      .leftJoin(schema.inspectionProgram, eq(schema.inspectionProgram.id, schema.inspection.programId))
+      .where(and(
+        eq(schema.inspection.organizationId, ctx.actor.organizationId),
+        sql`exists (select 1 from jsonb_array_elements(${schema.inspection.answers}) a
+                    where a->>'equipmentId' = ${input.id})`,
+      ))
+      .orderBy(desc(schema.inspection.performedOn))
+      .limit(100);
+
+    /**
+     * PHOTOGRAPHS OF IT: the ones a technician took while answering a
+     * checkpoint about this unit, the ones kept with a fault found on it, and
+     * anything filed against the unit itself. A photo of the whole visit is
+     * not a photo of this unit and is left on the visit.
+     */
+    const photoIds = new Set<string>();
+    for (const row of inspectionRows) {
+      for (const answer of row.answers ?? []) {
+        if (answer.equipmentId !== input.id) continue;
+        for (const id of answer.photoIds ?? []) photoIds.add(id);
+        const inValue = answer.value["photoIds"];
+        if (answer.value.kind === "photo" && Array.isArray(inValue)) for (const id of inValue) photoIds.add(String(id));
+      }
+    }
+    const faultPhotos = await tx.select({ observation: schema.deficiency.observation }).from(schema.deficiency)
+      .where(and(eq(schema.deficiency.organizationId, ctx.actor.organizationId), eq(schema.deficiency.equipmentId, input.id)));
+    for (const row of faultPhotos) for (const id of row.observation?.photoIds ?? []) photoIds.add(id);
+    const uploads = photoIds.size === 0 ? [] : await tx.select({
+      storageKey: schema.fieldUpload.storageKey,
+      contentType: schema.fieldUpload.contentType,
+      at: schema.fieldUpload.createdAt,
+    }).from(schema.fieldUpload).where(inArray(schema.fieldUpload.clientId, [...photoIds]));
+    const filed = await tx.select({
+      storageKey: schema.attachment.storageKey,
+      contentType: schema.attachment.contentType,
+      at: schema.attachment.createdAt,
+    }).from(schema.attachment).where(and(
+      eq(schema.attachment.organizationId, ctx.actor.organizationId),
+      eq(schema.attachment.entityType, "equipment"),
+      eq(schema.attachment.entityId, input.id),
+      isNull(schema.attachment.deletedAt),
+    ));
+    const photos = [...uploads, ...filed]
+      .filter((p): p is { storageKey: string; contentType: string | null; at: Date } => typeof p.storageKey === "string")
+      .sort((a, b) => b.at.getTime() - a.at.getTime());
+
+    return {
+      jobs,
+      inspected,
+      deficiencies,
+      readings,
+      inspections: inspectionRows.map(({ answers: _answers, ...rest }) => rest),
+      photos,
+    };
   });
 }
 
@@ -554,13 +799,21 @@ export async function history(ctx: ServiceContext, input: { id: string }) {
  * mentioning anything the moment it expires.
  */
 export async function warrantyWatch(
-  ctx: ServiceContext, input: { withinDays?: number; on?: string } = {},
+  ctx: ServiceContext,
+  input: { withinDays?: number; on?: string; from?: string | undefined; to?: string | undefined } = {},
 ) {
   return guardedRead(ctx, "equipment:read", async (tx) => {
     const today = input.on ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
     const days = input.withinDays ?? 90;
-    const from = shiftDays(today, -days);
-    const to = shiftDays(today, days);
+    /**
+     * ANY WINDOW, by its two dates, when the caller gives them: "everything
+     * ending before the end of the season", or "what lapsed in last year's
+     * heat wave". Without them, the symmetric window around today that the
+     * list has always had.
+     */
+    const from = input.from ?? shiftDays(today, -days);
+    const to = input.to ?? shiftDays(today, days);
+    if (to < from) throw new ConflictError("The window ends before it starts.");
 
     const rows = await tx.select({
       equipment: schema.equipment,
@@ -580,31 +833,9 @@ export async function warrantyWatch(
     /**
      * WHO TO RING about each unit, which the list could not say: it named an
      * address and stopped, so the call a lapsing warranty is for started with
-     * somebody looking the address up. The customer is the one linked to the
-     * property now, primary first and owners before tenants, because the
-     * person who decides about a replacement furnace is the owner.
+     * somebody looking the address up.
      */
-    const propertyIds = [...new Set(rows.map((r) => r.equipment.propertyId))];
-    const links = propertyIds.length === 0 ? [] : await tx.select({
-      propertyId: schema.customerProperty.propertyId,
-      customerId: schema.customer.id,
-      name: schema.customer.name,
-    }).from(schema.customerProperty)
-      .innerJoin(schema.customer, eq(schema.customer.id, schema.customerProperty.customerId))
-      .where(and(
-        inArray(schema.customerProperty.propertyId, propertyIds),
-        isNull(schema.customerProperty.endedOn),
-        isNull(schema.customer.deletedAt),
-      ))
-      .orderBy(
-        desc(schema.customerProperty.isPrimary),
-        sql`(${schema.customerProperty.role} = 'owner') desc`,
-        schema.customerProperty.createdAt,
-      );
-    const customerAt = new Map<string, { id: string; name: string }>();
-    for (const link of links) {
-      if (!customerAt.has(link.propertyId)) customerAt.set(link.propertyId, { id: link.customerId, name: link.name });
-    }
+    const customerAt = await customersAt(tx, rows.map((r) => r.equipment.propertyId));
 
     return rows
       .map(({ equipment, line1, city }) => ({
@@ -730,13 +961,20 @@ export const handlers = {
   getEquipmentHistory: (ctx: ServiceContext, input: { id: string }) => history(ctx, input),
 
   getWarrantyWatch: async (
-    ctx: ServiceContext, input: { withinDays?: number | undefined; on?: string | undefined },
+    ctx: ServiceContext,
+    input: { withinDays?: number | undefined; on?: string | undefined; from?: string | undefined; to?: string | undefined },
   ) => ({
     units: await warrantyWatch(ctx, {
       ...(input.withinDays ? { withinDays: input.withinDays } : {}),
       ...(input.on ? { on: input.on } : {}),
+      ...(input.from ? { from: input.from } : {}),
+      ...(input.to ? { to: input.to } : {}),
     }),
   }),
+
+  listEquipmentSerialMatches: async (
+    ctx: ServiceContext, input: { serialNumber: string; excludeId?: string | undefined },
+  ) => ({ matches: await matchSerial(ctx, input) }),
 
   registerEquipment: async (ctx: ServiceContext, input: EquipmentInput) => ({
     id: (await register(ctx, input)).id,

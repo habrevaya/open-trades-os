@@ -57,7 +57,11 @@ export default async function StatementPage({ params, searchParams }: {
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <Crumb href={`/customers/${id}`}>{statement.customerName}</Crumb>
-        <PrintButton label="Print statement" />
+        <div className="flex items-center gap-3">
+          <a href={`/customers/${id}/statement/pdf?from=${statement.from}&to=${statement.to}`}
+             className="text-sm underline underline-offset-4">Download PDF</a>
+          <PrintButton label="Print statement" />
+        </div>
       </div>
       <form method="get" className="mt-4 flex flex-wrap items-end gap-3 print:hidden">
         <label className="block text-sm">

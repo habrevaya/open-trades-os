@@ -47,6 +47,8 @@ export default async function EstimatePage({ params }: { params: Promise<{ token
         */}
         <p className="mt-2 text-sm">
           <a href={`/e/${token}/proposal`} className="underline underline-offset-4">See the full proposal to print or save</a>
+          {" or "}
+          <a href={`/e/${token}/pdf`} className="underline underline-offset-4">download it as a PDF</a>
         </p>
       </header>
 

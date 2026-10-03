@@ -70,6 +70,7 @@ export default async function SignedInAccountPage({
         returned={returned}
         closing={`Questions? Call or text ${account.organizationName}, or reply to any message from them.`}
         statementHref={`${base}/account/statement`}
+        pdfHref={(invoiceId) => `${base}/account/invoices/${invoiceId}/pdf`}
         changeHref={(visitId) => `${base}/account/change/${visitId}`}
         top={(
           <form action={signOut.bind(null, slug)} className="mt-2">

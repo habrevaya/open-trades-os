@@ -84,7 +84,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <h1 className="text-xl font-semibold">
           Invoice <span className="font-mono tabular-nums">{invoice.number}</span>
         </h1>
-        <Chip tone={tone(INVOICE_TONE, invoice.status)}>{label(INVOICE_STATUS, invoice.status)}</Chip>
+        <div className="flex items-center gap-3">
+          <a href={`/invoices/${invoice.id}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>
+          <Chip tone={tone(INVOICE_TONE, invoice.status)}>{label(INVOICE_STATUS, invoice.status)}</Chip>
+        </div>
       </div>
 
       <Facts>

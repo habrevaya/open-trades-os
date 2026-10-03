@@ -26,7 +26,10 @@ export default async function PortalProposalPage({ params }: { params: Promise<{
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 print:hidden">
         <a href={`/e/${token}`} className="text-sm text-ink-500 hover:underline">Back to choose and approve</a>
-        <PrintButton label="Print or save as PDF" />
+        <span className="flex items-center gap-3">
+          <a href={`/e/${token}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>
+          <PrintButton label="Print" />
+        </span>
       </div>
       <div className="rounded-md border border-steel-200 bg-canvas p-5 print:border-0 print:p-0">
         <ProposalView

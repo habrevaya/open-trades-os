@@ -73,7 +73,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * to the token and the invoice on the server.
  */
 export function AccountView({
-  account, pay, returned = null, statementHref, changeHref, open, top, after,
+  account, pay, returned = null, statementHref, changeHref, pdfHref, open, top, after,
   closing = "Questions? Reply to the message that brought you here.",
 }: {
   account: AccountViewData;
@@ -81,6 +81,8 @@ export function AccountView({
   changeHref?: (visitId: string) => string;
   /** Where the customer's statement opens, when there is one to show. */
   statementHref?: string;
+  /** Where one invoice downloads as a PDF. */
+  pdfHref?: (invoiceId: string) => string;
   /** Stripe's redirect outcome, which is the browser's account and changes nothing. */
   returned?: string | null;
   pay: (invoice: AccountViewData["invoices"][number]) => ReactNode;
@@ -141,6 +143,9 @@ export function AccountView({
                   <span>
                     Invoice #{invoice.number}
                     {invoice.dueOn && <span className="text-ink-500">, due {day(invoice.dueOn)}</span>}
+                    {pdfHref ? (
+                      <a href={pdfHref(invoice.id)} className="ml-2 text-xs text-blue-600 underline underline-offset-4">PDF</a>
+                    ) : null}
                   </span>
                   <span className="shrink-0 font-mono tabular-nums">{money(invoice.balance, invoice.currency)}</span>
                 </div>
@@ -226,7 +231,12 @@ export function AccountView({
           <ul className="mt-3 space-y-2 text-sm">
             {settled.map((i) => (
               <li key={i.id} className="flex justify-between gap-4">
-                <span>Invoice #{i.number}{i.issuedOn ? `, ${day(i.issuedOn)}` : ""}</span>
+                <span>
+                  Invoice #{i.number}{i.issuedOn ? `, ${day(i.issuedOn)}` : ""}
+                  {pdfHref ? (
+                    <a href={pdfHref(i.id)} className="ml-2 text-xs text-blue-600 underline underline-offset-4">PDF</a>
+                  ) : null}
+                </span>
                 <span className="shrink-0 text-right text-ink-700">
                   <span className="font-mono tabular-nums">{money(i.total, i.currency)}</span>
                   {" · "}{INVOICE[i.status] ?? i.status}

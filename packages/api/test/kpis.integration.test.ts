@@ -272,8 +272,10 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
     const computed = KEYS.filter((key) => CATALOGUE[key]!.state === "computed").sort();
     expect(computed).toEqual([
       "avg_ticket",
+      "backflow_recert",
       "callback_rate",
       "close_rate",
+      "drive_time_pct",
       "maint_attach",
       "not_out_rate",
       "oneoff_to_recurring",
@@ -294,11 +296,15 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
     ]);
 
     /**
-     * Nineteen of forty seven answered. The rest each name a missing datum, and
-     * three of those data would unlock most of them: a coded cancellation reason,
-     * a cost posting, and a finer job type class than `revenue_class`.
+     * Twenty one of forty seven answered. `drive_time_pct` moved because the
+     * commute leg turned out to be where the definition says it is, before the
+     * first stop and after the last, and `backflow_recert` because M33's
+     * inspections give an assembly a typed test date. The rest each name a
+     * missing datum, and three of those data would unlock most of them: a coded
+     * cancellation reason, a cost posting, and a finer job type class than
+     * `revenue_class`.
      */
-    expect(computed.length + elsewhere.length).toBe(19);
+    expect(computed.length + elsewhere.length).toBe(21);
     expect(KEYS.length).toBe(47);
   });
 });

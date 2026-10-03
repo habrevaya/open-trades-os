@@ -264,6 +264,15 @@ export const EVENTS = {
     summary: "A job has been sitting in one status", entity: "job",
     emitted: true, subscribable: false,
   },
+  /**
+   * The one sweep event about something ABOUT to happen rather than something
+   * that did not: a unit's next warranty date coming inside the window the
+   * automation names. Carries the unit and the date, so a task can name both.
+   */
+  "equipment.warranty_lapsing": {
+    summary: "A unit's warranty is about to run out", entity: "equipment",
+    emitted: true, subscribable: false,
+  },
 
   /* ----------------------------------------------------- not yet emitted */
 

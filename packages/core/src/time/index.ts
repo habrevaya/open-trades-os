@@ -191,6 +191,13 @@ export function nextDay(date: string): string {
   return new Date(parsed + 864e5).toISOString().slice(0, 10);
 }
 
+/** A `YYYY-MM-DD` moved by whole days, either way. Calendar arithmetic, so no zone. */
+export function addDays(date: string, days: number): string {
+  const parsed = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed)) throw new Error(`Not a calendar date: ${date}`);
+  return new Date(parsed + Math.trunc(days) * 864e5).toISOString().slice(0, 10);
+}
+
 /**
  * The half-open interval a calendar day occupies, `[start, end)`.
  *

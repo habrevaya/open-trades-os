@@ -45,7 +45,11 @@ export default async function PortalStatementPage({ params, searchParams }: {
     <PortalBrand token={token}>
       <div className="flex items-center justify-between gap-3 print:hidden">
         <a href={`/c/${token}`} className="text-sm text-ink-500 hover:underline">Back to your account</a>
-        <PrintButton />
+        <span className="flex items-center gap-3">
+          <a href={`/c/${token}/statement/pdf?from=${statement.from}&to=${statement.to}`}
+             className="text-sm underline underline-offset-4">Download PDF</a>
+          <PrintButton />
+        </span>
       </div>
       <div className="rounded-md border border-steel-200 bg-canvas p-5">
         <StatementView statement={statement} timezone="UTC" />
