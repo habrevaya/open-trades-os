@@ -141,3 +141,21 @@ That covers every provider: payments, accounting, texts, calls on Twilio
 (numbers, recordings), email, AI models, call tracking and the geocoders. A
 self hosted Nominatim server is set for the whole deployment with
 `NOMINATIM_URL`, by whoever runs it, rather than on a company's connection.
+
+## Addresses a company does choose
+
+Two addresses are the company's by design, because there is no provider's own
+address to fall back to: an SMTP connection's `host` and `port`, and an
+outbound webhook endpoint's URL (https only). The server connects to them from
+its own network. No server secret travels to them (an SMTP password is the
+company's own secret, read from its own namespace, and a webhook is signed
+with the endpoint's own secret), but neither is checked against private,
+loopback or link-local addresses, so somebody holding `integration:write` can
+make the server open a connection inside the network it runs in. A webhook
+endpoint's delivery history keeps the start of whatever the receiver answered,
+so that is a request whose answer they can read.
+
+On a deployment serving several companies, run the web app and the worker
+with outbound traffic to private ranges (`10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`, `127.0.0.0/8`, `169.254.0.0/16`, `fc00::/7`, `::1`) blocked
+at the network, which covers both and anything added later.
