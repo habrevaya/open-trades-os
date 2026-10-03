@@ -35,6 +35,17 @@ happen to one, and the pricing rules for editing a draft are the same code as
 pricing a new invoice. Two copies of those rules would be two invoices that
 disagree about the same lines.
 
+**Every line says who priced it.** Our price book, a price somebody typed, or a
+client's rate card, warranty schedule or manufacturer allowance, with how and
+the working in a sentence. Recorded when the line is priced and never worked out
+again, because "whose price is that" is the first question about a rejected
+commercial invoice. The authorities themselves are M31's.
+
+**The customer's share under coverage is taken off as the invoice is raised.**
+An invoice to the job's own customer on a job a warranty or plan covers carries
+only the customer's part of each covered line, with a sentence saying what the
+coverage took. The rules are M32's.
+
 **An invoice line names the job line it bills.** That is what makes "what is
 still to invoice" a query. A line billed twice is the customer charged twice for
 one capacitor; a warranty part billed at all is the complaint that ends the
