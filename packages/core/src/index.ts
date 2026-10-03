@@ -55,3 +55,4 @@ export * as claims from "./claims/index.js";
 export * as oauth from "./oauth/index.js";
 export * as retention from "./retention/index.js";
 export * as safety from "./safety/index.js";
+export * as pdf from "./pdf/index.js";
