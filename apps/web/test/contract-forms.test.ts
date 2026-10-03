@@ -49,3 +49,12 @@ describe("the rate card forms", () => {
       .toEqual([{ kind: "arrive", minutes: 240 }, { kind: "arrive", minutes: 60, priority: "emergency" }]);
   });
 });
+
+describe("a pasted price list with commas in it", () => {
+  it("reads the price from the end, so a description may say anything", () => {
+    expect(cardLinesFromText("MOT-COND, Condenser fan motor, supplied and fitted, 420.00", new Map())[0])
+      .toMatchObject({ externalCode: "MOT-COND", description: "Condenser fan motor, supplied and fitted", price: "420.00", allowedMinutes: null });
+    expect(cardLinesFromText("AH, After hours call, nights, 210.00, 60", new Map())[0])
+      .toMatchObject({ description: "After hours call, nights", price: "210.00", allowedMinutes: 60 });
+  });
+});

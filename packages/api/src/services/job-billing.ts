@@ -175,8 +175,8 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
     .orderBy(schema.jobLine.occurredAt, schema.jobLine.createdAt);
   const recorded = await rateCards.jobLinesFor(tx, unbilled.map((l) => l.id));
 
-  const chargeKind = (kind: rates.WorkKind): coverage.ChargeKind =>
-    kind === "labor" ? "labour" : kind === "part" || kind === "equipment" ? "parts" : kind === "trip" ? "trip" : "other";
+  const chargeKind = (kind: rates.WorkKind, name: string): coverage.ChargeKind =>
+    billing.chargeKindOfWork(kind) ?? billing.chargeKindOf(name, null);
   const covered = (kind: coverage.ChargeKind) => terms !== null && (
     kind === "labour" ? terms.coversLabour : kind === "parts" ? terms.coversParts : kind === "trip" ? terms.coversTrip : false);
   /** Covered work is priced by the third party's cards; everything else by the payer billed. */
@@ -185,7 +185,7 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
   const lines: PlanLine[] = [];
   for (const row of unbilled) {
     const facts = recorded.get(row.id)!;
-    const kind = chargeKind(facts.kind);
+    const kind = chargeKind(facts.kind, row.name);
     const cards = await cardsFor(pricerFor(kind));
     const priced = rates.priceWork(cards, {
       kind: facts.kind,

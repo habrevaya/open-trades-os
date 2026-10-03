@@ -1805,12 +1805,17 @@ export function chargeKindOf(name: string, costCode: string | null): coverage.Ch
   return "other";
 }
 
-/** What a job line or an item is, for the purpose of who pays for it. */
-function chargeKindOfWork(kind: rates.WorkKind): coverage.ChargeKind {
+/**
+ * What a job line or an item is, for the purpose of who pays for it, or null
+ * when its kind does not say. A flat rate service ("run capacitor
+ * replacement") is most of a trade pack's price book and is neither labour
+ * nor a part by kind, so its name decides, as it always has.
+ */
+export function chargeKindOfWork(kind: rates.WorkKind): coverage.ChargeKind | null {
   if (kind === "labor") return "labour";
   if (kind === "part" || kind === "equipment") return "parts";
   if (kind === "trip") return "trip";
-  return "other";
+  return null;
 }
 
 /** How one line was priced, before it becomes a row. */

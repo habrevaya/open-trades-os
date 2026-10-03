@@ -77,7 +77,13 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
       {collects && (
         <section aria-label="Their payment" className="mt-8">
           <h2 className="text-base font-semibold">Money from them</h2>
-          <ActionForm action={recordClaimPayment} submit="Record their payment" hidden={{ claimId: claim.id }} done="Recorded.">
+          {/*
+            Keyed by what is still expected, so the amount box shows the new
+            figure after they approve less, rather than the one it was first
+            drawn with.
+          */}
+          <ActionForm key={`${claim.status}:${claim.outstanding}`} action={recordClaimPayment}
+                      submit="Record their payment" hidden={{ claimId: claim.id }} done="Recorded.">
             <div className="grid gap-3 sm:grid-cols-3">
               <TextField label="Amount" name="amount" inputMode="decimal" required defaultValue={Number(claim.outstanding).toFixed(2)} />
               <Select label="How" name="method" options={[

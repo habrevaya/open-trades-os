@@ -98,9 +98,19 @@ export function cardTermsFromForm(read: Read) {
 export function cardLinesFromText(
   body: string, ourCodes: ReadonlyMap<string, string>,
 ): Array<{ externalCode: string | null; priceBookItemId: string | null; description: string; price: string; allowedMinutes: number | null }> {
+  const amount = /^\$?\d+(\.\d+)?$/;
   return body.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-    const parts = line.split(/\t|,/).map((p) => p.trim());
-    const [code = "", description = "", price = "", minutes = ""] = parts;
+    const parts = line.split(line.includes("\t") ? "\t" : ",").map((p) => p.trim());
+    const code = parts.shift() ?? "";
+    /**
+     * Read from the end, because a description has commas in it ("motor,
+     * supplied and fitted") and a price never does. Two numbers at the end
+     * are the price and the minutes the card allows.
+     */
+    const minutes = parts.length >= 3 && /^\d+$/.test(parts[parts.length - 1]!) && amount.test(parts[parts.length - 2]!)
+      ? parts.pop()! : "";
+    const price = parts.pop() ?? "";
+    const description = parts.join(", ");
     const itemId = ourCodes.get(code.toUpperCase()) ?? null;
     return {
       externalCode: itemId ? null : code || null,
