@@ -193,6 +193,14 @@ export const NAV: NavGroup[] = [
            * not the person entitled to decide what people are paid.
            */
           { href: "/payroll/commissions", label: "Commission plans" },
+          /**
+           * When overtime starts and what each classification is paid. It
+           * inherits `payroll:read` to be SHOWN and the page needs
+           * `timesheet:read` to read and `payroll:configure` to change, for the
+           * reason commission plans give: declaring what people are owed is
+           * not the same job as paying them.
+           */
+          { href: "/payroll/pay-rules", label: "Pay rules" },
         ],
       },
       { href: "/booking", label: "Online booking", permission: "booking:configure", icon: "booking" },

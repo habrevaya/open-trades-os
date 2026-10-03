@@ -30,6 +30,7 @@ import { invoiceDeliveryRoutes } from "./invoice-delivery";
 import { profitabilityRoutes } from "./profitability";
 import { crewRoutes } from "./crews";
 import { payrollRoutes } from "./payroll";
+import { payRuleRoutes } from "./pay-rules";
 import { aiRoutes } from "./ai";
 import { assetRoutes } from "./assets";
 import { complianceRoutes } from "./compliance";
@@ -92,6 +93,7 @@ export * from "./invoice-delivery";
 export * from "./profitability";
 export * from "./crews";
 export * from "./payroll";
+export * from "./pay-rules";
 export * from "./ai";
 export * from "./assets";
 export * from "./compliance";
@@ -164,6 +166,7 @@ export const routes = {
   ...profitabilityRoutes,
   ...crewRoutes,
   ...payrollRoutes,
+  ...payRuleRoutes,
   ...aiRoutes,
   ...assetRoutes,
   ...complianceRoutes,

@@ -14,7 +14,7 @@ import {
   apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
   dispatchMap, geocoding,
   reports, deliverySchedules, statementDelivery,
-  agreements, visitChanges,
+  agreements, visitChanges, laborSettings,
 } from "../services/index";
 
 /**
@@ -295,6 +295,16 @@ export const handlers = {
   deleteWebhookEndpoint: webhooks.handlers.deleteWebhookEndpoint,
   getWebhookPosition: webhooks.handlers.getWebhookPosition,
   listWebhookEvents: webhooks.handlers.listWebhookEvents,
+
+  // What people are paid, declared
+  listWageScales: laborSettings.handlers.listWageScales,
+  loadWageScale: laborSettings.handlers.loadWageScale,
+  reviseWageScale: laborSettings.handlers.reviseWageScale,
+  retireWageScale: laborSettings.handlers.retireWageScale,
+  listOvertimePolicies: laborSettings.handlers.listOvertimePolicies,
+  declareOvertimePolicy: laborSettings.handlers.declareOvertimePolicy,
+  listCrewRates: laborSettings.handlers.listCrewRates,
+  setWageClassification: laborSettings.handlers.setWageClassification,
   listWebhookDeliveries: webhooks.handlers.listWebhookDeliveries,
   listWebhookEventDeliveries: webhooks.handlers.listWebhookEventDeliveries,
   replayWebhookDeliveries: webhooks.handlers.replayWebhookDeliveries,
