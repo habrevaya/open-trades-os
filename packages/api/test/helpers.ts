@@ -40,6 +40,8 @@ const ORDER = [
   "credit_note_application", "credit_note_line", "credit_note",
   /** An estimate's send points at the estimate, the message it became and the link it carried. */
   "estimate_delivery",
+  /** A claim points at the invoice it is about, the job and the payer. */
+  "coverage_claim",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
@@ -54,7 +56,10 @@ const ORDER = [
   "visit_change_request",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
-  "visit", "entitlement", "job_party", "job", "job_type",
+  "visit", "entitlement", "job_party", "job",
+  /** A card's labour rate points at the job type it is for and at its card, so it goes before both. */
+  "rate_card_labour_rate",
+  "job_type",
   // Then the things work points at.
   "deficiency", "inspection", "inspection_program",
   "equipment_move", "equipment",

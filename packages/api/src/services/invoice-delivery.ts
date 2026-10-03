@@ -86,6 +86,8 @@ export type DeliveryState =
   | "refused"
   /** A link was minted and given to the operator. Nothing more is knowable. */
   | "link_issued"
+  /** The invoice went out in a file for the payer's own system. See services/payer-delivery.ts. */
+  | "exported"
   /** In the outbox. No provider has seen it yet. */
   | "queued"
   /** A provider accepted it. On an SMTP relay this is the last thing ever known. */
@@ -137,6 +139,9 @@ export function stateOf(row: DeliveryRowShape): DeliveryState {
   if (row.error !== null) return "refused";
   if (row.channel === "portal_link") {
     return row.submittedAt === null ? "interrupted" : "link_issued";
+  }
+  if (row.channel === "manual") {
+    return row.submittedAt === null ? "interrupted" : "exported";
   }
   /**
    * No message and no error means `send` wrote the attempt and then did not

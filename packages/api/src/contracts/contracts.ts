@@ -25,6 +25,22 @@ export const PriceAuthority = z.enum([
   "contract", "warranty_network", "manufacturer_allowance", "insurance", "brand",
 ]);
 
+export const SlaTerm = z.object({
+  kind: z.enum(["respond", "arrive", "complete"]),
+  minutes: z.number().int().min(1).max(525600),
+  /** Only for jobs of this priority. Omit for every job. */
+  priority: z.enum(["normal", "high", "emergency"]).optional(),
+});
+
+/** The terms a contract can state beyond its name and dates, shared by creating and changing one. */
+const ContractTerms = {
+  notToExceedAction: z.enum(["hold", "warn"]).optional(),
+  slaTerms: z.array(SlaTerm).max(20).optional(),
+  invoiceWithinDays: z.number().int().min(1).max(3650).nullable().optional(),
+  claimWithinDays: z.number().int().min(1).max(3650).nullable().optional(),
+  invoiceFormat: z.enum(["csv", "xml"]).nullable().optional(),
+};
+
 export const ServiceContract = z.object({
   id: Uuid,
   customerId: Uuid,
@@ -41,6 +57,14 @@ export const ServiceContract = z.object({
   /** Their PO covering the term, required on every invoice by many clients. */
   purchaseOrderNumber: z.string().nullable(),
   coveredScope: z.string().nullable(),
+  /** What happens over the limit: `hold` refuses the invoice, `warn` lets it through and says so. */
+  notToExceedAction: z.enum(["hold", "warn"]),
+  /** The clocks the client holds us to, in minutes from when the work arrived. */
+  slaTerms: z.array(SlaTerm),
+  invoiceWithinDays: z.number().int().nullable(),
+  claimWithinDays: z.number().int().nullable(),
+  /** The file their accounts payable takes, when it names one. */
+  invoiceFormat: z.enum(["csv", "xml"]).nullable(),
   active: z.boolean(),
 });
 
@@ -72,8 +96,33 @@ export const createContract = defineRoute({
     defaultNotToExceed: MoneyString.nullable().optional(),
     purchaseOrderNumber: z.string().max(100).nullable().optional(),
     coveredScope: z.string().max(4000).nullable().optional(),
+    ...ContractTerms,
   }),
   output: z.object({ id: Uuid, name: z.string() }),
+});
+
+export const updateContract = defineRoute({
+  method: "patch",
+  path: "/v1/contracts/{id}",
+  summary: "Change a contract's terms",
+  description:
+    "Only the fields sent change. A change to the clocks moves the deadlines on the jobs running under the contract the next time they are reconciled, which the worker does on every pass.",
+  module: "M31",
+  permissions: ["contract:write"],
+  input: z.object({
+    id: Uuid,
+    name: z.string().min(1).max(200).optional(),
+    contractNumber: z.string().max(100).nullable().optional(),
+    startsOn: z.string().date().nullable().optional(),
+    endsOn: z.string().date().nullable().optional(),
+    autoRenews: z.boolean().optional(),
+    defaultNotToExceed: MoneyString.nullable().optional(),
+    purchaseOrderNumber: z.string().max(100).nullable().optional(),
+    coveredScope: z.string().max(4000).nullable().optional(),
+    active: z.boolean().optional(),
+    ...ContractTerms,
+  }),
+  output: ServiceContract,
 });
 
 export const addContractSite = defineRoute({
@@ -208,7 +257,7 @@ export const getPropertyCeiling = defineRoute({
 });
 
 export const contractRoutes = {
-  listContracts, createContract, addContractSite,
+  listContracts, createContract, updateContract, addContractSite,
   createRateCard, setRateCardLines, listRateCardLines,
   resolveContractPrice, getPropertyCeiling,
 } as const;

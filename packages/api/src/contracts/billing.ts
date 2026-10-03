@@ -33,6 +33,18 @@ export const InvoiceLine = z.object({
   coverageSource: CoverageSource.nullable(),
   /** Redacted unless the caller holds pricebook.cost:read. */
   unitCost: MoneyString.nullable().optional(),
+  /**
+   * Who priced this line: `price_book`, `entered`, or a card's authority
+   * (`contract`, `warranty_network`, `manufacturer_allowance`, `insurance`,
+   * `brand`). Null on a line written before it was recorded.
+   */
+  priceAuthority: z.string().nullable().optional(),
+  /** How: `card_line`, `labour_rate`, `material_markup`, `trip_charge`, `price_book`, `entered`, `history`, `share`. */
+  priceBasis: z.string().nullable().optional(),
+  /** The working, in a sentence. */
+  priceNote: z.string().nullable().optional(),
+  rateCardId: Uuid.nullable().optional(),
+  rateCardLineId: Uuid.nullable().optional(),
 });
 
 export const Invoice = z.object({

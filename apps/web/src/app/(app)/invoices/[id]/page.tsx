@@ -21,7 +21,7 @@ import { creditInvoice } from "../credit-notes/actions";
 export const dynamic = "force-dynamic";
 
 const DELIVERY_STATE: Record<string, string> = {
-  interrupted: "Interrupted", refused: "Refused", link_issued: "Link handed over", queued: "Queued",
+  interrupted: "Interrupted", refused: "Refused", link_issued: "Link handed over", exported: "In a file", queued: "Queued",
   sent: "Sent", delivered: "Delivered", bounced: "Bounced", failed: "Failed",
 };
 

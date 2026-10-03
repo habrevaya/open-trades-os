@@ -5,6 +5,7 @@ import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
+import { clockPass } from "./contract-clocks";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { deliverDue } from "./delivery-schedules";
 import { renewalsPass } from "./agreements";
@@ -313,6 +314,19 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] tasks:", (error as Error).message);
+    }
+    /**
+     * Contract clocks: SLA, invoicing and claim deadlines reconciled against
+     * what has happened, and a task raised for any about to breach. Its own
+     * try, for the reason the task pass has one. The tasks it raises go to
+     * the queue, where the task pass above escalates them if nobody acts.
+     */
+    try {
+      for (const result of await clockPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] contract clocks ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] contract clocks:", (error as Error).message);
     }
     /**
      * Reports and statements on a clock. Its own try, so a broken workflow
