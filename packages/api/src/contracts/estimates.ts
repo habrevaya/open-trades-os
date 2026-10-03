@@ -190,7 +190,7 @@ export const listEstimates = defineRoute({
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
   }),
-  output: pageOf(Estimate.omit({ options: true }).extend({
+  output: pageOf(Estimate.omit({ options: true, terms: true }).extend({
     customerName: z.string(),
     total: MoneyString,
     optionCount: z.number().int(),

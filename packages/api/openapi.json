@@ -94501,6 +94501,9 @@
               },
               "version": {
                 "type": "integer"
+              },
+              "timezone": {
+                "type": "string"
               }
             },
             "required": [
@@ -94510,7 +94513,8 @@
               "on",
               "text",
               "hasLogo",
-              "version"
+              "version",
+              "timezone"
             ]
           },
           "id": {
@@ -108961,12 +108965,6 @@
                   "minLength": 3,
                   "maxLength": 3
                 },
-                "terms": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
                 "externalRef": {
                   "type": [
                     "object",
@@ -109024,7 +109022,6 @@
                 "selectedOptionId",
                 "signerName",
                 "currency",
-                "terms",
                 "externalRef",
                 "createdAt",
                 "updatedAt",
