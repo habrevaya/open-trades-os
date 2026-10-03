@@ -618,7 +618,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
     const revision = await computeRevision(tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId));
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
-      return { revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null };
+      return { revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [] };
     }
 
     const priceBook = await tx.select({
@@ -709,8 +709,38 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       openTimeEntry: open
         ? { id: open.id, kind: open.kind, startedAt: open.startedAt.toISOString() }
         : null,
+      inspectionPrograms: await programsForField(tx, ctx),
     };
   });
+}
+
+/**
+ * The programmes this person can run on the phone. Only for somebody who
+ * may file an inspection: offering a programme the server would refuse to
+ * file is offering a technician twenty minutes of work that goes nowhere.
+ */
+async function programsForField(tx: Database, ctx: ServiceContext) {
+  if (!can(ctx.actor, "compliance:write")) return [];
+  const rows = await tx.select().from(schema.inspectionProgram)
+    .where(and(
+      eq(schema.inspectionProgram.organizationId, ctx.actor.organizationId),
+      eq(schema.inspectionProgram.active, true),
+    ))
+    .orderBy(asc(schema.inspectionProgram.name));
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    standard: row.standard,
+    version: row.version,
+    checkpoints: row.checkpoints.map((c) => ({
+      key: c.key,
+      label: c.label,
+      requiresReading: c.requiresReading === true,
+      unit: c.unit ?? null,
+      min: c.range?.min ?? null,
+      max: c.range?.max ?? null,
+    })),
+  }));
 }
 
 /**
@@ -738,8 +768,11 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
       (select max(updated_at) from public.service_report where visit_id in ${visits}),
       (select max(f.updated_at) from public.service_report_field f
          join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}),
-      (select max(updated_at) from public.job_line where visit_id in ${visits})
+      (select max(updated_at) from public.job_line where visit_id in ${visits}),
+      (select max(updated_at) from public.inspection where visit_id in ${visits}),
+      (select max(updated_at) from public.inspection_program)
     ))::bigint, 0)
+    + (select count(*) from public.inspection where visit_id in ${visits})
     + (select count(*) from public.visit where id in ${visits})
     + (select count(*) from public.job_line where visit_id in ${visits})
     + (select count(*) from public.service_report_field f
@@ -748,7 +781,7 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
   return Number((row as { revision: number }).revision);
 }
 
-type VisitExtras = Pick<z.infer<typeof VisitForField>, "amountDue" | "report" | "parts">;
+type VisitExtras = Pick<z.infer<typeof VisitForField>, "amountDue" | "report" | "parts" | "inspections">;
 
 /**
  * What the phone needs on each visit beyond the visit itself: what is owed,
@@ -823,6 +856,18 @@ async function visitExtras(
     .where(and(inArray(schema.jobLine.visitId, visitIds), eq(schema.jobLine.kind, "part")))
     .orderBy(asc(schema.jobLine.occurredAt));
 
+  const filed = can(ctx.actor, "compliance:read") ? await tx.select({
+    id: schema.inspection.id,
+    visitId: schema.inspection.visitId,
+    programId: schema.inspection.programId,
+    programName: schema.inspectionProgram.name,
+    result: schema.inspection.result,
+    performedOn: schema.inspection.performedOn,
+  }).from(schema.inspection)
+    .leftJoin(schema.inspectionProgram, eq(schema.inspectionProgram.id, schema.inspection.programId))
+    .where(inArray(schema.inspection.visitId, visitIds))
+    .orderBy(asc(schema.inspection.createdAt)) : [];
+
   for (const visit of visits) {
     const report = reportOf.get(visit.visitId);
     const template = visit.jobTypeId ? templates.get(visit.jobTypeId) ?? null : null;
@@ -863,6 +908,10 @@ async function visitExtras(
       report: { id: report?.id ?? null, submitted: report?.submittedAt != null, fields },
       parts: parts.filter((p) => p.visitId === visit.visitId).map((p) => ({
         id: p.id, name: p.name, quantity: p.quantity,
+      })),
+      inspections: filed.filter((i) => i.visitId === visit.visitId).map((i) => ({
+        id: i.id, programId: i.programId, programName: i.programName ?? "Inspection",
+        result: i.result, performedOn: i.performedOn,
       })),
     });
   }

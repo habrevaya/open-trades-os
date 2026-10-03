@@ -136,12 +136,22 @@ export interface DayPayment {
   waiting: boolean;
 }
 
-export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts"> {
+export interface DayInspection {
+  id: string;
+  programName: string;
+  /** Null until the server has filed it and said what it came to. */
+  result: string | null;
+  waiting: boolean;
+}
+
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections"> {
   checklist: DayChecklistItem[];
   report: { id: string | null; submitted: boolean; submitWaiting: boolean; fields: DayReportField[] };
   parts: DayPart[];
   /** Cash and checks recorded on this phone since the day was last fetched. */
   payments: DayPayment[];
+  /** Inspections filed on this visit, from the server and from this phone. */
+  inspections: DayInspection[];
   stage: Stage;
   /**
    * Notes written on this phone since the day was last fetched, with whether
@@ -194,6 +204,9 @@ export function projectDay(input: {
       parts: (visit.parts ?? []).map((part) => ({ ...part, waiting: false })),
       amountDue: visit.amountDue ?? null,
       payments: [],
+      inspections: (visit.inspections ?? []).map((i) => ({
+        id: i.id, programName: i.programName, result: i.result, waiting: false,
+      })),
       stage: stageOf(visit.status, visit.arrivedAt),
       newNotes: [],
       photos: { waiting: 0, sent: 0, failed: 0 },
@@ -262,7 +275,8 @@ export function projectDay(input: {
  * change; everything else names the visit itself.
  */
 export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payload">): string | undefined {
-  if (op.kind === "service_report.set_field" || op.kind === "service_report.submit") {
+  if (op.kind === "service_report.set_field" || op.kind === "service_report.submit"
+    || op.kind === "inspection.record") {
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }
@@ -327,6 +341,18 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
         waiting,
       });
       return;
+    case "inspection.record": {
+      if (!op.subjectId) return;
+      /** The server's copy wins once it has one: it carries the verdict. */
+      if (visit.inspections.some((i) => i.id === op.subjectId)) return;
+      visit.inspections.push({
+        id: op.subjectId,
+        programName: typeof p["programName"] === "string" ? p["programName"] : "Inspection",
+        result: null,
+        waiting,
+      });
+      return;
+    }
     default:
       return;
   }
@@ -367,7 +393,7 @@ export function outOfRange(field: Pick<ReportField, "min" | "max">, value: strin
  * Route order first, as the web page does, then the window. A visit the
  * dispatcher has not placed goes after the ones they have.
  */
-function byRoute(a: FieldVisit, b: FieldVisit): number {
+function byRoute(a: Pick<FieldVisit, "routeOrder" | "windowStart">, b: Pick<FieldVisit, "routeOrder" | "windowStart">): number {
   const order = (a.routeOrder ?? 99) - (b.routeOrder ?? 99);
   if (order !== 0) return order;
   return (a.windowStart ?? "").localeCompare(b.windowStart ?? "");

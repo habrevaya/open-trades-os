@@ -160,6 +160,10 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     document_hash: "A checksum of what was signed. It is the evidence the signature is about, and "
       + "removing it would make every exported signature unverifiable.",
   },
+  project_change_order: {
+    document_hash: "A checksum of the change order as it was sent and signed. The same evidence "
+      + "the signature record carries, and an export without it could not show what was agreed.",
+  },
   payment: {
     idempotency_key: "The caller's own retry key, which is how a repeated charge was prevented. "
       + "Not a credential, and worth keeping as the record of that.",

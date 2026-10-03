@@ -65,6 +65,8 @@ export const getProject = defineRoute({
   input: z.object({ id: Uuid }),
   output: ProjectSummary.extend({
     description: z.string().nullable(),
+    /** What a new application for payment holds back, as a fraction. Null for none. */
+    retainageRate: RateString.nullable(),
     businessUnitId: Uuid.nullable(),
     phaseList: z.array(z.object({
       id: Uuid,
@@ -112,6 +114,8 @@ export const createProject = defineRoute({
     targetCompletionOn: z.string().date().nullable().optional(),
     contractValue: MoneyString.nullable().optional(),
     budgetCost: MoneyString.nullable().optional(),
+    /** Held back on each application for payment, as a fraction: "0.1" is ten per cent. */
+    retainageRate: RateString.nullable().optional(),
   }),
   output: z.object({ id: Uuid, name: z.string(), status: ProjectStatus }),
 });
@@ -134,6 +138,8 @@ export const updateProject = defineRoute({
     targetCompletionOn: z.string().date().nullable().optional(),
     contractValue: MoneyString.nullable().optional(),
     budgetCost: MoneyString.nullable().optional(),
+    /** Held back on each application for payment, as a fraction: "0.1" is ten per cent. */
+    retainageRate: RateString.nullable().optional(),
   }),
   output: z.object({ id: Uuid, name: z.string(), status: ProjectStatus }),
 });

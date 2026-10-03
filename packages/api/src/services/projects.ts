@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan } from "@opentradesos/core";
+import { assertCan, money as m } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError,
   type ServiceContext,
@@ -9,6 +9,7 @@ import { JOB_COSTING_SQL, GROSS_MARGIN_SQL, SETTLEMENT_SQL } from "./report-cata
 import { CAVEATS } from "./profitability";
 import * as billing from "./billing";
 import { nextNumber } from "./jobs";
+import { billedToDate } from "./project-position";
 
 /**
  * M12. PROJECTS AND MULTI-PHASE WORK.
@@ -73,6 +74,20 @@ export interface ProjectInput {
   targetCompletionOn?: string | null | undefined;
   contractValue?: string | null | undefined;
   budgetCost?: string | null | undefined;
+  retainageRate?: string | null | undefined;
+}
+
+/**
+ * Retainage as a fraction below one. Ten per cent is 0.1; a 10 typed where a
+ * fraction was meant would hold back ten times the contract.
+ */
+function retainage(value: string | null | undefined): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  const parsed = Number(value);
+  if (!(parsed >= 0 && parsed < 1)) {
+    throw new ConflictError("Retainage is a fraction of the work, from 0 up to but not including 1: 0.1 is ten per cent.");
+  }
+  return value;
 }
 
 export async function create(ctx: ServiceContext, input: ProjectInput) {
@@ -103,6 +118,7 @@ export async function create(ctx: ServiceContext, input: ProjectInput) {
       targetCompletionOn: input.targetCompletionOn ?? null,
       contractValue: input.contractValue ?? null,
       budgetCost: input.budgetCost ?? null,
+      retainageRate: retainage(input.retainageRate) ?? null,
       status: "planning",
     }).returning();
 
@@ -120,6 +136,7 @@ export interface ProjectUpdate {
   targetCompletionOn?: string | null | undefined;
   contractValue?: string | null | undefined;
   budgetCost?: string | null | undefined;
+  retainageRate?: string | null | undefined;
 }
 
 /**
@@ -146,26 +163,33 @@ export async function update(ctx: ServiceContext, input: ProjectUpdate) {
     const before = await loadProject(tx, ctx.actor.organizationId, input.id);
 
     if (input.contractValue !== undefined && input.contractValue !== null) {
-      const next = Number(input.contractValue);
-      const { planned, raised } = await drawTotals(tx, before.id);
-      if (next < raised) {
+      const next = m.money(input.contractValue);
+      /**
+       * Billed means raised draws and the work certified on the last
+       * application for payment, read through the same function a change
+       * order's approval reads, so the two guards cannot disagree.
+       */
+      const billed = await billedToDate(tx, before.id);
+      if (m.compare(next, billed) < 0) {
         throw new ConflictError(
-          `This project has already billed ${raised.toFixed(2)}, so the contract cannot be set `
-          + `to ${next.toFixed(2)}. Those draws are invoices the customer is holding.`,
+          `This project has already billed ${m.format(billed)}, so the contract cannot be set `
+          + `to ${m.format(next)}. Those are invoices the customer is holding.`,
         );
       }
-      const phases = await phaseTotal(tx, before.id);
-      if (next < phases) {
+      const phases = m.money((await phaseTotal(tx, before.id)).toFixed(4));
+      if (m.compare(next, phases) < 0) {
         throw new ConflictError(
-          `The phases on this project add up to ${phases.toFixed(2)}, so the contract cannot be `
-          + `set to ${next.toFixed(2)}. A schedule of values that totals more than the contract `
+          `The phases on this project add up to ${m.format(phases)}, so the contract cannot be `
+          + `set to ${m.format(next)}. A schedule of values that totals more than the contract `
           + "is what an application for payment gets rejected over.",
         );
       }
-      if (next < planned) {
+      const { planned } = await drawTotals(tx, before.id);
+      const scheduled = m.add(billed, m.money(planned.toFixed(4)));
+      if (m.compare(next, scheduled) < 0) {
         throw new ConflictError(
-          `The billing schedule on this project adds up to ${planned.toFixed(2)}, so the contract `
-          + `cannot be set to ${next.toFixed(2)}.`,
+          `The billing schedule on this project adds up to ${m.format(scheduled)}, so the contract `
+          + `cannot be set to ${m.format(next)}.`,
         );
       }
     }
@@ -195,6 +219,7 @@ export async function update(ctx: ServiceContext, input: ProjectUpdate) {
         ? { targetCompletionOn: input.targetCompletionOn } : {}),
       ...(input.contractValue !== undefined ? { contractValue: input.contractValue } : {}),
       ...(input.budgetCost !== undefined ? { budgetCost: input.budgetCost } : {}),
+      ...(input.retainageRate !== undefined ? { retainageRate: retainage(input.retainageRate) ?? null } : {}),
       /**
        * Stamped when it is marked complete and never cleared by a later edit
        * that is not about status, which is why this is not an unconditional
@@ -271,6 +296,8 @@ export async function list(
 
 export interface ProjectDetail extends ProjectSummary {
   description: string | null;
+  /** What a new application for payment holds back, as a fraction. Null for none. */
+  retainageRate: string | null;
   businessUnitId: string | null;
   phaseList: {
     id: string; sequence: number; name: string; description: string | null;
@@ -311,6 +338,7 @@ export async function get(ctx: ServiceContext, input: { id: string }): Promise<P
       customerId: row.customerId,
       propertyId: row.propertyId,
       description: row.description,
+      retainageRate: row.retainageRate,
       businessUnitId: row.businessUnitId,
       startsOn: row.startsOn,
       targetCompletionOn: row.targetCompletionOn,
@@ -785,6 +813,16 @@ export async function planDraw(ctx: ServiceContext, input: DrawInput) {
     const project = await loadProject(tx, ctx.actor.organizationId, input.projectId);
     const label = input.label.trim();
     if (label === "") throw new ConflictError("A draw needs a label. It goes on the invoice.");
+
+    const [application] = await tx.select({ id: schema.projectApplication.id })
+      .from(schema.projectApplication)
+      .where(eq(schema.projectApplication.projectId, project.id)).limit(1);
+    if (application) {
+      throw new ConflictError(
+        "This project is billed by applications for payment. A draw as well would bill the same work "
+        + "two ways, which is how it gets billed twice.",
+      );
+    }
 
     const hasPercent = input.percent !== undefined && input.percent !== null;
     const hasAmount = input.amount !== undefined && input.amount !== null;

@@ -71,6 +71,8 @@ describe("permissions", () => {
       "GET /v1/portal/account",
       "GET /v1/portal/cards",
       "GET /v1/portal/estimate",
+      /** A change order on a project, read and signed from its own link, as an estimate is. */
+      "GET /v1/portal/change-order",
       /**
        * An invoice a customer opens from the link in the email, and the pay
        * action on the same page. Grant reachable rather than public: the
@@ -147,6 +149,8 @@ describe("permissions", () => {
        */
       "POST /v1/field/sign-in/code",
       "POST /v1/field/sign-in/verify",
+      "POST /v1/portal/change-order/approve",
+      "POST /v1/portal/change-order/decline",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/portal/invoice/pay",

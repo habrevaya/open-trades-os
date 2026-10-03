@@ -52,6 +52,8 @@ export const OPERATION_KINDS = [
   "signature.capture",
   // Money taken on site: cash or a check, handed over in a driveway.
   "payment.collect",
+  // An inspection against a programme, filed whole: answers, findings, signature.
+  "inspection.record",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -109,6 +111,14 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * money belongs.
    */
   "payment.collect": "append",
+
+  /**
+   * An inspection is what somebody looked at and what they saw, at a time,
+   * and it adds rows: the inspection, its findings. Nothing the office did
+   * meanwhile makes it not have happened, so it always applies. Filing the
+   * same one twice is a replay of its id and files it once.
+   */
+  "inspection.record": "append",
 };
 
 export interface FieldOperation {

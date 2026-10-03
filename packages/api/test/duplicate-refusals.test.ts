@@ -131,6 +131,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   price_book_item_version_idx: "The version is the previous one plus one, inside the write.",
   project_phase_sequence_idx: "The sequence is assigned by the service, not chosen.",
   project_draw_sequence_idx: "The sequence is assigned by the service, not chosen.",
+  project_change_order_number_idx: "Allocated by the service as the next number under a per project lock.",
+  project_application_number_idx: "Allocated by the service as the next number under a per project lock.",
   stock_movement_sequence_idx: "A per-item sequence assigned inside the movement write.",
   domain_event_seq_idx:
     "The event log's own per-organization sequence, allocated inside the append.",

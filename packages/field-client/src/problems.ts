@@ -49,6 +49,7 @@ const DID: Record<string, string> = {
   "timeclock.punch_in": "Clocking in",
   "timeclock.punch_out": "Clocking out",
   "payment.collect": "A payment taken at",
+  "inspection.record": "An inspection at",
 };
 
 /**
