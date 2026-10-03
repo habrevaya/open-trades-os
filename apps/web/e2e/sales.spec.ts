@@ -19,7 +19,7 @@ const ready = (page: Page) => page.waitForFunction(() => (window as { __otsReady
  */
 
 test("a plan is defined on its screen, sold to a customer, and an edit to it leaves the member's price alone", async ({ owner }) => {
-  const plan = `Comfort Club ${run}`;
+  const plan = `Home Care Club ${run}`;
   const name = `Priya Member ${run}`;
   await newCustomer(owner, {
     name, phone: "5125550133",
