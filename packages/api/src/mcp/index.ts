@@ -1,3 +1,3 @@
 export { handleMcp, requestFor, PROTOCOL_VERSION, type McpDeps } from "./server";
-export { allTools, toolsFor, toolNameFor, IDEMPOTENCY_FIELD, type McpTool } from "./tools";
+export { allTools, toolsFor, toolNameFor, IDEMPOTENCY_FIELD, DRY_RUN_FIELD, type McpTool } from "./tools";
 export { serveStdio, tokenFromEnvironment, type StdioOptions } from "./stdio";

@@ -1,6 +1,7 @@
 import type { Actor } from "@opentradesos/core";
 import { dispatch, type DispatchDeps } from "../http/dispatch";
-import { allTools, toolsFor, IDEMPOTENCY_FIELD, type McpTool } from "./tools";
+import { allTools, toolsFor, IDEMPOTENCY_FIELD, DRY_RUN_FIELD, type McpTool } from "./tools";
+import { DRY_RUN_HEADER } from "../http/dry-run";
 import { OrganizationSuspendedError } from "../services/context";
 
 /**
@@ -257,9 +258,12 @@ export function requestFor(
   args: Record<string, unknown>,
   credentials: Headers,
 ): Request | { refusal: string } {
-  const { [IDEMPOTENCY_FIELD]: idempotencyKey, ...rest } = args;
+  const { [IDEMPOTENCY_FIELD]: idempotencyKey, [DRY_RUN_FIELD]: dryRunArg, ...rest } = args;
+  /** Only a route that declares one. Anywhere else the argument stays in the body and the schema refuses it. */
+  const dryRun = tool.route.dryRun === true && dryRunArg === true;
+  if (!tool.route.dryRun && dryRunArg !== undefined) rest[DRY_RUN_FIELD] = dryRunArg;
 
-  if (tool.route.idempotent && typeof idempotencyKey !== "string") {
+  if (tool.route.idempotent && !dryRun && typeof idempotencyKey !== "string") {
     /**
      * Refused before the call, not defaulted.
      *
@@ -315,6 +319,7 @@ export function requestFor(
   const headers = new Headers(credentials);
   headers.set("content-type", "application/json");
   if (typeof idempotencyKey === "string") headers.set("idempotency-key", idempotencyKey);
+  if (dryRun) headers.set(DRY_RUN_HEADER, "true");
 
   return new Request(url.toString(), {
     method,

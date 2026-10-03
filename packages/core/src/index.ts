@@ -45,3 +45,6 @@ export * as tracking from "./tracking/index.js";
 export * as referrals from "./referrals/index.js";
 export * as customerPortal from "./customer-portal/index.js";
 export * as catalogue from "./catalogue/index.js";
+export * as oauth from "./oauth/index.js";
+export * as retention from "./retention/index.js";
+export * as safety from "./safety/index.js";

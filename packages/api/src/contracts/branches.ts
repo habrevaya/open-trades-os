@@ -57,6 +57,7 @@ export const assignJobsToBranch = defineRoute({
   module: "M01",
   permissions: ["job:write"],
   idempotent: true,
+  dryRun: true,
   input: z.object({
     jobIds: z.array(Uuid).min(1).max(500),
     businessUnitId: Uuid.nullable(),

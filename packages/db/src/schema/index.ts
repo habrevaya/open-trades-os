@@ -10,6 +10,7 @@ export * from "./commercial";
 export * from "./entitlement";
 export * from "./inspection";
 export * from "./compliance";
+export * from "./safety";
 export * from "./service-reports";
 export * from "./billing";
 export * from "./agreements";

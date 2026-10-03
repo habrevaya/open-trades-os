@@ -6,6 +6,7 @@ import { problem, json, errorResponse } from "./problem";
 import { handleOperator, isOperatorPath, type OperatorConfig } from "./operator";
 import { matchRoute, queryToInput } from "./match";
 import type { RouteDefinition } from "../lib/define";
+import { dryRun, wantsDryRun } from "./dry-run";
 
 /**
  * THE HTTP LAYER
@@ -263,6 +264,19 @@ async function route(request: Request, deps: DispatchDeps, url: URL, path: strin
        * regenerates its body on retry would regenerate a key inside it.
        */
       if (route.idempotent && meta.idempotencyKey) ctx.idempotencyKey = meta.idempotencyKey;
+
+      /**
+       * A dry run is performed and rolled back, and only where the route says
+       * it can be. Refused elsewhere rather than ignored: a caller asking for a
+       * dry run and getting a real run because the header was not understood
+       * is the one outcome this must never have.
+       */
+      if (wantsDryRun(request)) {
+        if (!route.dryRun) {
+          return problem(400, `${match.name} has no dry run. Only bulk operations that write nothing outside the database do.`);
+        }
+        return json(await dryRun(ctx, (inner) => handler(inner, parsed.data)), 200);
+      }
 
       const result = await handler(ctx, parsed.data);
       return json(result, route.method === "post" ? 201 : 200);

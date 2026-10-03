@@ -492,7 +492,29 @@ export const connectedAppStatus = pgEnum("connected_app_status", [
   "active",
   /** Turned off, permanently. A reinstall is a new row with a new grant. */
   "revoked",
+  /**
+   * Asked, and told no. Apart from `revoked` because the two are different
+   * facts about the past: a revoked app once held a grant and may have used
+   * it, a refused one never held anything. An operator reading the list after
+   * an incident asks exactly that question.
+   */
+  "refused",
 ]);
+
+/**
+ * HOW AN APP CAME TO BE ASKED FOR.
+ *
+ * `operator`  somebody here installed and approved it in one step.
+ * `request`   the app asked, through the install URL, and waited.
+ * `oauth`     a remote MCP client asked through the authorization flow.
+ *
+ * Kept because the three end differently. A requested app collects its
+ * credential once with the secret it was given when it asked; an OAuth client
+ * collects short lived tokens through the token endpoint; an operator's app is
+ * handed a token on the screen. A row that cannot say which it is makes every
+ * one of those paths guess.
+ */
+export const connectedAppSource = pgEnum("connected_app_source", ["operator", "request", "oauth"]);
 
 /**
  * A third party that may act against this company's instance.
@@ -537,9 +559,49 @@ export const connectedApp = pgTable("connected_app", {
   revokedByUserId: uuid("revoked_by_user_id").references(() => user.id, { onDelete: "set null" }),
   revokedReason: text("revoked_reason"),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  source: connectedAppSource("source").notNull().default("operator"),
+  /**
+   * THE REQUEST, WHILE IT IS ONE.
+   *
+   * Columns on the app rather than a table of their own, because a request
+   * and the app it asks to become are one row with one status: two tables
+   * would be two places to ask whether this thing is pending, and the day
+   * they disagree an app is approved on one screen and waiting on another.
+   */
+  /** Where the person deciding is sent back to, with the outcome. Https only. */
+  redirectUri: text("redirect_uri"),
+  /** An opaque value the app chose, echoed back with the outcome so it can match it up. */
+  requestState: text("request_state"),
+  /** Where the request came from, as the app server saw it. For the person deciding. */
+  requestedFrom: text("requested_from"),
+  /**
+   * A request nobody answers dies rather than waiting forever. An approval
+   * three months later is a decision about an app that has probably moved on,
+   * made by somebody who has forgotten what it was.
+   */
+  requestExpiresAt: timestamp("request_expires_at", { withTimezone: true }),
+  /**
+   * SHA-256 of the secret the app was handed when it asked, and must present
+   * to collect its credential. The app's proof that it is the one that asked:
+   * the request id travels through a browser and is not a secret.
+   */
+  claimHash: text("claim_hash"),
+  /** When the credential was handed over. Once, and never again. */
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  refusedAt: timestamp("refused_at", { withTimezone: true }),
+  refusedByUserId: uuid("refused_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  refusedReason: text("refused_reason"),
+  /**
+   * The OAuth client this app is, when it arrived through the authorization
+   * flow. One app per client per company, so authorizing the same client
+   * again changes its grant rather than adding a second app nobody can tell
+   * from the first.
+   */
+  oauthClientId: text("oauth_client_id"),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("connected_app_org_idx").on(t.organizationId, t.status),
+  oauthIdx: index("connected_app_oauth_idx").on(t.organizationId, t.oauthClientId),
 }));
 
 /**
@@ -572,6 +634,101 @@ export const appToken = pgTable("app_token", {
 }, (t) => ({
   hashIdx: uniqueIndex("app_token_hash_idx").on(t.tokenHash),
   appIdx: index("app_token_app_idx").on(t.appId),
+}));
+
+// ---------------------------------------------------------------------------
+// OAuth for remote MCP clients
+// ---------------------------------------------------------------------------
+
+/**
+ * A CLIENT THAT REGISTERED ITSELF.
+ *
+ * Remote MCP clients register before they know which company they will be
+ * pointed at, which is why this is the one table in the section with no
+ * `organization_id`: a registration is a name and a list of addresses to send
+ * a code back to, and nothing about any company. Row level security is on and
+ * no policy admits the application role, so it is read and written only
+ * through the two functions in `sql/after.sql`, the same posture as the rate
+ * limit table.
+ *
+ * A registration grants nothing. Everything a client can do is decided when a
+ * person at a company approves it, and recorded on that company's
+ * `connected_app` row.
+ */
+export const oauthClient = pgTable("oauth_client", {
+  /** The `client_id` handed back at registration. Random, and not a secret. */
+  clientId: text("client_id").primaryKey(),
+  name: text("name").notNull(),
+  /** Exact strings. A code is only ever sent to one of these, compared byte for byte. */
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  /** Where the registration came from, so an operator can see a burst of them. */
+  registeredFrom: text("registered_from"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A ONE TIME CODE, HANDED THROUGH A BROWSER.
+ *
+ * Lives ten minutes, works once, and is bound to everything the client said
+ * when it asked: the address it is sent to, the PKCE challenge only the client
+ * can answer, and the grant the person approved. The code travels in a URL
+ * and ends up in browser history, which is exactly why possessing it is not
+ * enough: the token endpoint wants the verifier behind the challenge too.
+ */
+export const oauthCode = pgTable("oauth_code", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  appId: uuid("app_id").notNull().references(() => connectedApp.id, { onDelete: "cascade" }),
+  clientId: text("client_id").notNull(),
+  /** SHA-256 of the code. The code itself is never stored. */
+  codeHash: text("code_hash").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  /** BASE64URL(SHA-256(verifier)). Only S256 is accepted; `plain` is refused at the door. */
+  codeChallenge: text("code_challenge").notNull(),
+  /** The scope as approved, space separated, echoed in the token response. */
+  scope: text("scope").notNull(),
+  /** The resource the client named, when it named one. Checked again at the token endpoint. */
+  resource: text("resource"),
+  approvedByUserId: uuid("approved_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Set on the first exchange. A second exchange revokes what the first produced. */
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  /** The access token the exchange issued, so a replayed code can kill it. */
+  issuedTokenId: uuid("issued_token_id"),
+  /** The refresh token family it started, for the same reason. */
+  familyId: uuid("family_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  codeIdx: uniqueIndex("oauth_code_hash_idx").on(t.codeHash),
+}));
+
+/**
+ * A REFRESH TOKEN, ROTATED ON EVERY USE.
+ *
+ * Every refresh hands back a new one and marks the old one used. A used one
+ * presented again means two parties hold the same token, and there is no way
+ * to tell which is the client: so the whole family is revoked, and the client
+ * that was legitimate asks its person to connect again. That is the cost of
+ * noticing a theft, and it is much smaller than not noticing one.
+ */
+export const oauthRefreshToken = pgTable("oauth_refresh_token", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  appId: uuid("app_id").notNull().references(() => connectedApp.id, { onDelete: "cascade" }),
+  clientId: text("client_id").notNull(),
+  /** Every token descended from one authorization shares this. */
+  familyId: uuid("family_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  scope: text("scope").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  /** The access token issued beside this refresh token, revoked with the family. */
+  accessTokenId: uuid("access_token_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tokenIdx: uniqueIndex("oauth_refresh_token_hash_idx").on(t.tokenHash),
+  familyIdx: index("oauth_refresh_token_family_idx").on(t.organizationId, t.familyId),
 }));
 
 // ---------------------------------------------------------------------------

@@ -156,6 +156,19 @@ export const PERMISSIONS = {
   "document:write": "Manage company documents",
   "compliance:read": "View licences, insurance and compliance records",
   "compliance:write": "Manage licences, insurance and compliance records",
+  /**
+   * SAFETY RECORDS ARE THEIR OWN GRANT, and the reason is what is in them. An
+   * incident report names who was hurt and how, which is a narrower audience
+   * than the company's insurance certificate, and a toolbox talk sign in sheet
+   * is run by a foreman who has no business in the filings.
+   *
+   * Reporting is separate from reading on purpose. Everybody should be able
+   * to report the ladder that nearly slipped, and a form that also shows them
+   * every injury their colleagues ever had is a form nobody may be given.
+   */
+  "safety:read": "View toolbox talks and incident reports",
+  "safety:write": "Hold toolbox talks and follow up incident reports",
+  "safety:report": "Report an incident or a near miss",
 
   // --- Administration ------------------------------------------------------
   "user:read": "View users",

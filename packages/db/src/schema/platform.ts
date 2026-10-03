@@ -76,6 +76,20 @@ export const webhookEndpoint = pgTable("webhook_endpoint", {
   url: text("url").notNull(),
   /** HMAC signing secret. Stored encrypted, never returned to the client. */
   secretRef: text("secret_ref").notNull(),
+  /**
+   * THE SECRET BEFORE THE LAST ROTATION, WHILE THE OVERLAP LASTS.
+   *
+   * Rotating a secret the receiver still verifies with breaks every delivery
+   * the moment it happens, because the receiver is updated by a different
+   * person on a different day. So for an overlap the operator chose, every
+   * delivery is signed with both, and a receiver holding either accepts it.
+   * After `previous_secret_expires_at` the old one signs nothing, and the next
+   * rotation overwrites it.
+   */
+  previousSecretRef: text("previous_secret_ref"),
+  previousSecretExpiresAt: timestamp("previous_secret_expires_at", { withTimezone: true }),
+  /** When the current secret was made, by registration or by rotation. */
+  secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
   events: jsonb("events").$type<string[]>().notNull().default([]),
   active: boolean("active").notNull().default(true),
   lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true }),

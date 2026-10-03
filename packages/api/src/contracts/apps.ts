@@ -83,6 +83,20 @@ export const AppView = z.object({
   approvedAt: z.string().nullable(),
   revokedAt: z.string().nullable(),
   revokedReason: z.string().nullable(),
+  /** `operator` installed here by hand, `request` asked through the consent flow, `oauth` a remote MCP client. */
+  source: z.enum(["operator", "request", "oauth"]),
+  /** The request, for an app that asked. Null for one installed by hand. */
+  request: z.object({
+    expiresAt: z.string().nullable(),
+    expired: z.boolean(),
+    /** The host the person deciding is sent back to. */
+    returnsTo: z.string().nullable(),
+    requestedFrom: z.string().nullable(),
+    refusedAt: z.string().nullable(),
+    refusedReason: z.string().nullable(),
+    /** When the app collected its credential, which it does once. */
+    claimedAt: z.string().nullable(),
+  }).nullable(),
   tokens: z.array(AppTokenView),
   /**
    * Whether anything can actually call us as this app right now: active, and
@@ -184,6 +198,115 @@ export const revokeAppToken = defineRoute({
   output: z.object({ revoked: z.literal(true) }),
 });
 
+/* ------------------------------------------------------- the consent flow */
+
+const PermissionList = z.array(z.string().min(1).max(100)).min(1).max(200);
+
+export const requestAppInstall = defineRoute({
+  method: "post",
+  path: "/v1/public/app-requests",
+  summary: "Ask a company to let your application in",
+  description:
+    "For a third party with no credential yet. Names the company by its public slug and says exactly what the app wants: its permissions from the catalogue and the record scope on each resource. Nothing is granted by asking. The answer carries `decisionUrl`, the page where somebody at the company sees the request in plain words and approves or refuses that exact list, and `claimSecret`, shown once, which the app presents to `POST /v1/public/app-requests/{id}/claim` to collect its credential after approval. An unknown permission is refused rather than dropped. Requests expire after seven days unanswered, a company holds at most twenty waiting, and asking is counted per network address. NOT IDEMPOTENT: the claim secret is stored only as a hash, so a retry cannot be handed the first one, and leaves a second request that the company can refuse or let expire.",
+  module: "M26",
+  authorization: "public",
+  permissions: [],
+  input: z.object({
+    company: z.string().min(1).max(120),
+    name: z.string().min(1).max(200),
+    publisher: z.string().max(200).optional(),
+    description: z.string().max(2000).optional(),
+    homepageUrl: z.string().max(500).optional(),
+    permissions: PermissionList,
+    scopes: z.record(ScopeValue).optional(),
+    /** Where the person deciding is sent back to, with `request`, `status` and `state` added. Https only. */
+    redirectUri: z.string().max(1000).optional(),
+    /** Opaque, echoed back as `state` on the return address. */
+    state: z.string().max(500).optional(),
+  }),
+  output: z.object({
+    id: Uuid,
+    status: z.literal("pending"),
+    decisionPath: z.string(),
+    decisionUrl: z.string(),
+    /** Shown once. The app's proof, when it comes back, that it is the one that asked. */
+    claimSecret: z.string(),
+    expiresAt: z.string(),
+  }),
+});
+
+export const claimAppCredential = defineRoute({
+  method: "post",
+  path: "/v1/public/app-requests/{id}/claim",
+  summary: "Collect the credential an approved request earned",
+  description:
+    "Answers `pending` until somebody decides, `refused` or `expired` when the answer is no, and `approved` with the token, ONCE, when it is yes. The token is stored only as a hash, so a second collection answers `claimed` with no token and the company issues a new one if it was lost. A wrong claim secret is the same not found as an id that does not exist. NOT IDEMPOTENT for the same reason: what it hands over cannot be handed over again.",
+  module: "M26",
+  authorization: "public",
+  permissions: [],
+  input: z.object({ id: Uuid, claimSecret: z.string().min(1).max(200) }),
+  output: z.object({
+    status: z.enum(["pending", "expired", "refused", "revoked", "claimed", "approved"]),
+    message: z.string(),
+    token: z.string().optional(),
+    expiresAt: z.string().optional(),
+  }),
+});
+
+export const reviewAppRequest = defineRoute({
+  method: "get",
+  path: "/v1/apps/{id}/request",
+  summary: "What an app is asking for, in plain words",
+  description:
+    "Every permission the app asked for with the catalogue's own words, the ones that expose money flagged, and whether the person looking holds each. `approvable` is false with the reason when they could not approve it as it stands: nobody can give an app what they do not hold.",
+  module: "M26",
+  permissions: ["settings:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    app: AppView,
+    asks: z.array(z.object({
+      permission: z.string(), label: z.string(), sensitive: z.boolean(), held: z.boolean(),
+    })),
+    reach: z.array(z.object({ resource: z.string(), scope: z.string(), widerThanYours: z.boolean() })),
+    approvable: z.boolean(),
+    blockedBecause: z.string().nullable(),
+  }),
+});
+
+const Decision = z.object({
+  app: Uuid,
+  status: z.string(),
+  /** Where to send the person who decided, with the outcome for the app. Null when the app gave no address. */
+  returnTo: z.string().nullable(),
+});
+
+export const approveAppRequest = defineRoute({
+  method: "post",
+  path: "/v1/apps/{id}/approve",
+  summary: "Approve exactly what an app asked for",
+  description:
+    "Through the same check as installing: refused, naming them, when the app asks for anything the approver does not hold. Approving does not hand anybody a credential; the app collects it with its claim secret. Approving an app already approved changes nothing and succeeds.",
+  module: "M26",
+  idempotent: true,
+  permissions: ["integration:write"],
+  input: z.object({ id: Uuid }),
+  output: Decision,
+});
+
+export const refuseAppRequest = defineRoute({
+  method: "post",
+  path: "/v1/apps/{id}/refuse",
+  summary: "Refuse an app's request",
+  description:
+    "The app is told no, with the reason if one is given, when it next comes for its credential, and it gets nothing. Kept rather than deleted, so a list of what asked and was refused survives. Refusing twice succeeds; refusing an approved app is refused, because that is turning it off.",
+  module: "M26",
+  idempotent: true,
+  permissions: ["integration:write"],
+  input: z.object({ id: Uuid, reason: z.string().max(500).optional() }),
+  output: Decision,
+});
+
 export const appRoutes = {
   getAppSelf, listApps, installApp, updateApp, revokeApp, issueAppToken, revokeAppToken,
+  requestAppInstall, claimAppCredential, reviewAppRequest, approveAppRequest, refuseAppRequest,
 } as const;

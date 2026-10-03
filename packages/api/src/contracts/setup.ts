@@ -143,6 +143,7 @@ export const setItemTax = defineRoute({
   module: "M02",
   permissions: ["pricebook:write"],
   idempotent: true,
+  dryRun: true,
   input: z.object({
     itemIds: z.array(Uuid).min(1).max(1000),
     taxable: z.boolean(),

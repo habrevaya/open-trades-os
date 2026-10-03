@@ -46,6 +46,7 @@ const OFFICE_BASE: Permission[] = [
   "message:read", "message:send",
   "report:read",
   "asset:read", "document:read",
+  "safety:report",
 ];
 
 const TECHNICIAN_BASE: Permission[] = [
@@ -77,6 +78,8 @@ const TECHNICIAN_BASE: Permission[] = [
   "inventory:read",
   "asset:read", "asset:checkout",
   "document:read",
+  // Anybody on a job can report what went wrong on it. Reading the register is not here.
+  "safety:report",
 ];
 
 export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; permissions: Permission[] }> = {
@@ -127,6 +130,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
        */
       "workflow:read",
       "job.cost:read", "pricebook.cost:read",
+      "safety:read", "safety:write",
     ],
   },
 
@@ -144,6 +148,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "asset:read", "inventory:read",
       "report:read",
       "pricebook:read",
+      "safety:report",
     ],
   },
 
@@ -166,6 +171,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "portal:grant",
       "message:read", "message:send",
       "report:read",
+      "safety:report",
     ],
   },
 
@@ -184,6 +190,8 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "timesheet:read",
       "po:write",
       "inventory:adjust",
+      // The crew lead runs the morning toolbox talk and is first to hear about a near miss.
+      "safety:read", "safety:write",
     ],
   },
 
