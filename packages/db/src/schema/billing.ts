@@ -52,6 +52,16 @@ export const estimate = pgTable("estimate", {
   selectedOptionId: uuid("selected_option_id"),
   signatureUrl: text("signature_url"),
   signerName: text("signer_name"),
+  /**
+   * The terms printed under the options, copied from the company's own at the
+   * moment the estimate is written and never looked up again.
+   *
+   * Copied rather than read live for the reason a price is: a company that
+   * changes its warranty wording in March must not change what a customer
+   * signed in February. The approval hash covers this column, so what was
+   * agreed includes the small print that was on the page.
+   */
+  terms: text("terms"),
   currency: currency(),
   ...sourceRef,
   ...timestamps,

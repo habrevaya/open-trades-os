@@ -559,6 +559,14 @@ function UnassignedCard({
         </span>
       </div>
       <p className="mt-0.5 truncate text-ink-700">{visit.summary}</p>
+      {/*
+        Why this card is at the top of the pile. Their plan promised members
+        are seen first, and a dispatcher who cannot see why the order is what
+        it is will reorder it by habit.
+      */}
+      {visit.priorityPlan ? (
+        <p className="mt-0.5 truncate text-xs font-medium text-ink-900">Member first: {visit.priorityPlan}</p>
+      ) : null}
       <p className="mt-0.5 truncate text-xs text-ink-500">
         {visit.addressLine1}, {visit.postalCode}
       </p>

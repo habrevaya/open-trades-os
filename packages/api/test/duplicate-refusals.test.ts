@@ -75,6 +75,8 @@ const REFUSED: Record<string, Refused> = {
   /** A customer asking twice about one visit before the office has answered. */
   visit_change_request_pending_idx: { file: "visit-changes.ts", how: "catch" },
   vendor_name_idx: { file: "inventory.ts", how: "catch" },
+  /** A vendor's part number typed onto a second item, or a catalogue naming it twice. */
+  vendor_item_part_number_idx: { file: "vendor-catalogue.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
   /** Two shelves with one name under one parent, typed into the category manager. */
   price_book_category_name_idx: { file: "price-categories.ts", how: "catch" },
@@ -135,6 +137,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   field_operation_device_seq_idx: "The device's own counter, which the sync protocol orders by.",
   workflow_version_idx: "The next version number, assigned on publish.",
   workflow_step_run_idx: "One row per step of a run, keyed by the run and the step.",
+  vendor_item_vendor_item_idx:
+    "One link per item per vendor: setting a part number updates the item's existing link to that vendor rather than inserting another.",
 
   /* --- idempotency keys, where a collision is the point --- */
   ai_usage_idempotency_idx: "An idempotency key: a repeat is meant to collide and be ignored.",

@@ -14,6 +14,7 @@ import type {
 } from "../contracts/field";
 import { portalBase } from "../lib/portal-base";
 import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
+import { priorityWithin } from "./agreements";
 
 
 /**
@@ -55,6 +56,8 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       jobNumber: schema.job.number,
       summary: schema.job.summary,
       customerName: schema.customer.name,
+      customerId: schema.job.customerId,
+      propertyId: schema.job.propertyId,
       addressLine1: schema.property.addressLine1,
       postalCode: schema.property.postalCode,
       technicianId: schema.visitAssignment.technicianId,
@@ -126,6 +129,36 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       }
     }
 
+    /**
+     * MEMBERS WHOSE PLAN PROMISED PRIORITY GO TO THE TOP OF THE PILE.
+     *
+     * `priority_dispatch` sat on the plan from the first migration, sold to
+     * customers as "members are seen first", and the board never read it, so
+     * the promise was kept only when a dispatcher happened to remember who
+     * was on which plan. Sorting the unassigned pile is the whole of it: the
+     * pile is what a dispatcher works down, and the first card is the one
+     * that gets the next free technician. Nothing is moved, booked or
+     * reassigned for them, and the order within each half is the order it
+     * already had.
+     *
+     * Whether the plan covers this job is the same rule the member discount
+     * uses (active on the day, at this address or sold with none), in core.
+     */
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const byVisit = new Map(rows.map((r) => [r.visit.id, r]));
+    const priority = await priorityWithin(tx, unassigned.map((v) => {
+      const row = byVisit.get(v.id)!;
+      return {
+        key: v.id,
+        customerId: row.customerId,
+        propertyId: row.propertyId,
+        on: row.visit.windowStart ? time.dateIn(row.visit.windowStart, zone) : input.date,
+      };
+    }));
+    const ranked = unassigned
+      .map((v, index) => ({ v, index, plan: priority.get(v.id) ?? null }))
+      .sort((a, b) => Number(b.plan !== null) - Number(a.plan !== null) || a.index - b.index);
+
     return {
       date: input.date,
       technicians: technicians.map((t) => ({
@@ -135,7 +168,7 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         timeOff: offToday.has(t.id),
         visits: assigned.get(t.id) ?? [],
       })),
-      unassigned: unassigned.map(({ isLate: _late, ...rest }) => rest),
+      unassigned: ranked.map(({ v: { isLate: _late, ...rest }, plan }) => ({ ...rest, priorityPlan: plan })),
     };
   });
 }

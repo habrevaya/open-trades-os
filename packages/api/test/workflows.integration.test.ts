@@ -381,7 +381,7 @@ run("seeing what happened", () => {
    */
   it("offers nothing the product does not emit", async () => {
     const offered = await workflows.triggerEvents(owner());
-    for (const name of ["estimate.approved", "invoice.overdue", "payment.failed"]) {
+    for (const name of ["visit.scheduled", "invoice.overdue", "payment.failed"]) {
       expect(offered, `${name} cannot fire and must not be offered`).not.toContain(name);
     }
     /**
@@ -390,6 +390,9 @@ run("seeing what happened", () => {
      * now because it fires now, and asserted so it does not quietly drop off.
      */
     expect(offered).toContain("estimate.sent");
+    /** And the two decisions, since approving and declining started emitting them. */
+    expect(offered).toContain("estimate.approved");
+    expect(offered).toContain("estimate.declined");
   });
 
   it("does not offer a dwell event as an event subscription", async () => {
@@ -405,7 +408,7 @@ run("seeing what happened", () => {
   it("refuses to save a subscription to an event nothing emits", async () => {
     await expect(workflows.create(owner(), {
       name: "Never runs", triggerKind: "event",
-      triggerEvents: ["estimate.approved"], steps: [TASK_STEP],
+      triggerEvents: ["invoice.overdue"], steps: [TASK_STEP],
     })).rejects.toThrow(/never run/i);
   });
 

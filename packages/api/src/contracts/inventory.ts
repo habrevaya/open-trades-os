@@ -353,13 +353,198 @@ export const createPurchaseOrder = defineRoute({
     expectedAt: z.string().datetime().optional(),
     notes: z.string().max(2000).optional(),
     lines: z.array(z.object({
-      itemId: Uuid,
+      /** Our item. Either this or `partNumber`. */
+      itemId: Uuid.optional(),
+      /** The vendor's own part number, or our item code, looked up for this vendor. */
+      partNumber: z.string().min(1).max(100).optional(),
       locationId: Uuid.optional(),
       quantity: QuantityString,
-      unitPrice: MoneyString,
+      /** What the vendor charges for one. Their price on record when left out; refused when there is none. */
+      unitPrice: MoneyString.optional(),
+    }).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
+      message: "Name the part: our item, or the vendor's part number",
     })).min(1),
   }),
   output: z.object({ id: Uuid, number: z.number().int(), status: PurchaseOrderStatus }),
+});
+
+export const getPurchaseOrder = defineRoute({
+  method: "get",
+  path: "/v1/purchase-orders/{id}",
+  summary: "One purchase order, line by line",
+  description: "Each line with the vendor's part number as it was when the order was written, our item, how many, at what, where it is going and how much has arrived.",
+  module: "M16",
+  permissions: ["po:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    id: Uuid,
+    number: z.number().int(),
+    status: PurchaseOrderStatus,
+    vendorId: Uuid,
+    vendorName: z.string(),
+    vendorAccount: z.string().nullable(),
+    expectedAt: z.string().datetime().nullable(),
+    submittedAt: z.string().datetime().nullable(),
+    notes: z.string().nullable(),
+    total: MoneyString,
+    lines: z.array(z.object({
+      id: Uuid,
+      itemId: Uuid,
+      itemCode: z.string(),
+      itemName: z.string(),
+      vendorPartNumber: z.string().nullable(),
+      locationId: Uuid,
+      locationName: z.string(),
+      quantityOrdered: QuantityString,
+      quantityReceived: QuantityString,
+      unitPrice: MoneyString,
+    })),
+  }),
+});
+
+/* ------------------------------------------- vendor part numbers and catalogues */
+
+export const VendorItem = z.object({
+  id: Uuid,
+  vendorId: Uuid,
+  vendorName: z.string(),
+  itemId: Uuid,
+  itemCode: z.string(),
+  itemName: z.string().nullable(),
+  /** The vendor's own number for the part, as their catalogue prints it. */
+  partNumber: z.string(),
+  description: z.string().nullable(),
+  /** What one costs from this vendor. Null when nobody has said. */
+  cost: MoneyString.nullable(),
+  costUpdatedAt: z.string().datetime().nullable(),
+});
+
+export const listVendorItems = defineRoute({
+  method: "get",
+  path: "/v1/vendor-items",
+  summary: "Vendors' part numbers for our items",
+  description: "For one item (`itemId`), every vendor's number and price for it; for one vendor (`vendorId`), their whole catalogue as linked to ours.",
+  module: "M16",
+  permissions: ["vendor:read"],
+  input: z.object({ itemId: Uuid.optional(), vendorId: Uuid.optional() }),
+  output: z.object({ links: z.array(VendorItem) }),
+});
+
+export const setVendorItem = defineRoute({
+  method: "put",
+  path: "/v1/vendor-items",
+  summary: "Say what a vendor calls one of our items, and what they charge",
+  description: "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record.",
+  module: "M16",
+  permissions: ["vendor:write"],
+  idempotent: true,
+  input: z.object({
+    vendorId: Uuid,
+    itemId: Uuid,
+    partNumber: z.string().min(1).max(100),
+    description: z.string().max(500).nullable().optional(),
+    cost: z.string().max(20).nullable().optional(),
+  }),
+  output: VendorItem,
+});
+
+export const removeVendorItem = defineRoute({
+  method: "post",
+  path: "/v1/vendor-items/{id}/remove",
+  summary: "Forget a vendor's number for an item",
+  description: "Orders already written keep the number they were sent with, because each line copied it.",
+  module: "M16",
+  permissions: ["vendor:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, removed: z.boolean() }),
+});
+
+const CatalogueOptions = {
+  /** The file, as text: a header line naming sku, description, cost and vendor columns, then a row per part. */
+  csv: z.string().min(1).max(2_000_000),
+  /** The vendor for rows that name none, or for a file with no vendor column. */
+  vendorId: Uuid.nullable().optional(),
+  /** The margin a new item is priced at over its cost, as a fraction: 0.4 is forty per cent. Without one, new parts are skipped rather than sold at cost. */
+  margin: z.string().max(12).nullable().optional(),
+  /** Round new items' prices up to this ending of cents, like 95 or 99. */
+  ending: z.string().regex(/^\d{2}$/).nullable().optional(),
+  /** Whether each matched item's own cost (the one job costing reads) follows the vendor's, as a new version. */
+  updateItemCost: z.boolean().default(false),
+  /** The category new items are put in. */
+  categoryId: Uuid.nullable().optional(),
+};
+
+const CatalogueRow = z.object({
+  action: z.enum(["create", "link", "update", "unchanged", "skip"]),
+  line: z.number().int(),
+  sku: z.string(),
+  vendorId: Uuid.optional(),
+  vendorName: z.string().optional(),
+  itemId: Uuid.optional(),
+  itemCode: z.string().optional(),
+  itemName: z.string().optional(),
+  /** For a new item: its code, name and the price the margin gives it. */
+  code: z.string().optional(),
+  name: z.string().optional(),
+  price: MoneyString.optional(),
+  /** The vendor's cost from the file. */
+  cost: MoneyString.optional(),
+  /** What the link said before, for an update. */
+  partNumberBefore: z.string().optional(),
+  costBefore: MoneyString.nullable().optional(),
+  /** The item's own cost before and after, when it follows the vendor's. Before is null for a reader who may not see cost. */
+  itemCostBefore: MoneyString.nullable().optional(),
+  itemCostAfter: MoneyString.nullable().optional(),
+  /** The item's cost would have followed, and a scheduled price change is in the way. */
+  costHeldBack: z.boolean().optional(),
+  /** Why a skipped row was skipped. */
+  reason: z.string().optional(),
+});
+
+const CatalogueResult = z.object({
+  /** Lines the file could not be read at, with why. */
+  problems: z.array(z.object({ line: z.number().int(), message: z.string() })),
+  rows: z.array(CatalogueRow),
+  counts: z.object({
+    create: z.number().int(), link: z.number().int(), update: z.number().int(),
+    unchanged: z.number().int(), skip: z.number().int(),
+  }),
+});
+
+export const previewVendorCatalogue = defineRoute({
+  method: "post",
+  path: "/v1/vendor-catalogue/preview",
+  summary: "What a supplier's catalogue file would do, with nothing written",
+  description:
+    "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor, a cost that is not an amount, a part number twice, a new part with no margin to price it. A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.",
+  module: "M16",
+  permissions: ["vendor:write", "pricebook:write"],
+  idempotent: true,
+  input: z.object(CatalogueOptions),
+  output: CatalogueResult,
+});
+
+export const applyVendorCatalogue = defineRoute({
+  method: "post",
+  path: "/v1/vendor-catalogue/apply",
+  summary: "Apply a supplier's catalogue file",
+  description:
+    "Recomputed from the file inside the write rather than trusted from a preview, and written exactly as the plan says, less any `skipLines`. New items are materials at the margin asked for. An item's own cost that follows the vendor's is a new version, so every document already priced keeps its cost; one with a price change already scheduled is left alone and said so.",
+  module: "M16",
+  permissions: ["vendor:write", "pricebook:write"],
+  idempotent: true,
+  input: z.object({
+    ...CatalogueOptions,
+    /** Lines of the file to leave out, as the preview numbered them. */
+    skipLines: z.array(z.number().int().min(1)).max(5000).optional(),
+  }),
+  output: CatalogueResult.extend({
+    created: z.number().int(),
+    linked: z.number().int(),
+    updated: z.number().int(),
+    itemCostsRevised: z.number().int(),
+  }),
 });
 
 /**
@@ -410,5 +595,6 @@ export const inventoryRoutes = {
   reserveStock, releaseStock, issueStock, receiveStock, countStock, transferStock,
   listReorderSuggestions, getJobMaterialCost,
   listVendors, createVendor,
-  listPurchaseOrders, createPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
+  listVendorItems, setVendorItem, removeVendorItem, previewVendorCatalogue, applyVendorCatalogue,
 } as const;

@@ -42,3 +42,4 @@ export * as customFields from "./custom-fields/index.js";
 export * as voice from "./voice/index.js";
 export * as tracking from "./tracking/index.js";
 export * as referrals from "./referrals/index.js";
+export * as catalogue from "./catalogue/index.js";

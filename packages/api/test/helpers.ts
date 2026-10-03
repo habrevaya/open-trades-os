@@ -33,6 +33,8 @@ const ORDER = [
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "credit_note_application", "credit_note_line", "credit_note",
+  /** An estimate's send points at the estimate, the message it became and the link it carried. */
+  "estimate_delivery",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
@@ -58,6 +60,8 @@ const ORDER = [
    */
   "referral_reward",
   "customer_property", "contact", "property", "customer",
+  /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
+  "vendor_item",
   "price_change_line", "price_change_batch",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",

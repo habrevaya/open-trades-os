@@ -380,3 +380,97 @@ export function discountRefusal(verdict: Extract<DiscountVerdict, { allowed: fal
     }
   }
 }
+
+/* ------------------------------------------------------- the proposal page */
+
+export type Tier = "Good" | "Better" | "Best";
+
+/**
+ * GOOD, BETTER AND BEST, named by price and never by position.
+ *
+ * Two or three options are a ladder and a customer reads them as one, so the
+ * proposal says which rung each is. The rung is decided by the total, cheapest
+ * first, because the presentation order puts the recommended option first
+ * and a recommended middle option labelled "Good" because it was drawn
+ * first would tell the customer the opposite of what the company meant.
+ *
+ * Two options are Good and Better rather than Good and Best: calling the
+ * second of two "Best" claims there was nothing between them, and a customer
+ * asks what happened to Better. One option is not a ladder, and four or more
+ * are a menu rather than tiers, so neither gets a label and each keeps the
+ * name somebody gave it. Two options at the same price are not a ladder
+ * either: whichever was called Good would be a judgement nobody made.
+ */
+export function tierLabels(totals: readonly Money[]): (Tier | null)[] {
+  if (totals.length < 2 || totals.length > 3) return totals.map(() => null);
+  const order = totals
+    .map((total, index) => ({ total, index }))
+    .sort((a, b) => compare(a.total, b.total) || a.index - b.index);
+  for (let i = 1; i < order.length; i += 1) {
+    if (compare(order[i]!.total, order[i - 1]!.total) === 0) return totals.map(() => null);
+  }
+  const names: Tier[] = order.length === 2 ? ["Good", "Better"] : ["Good", "Better", "Best"];
+  const out: (Tier | null)[] = totals.map(() => null);
+  order.forEach((entry, rank) => { out[entry.index] = names[rank]!; });
+  return out;
+}
+
+/* ------------------------------------------------- an estimate's history */
+
+/**
+ * How an estimate written in another system ended, for a migration.
+ *
+ * Without this every estimate a company brings across arrives as a draft,
+ * and its close rate, its won and lost list and its average days to a yes
+ * all start from the day of the cutover. The outcome is a statement about
+ * the past, so it is checked as one: it needs a date, the date cannot be in
+ * the future or before the estimate was written, and a win has to say which
+ * option won.
+ */
+export interface HistoricalOutcome {
+  status: "approved" | "declined" | "expired";
+  /** The day it was decided, or for an expiry the day it lapsed. */
+  on: string;
+  /** For an approval: which option, by its position in the request, from nought. */
+  chosenOption?: number | undefined;
+}
+
+export type HistoryVerdict = { ok: true } | { ok: false; message: string };
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export function checkHistory(
+  outcome: HistoricalOutcome,
+  context: { optionCount: number; issuedOn: string; today: string },
+): HistoryVerdict {
+  if (!ISO_DAY.test(outcome.on)) {
+    return { ok: false, message: "The outcome needs the day it happened, as a date like 2024-03-18." };
+  }
+  if (outcome.on > context.today) {
+    return { ok: false, message: "An outcome from history cannot be dated in the future." };
+  }
+  if (outcome.on < context.issuedOn) {
+    return {
+      ok: false,
+      message: `The outcome is dated ${outcome.on}, before the estimate was written on ${context.issuedOn}.`,
+    };
+  }
+  if (outcome.status === "approved") {
+    if (outcome.chosenOption === undefined) {
+      return {
+        ok: false,
+        message: "An approved estimate has to say which option was approved. Converting it later copies that option and no other.",
+      };
+    }
+    if (!Number.isInteger(outcome.chosenOption)
+      || outcome.chosenOption < 0 || outcome.chosenOption >= context.optionCount) {
+      return {
+        ok: false,
+        message: `The chosen option is counted from nought, and this estimate has ${context.optionCount}.`,
+      };
+    }
+  } else if (outcome.chosenOption !== undefined) {
+    return { ok: false, message: `A ${outcome.status} estimate has no chosen option.` };
+  }
+  return { ok: true };
+}

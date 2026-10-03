@@ -127,8 +127,8 @@ run("the deposit link", () => {
     }) as Record<string, unknown>;
     const estimateId = created["id"] as string;
     await deposits.request(owner(), { customerId, estimateId, amount: "500.00" });
-    const sent = await estimates.send(owner(), { id: estimateId, channel: "email", expiresInDays: 30 });
-    const token = tokenOf(sent.approvalUrl);
+    const sent = await estimates.send(owner(), { id: estimateId, channel: "link", expiresInDays: 30 });
+    const token = tokenOf(sent.approvalUrl!);
     const view = await portal.viewEstimate(db(), { token });
     const approved = await portal.approveEstimate(db(), {
       token, optionId: view.options[0]!.id, selectedLineIds: [], signerName: "Dana", acceptedTerms: true,

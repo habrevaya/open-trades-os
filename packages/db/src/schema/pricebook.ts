@@ -18,6 +18,21 @@ import { organization, user } from "./tenancy";
 
 export const itemKind = pgEnum("item_kind", ["service", "material", "equipment", "labor", "fee", "discount"]);
 
+/**
+ * WHICH FEE THIS IS, when it is one a membership can waive.
+ *
+ * A plan has carried "waives the diagnostic fee" and "waives the after hours
+ * rate" since the first migration, and nothing could apply either, because
+ * nothing could tell which line on a document WAS the diagnostic fee. Every
+ * company names it differently ("Trip charge", "Service call", "Dispatch
+ * fee"), so matching on a name would be a guess that is wrong in a way
+ * nobody notices until a member is charged for something their plan says
+ * they never pay. The company says which item it is, once, on the item.
+ *
+ * Null for everything else, which is nearly everything.
+ */
+export const feeRole = pgEnum("price_book_fee_role", ["diagnostic", "after_hours"]);
+
 export const priceBookCategory = pgTable("price_book_category", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -48,6 +63,12 @@ export const priceBookItem = pgTable("price_book_item", {
   kind: itemKind("kind").notNull().default("service"),
   code: text("code").notNull(),
   active: boolean("active").notNull().default(true),
+  /**
+   * On the item rather than the version, because it is what the item IS and
+   * not something it costs: no document points at it, and changing it changes
+   * nothing anybody was charged. See `feeRole`.
+   */
+  feeRole: feeRole("fee_role"),
   /** Set when the row came from a trade pack, so pack updates can be offered later. */
   tradePackId: text("trade_pack_id"),
   ...sourceRef,

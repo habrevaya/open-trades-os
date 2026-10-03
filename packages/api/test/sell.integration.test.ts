@@ -157,17 +157,23 @@ run("creating an estimate", () => {
 });
 
 run("sending and approving", () => {
+  /**
+   * By link, because these are about the link: what is stored, what it
+   * approves, and when it stops working. Sending by email and by text is
+   * `estimate-delivery.integration.test.ts`, and a customer with no address
+   * on file there is refused rather than handed a link.
+   */
   const sendFresh = async () => {
     const created = await estimates.create(office(), threeOptions()) as Record<string, unknown>;
     const sent = await estimates.send(office(), {
-      id: created["id"] as string, channel: "email", expiresInDays: 30,
+      id: created["id"] as string, channel: "link", expiresInDays: 30,
     });
     return sent;
   };
 
   it("returns a link and stores only its hash", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
 
     const rows = await raw`select token_hash from public.portal_grant
       where organization_id = ${ORG_A} and revoked_at is null`;
@@ -179,7 +185,7 @@ run("sending and approving", () => {
 
   it("lets the customer view it without an account, and records the view", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
 
     const view = await portal.viewEstimate(db(), { token });
     expect(view.status).toBe("viewed");
@@ -189,7 +195,7 @@ run("sending and approving", () => {
 
   it("never puts cost or margin in the customer's view", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
     const view = await portal.viewEstimate(db(), { token });
 
     const serialized = JSON.stringify(view);
@@ -202,7 +208,7 @@ run("sending and approving", () => {
 
   it("viewing does not spend the approval", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
 
     await portal.viewEstimate(db(), { token });
     await portal.viewEstimate(db(), { token });
@@ -218,7 +224,7 @@ run("sending and approving", () => {
 
   it("spends the grant on approval, so a forwarded link cannot approve twice", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
     const view = await portal.viewEstimate(db(), { token });
     const option = view.options.find((o) => o.name === "Better")!;
 
@@ -235,7 +241,7 @@ run("sending and approving", () => {
 
   it("includes an optional line the customer ticked, and re-totals", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
     const view = await portal.viewEstimate(db(), { token });
     const better = view.options.find((o) => o.name === "Better")!;
     const surge = better.lines.find((l) => l.isOptional)!;
@@ -252,7 +258,7 @@ run("sending and approving", () => {
 
   it("writes a signature carrying a hash of the document, not just a name", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
     const view = await portal.viewEstimate(db(), { token });
     const option = view.options[0]!;
 
@@ -271,7 +277,7 @@ run("sending and approving", () => {
 
   it("refuses to resend an estimate that is already approved", async () => {
     const sent = await sendFresh();
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
     const view = await portal.viewEstimate(db(), { token });
     await portal.approveEstimate(db(), {
       token, optionId: view.options[0]!.id, selectedLineIds: [],
@@ -279,7 +285,7 @@ run("sending and approving", () => {
     });
 
     await expect(estimates.send(office(), {
-      id: view.id, channel: "email", expiresInDays: 30,
+      id: view.id, channel: "link", expiresInDays: 30,
     })).rejects.toThrow(ConflictError);
   });
 
@@ -287,15 +293,15 @@ run("sending and approving", () => {
     const created = await estimates.create(office(), threeOptions()) as Record<string, unknown>;
     const id = created["id"] as string;
 
-    const first = await estimates.send(office(), { id, channel: "email", expiresInDays: 30 });
-    const second = await estimates.send(office(), { id, channel: "email", expiresInDays: 30 });
+    const first = await estimates.send(office(), { id, channel: "link", expiresInDays: 30 });
+    const second = await estimates.send(office(), { id, channel: "link", expiresInDays: 30 });
 
-    const stale = first.approvalUrl.split("/").pop()!;
+    const stale = first.approvalUrl!.split("/").pop()!;
     // The first link would otherwise still approve numbers that no longer exist.
     await expect(portal.viewEstimate(db(), { token: stale }))
       .rejects.toThrow(portal.InvalidGrantError);
 
-    await expect(portal.viewEstimate(db(), { token: second.approvalUrl.split("/").pop()! }))
+    await expect(portal.viewEstimate(db(), { token: second.approvalUrl!.split("/").pop()! }))
       .resolves.toBeDefined();
   });
 
@@ -348,9 +354,9 @@ run("tenant isolation on the sell path", () => {
     // so there is no id the caller could swap.
     const created = await estimates.create(office(), threeOptions()) as Record<string, unknown>;
     const sent = await estimates.send(office(), {
-      id: created["id"] as string, channel: "email", expiresInDays: 30,
+      id: created["id"] as string, channel: "link", expiresInDays: 30,
     });
-    const token = sent.approvalUrl.split("/").pop()!;
+    const token = sent.approvalUrl!.split("/").pop()!;
     const view = await portal.viewEstimate(db(), { token });
     expect(view.organizationName).toBe("Acme HVAC");
   });

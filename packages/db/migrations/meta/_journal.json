@@ -505,6 +505,13 @@
       "when": 1790998415974,
       "tag": "0071_public_the_hunter",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1791003225049,
+      "tag": "0072_yellow_microchip",
+      "breakpoints": true
     }
   ]
 }
