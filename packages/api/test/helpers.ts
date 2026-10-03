@@ -39,13 +39,26 @@ const ORDER = [
   // Then work.
   "delivery",
   "obligation", "authorization", "external_work_order",
+  /**
+   * A customer's request to move or cancel a visit points at the visit, the
+   * job, the customer and the online booking rules it was checked against,
+   * so it goes before all four.
+   */
+  "visit_change_request",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
   "visit", "entitlement", "job_party", "job", "job_type",
   // Then the things work points at.
   "deficiency", "inspection", "inspection_program",
   "equipment_move", "equipment",
+  "customer_not_duplicate",
+  /**
+   * A referral reward points at the two customers and the first job, so it
+   * goes before all three.
+   */
+  "referral_reward",
   "customer_property", "contact", "property", "customer",
+  "price_change_line", "price_change_batch",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
   "timeclock_entry", "overtime_policy", "wage_scale",
@@ -66,21 +79,30 @@ const ORDER = [
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.
+  /**
+   * A delivery points at its schedule, a schedule at a saved report, and a
+   * statement delivery at the customer and the message it went as.
+   */
+  "statement_delivery", "report_delivery", "delivery_schedule",
   "dashboard", "report",
   // The company's own logo and favicon, which are bytes rather than a key.
   "brand_asset",
+  "task_escalation", "task_checklist_item",
   "task",
+  "task_escalation_rule", "task_template",
   "workflow_step_run", "workflow_run", "workflow_schedule", "workflow_version", "workflow",
   "event_cursor", "domain_event",
   // Communications, in dependency order: a message points at a conversation
   // and a consent row, a call points at a number, a number points at a
   // campaign, a campaign points at a brand.
-  "message", "call", "conversation",
+  "message_attachment", "message", "call", "conversation",
   "suppression", "communication_consent", "message_template",
   // Nothing points at a recording policy: it is matched by jurisdiction
   // string, never by id, which is why a party's jurisdiction can name a
   // place the operator has not declared.
   "recording_policy",
+  /** A website visitor's lease on a pool number points at the number. */
+  "dni_session",
   "phone_number", "messaging_campaign", "messaging_brand",
   "portal_event", "portal_grant",
   "booking_request", "bookable_service", "arrival_window",
@@ -155,13 +177,24 @@ const ORDER = [
    */
   "campaign_recipient", "unsubscribe_link", "marketing_campaign",
   /**
+   * The company's channels and tracking campaigns, after everything that
+   * points at them: touches, spend, calls, numbers, jobs, customers and lead
+   * connectors all carry one or both, and a campaign points at its channel.
+   */
+  "acquisition_campaign", "marketing_channel",
+  /**
    * Reviews: a request points at a job and a customer, a review at both
    * plus a technician. The policy and the platform list point at nothing,
    * which is why a company can declare them before it has any reviews.
    */
   "review_request", "review", "review_platform", "review_policy",
   "attachment", "stored_file",
-  "audit_log", "integration_event", "webhook_endpoint",
+  "audit_log", "integration_event",
+  /**
+   * A delivery attempt points at its endpoint and at the replay that sent
+   * it, and a replay at its endpoint, so the attempts go first.
+   */
+  "webhook_delivery", "webhook_replay", "webhook_endpoint",
   /**
    * A held certification points at a technician and at the type it is an
    * instance of, so both go before the technician below and the type goes

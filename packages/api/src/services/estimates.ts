@@ -1,6 +1,6 @@
-import { and, eq, desc, lt, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, lt, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { permissionsFor, estimate as est, money as m, time } from "@opentradesos/core";
+import { permissionsFor, estimate as est, membership, money as m, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -13,6 +13,9 @@ import { estimateScopeFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
+import { memberPricingWithin } from "./agreements";
+import { emit } from "./events";
+import * as marketing from "./marketing";
 import type {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
@@ -64,8 +67,10 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
           price: schema.priceBookItemVersion.price,
           cost: schema.priceBookItemVersion.cost,
           taxable: schema.priceBookItemVersion.taxable,
+          kind: schema.priceBookItem.kind,
         })
         .from(schema.priceBookItemVersion)
+        .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
         .where(and(
           inArray(schema.priceBookItemVersion.itemId, itemIds),
           /**
@@ -86,7 +91,24 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
      */
     const issuedOn = input.issuedOn
       ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
-    if (input.issuedOn) await admitDate(tx, ctx, input.issuedOn, "issuedOn");
+    const historical = input.issuedOn
+      ? (await admitDate(tx, ctx, input.issuedOn, "issuedOn")).historical
+      : false;
+
+    /**
+     * MEMBER PRICING, decided once for the document.
+     *
+     * The customer's best active agreement at this address on the day the
+     * estimate is written, if its plan carries a discount. Not for history: an
+     * estimate recorded from another system says what it said, and a member
+     * discount applied to it today would make it disagree with the copy the
+     * customer was sent.
+     */
+    const member = historical || input.externalRef
+      ? null
+      : await memberPricingWithin(tx, {
+        customerId: input.customerId, propertyId: input.propertyId, on: issuedOn,
+      });
 
     await assertUnclaimed(tx, "estimate", input.externalRef);
     const number = await claimNumber(tx, ctx, "estimate", input.number);
@@ -122,8 +144,41 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
           isOptional: line.isOptional,
           isSelected: line.isSelected,
           costCode: line.costCode ?? null,
+          kind: version?.kind ?? null,
+          memberDiscountAmount: "0",
+          memberAgreementId: null as string | null,
         };
       });
+
+      /**
+       * A PER LINE DISCOUNT, NOT A DISCOUNT LINE, and the reason is the
+       * pricing code that already exists. A line's `discount_amount` is
+       * carried through every total, onto the invoice on conversion, and into
+       * the ledger as a debit to the discounts account, so a member discount
+       * written there is posted correctly by code that has posted every other
+       * discount. A separate negative line would be a price below zero, would
+       * reduce revenue rather than show the discount, and would have to be
+       * kept in step with the lines it was computed from on every edit.
+       *
+       * Each line says how much of its discount was the plan and which
+       * agreement, so the screen and the customer can see it, and nothing is
+       * taken off silently.
+       */
+      if (member) {
+        const off = membership.memberDiscounts(resolved.map((l) => ({
+          quantity: l.quantity,
+          unitPrice: usd(l.unitPrice),
+          discountAmount: usd(l.discountAmount),
+          eligible: membership.eligibleForMemberPricing({ unitPrice: usd(l.unitPrice), itemKind: l.kind }),
+        })), member.rate);
+        for (const [i, line] of resolved.entries()) {
+          const amount = off[i]!;
+          if (!m.isPositive(amount)) continue;
+          line.memberDiscountAmount = m.toString(amount);
+          line.memberAgreementId = member.agreementId;
+          line.discountAmount = m.toString(m.add(usd(line.discountAmount), amount));
+        }
+      }
 
       const computed = est.computeOption(resolved.map((l) => ({
         quantity: l.quantity,
@@ -155,7 +210,16 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
        * and a technician who may quote must be able to quote.
        */
       await assertDiscountAllowed(tx, ctx, {
-        discount: computed.totals.discountTotal,
+        /**
+         * The member discount is the company's own standing decision, made
+         * when it set the plan's rate, so it is not checked against what this
+         * person may give away. Only what they typed is.
+         */
+        discount: m.subtract(
+          computed.totals.discountTotal,
+          m.round(m.sum(resolved.filter((l) => !l.isOptional || l.isSelected)
+            .map((l) => usd(l.memberDiscountAmount)), "USD"), 2),
+        ),
         subtotal: computed.totals.subtotal,
       });
 
@@ -182,6 +246,8 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
         unitPrice: line.unitPrice,
         unitCost: line.unitCost,
         discountAmount: line.discountAmount,
+        memberAgreementId: line.memberAgreementId,
+        memberDiscountAmount: line.memberDiscountAmount,
         taxable: line.taxable,
         taxRate: line.taxRate,
         taxAmount: m.toString(computed.lines[i]!.taxAmount),
@@ -275,6 +341,107 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
 }
 
 /**
+ * The figure an estimate is worth if the customer says yes.
+ *
+ * The recommended option where there is one, otherwise the largest: the same
+ * rule the list uses, so the unsold total and the list cannot disagree about
+ * one estimate.
+ */
+export function headlineTotal(options: { total: string; isRecommended: boolean }[]): string {
+  const recommended = options.find((o) => o.isRecommended);
+  if (recommended) return recommended.total;
+  return options.reduce((acc, o) => (usd(o.total).amount > usd(acc).amount ? o.total : acc), "0");
+}
+
+export interface UnsoldEstimate {
+  id: string;
+  number: number;
+  title: string | null;
+  customerId: string;
+  customerName: string;
+  status: string;
+  sentAt: Date;
+  viewedAt: Date | null;
+  /** Whole days since it went out. */
+  ageDays: number;
+  value: string;
+}
+
+/**
+ * UNSOLD ESTIMATES: sent, not decided, by age or by value.
+ *
+ * The pipeline a company can still close, which is a different list from
+ * every estimate ever written. An expired one is left off, because expiry is
+ * what stops an estimate counting as open, and a draft never reached anybody.
+ *
+ * The value is the recommended option, or the largest, which is what the work
+ * is worth if they say yes. Summing every option would count the same job two
+ * or three times.
+ */
+export async function unsold(
+  ctx: ServiceContext,
+  input: { sort?: "age" | "value"; limit?: number } = {},
+): Promise<UnsoldEstimate[]> {
+  return guardedRead(ctx, "estimate:read", async (tx) => {
+    const rows = await tx.select({
+      id: schema.estimate.id,
+      number: schema.estimate.number,
+      title: schema.estimate.title,
+      customerId: schema.estimate.customerId,
+      customerName: schema.customer.name,
+      status: schema.estimate.status,
+      sentAt: schema.estimate.sentAt,
+      viewedAt: schema.estimate.viewedAt,
+    })
+      .from(schema.estimate)
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.estimate.customerId))
+      .where(and(
+        estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor),
+        inArray(schema.estimate.status, ["sent", "viewed"]),
+      ))
+      .orderBy(asc(schema.estimate.sentAt))
+      .limit(Math.min(Math.max(input.limit ?? 200, 1), 500));
+
+    const ids = rows.map((r) => r.id);
+    const options = ids.length
+      ? await tx.select({
+          estimateId: schema.estimateOption.estimateId,
+          total: schema.estimateOption.total,
+          isRecommended: schema.estimateOption.isRecommended,
+        }).from(schema.estimateOption).where(inArray(schema.estimateOption.estimateId, ids))
+      : [];
+
+    const now = Date.now();
+    const out = rows
+      .filter((r): r is typeof r & { sentAt: Date } => r.sentAt !== null)
+      .map((r) => ({
+        ...r,
+        ageDays: Math.max(0, Math.floor((now - r.sentAt.getTime()) / 86_400_000)),
+        value: headlineTotal(options.filter((o) => o.estimateId === r.id)),
+      }));
+
+    return input.sort === "value"
+      ? out.sort((a, b) => Number(usd(b.value).amount - usd(a.value).amount) || b.ageDays - a.ageDays)
+      : out.sort((a, b) => b.ageDays - a.ageDays || Number(usd(b.value).amount - usd(a.value).amount));
+  });
+}
+
+/** The unsold list as the API publishes it: instants as strings. */
+export async function unsoldHandler(
+  ctx: ServiceContext, input: { sort?: "age" | "value" | undefined; limit?: number | undefined },
+) {
+  const rows = await unsold(ctx, {
+    ...(input.sort ? { sort: input.sort } : {}),
+    ...(input.limit ? { limit: input.limit } : {}),
+  });
+  return {
+    estimates: rows.map((e) => ({
+      ...e, sentAt: e.sentAt.toISOString(), viewedAt: e.viewedAt?.toISOString() ?? null,
+    })),
+  };
+}
+
+/**
  * Sending.
  *
  * Two things happen together or neither is worth anything: the document is
@@ -325,8 +492,9 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       maxUses: 1,
     });
 
+    const sentAt = new Date();
     await tx.update(schema.estimate)
-      .set({ status: "sent", sentAt: new Date(), updatedAt: new Date() })
+      .set({ status: "sent", sentAt, updatedAt: sentAt })
       .where(eq(schema.estimate.id, input.id));
 
     await tx.insert(schema.portalEvent).values({
@@ -336,6 +504,42 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       kind: "estimate_sent",
       headline: `Estimate #${current.number} sent`,
       detail: input.message ?? null,
+    });
+
+    /**
+     * WHEN THE CLOCK ON "THEY HAVE NOT ANSWERED" STARTS.
+     *
+     * The catalogue has carried this event since the engine was written,
+     * marked as owed by this module, and nothing emitted it. So an automation
+     * that waits from the moment an estimate went out could not be written,
+     * and the follow up every office wants had to be the dwell sweep, which
+     * chases every old estimate in the book the day it is turned on.
+     *
+     * The link itself is not on the event. It exists once, in the return
+     * value, and the event log is not the place for a working credential; an
+     * automation that sends the link again mints its own.
+     */
+    const [customer] = await tx.select({ name: schema.customer.name })
+      .from(schema.customer).where(eq(schema.customer.id, current.customerId)).limit(1);
+    await emit(tx, ctx, {
+      name: "estimate.sent",
+      entityType: "estimate",
+      entityId: input.id,
+      payload: {
+        estimate: {
+          id: input.id,
+          number: current.number,
+          title: current.title,
+          customerId: current.customerId,
+          sentAt: sentAt.toISOString(),
+          total: headlineTotal(current.options.map((o) => ({
+            total: o.total as string, isRecommended: o.isRecommended as boolean,
+          }))),
+        },
+        customer: { id: current.customerId, name: customer?.name ?? "" },
+        channel: input.channel,
+      },
+      previous: { estimate: { status: current.status } },
     });
 
     await audit(tx, ctx, "estimate.sent", "estimate", input.id,
@@ -448,14 +652,6 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
     if (input.createJob && !jobId) {
       const number = await nextNumber(tx, ctx.actor.organizationId, "job");
 
-      /**
-       * Read here rather than carried on the estimate, because a lead source
-       * belongs to the customer and this is the moment a job needs one.
-       */
-      const [customer] = await tx.select({ leadSource: schema.customer.leadSource })
-        .from(schema.customer)
-        .where(eq(schema.customer.id, current.customerId as string)).limit(1);
-
       const [job] = await tx.insert(schema.job).values({
         organizationId: ctx.actor.organizationId,
         number,
@@ -464,22 +660,19 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
         jobTypeId: input.jobTypeId ?? null,
         status: "scheduled",
         summary: (current.title as string | null) ?? `${option["name"]}`,
-        /**
-         * The CUSTOMER'S source, carried forward, not the word "estimate".
-         *
-         * An estimate is not a lead source, it is a stage. Writing it here
-         * meant every job converted from a proposal reported its own
-         * paperwork as where the work came from, so the Google ad that
-         * produced the lead got no credit for the job it turned into, and a
-         * cost per booked job computed from these rows was wrong by however
-         * much of the book converts through an estimate.
-         *
-         * Null when the customer has none, which is honest: this job's
-         * source is whatever brought the customer, and if nobody recorded
-         * that then nobody knows.
-         */
-        leadSource: customer?.leadSource ?? null,
       }).returning({ id: schema.job.id });
+
+      /**
+       * CREDITED like any other new work, and the lead source is not copied
+       * from the paperwork. An estimate is a stage, not a source: this used
+       * to write the word "estimate" and then the customer's own source, and
+       * either way the touches behind the job were never tagged, so the
+       * Google ad that produced the lead got no credit in any report for the
+       * job it turned into. `creditWork` tags the customer's touches with
+       * this job and fills the source from them, marked `derived`; with
+       * nothing recorded it stays blank, which is honest.
+       */
+      await marketing.creditWork(tx, ctx.actor.organizationId, { jobId: job!.id });
       jobId = job!.id;
     }
 
@@ -494,6 +687,22 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
         jobId,
         status: "draft",
         subtotal: option["subtotal"] as string,
+        /**
+         * THE DISCOUNT HAS TO COME ACROSS AS WELL AS THE TOTAL.
+         *
+         * The option stores its subtotal before discount and its total after,
+         * and this used to copy only those two, leaving the invoice's discount
+         * at zero. An invoice whose subtotal less its discount plus its tax is
+         * not its total cannot be posted: issuing it builds the posting from
+         * these columns, and a receivable smaller than the revenue it credits
+         * is refused as unbalanced. Every estimate converted with a discount
+         * on it, a member's above all, became a draft that could never be
+         * issued. Summed from the lines being copied, the same way the option
+         * total was computed from them.
+         */
+        discountTotal: m.toString(m.round(
+          m.sum(lines.map((l) => usd(l["discountAmount"] as string)), "USD"), 2,
+        )),
         taxTotal: option["taxTotal"] as string,
         total: option["total"] as string,
         balance: option["total"] as string,
@@ -514,6 +723,9 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
         unitPrice: l["unitPrice"] as string,
         unitCost: (l["unitCost"] ?? null) as string | null,
         discountAmount: l["discountAmount"] as string,
+        /** The member discount and its agreement travel with the line, as priced. */
+        memberAgreementId: (l["memberAgreementId"] ?? null) as string | null,
+        memberDiscountAmount: (l["memberDiscountAmount"] ?? "0") as string,
         taxable: l["taxable"] as boolean,
         taxRate: l["taxRate"] as string,
         taxAmount: l["taxAmount"] as string,

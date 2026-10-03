@@ -4,6 +4,7 @@ import { pk, timestamps, money } from "./_shared";
 import { organization, user, technician } from "./tenancy";
 import { customer, property } from "./crm";
 import { job } from "./work";
+import { marketingChannel } from "./acquisition";
 
 /**
  * INTEGRATIONS
@@ -166,6 +167,29 @@ export const accountingEntityKind = pgEnum("accounting_entity_kind", [
    * is never sent twice.
    */
   "refund",
+  /**
+   * A credit note this company issued, as a QuickBooks CreditMemo or a Xero
+   * ACCRECCREDIT. Its own kind rather than `credit_memo`, which is the
+   * document a void or a write off of an INVOICE becomes and is keyed by the
+   * invoice's id: a credit note has its own id and its own number sequence,
+   * and one kind for both would make "is this credit note in the books" and
+   * "is this invoice's write off in the books" the same row.
+   */
+  "credit_note",
+  /**
+   * A credit note put against an invoice over there: a zero payment linking
+   * the two in QuickBooks, an Allocation in Xero. The entity id is the
+   * `credit_note_application` row, or the credit note's own id for the one
+   * settlement a void makes, which no application row can share.
+   */
+  "credit_note_application",
+  /**
+   * An issued credit note taken back. It goes as an invoice for the same
+   * lines, dated the day of the void and settled against the credit note,
+   * rather than as either book's own void: see `pushOutbound` for why. The
+   * entity id is the credit note's id.
+   */
+  "credit_note_void",
 ]);
 
 /**
@@ -381,6 +405,13 @@ export const leadSourceConnector = pgTable("lead_source_connector", {
   connectionId: uuid("connection_id").references(() => integrationConnection.id, { onDelete: "set null" }),
   /** "angi", "thumbtack", "neighbrium", "ahs", "carrier-dealer". */
   source: text("source").notNull(),
+  /**
+   * The channel every lead from this sender is credited to. `source` above
+   * is the sender's own name and is free text, because the senders are not a
+   * closed set; this is what the reports group by, chosen from the company's
+   * channel list when the connector is set up.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
   displayName: text("display_name").notNull(),
   /** Decline automatically when accepting would breach capacity. */
   autoAcceptEnabled: boolean("auto_accept_enabled").notNull().default(false),

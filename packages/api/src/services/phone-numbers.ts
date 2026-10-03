@@ -1,9 +1,10 @@
 import { and, asc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { marketing as mk } from "@opentradesos/core";
+import { marketing as mk, voice } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import * as acquisition from "./acquisition";
 
 /**
  * THE NUMBERS A COMPANY CONTROLS
@@ -30,7 +31,7 @@ import {
  * `senderFor` below is the rule, in one place, used by both senders.
  */
 
-export const PURPOSES = ["main", "tracking", "user", "sending", "fax"] as const;
+export const PURPOSES = ["main", "tracking", "user", "sending", "fax", "pool"] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
 /**
@@ -103,8 +104,28 @@ export interface NumberInput {
   label?: string | null | undefined;
   /** Only meaningful on a tracking number. Validated against the lead source list. */
   attributionSource?: string | null | undefined;
+  /**
+   * The tracking campaign a call to it is credited to, which implies its
+   * channel and its source. The way to set up a tracking number now; the bare
+   * source above still works for a number that belongs to a channel and no
+   * campaign in particular.
+   */
+  campaignId?: string | null | undefined;
+  /** A channel with no campaign, for the same case. */
+  channelId?: string | null | undefined;
   forwardsToE164?: string | null | undefined;
   smsRegistered?: boolean | undefined;
+  /**
+   * How a call to it is answered, for a number whose calls this product
+   * routes (one bought through the company's carrier account). Stored on any
+   * number and read only for those.
+   */
+  whisper?: boolean | undefined;
+  recordCalls?: boolean | undefined;
+  routeByHours?: boolean | undefined;
+  afterHoursForwardsToE164?: string | null | undefined;
+  /** The carrier's id, set by the purchase and nothing else. */
+  providerNumberId?: string | null | undefined;
 }
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -124,6 +145,22 @@ function validate(input: NumberInput) {
   }
 
   const source = input.attributionSource?.trim() || null;
+  if (purpose === "pool" && (source !== null || input.campaignId || input.channelId)) {
+    /**
+     * A pool number's calls are credited to the website visit that was shown
+     * the number, so a campaign of its own would be a second, contradicting
+     * answer to where the call came from.
+     */
+    throw new ConflictError(
+      "A website pool number is credited to the visit it was shown on, not to a campaign. Clear the campaign.",
+    );
+  }
+
+  if ((input.campaignId || input.channelId) && purpose !== "tracking") {
+    throw new ConflictError(
+      "Only a tracking number is credited to a campaign. Set this number's purpose to tracking, or clear the campaign.",
+    );
+  }
   if (source !== null) {
     /**
      * VALIDATED HERE, not only where it is read.
@@ -153,7 +190,22 @@ function validate(input: NumberInput) {
     }
   }
 
-  if (purpose === "tracking" && source === null) {
+  for (const [label, value] of [
+    ["forwarding number", input.forwardsToE164], ["after hours number", input.afterHoursForwardsToE164],
+  ] as const) {
+    const given = value?.trim();
+    if (given && !E164.test(given)) {
+      throw new ConflictError(`The ${label} "${given}" is not dialable. Write it in full: +15125550123.`);
+    }
+  }
+  const routing = voice.checkNumberRouting({
+    forwardsToE164: input.forwardsToE164?.trim() || null,
+    routeByHours: input.routeByHours ?? false,
+    afterHoursForwardsToE164: input.afterHoursForwardsToE164?.trim() || null,
+  });
+  if (!routing.ok) throw new ConflictError(routing.reason);
+
+  if (purpose === "tracking" && source === null && !input.campaignId && !input.channelId) {
     /**
      * A tracking number with nothing to attribute to is the state the
      * marketing module describes as "a measurement nobody set up". Refused
@@ -168,32 +220,79 @@ function validate(input: NumberInput) {
   return { e164, purpose, source };
 }
 
-export async function add(ctx: ServiceContext, input: NumberInput) {
-  return guardedWrite(ctx, "settings:write", async (tx) => {
-    const { e164, purpose, source } = validate(input);
-
-    const [existing] = await tx.select({ id: schema.phoneNumber.id })
-      .from(schema.phoneNumber)
-      .where(and(
-        eq(schema.phoneNumber.organizationId, ctx.actor.organizationId),
-        eq(schema.phoneNumber.e164, e164),
-        isNull(schema.phoneNumber.releasedAt),
-      )).limit(1);
-    if (existing) throw new ConflictError("That number is already on file.");
-
-    const [row] = await tx.insert(schema.phoneNumber).values({
-      organizationId: ctx.actor.organizationId,
-      e164,
-      purpose,
-      label: input.label?.trim() || null,
-      attributionSource: source,
-      forwardsToE164: input.forwardsToE164?.trim() || null,
-      smsRegistered: input.smsRegistered ?? false,
-    }).returning();
-
-    await audit(tx, ctx, "phone_number.added", "phone_number", row!.id, null, row!);
-    return shape(row!);
+/**
+ * A tracking number's campaign, channel and source, made to agree.
+ *
+ * The campaign implies the channel and the channel implies the key core's
+ * number map reads (`attribution_source`), so all three are written together
+ * from whichever was given, most specific first. Three columns that had to be
+ * kept in step by hand would be three columns that disagree by March.
+ */
+async function trackingOf(tx: Database, organizationId: string, input: {
+  purpose: Purpose; source: string | null;
+  campaignId?: string | null | undefined; channelId?: string | null | undefined;
+}): Promise<{ source: string | null; channelId: string | null; campaignId: string | null }> {
+  if (input.purpose !== "tracking") return { source: null, channelId: null, campaignId: null };
+  const declared = await acquisition.resolveDeclared(tx, organizationId, {
+    leadSource: input.source, channelId: input.channelId, campaignId: input.campaignId,
   });
+  if (!declared) return { source: input.source, channelId: null, campaignId: null };
+  if (input.campaignId) {
+    const campaign = await acquisition.loadCampaign(tx, organizationId, input.campaignId);
+    if (campaign.archivedAt) {
+      throw new ConflictError(`${campaign.name} is archived, so calls to this number would be credited to a campaign nobody is running.`);
+    }
+  }
+  return { source: declared.sourceKey, channelId: declared.channelId, campaignId: declared.campaignId };
+}
+
+export async function add(ctx: ServiceContext, input: NumberInput) {
+  return guardedWrite(ctx, "settings:write", (tx) => addWithin(tx, ctx, input));
+}
+
+/** Checked before anything is bought, so a purchase never lands on a refusal. */
+export async function checkNew(tx: Database, ctx: ServiceContext, input: NumberInput) {
+  const { purpose, source } = validate(input);
+  await trackingOf(tx, ctx.actor.organizationId, {
+    purpose, source, campaignId: input.campaignId, channelId: input.channelId,
+  });
+}
+
+/** The insert, inside a transaction the caller holds: the settings form and a purchase. */
+export async function addWithin(tx: Database, ctx: ServiceContext, input: NumberInput) {
+  const { e164, purpose, source } = validate(input);
+
+  const [existing] = await tx.select({ id: schema.phoneNumber.id })
+    .from(schema.phoneNumber)
+    .where(and(
+      eq(schema.phoneNumber.organizationId, ctx.actor.organizationId),
+      eq(schema.phoneNumber.e164, e164),
+      isNull(schema.phoneNumber.releasedAt),
+    )).limit(1);
+  if (existing) throw new ConflictError("That number is already on file.");
+  const tracking = await trackingOf(tx, ctx.actor.organizationId, {
+    purpose, source, campaignId: input.campaignId, channelId: input.channelId,
+  });
+
+  const [row] = await tx.insert(schema.phoneNumber).values({
+    organizationId: ctx.actor.organizationId,
+    e164,
+    purpose,
+    label: input.label?.trim() || null,
+    attributionSource: tracking.source,
+    channelId: tracking.channelId,
+    acquisitionCampaignId: tracking.campaignId,
+    forwardsToE164: input.forwardsToE164?.trim() || null,
+    smsRegistered: input.smsRegistered ?? false,
+    whisper: input.whisper ?? false,
+    recordCalls: input.recordCalls ?? false,
+    routeByHours: input.routeByHours ?? false,
+    afterHoursForwardsToE164: input.afterHoursForwardsToE164?.trim() || null,
+    providerNumberId: input.providerNumberId ?? null,
+  }).returning();
+
+  await audit(tx, ctx, "phone_number.added", "phone_number", row!.id, null, row!);
+  return shape(row!);
 }
 
 export async function update(
@@ -213,21 +312,52 @@ export async function update(
       e164: input.e164 ?? before.e164,
       purpose: input.purpose ?? (before.purpose as Purpose),
       label: input.label !== undefined ? input.label : before.label,
+      /**
+       * Choosing a campaign or a channel replaces the source rather than
+       * being checked against the old one, which it would otherwise
+       * contradict whenever a number moves from one channel to another.
+       */
       attributionSource: input.attributionSource !== undefined
-        ? input.attributionSource : before.attributionSource,
+        ? input.attributionSource
+        : (input.campaignId !== undefined || input.channelId !== undefined) ? null : before.attributionSource,
+      /**
+       * And the other way round: a source given on its own, cleared or
+       * changed, replaces the channel and campaign it would otherwise sit
+       * beside, so clearing it really does leave a number that measures
+       * nothing, which is then refused.
+       */
+      campaignId: input.campaignId !== undefined ? input.campaignId
+        : (input.channelId !== undefined || input.attributionSource !== undefined) ? null : before.acquisitionCampaignId,
+      channelId: input.channelId !== undefined ? input.channelId
+        : (input.campaignId !== undefined || input.attributionSource !== undefined) ? null
+          : before.acquisitionCampaignId ? null : before.channelId,
       forwardsToE164: input.forwardsToE164 !== undefined
         ? input.forwardsToE164 : before.forwardsToE164,
       smsRegistered: input.smsRegistered ?? before.smsRegistered,
+      whisper: input.whisper ?? before.whisper,
+      recordCalls: input.recordCalls ?? before.recordCalls,
+      routeByHours: input.routeByHours ?? before.routeByHours,
+      afterHoursForwardsToE164: input.afterHoursForwardsToE164 !== undefined
+        ? input.afterHoursForwardsToE164 : before.afterHoursForwardsToE164,
     };
     const { e164, purpose, source } = validate(merged);
+    const tracking = await trackingOf(tx, ctx.actor.organizationId, {
+      purpose, source, campaignId: merged.campaignId, channelId: merged.channelId,
+    });
 
     const [after] = await tx.update(schema.phoneNumber).set({
       e164,
       purpose,
       label: merged.label?.trim() || null,
-      attributionSource: source,
+      attributionSource: tracking.source,
+      channelId: tracking.channelId,
+      acquisitionCampaignId: tracking.campaignId,
       forwardsToE164: merged.forwardsToE164?.trim() || null,
       smsRegistered: merged.smsRegistered ?? false,
+      whisper: merged.whisper ?? false,
+      recordCalls: merged.recordCalls ?? false,
+      routeByHours: merged.routeByHours ?? false,
+      afterHoursForwardsToE164: merged.afterHoursForwardsToE164?.trim() || null,
       updatedAt: new Date(),
     }).where(eq(schema.phoneNumber.id, input.id)).returning();
 
@@ -285,9 +415,17 @@ export async function list(ctx: ServiceContext, input: { includeReleased?: boole
       .orderBy(asc(schema.phoneNumber.createdAt));
 
     const sender = await senderFor(tx, ctx.actor.organizationId, { smsRequired: true });
+    const usage = new Map((await usageWithin(tx, ctx.actor.organizationId)).map((u) => [u.id, u.calls]));
 
     return rows.map((row) => ({
       ...shape(row),
+      /**
+       * Inbound calls in the last ninety days, on a tracking number. A number
+       * still being paid for that nobody has rung in a quarter is the cheapest
+       * saving on the marketing bill, and the settings row is where somebody
+       * decides whether to keep it.
+       */
+      calls90: row.purpose === "tracking" ? usage.get(row.id) ?? 0 : null,
       /**
        * Which one texts come from, marked on the row. It is a consequence of
        * purpose, registration and age, and nobody works that out by looking
@@ -315,35 +453,37 @@ export async function list(ctx: ServiceContext, input: { includeReleased?: boole
  */
 /** How many calls each tracking number has actually brought in, so a dead one is visible. */
 export async function trackingUsage(ctx: ServiceContext, input: { since?: Date } = {}) {
-  return guardedRead(ctx, "adspend:read", async (tx) => {
-    /**
-     * As an ISO string with an explicit cast, because this goes into a
-     * correlated subquery rather than through a column comparison, and a
-     * JavaScript Date has no binding there.
-     */
-    const since = (input.since ?? new Date(Date.now() - 90 * 86_400_000)).toISOString();
+  return guardedRead(ctx, "adspend:read", (tx) => usageWithin(tx, ctx.actor.organizationId, input.since));
+}
 
-    const rows = await tx.select({
-      id: schema.phoneNumber.id,
-      e164: schema.phoneNumber.e164,
-      label: schema.phoneNumber.label,
-      source: schema.phoneNumber.attributionSource,
-      calls: sql<number>`(
-        select count(*)::int from "call" c
-        where c.phone_number_id = "phone_number"."id"
-          and c.direction = 'inbound'
-          and c.created_at >= ${since}::timestamptz
-      )`,
-    }).from(schema.phoneNumber)
-      .where(and(
-        eq(schema.phoneNumber.organizationId, ctx.actor.organizationId),
-        isNull(schema.phoneNumber.releasedAt),
-        isNotNull(schema.phoneNumber.attributionSource),
-      ))
-      .orderBy(asc(schema.phoneNumber.createdAt));
+async function usageWithin(tx: Database, organizationId: string, sinceDate?: Date) {
+  /**
+   * As an ISO string with an explicit cast, because this goes into a
+   * correlated subquery rather than through a column comparison, and a
+   * JavaScript Date has no binding there.
+   */
+  const since = (sinceDate ?? new Date(Date.now() - 90 * 86_400_000)).toISOString();
 
-    return rows;
-  });
+  return tx.select({
+    id: schema.phoneNumber.id,
+    e164: schema.phoneNumber.e164,
+    label: schema.phoneNumber.label,
+    source: schema.phoneNumber.attributionSource,
+    campaignId: schema.phoneNumber.acquisitionCampaignId,
+    channelId: schema.phoneNumber.channelId,
+    calls: sql<number>`(
+      select count(*)::int from "call" c
+      where c.phone_number_id = "phone_number"."id"
+        and c.direction = 'inbound'
+        and coalesce(c.started_at, c.created_at) >= ${since}::timestamptz
+    )`,
+  }).from(schema.phoneNumber)
+    .where(and(
+      eq(schema.phoneNumber.organizationId, organizationId),
+      isNull(schema.phoneNumber.releasedAt),
+      isNotNull(schema.phoneNumber.attributionSource),
+    ))
+    .orderBy(asc(schema.phoneNumber.createdAt));
 }
 
 async function load(tx: Database, organizationId: string, id: string) {
@@ -356,6 +496,10 @@ async function load(tx: Database, organizationId: string, id: string) {
   return row;
 }
 
+export function shapeOf(row: typeof schema.phoneNumber.$inferSelect) {
+  return shape(row);
+}
+
 function shape(row: typeof schema.phoneNumber.$inferSelect) {
   return {
     id: row.id,
@@ -363,8 +507,35 @@ function shape(row: typeof schema.phoneNumber.$inferSelect) {
     label: row.label,
     purpose: row.purpose,
     attributionSource: row.attributionSource,
+    channelId: row.channelId,
+    campaignId: row.acquisitionCampaignId,
     forwardsToE164: row.forwardsToE164,
     smsRegistered: row.smsRegistered,
+    /** Whether this product routes its calls: it was bought through the company's carrier account. */
+    routedHere: row.providerNumberId !== null,
+    whisper: row.whisper,
+    recordCalls: row.recordCalls,
+    routeByHours: row.routeByHours,
+    afterHoursForwardsToE164: row.afterHoursForwardsToE164,
     releasedAt: row.releasedAt?.toISOString() ?? null,
   };
 }
+
+/* --------------------------------------------------------------- handlers */
+
+export const handlers = {
+  /**
+   * A tracking number onto a campaign or a channel, from the marketing side.
+   * The settings screen's own form does the same through `update`; this is
+   * the API for it, because the screens use the surface a third party gets.
+   */
+  assignTrackingNumber: (ctx: ServiceContext, input: {
+    id: string; campaignId?: string | null | undefined; channelId?: string | null | undefined;
+    label?: string | null | undefined;
+  }) => update(ctx, {
+    id: input.id,
+    ...(input.campaignId !== undefined ? { campaignId: input.campaignId } : {}),
+    ...(input.channelId !== undefined ? { channelId: input.channelId } : {}),
+    ...(input.label !== undefined ? { label: input.label } : {}),
+  }),
+} as const;

@@ -72,6 +72,17 @@ figures to whoever may read both sides.
 `GET /v1/profitability/summary` is the aggregate. `/reports` holds the margin
 reports and the job costing report beside them.
 
+### The jobs behind a rolled up number
+
+Every number on the job costing report and the four margin reports opens the
+jobs behind it: margin by technician opens that technician's jobs, Saturday's
+margin opens Saturday's jobs, with each job's revenue, costs and margin beside it
+and the totals underneath equal to the number that was clicked. They are the same
+SQL fragments evaluated one job at a time, so a job's line on that list is the
+figure on its own statement. Each job opens on `/jobs/{id}`, where the statement
+is. Over the API, a summary row is drilled with `POST /v1/reports/drill`, the
+`profitability` dataset and the row's values.
+
 Both calls need `report.financial:read` AND `job.cost:read`. Two permissions
 because they are two different exposures: one is "may this person see financial
 reporting at all" and the other is "may this person see what work costs". A
@@ -97,6 +108,7 @@ is a normal company.
 | `GET /v1/profitability/jobs/{id}` | `report.financial:read`, `job.cost:read` |
 | `GET /v1/profitability/summary` | `report.financial:read`, `job.cost:read` |
 | `GET /v1/jobs/{jobId}/material-cost` | `inventory:read` |
+| `POST /v1/reports/drill` | `report:read`, and the report's own permissions |
 
 ## Common questions
 
@@ -113,7 +125,6 @@ attached to it.
 
 ## What is not built
 
-No drill through from a rolled up row to the jobs behind it, so an owner who
-wants the detail opens the jobs. There is no overhead allocation model: the
+There is no overhead allocation model: the
 statement is direct cost against revenue, and a burden rate is not applied. No
 budget against actual at the company level, though M12 does it per project.

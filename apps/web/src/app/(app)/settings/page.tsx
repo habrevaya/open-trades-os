@@ -2,10 +2,10 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
-  telephony as telephonyService, phoneNumbers as numberService,
+  telephony as telephonyService, phoneNumbers as numberService, acquisition,
   people as peopleService,
 } from "@opentradesos/api/services";
-import { can, ROLE_PRESETS, marketing as mk } from "@opentradesos/core";
+import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq, isNull } from "drizzle-orm";
 import { Chip, Phone } from "@opentradesos/ui";
@@ -15,6 +15,7 @@ import { Branding } from "./Branding";
 import { Timezone } from "./Timezone";
 import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
+import { Buy } from "./Buy";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,8 @@ export default async function SettingsPage() {
    * and age, and the page was reading three columns and showing none of it.
    */
   const numbers = await numberService.list(ctx, {});
+  /** The channels and their tracking campaigns, for what a tracking number is credited to. */
+  const credits = writes ? await acquisition.channelOptions(ctx) : [];
 
   const data = await inTenant(ctx, async (tx) => ({
     numbers: await tx.select().from(schema.phoneNumber)
@@ -106,10 +109,25 @@ export default async function SettingsPage() {
           number attributes to, and whether a number has been handed back.
         */}
         {writes ? (
-          <Numbers
-            numbers={numbers}
-            sources={mk.LEAD_SOURCES.map((source) => ({ key: source.key, label: source.label }))}
-          />
+          <>
+            <Numbers
+              numbers={numbers}
+              credits={credits}
+            />
+            {/*
+              Only when a Twilio account is connected, which is where the
+              numbers are bought from. Without one, the form above is the way
+              to record a number bought somewhere else.
+            */}
+            {data.connections.some((c) => c.provider === "twilio" && c.status === "connected")
+              ? <Buy credits={credits} />
+              : (
+                <p className="mt-3 text-sm text-ink-700">
+                  Connect Twilio under <a href="/settings/integrations" className="underline underline-offset-4">Integrations</a> to
+                  buy tracking numbers here and have their calls routed, whispered and recorded by this product.
+                </p>
+              )}
+          </>
         ) : numbers.length === 0 ? (
           <Empty title="No numbers connected">
             Connect a carrier and add a number to send appointment reminders

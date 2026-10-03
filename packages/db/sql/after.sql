@@ -634,6 +634,48 @@ revoke all on function app.consume_portal_grant(text, text) from public;
 revoke all on function app.peek_portal_grant(text) from public;
 revoke all on function app.revoke_portal_grant(text) from public;
 
+-- -------------------------------------------------------------------------
+-- COUNTING THE OPEN INTERNET
+--
+-- The public endpoints (a touch from the website snippet, a pool number for
+-- a visitor, a hosted form) count their callers in `public_rate_limit` and
+-- refuse past a ceiling. The count is taken before any tenant is known,
+-- because which company a request is for is part of what is being counted,
+-- so it cannot go through a policy keyed on the current organization.
+--
+-- Row level security is ON with no policy, so the application role can read
+-- and write nothing in the table directly. The only way in is this function,
+-- which adds one hit to a key's current window and returns the total. It
+-- returns a number about a key the caller supplied and nothing else, so it
+-- cannot be used to read anybody's traffic. Old windows are cleared as it
+-- goes, a day behind, so the table holds a day of minutes rather than years.
+alter table public.public_rate_limit enable row level security;
+alter table public.public_rate_limit force row level security;
+
+create or replace function app.count_public_hit(p_key text, p_window_seconds integer)
+  returns integer
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_window timestamptz := to_timestamp(
+      floor(extract(epoch from now()) / greatest(p_window_seconds, 1)) * greatest(p_window_seconds, 1));
+    v_hits integer;
+  begin
+    insert into public.public_rate_limit (key, window_start, hits)
+      values (left(p_key, 300), v_window, 1)
+      on conflict (key, window_start) do update set hits = public.public_rate_limit.hits + 1
+      returning hits into v_hits;
+    -- One in a hundred calls sweeps, which keeps the table small without a job.
+    if random() < 0.01 then
+      delete from public.public_rate_limit where window_start < now() - interval '1 day';
+    end if;
+    return v_hits;
+  end
+  $$;
+
+revoke all on function app.count_public_hit(text, integer) from public;
+grant execute on function app.count_public_hit(text, integer) to authenticated;
+
 -- =========================================================================
 -- COVERAGE ASSERTION
 --
@@ -1038,6 +1080,39 @@ revoke all on function app.due_workflow_runs(int) from public;
 grant execute on function app.due_workflow_runs(int) to background;
 
 -- =========================================================================
+-- CAMPAIGN SENDS THAT ARE DUE
+--
+-- A text or email campaign with `scheduled_for` in the past, or one already
+-- `sending` because a carrier's daily cap left part of its list for another
+-- day. `scheduled_for` was stored for a long time and fired by nothing, so a
+-- staged send was one press per batch. The worker reads this, and only ids
+-- come back: the send itself runs inside the tenant, under its guard.
+-- =========================================================================
+
+create or replace function app.due_campaigns(p_limit int default 100)
+returns table (organization_id uuid, campaign_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id, c.id
+    from public.marketing_campaign c
+    where c.deleted_at is null
+      and c.cancelled_at is null
+      and (
+        (c.state = 'scheduled' and c.scheduled_for is not null and c.scheduled_for <= now())
+        or c.state = 'sending'
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = c.organization_id and o.suspended_at is not null
+      )
+    order by coalesce(c.scheduled_for, c.started_at)
+    limit p_limit
+  $$;
+
+revoke all on function app.due_campaigns(int) from public;
+grant execute on function app.due_campaigns(int) to background;
+
+-- =========================================================================
 -- WORKFLOWS THAT WATCH FOR SOMETHING NOT HAPPENING
 --
 -- The same shape as the two above. Ids and the dwell spec, nothing else, and
@@ -1066,6 +1141,212 @@ returns table (organization_id uuid, workflow_id uuid, dwell jsonb)
 
 revoke all on function app.dwell_workflows(int) from public;
 grant execute on function app.dwell_workflows(int) to background;
+
+-- =========================================================================
+-- ADDRESSES WAITING TO BE PUT ON THE MAP
+--
+-- The same shape as the three above: a cross tenant read for the worker,
+-- ids only, and not callable by the role the request path uses.
+--
+-- Only companies that have connected a geocoder. A company that has not has
+-- chosen not to send its customers' addresses anywhere, and the worker
+-- finding their rows anyway would be the first step towards doing it.
+--
+-- Due means: not placed by hand, the stored coordinate does not answer for
+-- the address as it is now, and either the address has not been tried yet or
+-- a failure that might clear has passed its back off. The same rule as
+-- `geo.geocodeDue` in core, which the worker checks again inside the tenant.
+--
+-- Within a company, locations first, because a technician's day cannot be
+-- ordered without where it starts; then properties with work in the coming week, because
+-- those are the pins a dispatcher is about to look for; then the newest,
+-- because a customer added this morning is likelier to be booked than one
+-- from 2019.
+-- =========================================================================
+
+create or replace function app.addresses_to_geocode(p_limit int default 50)
+returns table (organization_id uuid, entity text, entity_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    with geocoding as (
+      select distinct c.organization_id
+      from public.integration_connection c
+      join public.organization o on o.id = c.organization_id
+      where c.capability = 'maps'
+        and c.status = 'connected'
+        and c.deleted_at is null
+        and o.suspended_at is null
+    ),
+    due as (
+      select l.organization_id, 'location'::text as entity, l.id as entity_id,
+             0 as tier, l.created_at
+      from public.location l
+      join geocoding g on g.organization_id = l.organization_id
+      where l.active
+        and coalesce(btrim(l.address_line1), '') <> ''
+        and l.location_source is distinct from 'manual'
+        and l.located_address is distinct from l.address_key
+        and (l.geocode_attempted_address is distinct from l.address_key
+             or (l.geocode_retry_at is not null and l.geocode_retry_at <= now()))
+      union all
+      select p.organization_id, 'property'::text, p.id,
+             case when exists (
+               select 1 from public.job j
+               join public.visit v on v.job_id = j.id
+               where j.property_id = p.id
+                 and v.window_start >= now() - interval '1 day'
+                 and v.window_start < now() + interval '7 days'
+             ) then 1 else 2 end,
+             p.created_at
+      from public.property p
+      join geocoding g on g.organization_id = p.organization_id
+      where p.deleted_at is null
+        and btrim(p.address_line1) <> ''
+        and p.location_source is distinct from 'manual'
+        and p.located_address is distinct from p.address_key
+        and (p.geocode_attempted_address is distinct from p.address_key
+             or (p.geocode_retry_at is not null and p.geocode_retry_at <= now()))
+    )
+    -- Round robin across companies, so one company whose geocoder is broken,
+    -- or who connected one with forty thousand customers on file, cannot
+    -- fill every pass and starve the company that added one customer today.
+    , ranked as (
+      select organization_id, entity, entity_id, tier, created_at,
+             row_number() over (partition by organization_id order by tier, created_at desc, entity_id) as turn
+      from due
+    )
+    select organization_id, entity, entity_id
+    from ranked
+    order by turn, tier, created_at desc, entity_id
+    limit p_limit
+  $$;
+
+revoke all on function app.addresses_to_geocode(int) from public;
+grant execute on function app.addresses_to_geocode(int) to background;
+-- REPORTS AND STATEMENTS THAT ARRIVE ON THEIR OWN
+--
+-- The same shape as the three above: which schedules are due, across every
+-- tenant, as ids and nothing else. Paused ones and suspended companies are
+-- left out here rather than in the caller, so forgetting to check is not a
+-- way for a paused report to go out.
+-- =========================================================================
+
+create or replace function app.due_deliveries(p_limit int default 100)
+returns table (organization_id uuid, schedule_id uuid, kind text, next_run_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id, s.id, s.kind::text, s.next_run_at
+    from public.delivery_schedule s
+    where s.paused_at is null
+      and s.next_run_at is not null
+      and s.next_run_at <= now()
+      and not exists (
+        select 1 from public.organization o
+         where o.id = s.organization_id and o.suspended_at is not null
+      )
+    -- Longest overdue first, so a backlog after an outage goes out in the
+    -- order it was owed.
+    order by s.next_run_at
+    limit p_limit
+  $$;
+
+revoke all on function app.due_deliveries(int) from public;
+grant execute on function app.due_deliveries(int) to background;
+-- AGREEMENTS COMING UP FOR RENEWAL
+--
+-- The same shape as the three above and for the same reason: ids only, not
+-- callable by the role the request path uses. A company is returned when it
+-- has an active agreement whose end is inside the plan's notice window, with
+-- a day to spare either side for timezones. Whether anything is actually due
+-- is decided per agreement, in the company's own calendar, by the service.
+-- =========================================================================
+
+create or replace function app.agreement_renewal_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.organization_id
+    from public.agreement a
+    join public.agreement_plan p on p.id = a.plan_id
+    where a.status = 'active'
+      and a.ends_on is not null
+      and (
+        a.ends_on <= current_date + 1
+        or (a.renewal_notice_sent_at is null
+            and a.ends_on <= current_date + p.renewal_notice_days + 1)
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = a.organization_id and o.suspended_at is not null
+      )
+    group by a.organization_id
+    order by min(a.ends_on)
+    limit p_limit
+  $$;
+
+revoke all on function app.agreement_renewal_organizations(int) from public;
+grant execute on function app.agreement_renewal_organizations(int) to background;
+-- WEBHOOK DELIVERIES OWED IN A QUIET COMPANY
+--
+-- Delivery runs after a company's events are drained, so a company that
+-- produced nothing this pass was never visited: a replay somebody asked for
+-- sat waiting for the next job to be booked, and so did the retry a failing
+-- receiver was owed. This returns the companies with either, as ids and
+-- nothing else, in the same shape as the functions above. Whether a retry is
+-- due yet is still decided per endpoint by the service, against its backoff.
+-- =========================================================================
+
+create or replace function app.webhook_work_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select e.organization_id
+    from public.webhook_endpoint e
+    where e.active
+      and e.deleted_at is null
+      and (
+        e.failure_count > 0
+        or exists (
+          select 1 from public.webhook_replay r
+           where r.endpoint_id = e.id and r.status = 'pending'
+        )
+      )
+      and not exists (
+        select 1 from public.organization o
+         where o.id = e.organization_id and o.suspended_at is not null
+      )
+    group by e.organization_id
+    order by min(e.last_delivery_at) nulls first
+    limit p_limit
+  $$;
+
+revoke all on function app.webhook_work_organizations(int) from public;
+grant execute on function app.webhook_work_organizations(int) to background;
+
+-- ---- Companies with task rules to apply ----------------------------------
+-- The task pass in the worker raises recurring tasks and escalates late ones,
+-- across every tenant, and the worker cannot read across tenants under RLS.
+-- This answers only WHICH companies have an active template or an active
+-- escalation rule; what is due is decided per company, in its own timezone,
+-- by the service. A suspended company is left alone, like every other pass.
+create or replace function app.task_rule_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select t.organization_id from public.task_template t where t.active
+      union
+      select r.organization_id from public.task_escalation_rule r where r.active
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.task_rule_organizations(int) from public;
+grant execute on function app.task_rule_organizations(int) to background;
 
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN

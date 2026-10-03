@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, isNull, isNotNull } from "drizzle-orm";
-import { schema } from "@opentradesos/db";
+import { schema, type Database } from "@opentradesos/db";
 import { labor, money as m } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, ConflictError, NotFoundError, timezoneOf,
@@ -35,6 +35,42 @@ import {
  * Three columns, one broken path: a company could not be told what anybody
  * earns.
  */
+
+/* ------------------------------------------------------------ idempotency */
+
+/**
+ * The answer a retried request already got, or null.
+ *
+ * Declaring a policy and loading a scale each write a NEW row by design, so
+ * a request retried after a lost response would declare twice and load two
+ * scales for one rate. The first answer is kept against the request's key
+ * and handed back, whole, to the retry.
+ */
+async function answered<T>(tx: Database, ctx: ServiceContext, entityType: string): Promise<T | null> {
+  if (!ctx.idempotencyKey) return null;
+  const [seen] = await tx.select({ answer: schema.integrationEvent.responsePayload })
+    .from(schema.integrationEvent)
+    .where(and(
+      eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey),
+      eq(schema.integrationEvent.entityType, entityType),
+    )).limit(1);
+  return (seen?.answer as T | undefined) ?? null;
+}
+
+async function remember<T extends { id: string }>(
+  tx: Database, ctx: ServiceContext, entityType: string, eventType: string, answer: T,
+): Promise<T> {
+  if (ctx.idempotencyKey) {
+    await tx.insert(schema.integrationEvent).values({
+      organizationId: ctx.actor.organizationId,
+      direction: "inbound", provider: "api", eventType,
+      idempotencyKey: ctx.idempotencyKey, status: "succeeded",
+      entityType, entityId: answer.id,
+      responsePayload: answer as unknown as Record<string, unknown>,
+    });
+  }
+  return answer;
+}
 
 /* ------------------------------------------------------- overtime policy */
 
@@ -81,6 +117,8 @@ export interface PolicyInput {
  */
 export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
   return guardedWrite(ctx, "payroll:configure", async (tx) => {
+    const seen = await answered<PolicyAnswer>(tx, ctx, "overtime_policy");
+    if (seen) return seen;
     const zone = input.timeZone ?? await timezoneOf(tx, ctx.actor.organizationId);
 
     const candidate: labor.OvertimePolicy = {
@@ -159,7 +197,7 @@ export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
     await audit(tx, ctx, "overtime_policy.declared", "overtime_policy",
       row!.id, previous ?? null, row!);
 
-    return {
+    return remember(tx, ctx, "overtime_policy", "overtime_policy.declare", {
       id: row!.id,
       label: row!.label,
       replaced: previous?.label ?? null,
@@ -170,8 +208,15 @@ export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
        * at the punch and do not move.
        */
       reclassifiesApprovedTime: Boolean(approved) && Boolean(previous),
-    };
+    });
   });
+}
+
+interface PolicyAnswer {
+  id: string;
+  label: string;
+  replaced: string | null;
+  reclassifiesApprovedTime: boolean;
 }
 
 /** Every policy this company has declared, current first. */
@@ -237,6 +282,8 @@ export interface ScaleInput {
  */
 export async function setScale(ctx: ServiceContext, input: ScaleInput) {
   return guardedWrite(ctx, "payroll:configure", async (tx) => {
+    const seen = await answered<ReturnType<typeof shapeScale>>(tx, ctx, "wage_scale");
+    if (seen) return seen;
     const classification = input.classification.trim();
     if (classification === "") {
       throw new ConflictError("A scale needs a classification. It is what an entry resolves against.");
@@ -289,7 +336,7 @@ export async function setScale(ctx: ServiceContext, input: ScaleInput) {
     }).returning();
 
     await audit(tx, ctx, "wage_scale.loaded", "wage_scale", row!.id, null, row!);
-    return shapeScale(row!);
+    return remember(tx, ctx, "wage_scale", "wage_scale.load", shapeScale(row!));
   });
 }
 
@@ -333,6 +380,70 @@ export async function closeScale(
 
     await audit(tx, ctx, "wage_scale.closed", "wage_scale", input.id, before, after!);
     return shapeScale(after!);
+  });
+}
+
+/**
+ * A new rate for a classification from a date, which is what "change the
+ * scale" means: the old row closed the day before, a new row from that day
+ * carrying everything else it said. One transaction, so there is never a
+ * moment when the classification has no rate, or two.
+ *
+ * Where the old one stops is decided by core's `scaleRevision`, which
+ * refuses a change dated before the scale began: that is a scale that was
+ * wrong, and retiring it and loading the right one says so honestly.
+ */
+export async function reviseScale(
+  ctx: ServiceContext,
+  input: { id: string; baseRate: string; fringeRate?: string | null | undefined; effectiveFrom: string },
+) {
+  return guardedWrite(ctx, "payroll:configure", async (tx) => {
+    const seen = await answered<ReturnType<typeof shapeScale>>(tx, ctx, "wage_scale_revision");
+    if (seen) return seen;
+
+    const [before] = await tx.select().from(schema.wageScale)
+      .where(and(
+        eq(schema.wageScale.id, input.id),
+        eq(schema.wageScale.organizationId, ctx.actor.organizationId),
+        isNull(schema.wageScale.deletedAt),
+      )).limit(1);
+    if (!before) throw new NotFoundError("Wage scale");
+    if (!before.active) {
+      throw new ConflictError("This scale has been retired or already changed. Change the one that replaced it.");
+    }
+
+    const base = parseRate(input.baseRate, "base rate");
+    if (!m.isPositive(base)) {
+      throw new ConflictError("A base rate of zero is not a rate. Retire the scale instead.");
+    }
+    if (input.fringeRate) parseRate(input.fringeRate, "fringe rate");
+
+    const plan = labor.scaleRevision(before, input.effectiveFrom);
+    if (!plan.ok) throw new ConflictError(plan.reason);
+
+    const [closed] = await tx.update(schema.wageScale)
+      .set({ effectiveTo: plan.closeOn, active: false, updatedAt: new Date() })
+      .where(eq(schema.wageScale.id, before.id))
+      .returning();
+
+    const [row] = await tx.insert(schema.wageScale).values({
+      organizationId: ctx.actor.organizationId,
+      authority: before.authority,
+      classification: before.classification,
+      jurisdiction: before.jurisdiction,
+      externalReference: before.externalReference,
+      baseRate: input.baseRate,
+      fringeRate: input.fringeRate === undefined ? before.fringeRate : input.fringeRate,
+      overtimeMultiplier: before.overtimeMultiplier,
+      doubleTimeMultiplier: before.doubleTimeMultiplier,
+      apprenticeRatio: before.apprenticeRatio,
+      effectiveFrom: input.effectiveFrom,
+      /** An end the old scale was already given still holds for the rate that replaces it. */
+      effectiveTo: before.effectiveTo,
+    }).returning();
+
+    await audit(tx, ctx, "wage_scale.revised", "wage_scale", row!.id, before, { closed: closed!, opened: row! });
+    return remember(tx, ctx, "wage_scale_revision", "wage_scale.revise", shapeScale(row!));
   });
 }
 
@@ -476,3 +587,22 @@ export async function crewRates(ctx: ServiceContext, input: { on?: Date } = {}) 
     });
   });
 }
+
+/* -------------------------------------------------------------- the routes */
+
+export const handlers = {
+  listOvertimePolicies: async (ctx: ServiceContext) => ({ policies: await policies(ctx) }),
+  declareOvertimePolicy: (ctx: ServiceContext, input: PolicyInput) => setPolicy(ctx, input),
+  listWageScales: async (ctx: ServiceContext, input: { classification?: string | undefined }) =>
+    ({ scales: await scales(ctx, input.classification ? { classification: input.classification } : {}) }),
+  loadWageScale: (ctx: ServiceContext, input: ScaleInput) => setScale(ctx, input),
+  reviseWageScale: (
+    ctx: ServiceContext,
+    input: { id: string; baseRate: string; fringeRate?: string | null | undefined; effectiveFrom: string },
+  ) => reviseScale(ctx, input),
+  retireWageScale: (ctx: ServiceContext, input: { id: string; effectiveTo: string }) => closeScale(ctx, input),
+  listCrewRates: async (ctx: ServiceContext) => ({ people: await crewRates(ctx) }),
+  setWageClassification: (
+    ctx: ServiceContext, input: { technicianId: string; classification: string | null },
+  ) => setClassification(ctx, input),
+} as const;

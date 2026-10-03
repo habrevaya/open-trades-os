@@ -1,7 +1,8 @@
 import {
   type Money, type CurrencyCode,
-  add, allocate, isNegative, isZero, zero,
+  add, allocate, isNegative, isZero, zero, subtract,
 } from "../money/index.js";
+import { phoneAddress } from "../comms/index.js";
 
 /**
  * WHICH JOBS CAME FROM WHICH MONEY
@@ -1126,7 +1127,19 @@ export interface FormField {
   rules?: FieldRule[] | undefined;
   /** For `choice` and `multi_choice`. A submitted value outside this is refused. */
   options?: FormOption[] | undefined;
+  /**
+   * For a `consent` box: what ticking it agrees to, by which channel and for
+   * which purpose. A ticked box records a consent row with the label (and the
+   * help under it) as the exact wording shown, and records nothing at all
+   * when this is absent, because a box that does not say what it is for is
+   * not consent to anything in particular.
+   */
+  consentFor?: { channel: "sms" | "email"; purpose: "marketing" | "transactional" } | undefined;
 }
+
+/** The exact words a consent box showed, as the consent row keeps them. */
+export const consentWording = (field: FormField): string =>
+  field.help?.trim() ? `${field.label.trim()} ${field.help.trim()}` : field.label.trim();
 
 export interface FormDefinition {
   key: string;
@@ -1574,6 +1587,13 @@ export function checkForm(form: FormDefinition): FormVerdict {
     if ((field.type === "choice" || field.type === "multi_choice") && (field.options ?? []).length === 0) {
       problems.push(`"${field.key}" asks somebody to choose and offers nothing to choose from.`);
     }
+    if (field.consentFor && field.type !== "consent") {
+      problems.push(`"${field.key}" is not a consent box, so what it agrees to means nothing.`);
+    }
+    if (field.consentFor && (!["sms", "email"].includes(field.consentFor.channel)
+      || !["marketing", "transactional"].includes(field.consentFor.purpose))) {
+      problems.push(`"${field.key}" agrees to something this product cannot record: texts or emails, for marketing or about work.`);
+    }
     if ((field.type === "hidden" || field.type === "honeypot") && field.required) {
       // Nobody can fill in a field they cannot see, so this form can never be
       // submitted by a human being.
@@ -1893,4 +1913,394 @@ export function ratio(numerator: Money, denominator: Money): string | null {
   let whole = absScaled / absDivisor;
   if ((absScaled % absDivisor) * 2n >= absDivisor) whole += 1n;
   return `${negative ? "-" : ""}${whole / 10_000n}.${(whole % 10_000n).toString().padStart(4, "0")}`;
+}
+
+/* -------------------------------------------------------------------------
+ * 6. CHANNELS, TRACKING CAMPAIGNS AND THE FUNNEL
+ * ---------------------------------------------------------------------- */
+
+/**
+ * The model a company's screens use unless somebody picks another.
+ *
+ * Last non direct, because it is the one whose error is easiest to live with
+ * in this trade. First touch credits the blog post somebody read two years
+ * ago forever; last touch credits the brand search a yard sign caused. Last
+ * non direct still credits the brand search, and it at least refuses to give
+ * the job to "they typed our name in", which is the answer that makes an
+ * owner cut the channel actually doing the work.
+ */
+export const DEFAULT_ATTRIBUTION_MODEL: AttributionModelKey = "last_non_direct";
+
+/**
+ * A credited share is counted in ten thousandths of a job.
+ *
+ * Whole numbers, so a channel's booked jobs under an even split add up with
+ * integer arithmetic and the rows behind a cell sum to the cell exactly. A
+ * float third of a job, three times, is 0.9999999 of one, and a drill through
+ * that does not add up to the number somebody clicked is a report nobody
+ * trusts twice.
+ */
+export const WEIGHT_SCALE = 10_000;
+
+export type TouchShareDecision =
+  | { ok: true; shares: { index: number; weight: number }[]; fellBack: boolean }
+  | { ok: false; reason: "no_touches"; detail: string };
+
+/**
+ * What each TOUCH earns under a model, rather than each source.
+ *
+ * `attribute` answers per source, which is what a single line report needs and
+ * is the wrong grain for everything else: two touches from Google Ads can be
+ * two different campaigns and two different tracking numbers, and a report by
+ * campaign has to know which touch earned the credit.
+ *
+ * The same weighing `attribute` uses, on the same stable time order, so the
+ * two can never disagree about who got what. `index` is the position in the
+ * array as passed in, not as sorted. Weights are in `WEIGHT_SCALE` and always
+ * sum to it exactly, split by largest remainder.
+ */
+export function shareTouches(model: AttributionModelKey, touches: Touch[]): TouchShareDecision {
+  if (touches.length === 0) {
+    return {
+      ok: false, reason: "no_touches",
+      detail: "Nothing was recorded for this job's customer, so no channel can be credited. Choose a lead source on the job and it will be.",
+    };
+  }
+  const order = touches
+    .map((touch, index) => ({ touch, index }))
+    .sort((a, b) => a.touch.at.getTime() - b.touch.at.getTime() || a.index - b.index);
+  const weights = weigh(model, order.map((o) => o.touch));
+  const total = weights.parts.reduce((sum, p) => sum + p, 0);
+  const scaled = splitWhole(WEIGHT_SCALE, weights.parts.map((p) => (p > 0 ? p : 0)), total);
+  return {
+    ok: true,
+    fellBack: weights.fellBack,
+    shares: order
+      .map((o, position) => ({ index: o.index, weight: scaled[position] ?? 0 }))
+      .filter((share) => share.weight > 0),
+  };
+}
+
+/**
+ * A whole number split in proportion, by largest remainder, so the parts sum
+ * to it exactly. Ties go to the earlier part, which for a set of touches is
+ * the earlier touch, so the answer never depends on anything but the data.
+ */
+function splitWhole(whole: number, parts: number[], total: number): number[] {
+  if (total <= 0) return parts.map(() => 0);
+  const floors = parts.map((p) => Math.floor((p * whole) / total));
+  let left = whole - floors.reduce((sum, f) => sum + f, 0);
+  const byRemainder = parts
+    .map((p, i) => ({ i, remainder: (p * whole) % total }))
+    .sort((a, b) => b.remainder - a.remainder || a.i - b.i);
+  for (const { i } of byRemainder) {
+    if (left <= 0) break;
+    floors[i] = (floors[i] ?? 0) + 1;
+    left -= 1;
+  }
+  return floors;
+}
+
+/**
+ * A weight as somebody reads it: "1", "3", "0.5", "1.33".
+ *
+ * Two places, half up, and whole numbers stay whole. A booked job column that
+ * says "2.00" reads as though half jobs were possible on every row, when they
+ * only happen under a split model.
+ */
+export function weightText(weight: number): string {
+  if (weight % WEIGHT_SCALE === 0) return String(weight / WEIGHT_SCALE);
+  const hundredths = Math.round(weight / (WEIGHT_SCALE / 100));
+  const whole = Math.floor(hundredths / 100);
+  const rest = String(hundredths % 100).padStart(2, "0").replace(/0$/, "");
+  return `${whole}.${rest}`;
+}
+
+/**
+ * Who a lead is, as one key: the customer, else the number that rang, else
+ * the browser.
+ *
+ * Leads are PEOPLE. Counting touches makes a retargeting campaign that reached
+ * one homeowner eleven times eleven leads, and counting only touches with a
+ * customer on them, which is what this product did first, makes every new
+ * caller and every form fill nobody has turned into a customer yet invisible:
+ * exactly the leads a company most needs to see, because they are the ones
+ * nobody has rung back.
+ */
+export function leadKey(input: {
+  customerId?: string | null | undefined;
+  callerE164?: string | null | undefined;
+  visitorId?: string | null | undefined;
+}): string | null {
+  if (input.customerId) return `customer:${input.customerId}`;
+  if (input.callerE164) return `caller:${input.callerE164}`;
+  if (input.visitorId) return `visitor:${input.visitorId}`;
+  return null;
+}
+
+/**
+ * A caller's number as the key their calls are stitched on.
+ *
+ * E.164, through the same normaliser every send uses, because "(512) 555-0134"
+ * typed on a customer and "+15125550134" reported by a call tracking provider
+ * are one person, and an exact string match on the customer's phone, which is
+ * what matching did first, made them two. Null for anything that is not a
+ * phone number: a caller id of "Anonymous" stitches to nobody.
+ */
+export function callerKey(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const e164 = phoneAddress(raw);
+  return /^\+[1-9]\d{6,14}$/.test(e164) ? e164 : null;
+}
+
+/* ----------------------------------------------------------- channels */
+
+export type ChannelVerdict =
+  | { ok: true; name: string; sourceKey: LeadSourceKey }
+  | { ok: false; reason: string };
+
+/**
+ * A channel the company names, mapped to one catalogue key.
+ *
+ * The mapping is required, and that is the whole design: a company can call a
+ * channel anything it likes and add as many as it buys from, and every one of
+ * them still rolls up to the twenty one keys every report knows. A channel
+ * with no key is a text column again, one table along.
+ */
+export function checkChannel(input: { name: string; sourceKey: string }): ChannelVerdict {
+  const name = input.name.trim().replace(/\s+/g, " ");
+  if (name === "") return { ok: false, reason: "Give the channel a name the office will recognise on a list." };
+  if (name.length > 80) return { ok: false, reason: "Keep a channel's name under eighty characters. It is a label on a list, not a description." };
+  if (!(LEAD_SOURCE_KEYS as string[]).includes(input.sourceKey)) {
+    return {
+      ok: false,
+      reason: `"${input.sourceKey}" is not one of the lead sources every report groups by. Pick the one this channel is a kind of, so its leads and spend roll up with the rest.`,
+    };
+  }
+  return { ok: true, name, sourceKey: input.sourceKey as LeadSourceKey };
+}
+
+/**
+ * The catalogue as the list a company starts with, one channel per key.
+ *
+ * `unknown` is left out. It is the bucket for something recorded that could
+ * not be placed, which is a worklist, and offering it on a picker invites a
+ * CSR to choose it rather than ask the customer.
+ */
+export const SEED_CHANNELS: { name: string; sourceKey: LeadSourceKey }[] = LEAD_SOURCES
+  .filter((s) => s.key !== "unknown")
+  .map((s) => ({ name: s.label, sourceKey: s.key }));
+
+/* ------------------------------------------------- tracking campaigns */
+
+export type CostModel = "recorded" | "fixed" | "per_lead";
+
+export const COST_MODELS: Record<CostModel, { label: string; meaning: string }> = {
+  recorded: {
+    label: "What we record",
+    meaning: "The cost is the spend entered or imported against this campaign, day by day. For anything with an ads account.",
+  },
+  fixed: {
+    label: "One fixed price",
+    meaning: "One amount for the whole campaign, spread evenly over its days, so a report over part of it carries part of the cost. For a radio spot, a run of yard signs, a home show.",
+  },
+  per_lead: {
+    label: "A price per lead",
+    meaning: "Each lead costs the same, so the cost is the leads times the price. For Local Services Ads and the marketplaces.",
+  },
+};
+
+export interface TrackingCampaignInput {
+  name: string;
+  startsOn?: string | null | undefined;
+  endsOn?: string | null | undefined;
+  costModel: CostModel;
+  costAmount?: string | null | undefined;
+  budget?: string | null | undefined;
+  utmCampaign?: string | null | undefined;
+}
+
+export type TrackingCampaignVerdict =
+  | {
+      ok: true;
+      name: string;
+      startsOn: string | null;
+      endsOn: string | null;
+      costModel: CostModel;
+      costAmount: string | null;
+      budget: string | null;
+      utmCampaign: string | null;
+    }
+  | { ok: false; problems: string[] };
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const AMOUNT = /^\d{1,10}(\.\d{1,4})?$/;
+
+/**
+ * Whether a tracking campaign is coherent, checked every time it is written.
+ *
+ * Every refusal here is a campaign somebody could otherwise save in a few
+ * seconds and only find out about in a report a month later: a fixed price
+ * with no dates has no days to spread over, a per lead price of nothing is a
+ * channel that looks free, and a utm tag with a space in it is one no link
+ * will ever carry exactly.
+ */
+export function checkTrackingCampaign(input: TrackingCampaignInput): TrackingCampaignVerdict {
+  const problems: string[] = [];
+  const name = input.name.trim().replace(/\s+/g, " ");
+  if (name === "") problems.push("Give the campaign a name, like \"Spring AC tune up\".");
+  if (name.length > 120) problems.push("Keep the name under a hundred and twenty characters.");
+
+  const startsOn = input.startsOn?.trim() || null;
+  const endsOn = input.endsOn?.trim() || null;
+  for (const [label, value] of [["start", startsOn], ["end", endsOn]] as const) {
+    if (value !== null && (!ISO_DAY.test(value) || !isRealDate(value))) {
+      problems.push(`The ${label} date has to be a real day, written as 2026-04-01.`);
+    }
+  }
+  if (startsOn && endsOn && endsOn < startsOn) {
+    problems.push("The campaign ends before it starts.");
+  }
+
+  const amount = input.costAmount?.trim() || null;
+  if (amount !== null && !AMOUNT.test(amount)) problems.push(`"${amount}" is not an amount of money.`);
+  const budget = input.budget?.trim() || null;
+  if (budget !== null && !AMOUNT.test(budget)) problems.push(`The budget "${budget}" is not an amount of money.`);
+
+  if (input.costModel === "fixed") {
+    if (amount === null) problems.push("A fixed price campaign needs its price.");
+    /**
+     * Both dates, because the price is spread over the days between them. A
+     * fixed cost with no end has no days to spread over, and putting all of
+     * it on the first day makes that week look terrible and every other week
+     * free.
+     */
+    if (!startsOn || !endsOn) problems.push("A fixed price is spread over the campaign's days, so it needs a start and an end date.");
+  } else if (input.costModel === "per_lead") {
+    if (amount === null) problems.push("A price per lead campaign needs the price of one lead.");
+  } else if (amount !== null) {
+    problems.push("A campaign costed by what is recorded takes its cost from the spend entered against it, so it has no price of its own. Choose one fixed price or a price per lead, or record the spend.");
+  }
+
+  let utm = input.utmCampaign?.trim().toLowerCase() || null;
+  if (utm !== null) {
+    utm = utm.replace(/\s+/g, "_");
+    if (!/^[a-z0-9][a-z0-9_.-]{0,99}$/.test(utm)) {
+      problems.push("A utm tag is letters, digits, dots, dashes and underscores, because it travels inside a link and anything else is changed on the way.");
+    }
+  }
+
+  if (problems.length > 0) return { ok: false, problems };
+  return {
+    ok: true, name, startsOn, endsOn,
+    costModel: input.costModel,
+    costAmount: amount,
+    budget,
+    utmCampaign: utm,
+  };
+}
+
+/** Days from one ISO date to another, counted on the calendar, both inclusive. */
+export function daysBetween(fromIso: string, toIso: string): number {
+  const from = Date.UTC(Number(fromIso.slice(0, 4)), Number(fromIso.slice(5, 7)) - 1, Number(fromIso.slice(8, 10)));
+  const to = Date.UTC(Number(toIso.slice(0, 4)), Number(toIso.slice(5, 7)) - 1, Number(toIso.slice(8, 10)));
+  return Math.round((to - from) / 86_400_000) + 1;
+}
+
+/**
+ * The part of a fixed price that falls inside a report's dates.
+ *
+ * The price is allocated across the campaign's days to the cent first and the
+ * days inside the range are then summed, rather than multiplying the price by
+ * a fraction. Two reports over adjacent ranges therefore add up to the whole
+ * price exactly, which a fraction rounded twice does not.
+ */
+export function proratedCost(
+  total: Money,
+  campaign: { startsOn: string; endsOn: string },
+  range: { from: string; to: string },
+): { amount: Money; daysInRange: number; days: number } {
+  const days = daysBetween(campaign.startsOn, campaign.endsOn);
+  if (days <= 0) return { amount: zero(total.currency), daysInRange: 0, days: 0 };
+  const start = campaign.startsOn > range.from ? campaign.startsOn : range.from;
+  const end = campaign.endsOn < range.to ? campaign.endsOn : range.to;
+  if (end < start) return { amount: zero(total.currency), daysInRange: 0, days };
+  const perDay = allocate(total, new Array<string>(days).fill("1"), 2);
+  const offset = daysBetween(campaign.startsOn, start) - 1;
+  const count = daysBetween(start, end);
+  const amount = perDay.slice(offset, offset + count).reduce((sum, d) => add(sum, d), zero(total.currency));
+  return { amount, daysInRange: count, days };
+}
+
+/* ---------------------------------------------------------- the funnel */
+
+export interface FunnelInput {
+  spend: Money;
+  /** Distinct people. */
+  leads: number;
+  /** Credited booked jobs, in `WEIGHT_SCALE`. */
+  bookedWeight: number;
+  /** Credited jobs that have revenue on them, in `WEIGHT_SCALE`. */
+  invoicedWeight: number;
+  /** Credited revenue. */
+  revenue: Money;
+}
+
+export interface FunnelFigures {
+  /** Booked jobs over leads, as a percentage to two places. Null with no leads. */
+  bookingRate: string | null;
+  /** Revenue over the jobs that carry revenue. Null when none do. */
+  averageTicket: Money | null;
+  costPerLead: Money | null;
+  costPerBookedJob: Money | null;
+  /** Revenue over spend, to four places: 4.0000 is four dollars back for each one. Null with no spend. */
+  roas: string | null;
+  /** What came back beyond what went out, over what went out, as a percentage. Null with no spend. */
+  roi: string | null;
+}
+
+/**
+ * The ratios on one row of the funnel, with every empty denominator a null.
+ *
+ * Same rule as `summariseSpend`: a zero would sort the worst channel to the
+ * top of "cheapest per lead", and Infinity does not survive JSON. The one
+ * thing this does NOT refuse, unlike `summariseSpend`, is more booked jobs
+ * than leads. In a funnel over a date range that is a real state rather than
+ * a counting bug: a customer who first rang in March and booked in April is a
+ * March lead and an April job, and refusing the whole report over it would
+ * hide every other row.
+ */
+export function funnelFigures(input: FunnelInput): FunnelFigures {
+  const spent = !isZero(input.spend);
+  return {
+    bookingRate: input.leads > 0 ? percentOf(input.bookedWeight, input.leads * WEIGHT_SCALE) : null,
+    averageTicket: input.invoicedWeight > 0 ? perWeight(input.revenue, input.invoicedWeight) : null,
+    costPerLead: input.leads > 0 ? perWeight(input.spend, input.leads * WEIGHT_SCALE) : null,
+    costPerBookedJob: input.bookedWeight > 0 ? perWeight(input.spend, input.bookedWeight) : null,
+    roas: spent ? ratio(input.revenue, input.spend) : null,
+    roi: spent ? percentOfMoney(subtract(input.revenue, input.spend), input.spend) : null,
+  };
+}
+
+/** Money over a weight, half up on the integer, at the full stored scale. */
+function perWeight(amount: Money, weight: number): Money {
+  const divisor = BigInt(weight);
+  const scaled = amount.amount * BigInt(WEIGHT_SCALE);
+  const negative = scaled < 0n;
+  const abs = negative ? -scaled : scaled;
+  let value = abs / divisor;
+  if ((abs % divisor) * 2n >= divisor) value += 1n;
+  return { amount: negative ? -value : value, currency: amount.currency };
+}
+
+/** One money over another as a percentage to two places, without a float. */
+function percentOfMoney(numerator: Money, denominator: Money): string | null {
+  const r = ratio(numerator, denominator);
+  if (r === null) return null;
+  const negative = r.startsWith("-");
+  const [whole = "0", fraction = "0000"] = r.replace("-", "").split(".");
+  const tenThousandths = BigInt(whole) * 10_000n + BigInt(fraction.padEnd(4, "0"));
+  const hundredthsOfPercent = tenThousandths;
+  const text = `${hundredthsOfPercent / 100n}.${(hundredthsOfPercent % 100n).toString().padStart(2, "0")}`;
+  return negative && hundredthsOfPercent !== 0n ? `-${text}` : text;
 }

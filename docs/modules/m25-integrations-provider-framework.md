@@ -34,7 +34,7 @@ catalogue cannot drift into optimism.
 
 **What counts as built is deliberately narrow.** A parser with no transport is not a
 connector. A connector is built when a company can set it up from the settings screen
-and data arrives. Fourteen entries are built today and ten are declared.
+and data arrives. Sixteen entries are built today and ten are declared.
 
 **A capability is a seam, not a vendor.** Payments, email, accounting, messaging,
 telephony, ads, lead source, reviews, maps, tax, payroll, financing, storage,
@@ -52,6 +52,18 @@ because neither of those is something this product can do on a customer's behalf
 **One connection per provider per company.** A company with two is a company whose
 customers hear from two different From addresses at random, so where it matters the
 oldest connected one wins deterministically.
+
+**A geocoder runs in the background, never in a request.** The `maps`
+capability has two adapters: OpenStreetMap's Nominatim, public or self hosted,
+which needs no key, and Mapbox on its permanent tier by secret name. The worker
+looks addresses up a few at a time on its own time budget, so a slow geocoder
+never holds up saving a customer and a backfill never holds up a text. Against
+the public OpenStreetMap server it asks one address a second at most, says who
+is asking in every request, and never asks twice about an address it already
+answered or could not find. Every coordinate is kept with its precision and its
+source, and a pin placed by hand on a property is never moved by it. Google is
+deliberately not an adapter: its terms forbid keeping the coordinates and
+drawing them on a map that is not Google's.
 
 **A lead connector is a webhook somebody else posts to.** It has its own secret, a
 field mapping onto real objects, a test call, and a rotation path for when the secret
@@ -78,6 +90,15 @@ connection. `POST /v1/connectors/{provider}` connects one and
 `POST /v1/lead-connectors/test` runs a mapping against a sample payload without
 writing anything, and `POST /v1/lead-connectors/{id}/rotate` replaces the secret.
 The endpoint somebody else posts to is `/api/webhooks/leads/{token}`.
+
+### Put addresses on the map
+
+Connect OpenStreetMap or Mapbox under "Maps and addresses" on
+`/settings/integrations`. Every property and location without coordinates is
+then looked up by the worker, oldest priority first, which is the backfill.
+`GET /v1/geocoding` says how many are placed, how precisely, how many are
+waiting, and which the geocoder could not find. `POST /v1/properties/{id}/pin`
+places one by hand and `DELETE /v1/properties/{id}/pin` hands it back.
 
 ### Connect a model
 
@@ -109,13 +130,21 @@ catalogue says why.
 | `POST /v1/lead-connectors` | `integration:write` |
 | `POST /v1/lead-connectors/test` | `integration:read` |
 | `GET /v1/ai/connections` | `integration:read` |
+| `GET /v1/geocoding` | `property:read` |
+| `POST /v1/properties/{id}/pin` | `property:write` |
 
 ## Common questions
 
 **Which integrations are built?** The catalogue answers it at runtime, and the
 settings screen shows it. Stripe, QuickBooks Online, Xero, Twilio, JustCall, Resend,
-SMTP, CallRail and the AI model providers are the ones a company can set up and see
-data arrive from.
+SMTP, CallRail, the AI model providers, and the OpenStreetMap and Mapbox geocoders
+are the ones a company can set up and see data arrive from.
+
+**Where do the map's pictures come from?** Raster tiles from `MAP_TILE_URL`,
+OpenStreetMap's own servers by default with their attribution on the map. That
+is a deployment setting rather than a connector, because a tile is fetched by the
+viewer's browser and not by this product; a company with a room of dispatchers
+points it at a tile service it pays for, as OpenStreetMap's tile policy asks.
 
 **Why is there a plan document as well as a catalogue?** Because the plan is a plan.
 `docs/integration-queue.md` orders what to build next and a test checks the document
@@ -125,10 +154,24 @@ build rather than quietly misleading whoever reads it next.
 **Can I write my own adapter?** Yes, against the capability seam. That is the point
 of there being a seam rather than a vendor specific path.
 
+**What does an accounting adapter have to do?** Push a customer, an invoice, a
+payment with its allocations, a credit for a void or write off, a refund, and a
+credit note, apply a credit note to an invoice, find any of those again by the key
+written on it after a lost response, read a change feed from an opaque resume point,
+and list the chart of accounts. Applying a credit note has a finder of its own,
+because not every book can search an application by a key: a Xero allocation carries
+no reference, so its adapter reads the credit note and matches the invoice, amount
+and date. Taking a credit note back is not a method: the sync sends it as an invoice
+and an application, which every adapter already supports.
+
 ## What is not built
 
 Ten catalogue entries are declared and have no adapter, and the catalogue names each
-one rather than hiding them. There is no marketplace, no adapter plugin loading at
+one rather than hiding them. The geocoders' rate limit is per process, so a
+deployment running several workers against the public OpenStreetMap server sends
+that many requests a second; run one worker, or your own geocoder. There is no
+batch geocoding endpoint and no routing provider: drive time is estimated from the
+straight line (M09). There is no marketplace, no adapter plugin loading at
 runtime and no per connector health dashboard beyond each one's state on the settings
 screen. Secrets are read from the environment or a secret store by name, so a company
 that wants them managed in the product does not get that, deliberately.

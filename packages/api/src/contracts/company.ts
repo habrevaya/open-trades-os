@@ -94,6 +94,11 @@ export const Location = z.object({
   /** Whether stock is counted here. Inventory only counts warehouses. */
   isWarehouse: z.boolean(),
   active: z.boolean(),
+  /** Where it is, for the dispatch map and the route optimiser. See `POST /v1/locations/{id}/pin`. */
+  latitude: z.string().nullable(),
+  longitude: z.string().nullable(),
+  locationPrecision: z.enum(["rooftop", "interpolated", "street", "postal_code", "locality", "placed"]).nullable(),
+  locationSource: z.string().nullable(),
 });
 
 export const listLocations = defineRoute({

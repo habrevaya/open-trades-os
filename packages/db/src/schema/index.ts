@@ -1,5 +1,6 @@
 export * from "./_shared";
 export * from "./tenancy";
+export * from "./acquisition";
 export * from "./crm";
 export * from "./pricebook";
 export * from "./scheduling";
@@ -22,6 +23,8 @@ export * from "./comms";
 export * from "./automation";
 export * from "./inventory";
 export * from "./marketing";
+export * from "./tracking";
 export * from "./reviews";
 export * from "./ai";
 export * from "./assets";
+export * from "./delivery";

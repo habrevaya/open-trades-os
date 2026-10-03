@@ -185,6 +185,13 @@ run("warranty", () => {
     expect(tags).not.toContain("FAR");
   });
 
+  it("names who to ring about each unit, not just the address", async () => {
+    await furnace({ serialNumber: "SN-WHO", tag: "WHO", warrantyPartsExpiresOn: "2026-07-01" });
+    const [row] = await equipment.warrantyWatch(owner(), { withinDays: 60, on: TODAY });
+    expect(row).toMatchObject({ tag: "WHO", address: "11 Furnace Ln, Austin" });
+    expect(row!.customer).toEqual({ id: customerId, name: "Rita Rental" });
+  });
+
   it("counts down and then negative, so one number sorts both ways", async () => {
     const soon = await furnace({ serialNumber: "SN-A", warrantyPartsExpiresOn: "2026-07-15" });
     const past = await furnace({ serialNumber: "SN-B", warrantyPartsExpiresOn: "2026-05-15" });

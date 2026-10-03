@@ -89,6 +89,23 @@ needed to look at it. The same reasoning applies to the holdings list, which inc
 the lapsed and the revoked: a list of only what is current would silently lose the
 row a compliance officer is looking for.
 
+**Assignment asks this module, one person at a time.** Sending a technician on
+their own is checked against the job type's required skills by asking the
+skill standing for THAT person, not for a group, because Dana's licence does not
+qualify Sam to go alone. Covered clears the skill, even when the person's
+profile forgot it; lapsed and absent refuse it with this module's own sentence,
+even when the profile lists it, because the register knows the date and the
+profile is a string somebody typed.
+
+**For a skill no certification grants, the person's recorded skills decide,
+once the company uses them for that skill.** A technician's skills are recorded
+on the technicians screen. A skill nobody in the company is recorded with
+cannot be checked and does not refuse: every trade pack declares required
+skills on every job type and nothing recorded a technician's skills before this
+check, so refusing on an empty list would have stopped every assignment on the
+day it shipped. Recording the first person who does it is what starts refusing
+everybody who is not recorded with it.
+
 **These tables hold the person and the qualification and never the bytes.** No file
 column, no storage key, no document id. A certificate attaches through the ordinary
 attachment path, which needs nothing from this module.
@@ -118,8 +135,16 @@ expired included and flagged. `/certifications` is the screen.
 ### Ask whether people can do the work
 
 `POST /v1/people/skill-standing` answers it for a set of people and a set of
-required skills, and says why not when the answer is no. This is the function the
-crew check is meant to call.
+required skills, and says why not when the answer is no. The crew check calls
+it for the crew, and assignment calls it for each technician sent on their own
+(`POST /v1/visits/{id}/assign`, booking with a technician, and the dispatch
+suggestions at `GET /v1/dispatch/suggestions`).
+
+### Record what each technician does
+
+`/schedule/technicians` records a technician's skills, beside any
+certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`.
+`GET /v1/technicians` lists them.
 
 ## Permissions
 
@@ -143,6 +168,8 @@ crew check is meant to call.
 | `POST /v1/certifications/{id}/status` | `compliance:write` |
 | `GET /v1/certifications/expiring` | `compliance:read` |
 | `POST /v1/people/skill-standing` | `compliance:read` |
+| `GET /v1/technicians` | `visit:read` |
+| `PATCH /v1/technicians/{id}` | `user:write` |
 
 ## Common questions
 
@@ -154,14 +181,16 @@ place to put a file is a second reference count to get wrong.
 the register needs `compliance:read`, which the technician preset does not hold. A
 company that wants that grants it.
 
-**Does a lapsed licence stop dispatch?** The standing check answers that it has
-lapsed and says so. Wiring that answer into individual technician assignment is not
-done; crews are checked against skills as strings today.
+**Does a lapsed licence stop dispatch?** Yes. A lapsed or revoked certification
+for a skill the work needs refuses the assignment with the person's name and the
+date it ran out, for a crew and for a technician sent alone. Somebody holding
+`visit:assign_unqualified` can send them anyway with a reason, which the audit
+log keeps beside the refusal.
 
 ## What is not built
 
-The skill standing answer is not wired into technician assignment, so the only
-qualification refusal in the product is still the crew check against opaque strings.
-Continuing education hours are not tracked, only the resulting certification. There
+A job's skill requirement comes only from its job type, so one unusual job cannot
+ask for a skill of its own. Recorded skills on a technician are strings with no
+date and no evidence; only a certification can say until when. Continuing education hours are not tracked, only the resulting certification. There
 is no onboarding checklist, no emergency contact and no employment record: this is a
 qualification register beside a roster, not an HR system.

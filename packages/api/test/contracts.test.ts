@@ -77,12 +77,45 @@ describe("permissions", () => {
        */
       "GET /v1/portal/invoice",
       "GET /v1/portal/job",
+      /**
+       * The customer's own referral link, from their account link. The grant
+       * names the customer; the answer is their code and the first names of
+       * people they sent, nothing about anybody else's account.
+       */
+      "GET /v1/portal/referral",
       "GET /v1/portal/session",
+      /**
+       * A customer asking to move or cancel a visit from the link they were
+       * sent. The grant decides which visits it reaches; a visit id in the
+       * request only narrows inside that. Asking writes a request and a task
+       * and moves nothing: the office approves, behind `visit:reschedule`.
+       */
+      "GET /v1/portal/visit-change",
       "GET /v1/public/availability",
+      /**
+       * The website snippet's two calls and the hosted form's read. All three
+       * take a company's public key (its slug) and return nothing about
+       * anybody: a pool number to show, and a form's fields. The snippet's
+       * touch keeps attribution parameters only, and all of them are counted
+       * per key and refused past a ceiling.
+       */
+      "GET /v1/public/dni",
+      "GET /v1/public/hosted-forms/{key}",
       "GET /v1/public/services",
+      /**
+       * The phone app signing in. Open because nobody is signed in yet, and
+       * it is the one entry on this list that is not customer facing, so the
+       * reason is worth stating: it is the sign in form in another shape. It
+       * runs the form's own password check and lockout, and hands out nothing
+       * but a session for somebody who is a technician. Like the forms, it
+       * has no rate limit by address in this product; the per account lockout
+       * is what stops guessing.
+       */
+      "POST /v1/field/sign-in",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/portal/invoice/pay",
+      "POST /v1/portal/visit-change",
       "POST /v1/public/bookings",
       /**
        * A lead form on a company's own website, filled in by a homeowner
@@ -97,6 +130,7 @@ describe("permissions", () => {
        * in front of it, the same as for the booking endpoint.
        */
       "POST /v1/public/forms/{formSlug}",
+      "POST /v1/public/touches",
       /**
        * UNSUBSCRIBE, AND IT HAS TO BE OPEN. A recipient pressing the
        * unsubscribe control in Gmail has no account, and the mailbox provider
@@ -161,6 +195,11 @@ describe("money routes are idempotent", () => {
       "The response is a secret and only its hash is stored, so a replay has "
       + "nothing to return. A retry leaves a second token, visible in the list "
       + "by its label and revocable.",
+    "/v1/field/sign-in":
+      "The response is the phone's token and only its hash is stored, so a "
+      + "replay has nothing to return. A retry leaves a second token, and the "
+      + "phone registering with whichever one it received ends the other, so a "
+      + "handset never holds more than one that works.",
   };
 
   it("every POST is idempotent, because clients on bad connections retry", () => {

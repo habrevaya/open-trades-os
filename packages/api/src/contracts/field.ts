@@ -69,13 +69,21 @@ export const syncOperations = defineRoute({
   path: "/v1/field/sync",
   summary: "Submit queued field operations",
   description:
-    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt.",
+    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`.",
   module: "M11",
   permissions: ["field:sync"],
   idempotent: true,
   input: z.object({
     deviceId: Uuid,
     operations: z.array(FieldOperationInput).min(1).max(500),
+    /**
+     * Sequences this device numbered and will never send: the phone died
+     * between numbering an operation and writing it, or the technician
+     * discarded one that never got through. Without this the operations
+     * after such a number were held for ever. Send the numbers the last
+     * response listed in `awaiting` that the device does not hold.
+     */
+    skipped: z.array(z.number().int().min(1)).max(500).optional(),
   }),
   output: z.object({
     results: z.array(OperationResult),
@@ -118,7 +126,17 @@ export const VisitForField = z.object({
   sequence: z.number().int(),
   status: z.string(),
   summary: z.string(),
+  /** The job's longer description, when the office wrote one. */
+  description: z.string().nullable(),
   customerComplaint: z.string().nullable(),
+  /** What technicians have already written on this visit, oldest first. */
+  technicianNotes: z.string().nullable(),
+  /**
+   * When somebody said they had arrived. The visit stays `en_route` until work
+   * starts, because that is the state machine core reasons about, so this is
+   * the only way a phone can show "arrived" after a restart.
+   */
+  arrivedAt: z.string().datetime().nullable(),
   windowStart: z.string().datetime().nullable(),
   windowEnd: z.string().datetime().nullable(),
   routeOrder: z.number().int().nullable(),
@@ -252,6 +270,8 @@ export const assignVisit = defineRoute({
   method: "post",
   path: "/v1/visits/{id}/assign",
   summary: "Put a visit on somebody's day",
+  description:
+    "Refused, with a sentence naming the person and the skill, when somebody being sent is not qualified for the work's required skills by their certifications or their recorded skills. A caller holding visit:assign_unqualified may send them anyway by giving a reason, which the audit log keeps beside the refusal it overrode.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
@@ -261,8 +281,21 @@ export const assignVisit = defineRoute({
     leadTechnicianId: Uuid.optional(),
     /** Where in the day it sits. Omitted appends to the end. */
     routeOrder: z.number().int().optional(),
+    /**
+     * Send them although the qualification check refused. Needs
+     * visit:assign_unqualified, and a reason somebody reading the audit log
+     * later would accept.
+     */
+    overrideQualification: z.object({ reason: z.string().trim().min(5).max(500) }).optional(),
   }),
-  output: z.object({ ok: z.literal(true), status: z.string() }),
+  output: z.object({
+    ok: z.literal(true),
+    status: z.string(),
+    /** True when a refusal was overridden to make this assignment. */
+    overridden: z.boolean(),
+    /** Required skills nothing could check for the people sent, said rather than hidden. */
+    unknownSkills: z.array(z.string()),
+  }),
 });
 
 /**
@@ -367,7 +400,87 @@ export const resolveConflict = defineRoute({
   output: z.object({ ok: z.literal(true) }),
 });
 
+/**
+ * THE PHONE APP SIGNING IN
+ *
+ * Public, because nobody is signed in yet, and refused with a 401 in plain
+ * words for a wrong password, a locked account, or an account that is not a
+ * technician. The same password check and lockout as the sign in form.
+ */
+export const signInDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/sign-in",
+  summary: "Sign the phone app in",
+  description:
+    "Email and password in, a device token out, presented afterwards as `Authorization: Bearer otd_...`. The token is a session: it acts as the person, stops working when they are deactivated, and lasts ninety days. Only an account with a technician record and field:sync is let in. Register the device with the token next, which binds the token to it so revoking the device ends the sign in.",
+  module: "M11",
+  permissions: [],
+  authorization: "public",
+  input: z.object({
+    email: z.string().email().max(320),
+    password: z.string().min(1).max(500),
+  }),
+  output: z.object({
+    /** Shown once. Only its hash is kept. */
+    token: z.string(),
+    expiresAt: z.string().datetime(),
+    user: z.object({ id: Uuid, name: z.string().nullable(), email: z.string() }),
+    organization: z.object({ id: Uuid, name: z.string(), timezone: z.string() }),
+  }),
+});
+
+export const FieldDevice = z.object({
+  id: Uuid,
+  technicianId: Uuid,
+  technicianName: z.string(),
+  label: z.string().nullable(),
+  platform: z.string().nullable(),
+  appVersion: z.string().nullable(),
+  lastSeenAt: z.string().datetime().nullable(),
+  lastSyncedAt: z.string().datetime().nullable(),
+  /** A phone app token is live on it. A browser never has one. */
+  signedIn: z.boolean(),
+  revokedAt: z.string().datetime().nullable(),
+});
+
+export const listDevices = defineRoute({
+  method: "get",
+  path: "/v1/field/devices",
+  summary: "Every phone the technicians use",
+  module: "M11",
+  permissions: ["user:read"],
+  input: z.object({}),
+  output: z.object({ devices: z.array(FieldDevice) }),
+});
+
+export const signOutDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/devices/{id}/sign-out",
+  summary: "Sign the phone app out",
+  description:
+    "Ends the device's token. Only the caller's own device; another person's phone is the office's decision, which is the revoke route. The device keeps its sequence, so signing in again on the same handset carries on numbering.",
+  module: "M11",
+  permissions: ["field:sync"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ ok: z.literal(true) }),
+});
+
+export const revokeDevice = defineRoute({
+  method: "post",
+  path: "/v1/field/devices/{id}/revoke",
+  summary: "Take a phone away",
+  description:
+    "For a lost or returned phone. The device can no longer sync and its token stops working on every route at once. It does not stop the person signing in again; deactivating them does that.",
+  module: "M11",
+  permissions: ["user:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ ok: z.literal(true), revokedAt: z.string().datetime() }),
+});
+
 export const fieldRoutes = {
+  signInDevice, listDevices, signOutDevice, revokeDevice,
   syncOperations, registerDevice, getFieldSnapshot,
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice,
   listConflicts, resolveConflict,

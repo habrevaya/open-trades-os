@@ -17,6 +17,10 @@ const INVOICES: Dataset = {
   permission: "report.financial:read" as Permission,
   scope: "invoice",
   dateColumn: "invoice.issued_on",
+  records: {
+    noun: "invoice", plural: "invoices", id: "invoice.id", label: "invoice.number::text",
+    href: "/invoices/{id}", columns: [], orderBy: "invoice.issued_on",
+  },
   dimensions: [
     { key: "status", label: "Status", sql: "invoice.status", type: "text" },
     { key: "month", label: "Month", sql: "to_char(x)", type: "date" },
@@ -36,6 +40,10 @@ const JOBS: Dataset = {
   permission: "job:read" as Permission,
   scope: "job",
   dateColumn: "job.created_at",
+  records: {
+    noun: "job", plural: "jobs", id: "job.id", label: "job.number::text",
+    href: "/jobs/{id}", columns: [], orderBy: "job.created_at",
+  },
   dimensions: [{ key: "status", label: "Status", sql: "job.status", type: "text" }],
   measures: [{ key: "count", label: "Jobs", kind: "count", type: "number" }],
 };

@@ -80,11 +80,14 @@ export async function put(
     claimedType?: string | undefined;
     uploadedByUserId?: string | null;
     maxBytes?: number | undefined;
+    /** Call audio is accepted only by the one caller that keeps recordings. */
+    accept?: "documents" | "recordings" | undefined;
   },
 ): Promise<{ file: StoredFileView; alreadyHeld: boolean }> {
   const verdict = f.checkFile(input.bytes, {
     ...(input.claimedType ? { claimedType: input.claimedType } : {}),
     ...(input.maxBytes ? { maxBytes: input.maxBytes } : {}),
+    ...(input.accept ? { accept: input.accept } : {}),
   });
   if (!verdict.ok) throw new ConflictError(verdict.reason);
 

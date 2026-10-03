@@ -5,6 +5,7 @@ import { workflows } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
 import { CreateForm } from "./CreateForm";
+import { withStepChoices } from "@/lib/step-choices";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export default async function NewAutomationPage() {
   if (!can(user.actor, "workflow:write")) notFound();
 
   const events = await workflows.triggerEventCatalogue(ctx);
-  const steps = workflows.availableSteps(ctx);
+  const steps = await withStepChoices(ctx, workflows.availableSteps(ctx));
   const shapes = workflows.dwellShapes();
 
   return (

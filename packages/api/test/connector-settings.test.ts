@@ -28,6 +28,8 @@ const ADAPTERS: Record<string, string[]> = {
   openai: ["ai/openai.ts"],
   google: ["ai/google.ts"],
   callrail: ["call-tracking/callrail.ts"],
+  nominatim: ["maps/nominatim.ts"],
+  mapbox: ["maps/mapbox.ts"],
 };
 
 function keysRead(file: string): Set<string> {

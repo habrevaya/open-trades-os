@@ -128,6 +128,18 @@ permissions its steps need, the author must hold all of them, and the run gets e
 that set. Publishing is checked against what the author holds rather than against
 whether they may touch workflows at all, which is the part that stops the escalation.
 
+**"Run and email a report" runs the report as whoever published the version.** A
+run's own actor holds only the permissions its steps declared and no scope, and a
+report run under no scope is a report of nothing; running it as the company would
+hand anybody who can publish an automation the owner's books. So the step declares
+`report:read` and `message:send`, and the report itself is read as the publisher, as
+they are on the day it runs, through the same delivery a scheduled report uses
+(M21): each person picked must be able to open the report and is sent it as they
+would see it, the delivery is recorded with each recipient's outcome, and it is keyed
+on the run and the step, so a run resumed after a wait does not send it twice. The
+report and the people are checked against the author at publish, with the step's
+number in the refusal.
+
 **A step this build does not know is refused at publish rather than skipped at run
 time.** Skipping would let a definition written against a newer version run here with
 the steps it could not perform quietly dropped.
@@ -140,6 +152,23 @@ automated something.
 most important control on the screen and the reason the screen exists: an automation
 misbehaving is a thing somebody needs to stop in seconds, without a deploy and without
 a database client.
+
+**Some questions have to be asked again after a wait.** A branch reads the
+event, so three days after "an estimate was sent" it can only ever say it was
+sent. `stop_unless` asks the database one declared question (today, whether
+the estimate is still waiting for an answer and has not been sent again since)
+and, when the answer is no, ends the run as finished with the steps after it
+written down as skipped. A customer who approved on day two is the follow up
+working, not failing. The questions are a catalogue in core, like the dwell
+shapes: a workflow names one and never writes a query.
+
+**A recommended automation is an ordinary one.** Turning one on from the
+recommended list installs a workflow through the same check, permission rule
+and versions as one drawn on the canvas, switched on because the person just
+read what it does and pressed the button. It is labelled with the template it
+came from so the list knows it is on and a second press is refused, and that
+label is all that is special about it: its steps are on the canvas and the
+company edits them like any other.
 
 **The step rows are the point of the detail screen.** "Why did this customer get that
 text in March" is the question it answers, and a run row on its own says only that
@@ -159,11 +188,67 @@ years ago is used.
 `POST /v1/custom-fields/validate` checks a set of values against the definitions
 without writing anything.
 
+### Fill one in
+
+The fields a company declared are drawn on the screens that make and change the
+record: `/customers/new` (the customer's fields, and the address's beside the
+address), `/jobs/new`, and a "Your fields" panel on `/customers/{id}`,
+`/properties/{id}` and `/jobs/{id}`, editable by whoever can change that record and
+read only for everybody else. A date is a date picker, a choice is its options, and
+yes or no has a third answer, "not said". The same rules bind
+`POST /v1/customers`, `PATCH /v1/customers/{id}`, `POST /v1/properties`, `PATCH /v1/properties/{id}`,
+`POST /v1/jobs` and `PATCH /v1/jobs/{id}`, and an address created with its customer
+is held to the property fields.
+
+A refused save is a 422 with one sentence per field, each at `customFields.<key>`
+(or `property.customFields.<key>` for an address created with its customer) and
+starting with the field's label: "Permit number is required.", "Units has to be a
+number." A screen shows all of them at once under the form.
+
 ### Build an automation
 
 `/automations` is what exists, what it did and how to stop it. `/automations/new`
 writes a definition, and `/automations/{id}` is one workflow with its recent runs step
 by step.
+
+### Turn on a recommended one
+
+The top of `/automations` offers three, each with what it does, what it needs from
+the company, and its one or two settings:
+
+- **Follow up an estimate that has not been answered.** On `estimate.sent`: wait
+  some days, stop unless the estimate is still waiting for an answer, text the
+  customer a fresh link to it, email one, and raise a call in the office queue.
+  A link minted for a message that could not go is withdrawn.
+- **Ask for a review after a paid job.** On `invoice.paid`: wait some hours, put
+  the job to the reviews module's own decision, waiting again if it says later,
+  and send the ask with the review site's link. M20 has the decision.
+- **Text back a missed call.** On `call.missed`: wait some minutes, stop unless
+  nobody has spoken to the caller since, text the number that rang to say the
+  company will ring back, and raise a high priority call back in the office
+  queue. Offered only once the company has a number cleared to text that is not
+  a tracking number. M19 has where the event comes from.
+
+`GET /v1/workflow-templates` lists them with whether each is on, and
+`POST /v1/workflow-templates/{key}/install` turns one on.
+
+### The steps
+
+Send a message, raise a task, wait, only if, and four added for these:
+`stop_unless` (carry on only while a declared fact still holds), `send_estimate`
+(a fresh link to the estimate by text or email, only while it is undecided, and
+refused as a failed step if the wording has lost its link), `request_review`
+(the reviews module's decision, parking the run when it says later) and
+`send_review_request` (the queued ask, marked sent or failed with the reason) and
+`text_caller` (text the number on a `call.missed` event, through the consent
+checked transactional sender, from the company's ordinary number and never a
+tracking one; a refusal by STOP is a step that did not send, not a failure).
+`stop_unless` asks `estimate_undecided` or `caller_not_reached` (no later call
+from that number was answered and nobody here rang it). `text_caller` needs
+`message:send`.
+`send_estimate` needs `estimate:send`, `portal:grant` and `message:send`;
+`request_review` needs `review:respond`; `send_review_request` needs both of
+those last two.
 
 ## Permissions
 
@@ -193,9 +278,12 @@ second is a much smaller list of people.
 | `POST /v1/workflows/{id}/enabled` | `workflow:write` |
 | `GET /v1/workflow-events` | `workflow:read` |
 | `GET /v1/workflow-steps` | `workflow:read` |
+| `GET /v1/workflow-templates` | `workflow:read` |
+| `POST /v1/workflow-templates/{key}/install` | `workflow:write` |
 
-Reading and stopping are on the API; writing a definition is not, and that is a
-decision rather than an omission. A definition carries a condition group, which is
+Reading and stopping are on the API, and so is turning on a recommended
+automation, whose input is a template's name and a few values; writing a
+definition is not, and that is a decision rather than an omission. A definition carries a condition group, which is
 a recursive shape the OpenAPI generator cannot describe, so publishing one would
 mean publishing a document that does not say what the request is. And the authority
 check on a publish is against what the AUTHOR holds, which is a question about a
@@ -204,27 +292,46 @@ who is asking.
 
 ## Common questions
 
-**Are custom field values validated on save?** Not yet, and the reason is a migration
-rather than an oversight. Every company that already stored custom data under no
-definition would have its next save refused for keys it has been using for a year.
-Switching the validator on is product work; discovering it that way is not.
+**Are custom field values validated on save?** Yes, on create and update of a
+customer, a property and a job, from the API and the screens. Only what the write
+changed is checked: a value contradicting its field's type or options is refused, and
+so is a required field left empty on a create or cleared on an update. A key nothing
+defines is never refused on save, because companies stored custom data under no
+definition for a long time; `GET /v1/custom-fields/usage` is where those show up.
+
+**What happens to records created before a field became required?** They keep
+saving. A field that was empty and is still empty has not been touched by the write,
+so it is not checked; on the screens an empty box for a field never filled in stays
+absent rather than becoming an empty value. Filling it in later is checked, and so is
+clearing it once it holds something. A new record is held to it from the start.
 
 **Can I add a whole new object, not just a field?** No. The module's name says objects
 and what exists is fields on the six entities that have somewhere to put them.
 
-**Is the automation builder visual?** No, deliberately. It is what exists, what it did
-and make it stop. The definitions it can write cover the shapes the engine actually
-implements.
+**Is the automation builder visual?** It is a canvas that only goes downwards: a
+trigger, steps, and a branch opening two lanes that rejoin. It draws only shapes
+the engine actually runs.
+
+**Can a recommended automation be changed?** Yes, on the canvas like any other.
+Changing it does not change the template, and deleting it lets the template be
+turned on again from its original wording.
 
 ## What is not built
 
-Custom objects: fields only. The validator is written and not wired into the
-customer, property and job writes. Writing a workflow definition is office only, as
+Custom objects: fields only. Custom field values are checked on customers,
+properties and jobs and on nothing else, because nothing else has a `custom_fields`
+column. There is no settings screen for declaring a field yet: definitions are made
+through `POST /v1/custom-fields`, and the record screens draw whatever exists. Writing a workflow definition is office only, as
 above. The canvas offers `all` conditions only. The engine evaluates `any` and `none`
 too, and a screen offering all three needs a nested group editor to say which
 applies to what; every condition on a branch has to hold, which is what somebody
 means by "only if" nine times out of ten, and the API takes the other two.
 There is no loop and there will not be one: a flat list only goes forwards, which
 is the second loop guard, because the two upstream ones catch a workflow
-re-triggering itself and not one looping inside a single run. Scheduled report
-delivery is not built, and neither is a workflow step that runs a report.
+re-triggering itself and not one looping inside a single run. The report step
+emails a report to people picked on the canvas; it cannot send a report to the
+customer the event is about.
+There are three recommended automations and the list is code, not something a
+company or a trade pack can add to. `stop_unless` can ask two questions so far.
+The canvas's plain message step is text only; the estimate and review steps
+can email.

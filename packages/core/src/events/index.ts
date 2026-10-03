@@ -109,6 +109,13 @@ export const EVENTS = {
   "agreement.visit_unskipped": {
     summary: "A member changed their mind about a skipped visit", entity: "agreement", emitted: true,
   },
+  "agreement.renewed": {
+    summary: "An agreement started a new term", entity: "agreement", emitted: true,
+  },
+  "agreement.renewal_noticed": {
+    summary: "The notice a plan owes before its renewal was sent, or could not be",
+    entity: "agreement", emitted: true,
+  },
 
   /* ------------------------------------------------------------- customers */
 
@@ -117,9 +124,38 @@ export const EVENTS = {
     entity: "booking_request",
     emitted: true,
   },
+  "visit.change_requested": {
+    summary: "A customer asked to move or cancel a visit from their link",
+    entity: "visit_change_request",
+    emitted: true,
+  },
+  /**
+   * The estimate's link was issued to the customer. Emitted by sending, which
+   * is the moment the clock on "they have not answered" starts, and which a
+   * follow up waits from.
+   */
+  "estimate.sent": {
+    summary: "An estimate went to the customer",
+    entity: "estimate",
+    emitted: true,
+  },
   "message.received": {
     summary: "A customer texted in",
     entity: "conversation",
+    emitted: true,
+  },
+  /**
+   * Somebody rang and nobody at the company picked up: no answer, busy, a
+   * forward that failed, or a voicemail. Emitted by both ways a call reaches
+   * this product, the company's own tracking numbers and a call tracking
+   * provider's webhook, once per call and only for an inbound one. The
+   * caller's number rides on the payload as `from`, because most missed
+   * callers are not customers yet and a step that waited for a customer
+   * record would never text them back.
+   */
+  "call.missed": {
+    summary: "A call came in and nobody answered it",
+    entity: "call",
     emitted: true,
   },
 
@@ -163,12 +199,6 @@ export const EVENTS = {
     entity: "visit",
     emitted: false,
     owedBy: "M09. Dispatch writes the visit and emits nothing.",
-  },
-  "estimate.sent": {
-    summary: "An estimate went to the customer",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07 records the delivery without emitting.",
   },
   "estimate.approved": {
     summary: "A customer approved an estimate",

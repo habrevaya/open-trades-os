@@ -4,7 +4,7 @@ import { attempt, field, fields, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { campaigns } from "@opentradesos/api/services";
+import { campaigns, ConflictError } from "@opentradesos/api/services";
 import type { campaign as cp } from "@opentradesos/core";
 
 export type CampaignState = FormState;
@@ -59,6 +59,21 @@ function audienceFrom(form: FormData): cp.AudienceRule[] {
   return rules;
 }
 
+/**
+ * A datetime-local box as an instant. The browser sends the wall clock with no
+ * zone, and the person typed it in their own, so it is read in the company's
+ * timezone, which is the zone quiet hours are kept in too.
+ */
+function whenFrom(form: FormData, zone: string): string | undefined {
+  const raw = field(form, "scheduledFor");
+  if (!raw) return undefined;
+  const naive = new Date(`${raw}:00Z`);
+  if (Number.isNaN(naive.getTime())) throw new ConflictError("That is not a day and a time.");
+  const shown = new Date(naive.toLocaleString("en-US", { timeZone: zone }));
+  const offset = shown.getTime() - new Date(naive.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+  return new Date(naive.getTime() - offset).toISOString();
+}
+
 /** A comma separated box, split and trimmed. Empties dropped, not kept as "". */
 const listOf = (form: FormData, name: string): string[] =>
   (field(form, name) ?? "").split(",").map((part) => part.trim()).filter((part) => part !== "");
@@ -72,7 +87,9 @@ const listOf = (form: FormData, name: string): string[] =>
  * registered number.
  */
 export async function act(_previous: CampaignState, form: FormData): Promise<CampaignState> {
-  const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
+  const user = await requireSetupUser();
+  const ctx = { actor: user.actor, db: getDb() };
+  const zone = user.organizationTimezone;
   const op = String(form.get("op") ?? "");
   const id = String(form.get("id") ?? "");
 
@@ -84,11 +101,23 @@ export async function act(_previous: CampaignState, form: FormData): Promise<Cam
           name: String(form.get("name") ?? ""),
           channel,
           audience: audienceFrom(form),
-          body: String(form.get("body") ?? ""),
+          ...(field(form, "body") ? { body: field(form, "body")! } : {}),
+          ...(field(form, "templateCode") ? { templateCode: field(form, "templateCode")! } : {}),
           subject: channel === "email" ? (field(form, "subject") ?? null) : null,
           ...(field(form, "utmCampaign") ? { utmCampaign: field(form, "utmCampaign")! } : {}),
         });
+        const at = whenFrom(form, zone);
+        if (at) {
+          await campaigns.update(ctx, { id: created.id, scheduledFor: at });
+          return { message: `"${created.name}" goes at the time you set. Read the audience before then.` };
+        }
         return { message: `"${created.name}" is a draft. Read the audience, then send it.` };
+      }
+      case "schedule": {
+        const at = whenFrom(form, zone);
+        if (!at) throw new ConflictError("Give the day and time it should go.");
+        await campaigns.update(ctx, { id, scheduledFor: at });
+        return { message: "It goes at that time, outside quiet hours." };
       }
       case "send": {
         /**

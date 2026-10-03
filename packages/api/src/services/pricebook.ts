@@ -94,7 +94,7 @@ function marginOf(price: string, cost: string | null): string | null {
   return ((p - c) / p).toFixed(4);
 }
 
-interface ItemRow {
+export interface ItemRow {
   item: typeof schema.priceBookItem.$inferSelect;
   version: typeof schema.priceBookItemVersion.$inferSelect;
 }
@@ -284,57 +284,88 @@ export async function revise(ctx: ServiceContext, input: z.infer<typeof revisePr
     }
 
     const effectiveFrom = input.effectiveFrom ? new Date(input.effectiveFrom) : new Date();
-
-    /**
-     * The old version is closed at exactly the moment the new one opens, so
-     * there is never a gap and never an overlap. A gap means a document priced
-     * in that window finds no version at all; an overlap means two rows both
-     * claim to be current and which one answers depends on row order.
-     */
-    await tx.update(schema.priceBookItemVersion)
-      .set({ effectiveTo: effectiveFrom, updatedAt: new Date() })
-      .where(eq(schema.priceBookItemVersion.id, current.version.id));
-
-    const [version] = await tx.insert(schema.priceBookItemVersion).values({
-      organizationId: ctx.actor.organizationId,
-      itemId: current.item.id,
-      version: current.version.version + 1,
-      // Every field carries forward unless this call changes it. A revision
-      // that only raises the price must not blank the description.
-      name: input.name ?? current.version.name,
-      description: input.description ?? current.version.description,
-      imageUrl: current.version.imageUrl,
-      price: input.price ?? current.version.price,
-      cost: input.cost ?? current.version.cost,
-      laborMinutes: input.laborMinutes ?? current.version.laborMinutes,
-      taxable: input.taxable ?? current.version.taxable,
-      taxClass: current.version.taxClass,
-      commissionRate: current.version.commissionRate,
-      warrantyMonths: current.version.warrantyMonths,
-      components: current.version.components,
-      effectiveFrom,
-    }).returning();
+    const version = await reviseWithin(tx, ctx, current, {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.price !== undefined ? { price: input.price } : {}),
+      ...(input.cost !== undefined ? { cost: input.cost } : {}),
+      ...(input.laborMinutes !== undefined ? { laborMinutes: input.laborMinutes } : {}),
+      ...(input.taxable !== undefined ? { taxable: input.taxable } : {}),
+    }, effectiveFrom);
 
     if (ctx.idempotencyKey) {
       await tx.insert(schema.integrationEvent).values({
         organizationId: ctx.actor.organizationId,
         direction: "inbound", provider: "api", eventType: "pricebook.revise",
         idempotencyKey: ctx.idempotencyKey, status: "succeeded",
-        entityType: "price_book_item_version", entityId: version!.id,
+        entityType: "price_book_item_version", entityId: version.id,
       });
     }
 
-    await audit(
-      tx, ctx, "pricebook.item_revised", "price_book_item", current.item.id,
-      { version: current.version.version, price: current.version.price },
-      { version: version!.version, price: version!.price },
-    );
-    return shape(ctx, { item: current.item, version: version! });
+    return shape(ctx, { item: current.item, version });
   });
 }
 
+export interface RevisionChanges {
+  name?: string;
+  description?: string;
+  price?: string;
+  cost?: string;
+  laborMinutes?: number;
+  taxable?: boolean;
+}
+
+/**
+ * THE ONE WAY A PRICE CHANGES, for a single edit and for a bulk one.
+ *
+ * Inside a transaction the caller holds, so the bulk change in
+ * `repricing.ts` writes each item's new version exactly as `revise` does,
+ * with the same window arithmetic and the same audit line, rather than a
+ * second copy of "close the old one, open the new one" that would drift.
+ */
+export async function reviseWithin(
+  tx: Database, ctx: ServiceContext, current: ItemRow, changes: RevisionChanges, effectiveFrom: Date,
+): Promise<typeof schema.priceBookItemVersion.$inferSelect> {
+  /**
+   * The old version is closed at exactly the moment the new one opens, so
+   * there is never a gap and never an overlap. A gap means a document priced
+   * in that window finds no version at all; an overlap means two rows both
+   * claim to be current and which one answers depends on row order.
+   */
+  await tx.update(schema.priceBookItemVersion)
+    .set({ effectiveTo: effectiveFrom, updatedAt: new Date() })
+    .where(eq(schema.priceBookItemVersion.id, current.version.id));
+
+  const [version] = await tx.insert(schema.priceBookItemVersion).values({
+    organizationId: ctx.actor.organizationId,
+    itemId: current.item.id,
+    version: current.version.version + 1,
+    // Every field carries forward unless this call changes it. A revision
+    // that only raises the price must not blank the description.
+    name: changes.name ?? current.version.name,
+    description: changes.description ?? current.version.description,
+    imageUrl: current.version.imageUrl,
+    price: changes.price ?? current.version.price,
+    cost: changes.cost ?? current.version.cost,
+    laborMinutes: changes.laborMinutes ?? current.version.laborMinutes,
+    taxable: changes.taxable ?? current.version.taxable,
+    taxClass: current.version.taxClass,
+    commissionRate: current.version.commissionRate,
+    warrantyMonths: current.version.warrantyMonths,
+    components: current.version.components,
+    effectiveFrom,
+  }).returning();
+
+  await audit(
+    tx, ctx, "pricebook.item_revised", "price_book_item", current.item.id,
+    { version: current.version.version, price: current.version.price },
+    { version: version!.version, price: version!.price },
+  );
+  return version!;
+}
+
 /** An item with its current version, or nothing. */
-async function load(tx: Database, itemId: string): Promise<ItemRow | undefined> {
+export async function load(tx: Database, itemId: string): Promise<ItemRow | undefined> {
   const [row] = await tx.select({
     item: schema.priceBookItem,
     version: schema.priceBookItemVersion,

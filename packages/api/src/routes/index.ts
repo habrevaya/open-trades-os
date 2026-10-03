@@ -5,13 +5,20 @@ import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
   customers, jobs, billing, estimates, deposits, portal, booking,
-  fieldOps, dispatch, properties, priceBook, telephony, inventory, labor,
+  fieldOps, fieldDevices, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting,
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  dispatchMap, geocoding,
+  reports, deliverySchedules, statementDelivery,
+  agreements, visitChanges,
+  acquisition, marketingReport, phoneNumbers,
+  customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
+  laborSettings,
+  voice, websiteTracking, referrals,
 } from "../services/index";
 
 /**
@@ -118,6 +125,7 @@ export const handlers = {
   approveEstimate: estimates.approve,
   declineEstimate: estimates.decline,
   convertEstimate: estimates.convert,
+  listUnsoldEstimates: estimates.unsoldHandler,
   requestDeposit: deposits.request,
   applyDeposit: deposits.apply,
   refundDeposit: deposits.refund,
@@ -133,6 +141,10 @@ export const handlers = {
 
   // The field. The phone carries field:sync; the board is office side.
   registerDevice: fieldOps.register,
+  signInDevice: fieldDevices.signIn,
+  listDevices: fieldDevices.list,
+  signOutDevice: fieldDevices.signOut,
+  revokeDevice: fieldDevices.revoke,
   syncOperations: fieldOps.sync,
   getFieldSnapshot: dispatch.snapshot,
   listConflicts: fieldOps.conflicts,
@@ -202,6 +214,8 @@ export const handlers = {
   deleteSecret: secrets.service.handlers.deleteSecret,
   importSpendFile: leadIntake.handlers.importSpendFile,
   listLeadOffers: leadIntake.handlers.listLeadOffers,
+  acceptLeadOffer: leadIntake.handlers.acceptLeadOffer,
+  declineLeadOffer: leadIntake.handlers.declineLeadOffer,
 
   // Marketing. The touch is kept whole, and no model is the house model.
   listTouches: marketing.handlers.listTouches,
@@ -210,6 +224,32 @@ export const handlers = {
   importSpend: marketing.handlers.importSpend,
   getPerformance: marketing.handlers.getPerformance,
   listUnplacedSources: marketing.handlers.listUnplacedSources,
+  listSpend: marketing.handlers.listSpend,
+  removeSpend: marketing.handlers.removeSpend,
+
+  // Channel > tracking campaign > tracking number, and the funnel across them.
+  listChannels: (ctx: ServiceContext, input: { include?: "live" | "all" | undefined }) =>
+    acquisition.handlers.listChannels(ctx, { includeArchived: input.include === "all" }),
+  listChannelOptions: acquisition.handlers.listChannelOptions,
+  createChannel: acquisition.handlers.createChannel,
+  updateChannel: acquisition.handlers.updateChannel,
+  listTrackingCampaigns: (ctx: ServiceContext, input: {
+    channelId?: string | undefined; include?: "live" | "all" | undefined;
+  }) => acquisition.handlers.listTrackingCampaigns(ctx, {
+    ...(input.channelId ? { channelId: input.channelId } : {}),
+    includeArchived: input.include === "all",
+  }),
+  getTrackingCampaign: acquisition.handlers.getTrackingCampaign,
+  createTrackingCampaign: acquisition.handlers.createTrackingCampaign,
+  updateTrackingCampaign: acquisition.handlers.updateTrackingCampaign,
+  getMarketingSettings: acquisition.handlers.getMarketingSettings,
+  setMarketingSettings: acquisition.handlers.setMarketingSettings,
+  getMarketingFunnel: marketingReport.handlers.getMarketingFunnel,
+  drillMarketingFunnel: marketingReport.handlers.drillMarketingFunnel,
+  listMarketingCalls: marketingReport.handlers.listMarketingCalls,
+  getMarketingCall: marketingReport.handlers.getMarketingCall,
+  listTrackingNumbers: async (ctx: ServiceContext) => ({ numbers: await phoneNumbers.trackingUsage(ctx) }),
+  assignTrackingNumber: phoneNumbers.handlers.assignTrackingNumber,
 
   // Files. Content addressed, so a phone retrying over a metered connection
   // lands on the key it already occupies.
@@ -294,6 +334,20 @@ export const handlers = {
   deleteWebhookEndpoint: webhooks.handlers.deleteWebhookEndpoint,
   getWebhookPosition: webhooks.handlers.getWebhookPosition,
   listWebhookEvents: webhooks.handlers.listWebhookEvents,
+
+  // What people are paid, declared
+  listWageScales: laborSettings.handlers.listWageScales,
+  loadWageScale: laborSettings.handlers.loadWageScale,
+  reviseWageScale: laborSettings.handlers.reviseWageScale,
+  retireWageScale: laborSettings.handlers.retireWageScale,
+  listOvertimePolicies: laborSettings.handlers.listOvertimePolicies,
+  declareOvertimePolicy: laborSettings.handlers.declareOvertimePolicy,
+  listCrewRates: laborSettings.handlers.listCrewRates,
+  setWageClassification: laborSettings.handlers.setWageClassification,
+  listWebhookDeliveries: webhooks.handlers.listWebhookDeliveries,
+  listWebhookEventDeliveries: webhooks.handlers.listWebhookEventDeliveries,
+  replayWebhookDeliveries: webhooks.handlers.replayWebhookDeliveries,
+  listWebhookReplays: webhooks.handlers.listWebhookReplays,
 
   getPaymentsStatus: payments.handlers.getPaymentsStatus,
   createPaymentIntent: payments.handlers.createPaymentIntent,
@@ -506,6 +560,11 @@ export const handlers = {
   mergeCustomers: customerLifecycle.handlers.mergeCustomers,
   getCustomerMergedInto: customerLifecycle.handlers.getCustomerMergedInto,
 
+  getCustomerStatement: statements.handlers.getCustomerStatement,
+  emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
+  listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
+  getStatementSchedule: deliverySchedules.handlers.getStatementSchedule,
+  setStatementSchedule: deliverySchedules.handlers.setStatementSchedule,
   createCreditNote: creditNotes.handlers.createCreditNote,
   issueCreditNote: creditNotes.handlers.issueCreditNote,
   applyCreditNote: creditNotes.handlers.applyCreditNote,
@@ -523,6 +582,20 @@ export const handlers = {
   setWorkflowEnabled: workflows.handlers.setWorkflowEnabled,
   listWorkflowEvents: workflows.handlers.listWorkflowEvents,
   listWorkflowSteps: workflows.handlers.listWorkflowSteps,
+  listWorkflowTemplates: workflows.handlers.listWorkflowTemplates,
+  // Agreements
+  createAgreementPlan: agreements.handlers.createAgreementPlan,
+  sellAgreement: agreements.handlers.sellAgreement,
+  renewAgreement: agreements.handlers.renewAgreement,
+  listAgreementRenewals: agreements.handlers.listAgreementRenewals,
+  getMemberPricing: agreements.handlers.getMemberPricing,
+  // A customer asking to move or cancel a visit, and the office answering
+  getPortalVisitChange: visitChanges.handlers.getPortalVisitChange,
+  requestPortalVisitChange: visitChanges.handlers.requestPortalVisitChange,
+  listVisitChangeRequests: visitChanges.handlers.listVisitChangeRequests,
+  approveVisitChangeRequest: visitChanges.handlers.approveVisitChangeRequest,
+  declineVisitChangeRequest: visitChanges.handlers.declineVisitChangeRequest,
+  installWorkflowTemplate: workflows.handlers.installWorkflowTemplate,
 
   listTasks: tasks.handlers.listTasks,
   getTaskCounts: tasks.handlers.getTaskCounts,
@@ -614,6 +687,81 @@ export const handlers = {
   // KPIs (M21): the numbers the trade packs defined and nothing computed
   getKpiScorecard: kpis.handlers.getKpiScorecard,
   listKpiCatalogue: kpis.handlers.listKpiCatalogue,
+
+  // The dispatch map, the route optimiser and the geocoder (M09, M24, M25)
+  getDispatchMap: dispatchMap.handlers.getDispatchMap,
+  getRouteProposal: dispatchMap.handlers.getRouteProposal,
+  getAssignmentSuggestions: dispatchMap.handlers.getAssignmentSuggestions,
+  getTravelSettings: dispatchMap.handlers.getTravelSettings,
+  setTravelSettings: dispatchMap.handlers.setTravelSettings,
+  listTechnicians: dispatchMap.handlers.listTechnicians,
+  updateTechnician: dispatchMap.handlers.updateTechnician,
+  pinProperty: geocoding.handlers.pinProperty,
+  unpinProperty: geocoding.handlers.unpinProperty,
+  pinLocation: geocoding.handlers.pinLocation,
+  unpinLocation: geocoding.handlers.unpinLocation,
+  getGeocodingStatus: geocoding.handlers.getGeocodingStatus,
+  // Reports (M21): the records behind a number, and reports on a schedule
+  drillReport: reports.handlers.drillReport,
+  listReportSchedules: deliverySchedules.handlers.listReportSchedules,
+  createReportSchedule: deliverySchedules.handlers.createReportSchedule,
+  updateReportSchedule: deliverySchedules.handlers.updateReportSchedule,
+  setReportSchedulePaused: deliverySchedules.handlers.setReportSchedulePaused,
+  deleteReportSchedule: deliverySchedules.handlers.deleteReportSchedule,
+  listReportDeliveries: deliverySchedules.handlers.listReportDeliveries,
+
+  // CRM tags and the duplicate sweep (M03)
+  listCustomerTags: customerTags.handlers.listCustomerTags,
+  setCustomerTags: customerTags.handlers.setCustomerTags,
+  renameCustomerTag: customerTags.handlers.renameCustomerTag,
+  mergeCustomerTags: customerTags.handlers.mergeCustomerTags,
+  listCustomerDuplicatePairs: customerDuplicates.handlers.listCustomerDuplicatePairs,
+  dismissCustomerDuplicate: customerDuplicates.handlers.dismissCustomerDuplicate,
+
+  // Price book categories and bulk changes (M06)
+  listPriceBookCategories: priceCategories.handlers.listPriceBookCategories,
+  createPriceBookCategory: priceCategories.handlers.createPriceBookCategory,
+  updatePriceBookCategory: priceCategories.handlers.updatePriceBookCategory,
+  placePriceBookCategory: priceCategories.handlers.placePriceBookCategory,
+  removePriceBookCategory: priceCategories.handlers.removePriceBookCategory,
+  filePriceBookItems: priceCategories.handlers.filePriceBookItems,
+  previewPriceChange: repricing.handlers.previewPriceChange,
+  applyPriceChange: repricing.handlers.applyPriceChange,
+  listPriceChanges: repricing.handlers.listPriceChanges,
+  getPriceChange: repricing.handlers.getPriceChange,
+  reversePriceChange: repricing.handlers.reversePriceChange,
+
+  // Recurring tasks, escalation and checklists (M34)
+  listTaskTemplates: taskRules.handlers.listTaskTemplates,
+  createTaskTemplate: taskRules.handlers.createTaskTemplate,
+  updateTaskTemplate: taskRules.handlers.updateTaskTemplate,
+  listTaskEscalationRules: taskRules.handlers.listTaskEscalationRules,
+  createTaskEscalationRule: taskRules.handlers.createTaskEscalationRule,
+  updateTaskEscalationRule: taskRules.handlers.updateTaskEscalationRule,
+  listTaskEscalations: taskRules.handlers.listTaskEscalations,
+  listReportingLines: taskRules.handlers.listReportingLines,
+  setReportingLine: taskRules.handlers.setReportingLine,
+  getTaskChecklist: taskChecklist.handlers.getTaskChecklist,
+  addTaskChecklistItem: taskChecklist.handlers.addTaskChecklistItem,
+  tickTaskChecklistItem: taskChecklist.handlers.tickTaskChecklistItem,
+  removeTaskChecklistItem: taskChecklist.handlers.removeTaskChecklistItem,
+  // Native call tracking, the website snippet and referrals (M19)
+  searchAvailableNumbers: voice.handlers.searchAvailableNumbers,
+  buyTrackingNumber: voice.handlers.buyTrackingNumber,
+  setNumberRouting: voice.handlers.setNumberRouting,
+  releasePhoneNumber: voice.handlers.releasePhoneNumber,
+  recordPublicTouch: websiteTracking.handlers.recordPublicTouch,
+  getVisitorNumber: websiteTracking.handlers.getVisitorNumber,
+  getWebsiteTracking: websiteTracking.handlers.getWebsiteTracking,
+  setWebsiteTracking: websiteTracking.handlers.setWebsiteTracking,
+  getReferrals: referrals.handlers.getReferrals,
+  setReferralSettings: referrals.handlers.setReferralSettings,
+  settleReferralReward: referrals.handlers.settleReferralReward,
+  getCustomerReferral: referrals.handlers.getCustomerReferral,
+  setCustomerReferrer: referrals.handlers.setCustomerReferrer,
+  viewPortalReferral: referrals.handlers.viewPortalReferral,
+  getForm: forms.handlers.getForm,
+  getHostedForm: forms.handlers.getHostedForm,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

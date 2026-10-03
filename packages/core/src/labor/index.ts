@@ -1769,3 +1769,48 @@ const negateMoney = (m: Money): Money => subtract(zero(m.currency), m);
 /** The instant a calendar date begins in the policy's zone. Re exported for callers assembling periods. */
 export const startOfPolicyDay = (date: string, policy: OvertimePolicy): Date =>
   startOfDayIn(date, policy.timeZone);
+
+/* ------------------------------------------------------------ wage scales */
+
+/**
+ * A WAGE SCALE CHANGED FROM A DATE: where the old one stops.
+ *
+ * A rate is never edited, because every entry already costed against it
+ * would be repriced and last quarter's job costing would move. A change is
+ * the old scale closed the day before the new rate starts and a new scale
+ * from that day, so an entry worked on the third keeps the rate of the third
+ * whatever happens on the fourth.
+ *
+ * Refused when the change would start on or before the day the scale it
+ * replaces began, because then the two do not follow one another: one of
+ * them was simply wrong, and the honest record of that is retiring the wrong
+ * one and loading the right one, not a revision dated before the original.
+ * Refused too when the scale already ended before the change would start,
+ * because there is nothing in effect then to change.
+ */
+export type ScaleRevision = { ok: true; closeOn: string } | { ok: false; reason: string };
+
+export function scaleRevision(
+  current: { effectiveFrom: string | null; effectiveTo: string | null },
+  from: string,
+): ScaleRevision {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || Number.isNaN(Date.parse(`${from}T00:00:00Z`))) {
+    return { ok: false, reason: `"${from}" is not a date. Say the day the new rate starts, like 2026-11-01.` };
+  }
+  if (current.effectiveFrom && from <= current.effectiveFrom) {
+    return {
+      ok: false,
+      reason: `This scale started on ${current.effectiveFrom}, so a change has to start after that. `
+        + "If the rate was wrong from the beginning, retire this scale and load the right one.",
+    };
+  }
+  const closeOn = new Date(Date.parse(`${from}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  if (current.effectiveTo && closeOn > current.effectiveTo) {
+    return {
+      ok: false,
+      reason: `This scale already ended on ${current.effectiveTo}, so there is nothing in effect on ${from} to change. `
+        + "Load a new scale instead.",
+    };
+  }
+  return { ok: true, closeOn };
+}

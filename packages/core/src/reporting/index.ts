@@ -1,5 +1,6 @@
 import type { Permission } from "../access/permissions";
 import type { ScopedResource } from "../access/scopes";
+import type { RecordShape } from "./drill.js";
 
 /**
  * REPORTING, AS A SEMANTIC LAYER
@@ -102,6 +103,12 @@ export interface Dataset {
   measures: Measure[];
   /** The column a date range filters on. */
   dateColumn: string;
+  /**
+   * What one row of this dataset is, so an aggregate can be opened into the
+   * records behind it. Required: a dataset that can be summed and cannot say
+   * what it summed is a number nobody can check. See `drill.ts`.
+   */
+  records: RecordShape;
 }
 
 export interface ReportDefinition {
@@ -222,3 +229,7 @@ export function explainRefusal(refusal: ReportRefusal): string {
       return refusal.detail;
   }
 }
+
+export * from "./drill.js";
+export * from "./schedule.js";
+export * from "./csv.js";

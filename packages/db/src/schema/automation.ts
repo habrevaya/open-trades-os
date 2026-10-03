@@ -1,7 +1,7 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, primaryKey, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, primaryKey, timestamp, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
-import { organization, user } from "./tenancy";
+import { organization, user, memberRole } from "./tenancy";
 
 /**
  * EVENTS AND WORKFLOWS
@@ -122,10 +122,28 @@ export const workflow = pgTable("workflow", {
    * which is why it is nullable and why `enabled` alone does not mean it runs.
    */
   activeVersionId: uuid("active_version_id"),
+  /**
+   * The recommended automation this was installed from, when it was.
+   *
+   * A label and nothing more. The installed workflow is an ordinary one, its
+   * steps are in its own versions like any other, and editing it changes
+   * nothing about the template. This is how the recommended list knows it
+   * is already on, so a second press does not install a second copy that
+   * texts every customer twice.
+   */
+  templateKey: text("template_key"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("workflow_org_idx").on(t.organizationId, t.enabled),
+  /**
+   * One live install per template. Unique rather than checked, because two
+   * presses of the same button are two requests racing, and the loser's
+   * insert is the only thing that can be relied on to fail. A deleted one
+   * does not count, so a company can remove it and turn it on again.
+   */
+  templateIdx: uniqueIndex("workflow_template_idx").on(t.organizationId, t.templateKey)
+    .where(sql`${t.templateKey} is not null and ${t.deletedAt} is null`),
 }));
 
 /**
@@ -399,6 +417,25 @@ export const task = pgTable("task", {
   completedByUserId: uuid("completed_by_user_id").references(() => user.id, { onDelete: "set null" }),
   /** Why it was dismissed. A queue full of silently dropped work is noise. */
   outcome: text("outcome"),
+  /**
+   * Why it was closed as done with checklist items still unticked.
+   *
+   * Kept apart from `outcome` because they answer different questions: what
+   * happened, and why the list said otherwise. A van check closed with "tyres
+   * not checked, gauge missing" is a finding, and folding it into the
+   * outcome is how it stops being one.
+   */
+  checklistOverrideReason: text("checklist_override_reason"),
+  /**
+   * The recurring template that raised it, and for which day.
+   *
+   * The pair is what makes a recurring task impossible to raise twice: the
+   * worker inserts and the unique index below decides, so a worker that
+   * restarts halfway through a pass, or two workers running at once, raise
+   * Monday's van check once.
+   */
+  templateId: uuid("template_id").references(() => taskTemplate.id, { onDelete: "set null" }),
+  occurrenceOn: date("occurrence_on"),
   ...timestamps,
 }, (t) => ({
   /** The three views: mine, the queue's, and what is late. */
@@ -406,6 +443,10 @@ export const task = pgTable("task", {
   queueIdx: index("task_queue_idx").on(t.organizationId, t.queue, t.status),
   dueIdx: index("task_due_idx").on(t.organizationId, t.status, t.dueAt),
   entityIdx: index("task_entity_idx").on(t.entityType, t.entityId),
+  /** One task per recurring template per day, whatever the worker does. */
+  occurrenceIdx: uniqueIndex("task_template_occurrence_idx")
+    .on(t.organizationId, t.templateId, t.occurrenceOn)
+    .where(sql`${t.templateId} is not null`),
   /**
    * One open task per workflow run per entity.
    *
@@ -416,4 +457,123 @@ export const task = pgTable("task", {
   automationIdx: uniqueIndex("task_automation_idx")
     .on(t.organizationId, t.raisedByRunId, t.entityType, t.entityId)
     .where(sql`${t.raisedByRunId} is not null`),
+}));
+
+/**
+ * THINGS TO TICK OFF INSIDE ONE TASK.
+ *
+ * "Open the shop" is six things, and a task that says only that is closed by
+ * somebody who did four of them. The items are rows rather than a jsonb list
+ * so ticking one is a write that says who and when, which is the part
+ * anybody asks about afterwards.
+ */
+export const taskChecklistItem = pgTable("task_checklist_item", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  taskId: uuid("task_id").notNull().references(() => task.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  position: integer("position").notNull().default(0),
+  doneAt: timestamp("done_at", { withTimezone: true }),
+  doneByUserId: uuid("done_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  taskIdx: index("task_checklist_item_task_idx").on(t.taskId, t.position),
+}));
+
+export const taskFrequency = pgEnum("task_frequency", ["daily", "weekly", "monthly"]);
+
+/**
+ * WORK THAT COMES ROUND AGAIN.
+ *
+ * Check the vans on Monday, reconcile the card machine on the first, ring
+ * the plan members whose filters are due. A company that keeps these in one
+ * person's head loses them the week that person is off.
+ *
+ * The day is the COMPANY'S day, from its own timezone, because "every
+ * Monday" in Chicago starts at five in the morning UTC and a worker that
+ * counted days in UTC would raise Monday's task on Sunday evening.
+ */
+export const taskTemplate = pgTable("task_template", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body"),
+  priority: taskPriority("priority").notNull().default("normal"),
+  assigneeUserId: uuid("assignee_user_id").references(() => user.id, { onDelete: "set null" }),
+  queue: text("queue"),
+  frequency: taskFrequency("frequency").notNull(),
+  /** For weekly: 0 is Sunday, 6 is Saturday. */
+  weekday: integer("weekday"),
+  /** For monthly: the day of the month, held to the month's length. */
+  monthDay: integer("month_day"),
+  /** When on the day it is due, in minutes after the company's midnight. */
+  dueMinutes: integer("due_minutes").notNull().default(17 * 60),
+  /** Copied onto each task it raises, so ticking Monday's does not tick Tuesday's. */
+  checklist: jsonb("checklist").$type<string[]>().notNull().default([]),
+  startsOn: date("starts_on").notNull(),
+  active: boolean("active").notNull().default(true),
+  /** The last day it raised a task for. Bookkeeping; the unique index is the guarantee. */
+  lastRaisedOn: date("last_raised_on"),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: index("task_template_org_idx").on(t.organizationId, t.active),
+}));
+
+export const escalationTarget = pgEnum("escalation_target", ["manager", "role", "person"]);
+
+/**
+ * WHAT HAPPENS WHEN A TASK STAYS LATE.
+ *
+ * Overdue is derived and shown in red, and a red line on a screen nobody
+ * opened is the same as no line. A rule says: this many hours past due,
+ * tell somebody, and optionally hand the task to somebody else. The worker
+ * applies it, once per task per rule.
+ */
+export const taskEscalationRule = pgTable("task_escalation_rule", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  afterHours: integer("after_hours").notNull(),
+  /** Only tasks at or above this priority. Null means every task. */
+  minimumPriority: taskPriority("minimum_priority"),
+  target: escalationTarget("target").notNull(),
+  /** For `role`: everybody active in that preset. */
+  targetRole: memberRole("target_role"),
+  /** For `person`. */
+  targetUserId: uuid("target_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Hand the task over as well as telling somebody. Null leaves it where it is. */
+  reassignToUserId: uuid("reassign_to_user_id").references(() => user.id, { onDelete: "set null" }),
+  active: boolean("active").notNull().default(true),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: index("task_escalation_rule_org_idx").on(t.organizationId, t.active),
+}));
+
+/**
+ * One rule having fired on one task.
+ *
+ * The row IS the idempotency: the worker inserts it first, with on conflict
+ * do nothing, and only the pass whose insert landed tells anybody. A worker
+ * restarted mid pass, or two of them, notify once.
+ */
+export const taskEscalation = pgTable("task_escalation", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  taskId: uuid("task_id").notNull().references(() => task.id, { onDelete: "cascade" }),
+  ruleId: uuid("rule_id").notNull().references(() => taskEscalationRule.id, { onDelete: "cascade" }),
+  /** Who was told, by user id. */
+  notified: jsonb("notified").$type<string[]>().notNull().default([]),
+  /** Why the people told are the people told, in words: "no manager recorded for Sam, so the owners". */
+  note: text("note"),
+  reassignedFromUserId: uuid("reassigned_from_user_id"),
+  reassignedToUserId: uuid("reassigned_to_user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  onceIdx: uniqueIndex("task_escalation_once_idx").on(t.taskId, t.ruleId),
+  orgIdx: index("task_escalation_org_idx").on(t.organizationId, t.createdAt),
 }));

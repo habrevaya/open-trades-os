@@ -103,9 +103,16 @@ it would expect it to mean.
 
 ## Setup
 
-`/settings/integrations` connects Twilio or JustCall for SMS and voice, and
-Resend or any SMTP server for email, by the names of the secrets rather than by
-pasting secrets. `/settings` holds the phone numbers and the call recording
+`/settings/integrations` connects Twilio or JustCall for SMS, and Resend or any
+SMTP server for email, by the names of the secrets rather than by pasting
+secrets. The same Twilio connection, with the same credential and the same
+webhook token, answers calls to tracking numbers bought on `/settings` (M19):
+it forwards, whispers the channel and campaign to whoever answers, routes by
+business hours, takes voicemail, and records only when the caller presses 1 and
+the recording check allows it. JustCall has no voice adapter. Other calls reach
+this product as records, from a call tracking provider (CallRail, M19) or
+logged through `POST /v1/calls`. `docs/self-hosting/voice.md` is the operator's
+side of the calls. `/settings` holds the phone numbers and the call recording
 policy. A2P 10DLC brand and campaign registration is recorded through
 `POST /v1/messaging/brands` and `POST /v1/messaging/campaigns`, and the setup
 wizard flags it as needing somebody else's review queue.
@@ -129,7 +136,11 @@ wizard flags it as needing somebody else's review queue.
 ### Email
 
 `POST /v1/email/messages` queues one and `POST /v1/email/send-queued` hands it to
-the provider. `GET /v1/email/suppressions` is the list,
+the provider. The worker does the same on its pass for every company that queued
+something, the way it sends texts, so a report or a statement queued at seven in
+the morning by the worker itself goes out without anybody pressing anything. An
+email can carry files: a delivered report's CSV is kept beside its message and
+handed to Resend or the SMTP server with it. `GET /v1/email/suppressions` is the list,
 `POST /v1/email/suppressions` adds an address and
 `DELETE /v1/email/suppressions/{address}` lifts one.
 
@@ -139,7 +150,23 @@ the provider. `GET /v1/email/suppressions` is the list,
 `POST /v1/calls` logs one, and the recording has its own three calls:
 `POST /v1/calls/{id}/recording-decision`,
 `POST /v1/calls/{id}/recording` and
-`DELETE /v1/calls/{id}/recording`. Recording policy per jurisdiction is set with
+`DELETE /v1/calls/{id}/recording`.
+
+A call to a number bought here runs the same two gates from the carrier's
+webhook, through the same functions the routes call: the recording decision is
+taken after the caller has been asked, with the operator's declared policies,
+and a finished recording is attached only when that decision said yes. The
+audio is fetched from the carrier, kept as a stored file (call audio is
+accepted by the file store for this and for nothing a person uploads), and the
+carrier's copy deleted, so deleting the recording here deletes the bytes. A
+voicemail is kept the same way: it is a message the caller chose to leave
+after being asked to, not a recording of a conversation. Both play on the call
+screen for whoever holds `message:read`.
+
+A call nobody answered emits `call.missed`, which the missed call text back
+automation (M29) listens for. Its text goes through `sendTransactional`, the one
+gate every conversational text takes: from the company's ordinary number,
+never a tracking one, and never to somebody who replied STOP. Recording policy per jurisdiction is set with
 `POST /v1/recording-policies` and read with `GET /v1/recording-policies`.
 
 ### Templates
@@ -197,8 +224,12 @@ gate as everything else.
 
 Nothing checks that the unsubscribe URL handed to the email sender points at the
 page this product serves, so a caller can satisfy the gate with any string,
-including a 404. Campaigns supply the real one; another caller might not. There is
-no voice agent and no call deflection. Inbound email parsing into a conversation
+including a 404. Campaigns supply the real one; another caller might not. Voice
+is tracking numbers only: Twilio answers, forwards, whispers, routes by hours,
+records with the caller's keypress and takes voicemail for a number bought
+here, and nothing places a call, runs a menu, rings a group or queues a caller,
+so there is no voice agent and no call deflection. JustCall has no voice
+adapter. A native call's recording is not transcribed. Inbound email parsing into a conversation
 thread is one way: a reply to a transactional email does not land in the inbox.
 MMS is not handled. The messaging registration records a carrier's decision and
 does not submit the application.

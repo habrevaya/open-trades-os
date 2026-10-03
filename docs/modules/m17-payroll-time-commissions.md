@@ -133,6 +133,28 @@ write. `POST /v1/commissions` settles an earning,
 `POST /v1/payroll/commission-payments` records them as paid, which is a payroll
 act and takes `payroll:export`. `/payroll/commissions` is the screen.
 
+### Declare overtime and wage scales
+
+`/payroll/pay-rules` is the screen: the overtime rule in use and the ones it
+replaced, every wage scale with its dates, and who is paid at which classification
+with the people whose time would cost nothing named. Reading it takes
+`timesheet:read` and changing anything `payroll:configure`.
+
+`GET /v1/payroll/overtime-policies` lists the policies and
+`POST /v1/payroll/overtime-policies` declares a new one, which replaces the old one
+and says when it reclassifies weeks already approved.
+`GET /v1/payroll/wage-scales` lists the scales and `POST /v1/payroll/wage-scales`
+loads one. `POST /v1/payroll/wage-scales/{id}/revisions` changes a rate from a date:
+the old scale is closed the day before and a new one opened from that day with
+everything else it said, in one step, so time worked before keeps its rate. A change
+dated on or before the day the scale began is refused, because that scale was wrong
+rather than changed: `POST /v1/payroll/wage-scales/{id}/retire` stops it on a date
+and the right one is loaded. Nothing is deleted.
+`GET /v1/payroll/crew-rates` says who costs what today and
+`POST /v1/payroll/classifications` sets a person's classification. Loading,
+changing and declaring answer a retried request with the first answer rather than
+writing a second row.
+
 ## Permissions
 
 | Role | Access |
@@ -162,6 +184,14 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/commissions` | `commission:read` |
 | `POST /v1/commissions/plans` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
+| `GET /v1/payroll/overtime-policies` | `timesheet:read` |
+| `POST /v1/payroll/overtime-policies` | `payroll:configure` |
+| `GET /v1/payroll/wage-scales` | `timesheet:read` |
+| `POST /v1/payroll/wage-scales` | `payroll:configure` |
+| `POST /v1/payroll/wage-scales/{id}/revisions` | `payroll:configure` |
+| `POST /v1/payroll/wage-scales/{id}/retire` | `payroll:configure` |
+| `GET /v1/payroll/crew-rates` | `timesheet:read` |
+| `POST /v1/payroll/classifications` | `payroll:configure` |
 
 ## Common questions
 
@@ -180,8 +210,10 @@ could hold, which is worse than a coarse one.
 
 ## What is not built
 
-No payroll processing, by design. There is no screen for wage scales or the
-overtime policy, so both are declared through the API. Tips, reimbursements and
+No payroll processing, by design. A wage scale's overtime multipliers, jurisdiction
+and apprentice ratio are taken by the API and not offered on the pay rules screen,
+and a scale cannot be corrected in place: a wrong one is retired and the right one
+loaded. Tips, reimbursements and
 per diem are not modelled. Certified payroll reporting is not built. Commission
 splits across several people are computed by core and settled one earning at a
 time rather than from a screen.

@@ -74,6 +74,27 @@ in the event log; a failure stops that endpoint at the failing event rather than
 skipping it; retries back off; and an endpoint that has failed enough times in a row is
 switched off with a line in the audit log rather than retried forever.
 
+**Every attempt is kept, with what the receiver said, and kept bounded.** Each
+delivery attempt records the event, the attempt number (replays included), when it
+went, how long it took, the status the receiver answered, the first two thousand
+characters of its body and any error. An attempt is delivered (a 2xx), refused (any
+other answer) or unreachable (no answer at all). The history is pruned on every pass,
+per endpoint, to thirty days and a thousand attempts, whichever cuts first, so a
+receiver answering every retry with a megabyte of HTML cannot grow it without bound.
+
+**A replay is a second copy of history, not a rewind.** One delivery, one event, or
+everything an endpoint subscribes to from a point in the log can be sent again. It is
+queued and the worker sends it in order after the endpoint's live deliveries, signed
+afresh (an old signature would fail the receiver's skew check, which is the point of
+it) and carrying the same `x-otos-delivery` header as the original, so a receiver
+deduplicating on it is never made to process an event twice; `x-otos-replay` names
+the replay. The range is fixed when it is asked for, at most five thousand events,
+and the endpoint's own position does not move. A replay that keeps failing backs off
+and gives up on its own count, and never switches the live stream off. Asking again
+for a replay that is still waiting returns it rather than queuing a second. The
+worker visits a company owing a replay or a retry even on a pass where it produced
+no event.
+
 **The timestamp is inside the signed payload, not merely alongside it.** A signature
 over the body alone is valid forever: anybody who captures one delivery can replay it
 later and the receiver cannot tell, because everything they check still matches.
@@ -90,8 +111,22 @@ that column, so a list, a read or an update cannot leak it even by accident.
 ### Call the API
 
 Everything is under `/api/v1`, with the generated reference in
-`packages/api/openapi.json`: 341 paths and 413 operations. A session or an app token
+`packages/api/openapi.json`: 471 paths and 573 operations. A session or an app token
 authenticates; the permissions each route needs are in the spec.
+
+### The open routes
+
+A few routes take no session at all, because a stranger's browser calls them:
+the booking widget's three, the portal's link routes (M05), the unsubscribe
+page (M19), and since the website snippet and hosted forms (M19) these:
+`POST /v1/public/touches`, `GET /v1/public/dni`,
+`GET /v1/public/hosted-forms/{key}` and `POST /v1/public/forms/{formSlug}`.
+Each resolves the company from a public key (its slug, or a form's own key),
+returns nothing about anybody, and the website and form routes count their
+callers per key and per address and answer 429 with `Retry-After` past a
+ceiling. The open routes, and only they, answer a browser's preflight and mark
+their answers readable from any origin, which is safe because they read no
+cookie and hold no session for another page to borrow.
 
 ### Register a webhook
 
@@ -101,6 +136,18 @@ authenticates; the permissions each route needs are in the spec.
 `DELETE /v1/webhooks/endpoints/{id}` removes it,
 `GET /v1/webhooks/events` is the catalogue of what can be subscribed to, and
 `GET /v1/webhooks/endpoints/{id}/position` says how far behind the log an endpoint is.
+
+### See what was sent, and send it again
+
+`GET /v1/webhooks/endpoints/{id}/deliveries` is one endpoint's attempts, newest
+first, filtered by `status` (delivered, refused, unreachable) or by `eventId`.
+`GET /v1/webhooks/deliveries?eventId=` is every attempt to deliver one event, to every
+endpoint. `POST /v1/webhooks/endpoints/{id}/replays` sends one `deliveryId`, one
+`eventId`, or everything from `fromSequence` (to `throughSequence`) again, and
+`GET /v1/webhooks/endpoints/{id}/replays` says how far each replay has got.
+Settings > Webhooks (`/settings/webhooks`) registers endpoints, switches them on and
+off, and shows the history with a filter by what happened and a send again button on
+every attempt.
 
 ### Be an app
 
@@ -135,7 +182,13 @@ particular.
 | `DELETE /v1/webhooks/endpoints/{id}` | `integration:write` |
 | `GET /v1/webhooks/events` | `integration:read` |
 | `GET /v1/webhooks/endpoints/{id}/position` | `integration:read` |
+| `GET /v1/webhooks/endpoints/{id}/deliveries` | `integration:read` |
+| `GET /v1/webhooks/deliveries` | `integration:read` |
+| `POST /v1/webhooks/endpoints/{id}/replays` | `integration:write` |
+| `GET /v1/webhooks/endpoints/{id}/replays` | `integration:read` |
 | `GET /v1/apps/me` | nothing: the token is the identity |
+| `POST /v1/public/touches` | nothing: counted per company, address and visitor |
+| `GET /v1/public/dni` | nothing: counted per company and address |
 
 ## Common questions
 
@@ -162,7 +215,8 @@ there is no consent flow where a third party requests a grant and somebody
 approves it. That is the half of `docs/concepts/connected-apps.md` that is still
 a design.
 
-A webhook's delivery history is not readable. An endpoint reports its position in
-the event log and how many times it has failed in a row, and the individual
-attempts and their responses are not kept, so an integrator debugging a receiver
-is reading their own logs rather than ours. Nothing replays a delivery.
+Delivery history is kept for thirty days and a thousand attempts per endpoint and
+not longer; an older answer is gone. A replay cannot reach further back than the
+event log does, covers only the events the endpoint subscribes to now, and cannot be
+cancelled once queued. Rotating an endpoint's signing secret is still not possible:
+register a new endpoint.

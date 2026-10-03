@@ -52,7 +52,15 @@ export default async function AgreementsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
-      <PageHeader title="Agreements" count={book.length} />
+      <PageHeader
+        title="Agreements"
+        count={book.length}
+        action={(
+          <a href="/agreements/renewals" className="text-sm text-ink-700 hover:underline">
+            Ending soon
+          </a>
+        )}
+      />
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-md border border-steel-200 bg-canvas p-4">

@@ -848,8 +848,13 @@ export const CATALOGUE: Record<string, Entry> = {
        * "New subscriptions attributed to a neighbour referral divided by all new
        * subscriptions."
        *
-       * Attribution comes from `customer.lead_source`, which core's lead source
-       * catalogue defines, and `referral` is one of its keys. A first agreement
+       * Attribution comes from `customer.lead_source`, which holds a key from
+       * core's lead source catalogue. A neighbour sending somebody is
+       * `referral_customer`; `referral_trade` is a builder or a realtor, which
+       * is a partnership rather than a neighbour and is left out. This used
+       * to filter on 'referral', 'customer_referral' and 'neighbour_referral',
+       * none of which the catalogue has ever had, so it read nought per cent
+       * for every company that recorded referrals correctly. A first agreement
        * (`renewal_count = 0`) is the subscription starting.
        */
       numerator: (from, to) => sql`
@@ -858,7 +863,7 @@ export const CATALOGUE: Record<string, Entry> = {
         join public.customer c on c.id = a.customer_id
         where a.deleted_at is null and a.renewal_count = 0
           and a.started_on >= ${from}::date and a.started_on <= ${to}::date
-          and c.lead_source in ('referral', 'customer_referral', 'neighbour_referral')
+          and c.lead_source = 'referral_customer'
       `,
       denominator: (from, to) => sql`
         select count(*)::numeric as value

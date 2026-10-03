@@ -30,21 +30,27 @@ import { invoiceDeliveryRoutes } from "./invoice-delivery";
 import { profitabilityRoutes } from "./profitability";
 import { crewRoutes } from "./crews";
 import { payrollRoutes } from "./payroll";
+import { payRuleRoutes } from "./pay-rules";
 import { aiRoutes } from "./ai";
 import { assetRoutes } from "./assets";
 import { complianceRoutes } from "./compliance";
 import { projectRoutes } from "./projects";
 import { calendarRoutes } from "./calendar";
 import { callTrackingRoutes } from "./call-tracking";
+import { trackingRoutes } from "./tracking";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
+import { reportRoutes } from "./reports";
 import { appRoutes } from "./apps";
 import { equipmentRoutes } from "./equipment";
 import { taskRoutes } from "./tasks";
 import { workflowRoutes } from "./workflows";
+import { agreementRoutes } from "./agreements";
+import { visitChangeRoutes } from "./visit-changes";
 import { inspectionRoutes } from "./inspections";
 import { creditNoteRoutes } from "./credit-notes";
+import { statementRoutes } from "./statements";
 import { pricingAuthorityRoutes } from "./pricing-authority";
 import { fieldAssetRoutes } from "./field-assets";
 import { campaignRoutes } from "./campaigns";
@@ -53,6 +59,11 @@ import { networkRoutes } from "./network";
 import { exportRoutes } from "./export";
 import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
+import { dispatchMapRoutes } from "./dispatch-map";
+import { acquisitionRoutes } from "./acquisition";
+import { customerTagRoutes } from "./customer-tags";
+import { priceBookBulkRoutes } from "./pricebook-bulk";
+import { taskRuleRoutes } from "./task-rules";
 
 export * from "./common";
 export * from "./customers";
@@ -70,6 +81,7 @@ export * from "./labor";
 export * from "./obligations";
 export * from "./files";
 export * from "./marketing";
+export * from "./acquisition";
 export * from "./connectors";
 export * from "./reviews";
 export * from "./recurring";
@@ -87,19 +99,30 @@ export * from "./invoice-delivery";
 export * from "./profitability";
 export * from "./crews";
 export * from "./payroll";
+export * from "./pay-rules";
 export * from "./ai";
 export * from "./assets";
 export * from "./compliance";
 export * from "./projects";
 export * from "./calendar";
 export * from "./call-tracking";
+export * from "./tracking";
 export * from "./company";
 export * from "./readbacks";
 export * from "./service-reports";
+export * from "./reports";
 export * from "./apps";
 export * from "./pricing-authority";
 export * from "./field-assets";
 export * from "./credit-notes";
+export * from "./statements";
+export * from "./dispatch-map";
+export * from "./agreements";
+export * from "./visit-changes";
+export * from "./customer-tags";
+export * from "./pricebook-bulk";
+export * from "./task-rules";
+export * from "./tasks";
 
 /**
  * Every route in the product, and the only description of them.
@@ -126,6 +149,7 @@ export const routes = {
   ...priceBookRoutes,
   ...billingRoutes,
   ...creditNoteRoutes,
+  ...statementRoutes,
   ...estimateRoutes,
   ...portalRoutes,
   ...bookingRoutes,
@@ -136,6 +160,7 @@ export const routes = {
   ...obligationRoutes,
   ...fileRoutes,
   ...marketingRoutes,
+  ...acquisitionRoutes,
   ...connectorRoutes,
   ...reviewRoutes,
   ...recurringRoutes,
@@ -153,12 +178,14 @@ export const routes = {
   ...profitabilityRoutes,
   ...crewRoutes,
   ...payrollRoutes,
+  ...payRuleRoutes,
   ...aiRoutes,
   ...assetRoutes,
   ...complianceRoutes,
   ...projectRoutes,
   ...calendarRoutes,
   ...callTrackingRoutes,
+  ...trackingRoutes,
   ...companyRoutes,
   ...readbackRoutes,
   ...serviceReportRoutes,
@@ -166,6 +193,8 @@ export const routes = {
   ...equipmentRoutes,
   ...taskRoutes,
   ...workflowRoutes,
+  ...agreementRoutes,
+  ...visitChangeRoutes,
   ...inspectionRoutes,
   ...pricingAuthorityRoutes,
   ...fieldAssetRoutes,
@@ -175,6 +204,11 @@ export const routes = {
   ...exportRoutes,
   ...externalWorkRoutes,
   ...kpiRoutes,
+  ...dispatchMapRoutes,
+  ...reportRoutes,
+  ...customerTagRoutes,
+  ...priceBookBulkRoutes,
+  ...taskRuleRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

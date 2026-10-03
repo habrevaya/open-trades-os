@@ -80,27 +80,21 @@ function cleanScopes(
 }
 
 /**
- * Resolve a session token hash to the actor it represents.
+ * The actor a membership row describes.
  *
- * Goes through `app.resolve_session` rather than a select, because the lookup
- * happens before the tenant is known and so no row level security policy
- * keyed on the current organization can match on that first read. The
- * alternative is connecting as a role that bypasses RLS from a request path,
- * which is never acceptable.
+ * Shared by a signed in session and by the worker acting for somebody (a
+ * scheduled report runs as the person who set it up), so the two cannot come
+ * to disagree about what a custom role or a scope override means. A copy of
+ * this in the worker would be the version nobody updated the day a new kind
+ * of narrowing was added, and a report would quietly start showing somebody
+ * more than their own screens do.
  */
-export async function resolveSession(
-  db: Database,
-  tokenHash: string,
-): Promise<ResolvedSession | null> {
-  const rows = await db.execute<SessionRow>(
-    sql`select * from app.resolve_session(${tokenHash})`,
-  );
-  const row = rows[0];
-  if (!row) {
-    await assertNotSuspended(db, tokenHash);
-    return null;
-  }
+type MembershipRow = Pick<SessionRow,
+  | "user_id" | "organization_id" | "role" | "grants" | "revocations" | "scope_overrides"
+  | "business_unit_id" | "location_id" | "technician_id" | "crew_ids"
+  | "custom_role_permissions" | "custom_role_scopes" | "demo">;
 
+export function actorFromMembership(row: MembershipRow): Actor {
   const role = row.role as RoleId;
 
   /**
@@ -115,23 +109,11 @@ export async function resolveSession(
    * session, so there is no way to hold a writable session as this user.
    */
   if (row.demo) {
-    const actor: Actor = {
+    return {
       userId: row.user_id,
       organizationId: row.organization_id,
       roles: ["readonly"],
       readOnly: true,
-    };
-    return {
-      actor,
-      userId: row.user_id,
-      email: row.email,
-      name: row.name,
-      organizationId: row.organization_id,
-      organizationName: row.organization_name,
-      organizationSlug: row.organization_slug,
-      organizationTimezone: row.organization_timezone ?? "America/Chicago",
-      setupCompleted: row.setup_completed_at != null,
-      demo: true,
     };
   }
 
@@ -205,6 +187,67 @@ export async function resolveSession(
   if (row.business_unit_id) actor.businessUnitId = row.business_unit_id;
   if (row.location_id) actor.locationId = row.location_id;
 
+  return actor;
+}
+
+/**
+ * The actor a member of this company is TODAY, read inside the tenant.
+ *
+ * Null for somebody who is not an active member any more, which every caller
+ * treats as "they may not", never as "use somebody else". Reads the same
+ * columns `app.resolve_session` does, from the tables row level security
+ * already lets the tenant see, because the worker has no session to resolve.
+ */
+export async function memberActor(
+  tx: Database, organizationId: string, userId: string,
+): Promise<Actor | null> {
+  const rows = await tx.execute<MembershipRow & Record<string, unknown>>(sql`
+    select
+      m.user_id, m.organization_id, m.role::text as role, m.grants, m.revocations, m.scope_overrides,
+      m.business_unit_id, m.location_id,
+      t.id as technician_id,
+      coalesce(
+        (select array_agg(cm.crew_id) from public.crew_member cm where cm.technician_id = t.id),
+        '{}'::uuid[]
+      ) as crew_ids,
+      r.permissions as custom_role_permissions, r.scopes as custom_role_scopes,
+      exists (select 1 from public.organization d where d.demo_user_id = m.user_id) as demo
+    from public.membership m
+    left join public.technician t on t.membership_id = m.id and t.active
+    left join public.role r on r.id = m.role_id and r.deleted_at is null
+    where m.organization_id = ${organizationId}
+      and m.user_id = ${userId}
+      and m.active
+    limit 1
+  `);
+  const row = rows[0];
+  return row ? actorFromMembership(row) : null;
+}
+
+/**
+ * Resolve a session token hash to the actor it represents.
+ *
+ * Goes through `app.resolve_session` rather than a select, because the lookup
+ * happens before the tenant is known and so no row level security policy
+ * keyed on the current organization can match on that first read. The
+ * alternative is connecting as a role that bypasses RLS from a request path,
+ * which is never acceptable.
+ */
+export async function resolveSession(
+  db: Database,
+  tokenHash: string,
+): Promise<ResolvedSession | null> {
+  const rows = await db.execute<SessionRow>(
+    sql`select * from app.resolve_session(${tokenHash})`,
+  );
+  const row = rows[0];
+  if (!row) {
+    await assertNotSuspended(db, tokenHash);
+    return null;
+  }
+
+  const actor = actorFromMembership(row);
+
   return {
     actor,
     userId: row.user_id,
@@ -218,7 +261,7 @@ export async function resolveSession(
     // is at least stable across a hydration, and setup asks for a real one.
     organizationTimezone: row.organization_timezone ?? "America/Chicago",
     setupCompleted: row.setup_completed_at != null,
-    demo: false,
+    demo: row.demo === true,
   };
 }
 

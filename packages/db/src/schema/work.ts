@@ -2,6 +2,7 @@ import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueInde
 import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 import { capacityModel, crew, route, routeStop, rental, territory } from "./scheduling";
 
 /**
@@ -143,7 +144,25 @@ export const job = pgTable("job", {
   /** The customer's own words, captured at intake. Invaluable for the AI agents. */
   customerComplaint: text("customer_complaint"),
   equipmentId: uuid("equipment_id").references(() => equipment.id, { onDelete: "set null" }),
+  /**
+   * The catalogue key this job is credited to. Filled when blank from the
+   * attribution the company chose, and `lead_source_origin` says so: a
+   * source somebody picked and a source the touches implied are different
+   * evidence.
+   */
   leadSource: text("lead_source"),
+  leadSourceOrigin: text("lead_source_origin"),
+  /** The channel and tracking campaign the credited touch belonged to. */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
+  /**
+   * The outbound text or email send (`marketing_campaign`) this job is
+   * credited to, when the credited touch carried that send's utm tag.
+   * Written by `services/marketing.ts` `creditWork`, which every path that
+   * creates work for a customer calls. Its foreign key is declared in
+   * `sql/after.sql`, because the campaign tables import this one.
+   */
   campaignId: uuid("campaign_id"),
 
   /**

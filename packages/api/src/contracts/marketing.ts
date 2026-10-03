@@ -23,7 +23,7 @@ import { Uuid, MoneyString, RateString } from "./common";
  * owner conclude their brand carries them.
  */
 
-export const TouchBasis = z.enum(["utm", "click_id", "tracked_number", "referrer", "none"]);
+export const TouchBasis = z.enum(["utm", "click_id", "tracked_number", "referrer", "declared", "none"]);
 
 export const AttributionModel = z.enum([
   "first_touch", "last_touch", "last_non_direct", "linear", "position_based",
@@ -89,7 +89,24 @@ export const getJobAttribution = defineRoute({
   }),
   output: z.object({
     jobId: Uuid,
+    /** The company's own model, which the job's lead source was filled from. */
+    companyModel: AttributionModel,
     touchCount: z.number().int(),
+    /** Every touch credited to this job, oldest first, with its channel and campaign. */
+    touches: z.array(z.object({
+      id: Uuid,
+      occurredAt: z.string().datetime(),
+      source: z.string(),
+      sourceLabel: z.string(),
+      basis: TouchBasis,
+      /** A person chose it on a form, as against a marketplace or a tag. */
+      enteredByPerson: z.boolean(),
+      channelName: z.string().nullable(),
+      campaignName: z.string().nullable(),
+      trackedNumberE164: z.string().nullable(),
+      callId: Uuid.nullable(),
+      utmCampaign: z.string().nullable(),
+    })),
     /** False when the models name different channels, which is when to read all of them. */
     agree: z.boolean(),
     models: z.array(z.object({
@@ -108,8 +125,13 @@ export const getJobAttribution = defineRoute({
 });
 
 export const SpendRow = z.object({
-  source: z.string(),
+  /** A catalogue key. Optional when a channel or a tracking campaign is named. */
+  source: z.string().optional(),
   campaign: z.string().max(200).nullable().optional(),
+  /** The company's channel this money went to. */
+  channelId: Uuid.nullable().optional(),
+  /** The tracking campaign this money went to, which implies its channel. */
+  campaignId: Uuid.nullable().optional(),
   spentOn: z.string().date(),
   amount: MoneyString,
   impressions: z.number().int().min(0).nullable().optional(),
@@ -131,6 +153,8 @@ export const recordSpend = defineRoute({
     id: Uuid,
     source: z.string(),
     campaign: z.string().nullable(),
+    channelId: Uuid.nullable(),
+    campaignId: Uuid.nullable(),
     spentOn: z.string(),
     amount: MoneyString,
     origin: z.string(),
@@ -261,6 +285,24 @@ export const FormField = z.object({
     z.object({ rule: z.literal("pattern"), value: z.enum(["us_zip", "digits", "letters_and_spaces", "us_state"]) }),
   ])).optional(),
   options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+  /**
+   * For a consent box: what ticking it agrees to. A ticked box records a
+   * consent row with its label as the exact wording; without this, nothing.
+   */
+  consentFor: z.object({
+    channel: z.enum(["sms", "email"]),
+    purpose: z.enum(["marketing", "transactional"]),
+  }).optional(),
+});
+
+/** What happens after a good submission, as the office set it. */
+export const FormSettings = z.object({
+  /** The sentence the hosted page shows once a submission is accepted. */
+  thankYou: z.string().max(500).optional(),
+  /** A text to the person who sent it, through the consent checked sender. */
+  confirmationText: z.string().max(320).optional(),
+  confirmationEmailSubject: z.string().max(200).optional(),
+  confirmationEmailBody: z.string().max(4000).optional(),
 });
 
 export const listForms = defineRoute({
@@ -274,6 +316,8 @@ export const listForms = defineRoute({
     forms: z.array(z.object({
       id: Uuid, slug: z.string(), title: z.string(),
       source: z.string(), fields: z.number().int(),
+      /** The hosted page, `/f/{publicKey}`. */
+      publicKey: z.string().nullable(),
     })),
   }),
 });
@@ -301,8 +345,43 @@ export const saveForm = defineRoute({
      * away real leads from browsers that blocked the script.
      */
     minimumFillSeconds: z.number().int().min(0).max(300).optional(),
+    settings: FormSettings.optional(),
   }),
-  output: z.object({ id: Uuid, slug: z.string(), title: z.string(), source: z.string() }),
+  output: z.object({
+    id: Uuid, slug: z.string(), title: z.string(), source: z.string(), publicKey: z.string(),
+  }),
+});
+
+export const getForm = defineRoute({
+  method: "get",
+  path: "/v1/marketing/forms/{slug}/definition",
+  summary: "One lead form, as the builder edits it",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({ slug: z.string().min(1).max(100) }),
+  output: z.object({
+    id: Uuid, slug: z.string(), title: z.string(), source: z.string(), publicKey: z.string().nullable(),
+    fields: z.array(FormField), minimumFillSeconds: z.number().int().nullable(), settings: FormSettings,
+  }),
+});
+
+/**
+ * The hosted page's read: the form a public key names, with nothing about
+ * the company but its name and slug, and nothing about any submission.
+ */
+export const getHostedForm = defineRoute({
+  method: "get",
+  path: "/v1/public/hosted-forms/{key}",
+  summary: "A lead form, for the page that hosts it",
+  module: "M19",
+  permissions: [],
+  authorization: "public",
+  input: z.object({ key: z.string().min(6).max(40) }),
+  output: z.object({
+    organizationName: z.string(), organizationSlug: z.string(),
+    formSlug: z.string(), title: z.string(), fields: z.array(FormField),
+    thankYou: z.string().nullable(),
+  }),
 });
 
 export const submitForm = defineRoute({
@@ -333,6 +412,8 @@ export const submitForm = defineRoute({
       field: z.string(), reason: z.string(), message: z.string(),
     })),
     customerId: Uuid.nullable(),
+    /** What the page says next, when it was accepted. */
+    thankYou: z.string().nullable(),
   }),
 });
 
@@ -413,6 +494,6 @@ export const getConversions = defineRoute({
 export const marketingRoutes = {
   listTouches, getJobAttribution, recordSpend, importSpend,
   getPerformance, listUnplacedSources,
-  listForms, saveForm, submitForm, listSubmissions, getFormRefusals,
+  listForms, saveForm, getForm, getHostedForm, submitForm, listSubmissions, getFormRefusals,
   getConversions,
 } as const;

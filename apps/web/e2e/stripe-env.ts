@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { E2E_CALLRAIL_ENV } from "./callrail-env";
+import { E2E_TWILIO_ENV } from "./twilio-env";
 
 /**
  * The two Stripe secrets the browser suite starts the server with, and the
@@ -52,7 +54,8 @@ const variableFor = (organizationId: string, name: string) =>
  * The secrets go under the seeded company's own prefix, because the server
  * reads nothing else: the suite connects Stripe under the names
  * STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET, and the store looks for
- * `OTS_SECRET__<company>__STRIPE_SECRET_KEY`.
+ * `OTS_SECRET__<company>__STRIPE_SECRET_KEY`. The CallRail and Twilio names
+ * (./callrail-env.ts, ./twilio-env.ts) go under the same prefix.
  *
  * ALLOW_PROVIDER_BASE_URL is the one setting no real deployment has. It lets
  * the suite point the connection at the local fake Stripe. A deployment with
@@ -60,7 +63,9 @@ const variableFor = (organizationId: string, name: string) =>
  * of their choosing.
  */
 export const E2E_SERVER_ENV: Record<string, string> = {
-  ...Object.fromEntries(Object.entries(E2E_STRIPE_ENV).map(([name, value]) => [
+  ...Object.fromEntries(Object.entries({
+    ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV,
+  }).map(([name, value]) => [
     variableFor(E2E_ORGANIZATION_ID, name), value,
   ])),
   ALLOW_PROVIDER_BASE_URL: "1",

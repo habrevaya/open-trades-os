@@ -46,6 +46,18 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
             {job.arrivalWindow ? `, ${job.arrivalWindow}` : ""}
           </p>
         )}
+        {/*
+          Asking, not moving: the page it opens says so before anything is
+          pressed. Offered whenever there is a booked time to change; whether
+          this one still can be is the service's answer on that page.
+        */}
+        {job.scheduledDate && job.etaMinutes === null && (
+          <p className="mt-3 text-sm">
+            <a href={`/j/${token}/change`} className="text-ink-700 underline underline-offset-4">
+              Need to change or cancel this visit?
+            </a>
+          </p>
+        )}
         {job.etaMinutes !== null && (
           <p className="mt-3 text-sm font-medium">
             About {job.etaMinutes} minutes away.

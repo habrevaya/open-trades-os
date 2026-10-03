@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { loadSlots, submitBooking, type Slot } from "./actions";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { loadSlots, submitBooking, type Slot, type Arrival } from "./actions";
 
 type Service = {
   id: string;
@@ -36,6 +36,46 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const arrival = useRef<Arrival>({});
+
+  /**
+   * HOW THEY GOT HERE, read once when the page opens.
+   *
+   * This page sent an empty utm bag and nothing else, so a homeowner who
+   * clicked a Google ad and booked here was credited to nothing: the click id
+   * an ads account matches a conversion on, the tags on the link and the page
+   * they came from were all in the browser and none of it reached the
+   * booking. The raw query is sent rather than only the utm keys, because a
+   * gclid is not a utm key.
+   *
+   * The visitor id is a random value kept in this browser, the anonymous
+   * thread `marketing_touch.visitor_id` describes: never a fingerprint, and
+   * nothing breaks if storage is blocked, the booking simply carries none.
+   */
+  useEffect(() => {
+    /**
+     * The website snippet's visitor id first, when the link from the company's
+     * site carries it as `otv`: that is the same visitor, and their visits on
+     * the site and this booking are one history. It replaces the one kept
+     * here, so a later visit straight to this page is the same visitor too.
+     */
+    let visitorId: string | undefined;
+    const fromSite = new URLSearchParams(window.location.search).get("otv");
+    const usable = fromSite && /^[A-Za-z0-9_-]{12,64}$/.test(fromSite) ? fromSite : undefined;
+    try {
+      visitorId = usable ?? window.localStorage.getItem("ots_visitor") ?? undefined;
+      if (!visitorId) visitorId = window.crypto.randomUUID();
+      window.localStorage.setItem("ots_visitor", visitorId);
+    } catch {
+      visitorId = usable;
+    }
+    arrival.current = {
+      landingQuery: window.location.search.replace(/^\?/, "") || undefined,
+      referrer: document.referrer || undefined,
+      sourceUrl: window.location.href,
+      visitorId,
+    };
+  }, []);
 
   function chooseService(s: Service) {
     setService(s);
@@ -117,6 +157,7 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
                   serviceId: service.id,
                   date: slot.date,
                   arrivalWindowId: slot.arrivalWindowId,
+                  arrival: arrival.current,
                   ...details,
                 });
                 if (result.ok) {

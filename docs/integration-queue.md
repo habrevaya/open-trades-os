@@ -67,6 +67,8 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `callrail` | telephony | Tracked calls into `call` and `marketing_touch`, signed webhook plus a backfill, because they do not resend. |
 | `twilio` | messaging | The first adapter the product ever had. In this table only now, because it was missing from the catalogue entirely until a second carrier was added beside it. |
 | `justcall` | messaging | The second carrier on the same seam. Their signature covers the URL, the type and a timestamp, and not the message, so the replay window is five minutes rather than a day. |
+| `nominatim` | maps | OpenStreetMap's geocoder, public or self hosted. No key; one request a second against the public server, and a contact address on every request as its usage policy asks. |
+| `mapbox` | maps | The commercial geocoder, always on the permanent tier because every answer is stored. Google is not offered: its terms forbid keeping the coordinates. |
 | `xero` | accounting | The second adapter on the accounting seam. No change feed on their side, so inbound is a modified-since boundary; refresh tokens rotate with no grace period at all. |
 
 ---

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { pk, timestamps } from "./_shared";
+import { pk, timestamps, geocodeColumns } from "./_shared";
 
 /**
  * TENANCY SPINE
@@ -157,6 +157,14 @@ export const location = pgTable("location", {
   timezone: text("timezone"),
   isWarehouse: boolean("is_warehouse").notNull().default(false),
   active: boolean("active").notNull().default(true),
+  /**
+   * Where it is, the same way a property is. A location is where a
+   * technician's day starts and ends (`technician.home_location_id`, or the
+   * company's first location when somebody has none), so the route optimiser
+   * cannot order a day without it. Geocoded by the same worker and pinnable
+   * by hand the same way.
+   */
+  ...geocodeColumns(),
   ...timestamps,
 }, (t) => ({ orgIdx: index("location_org_idx").on(t.organizationId) }));
 
@@ -266,6 +274,16 @@ export const membership = pgTable("membership", {
   scopeOverrides: jsonb("scope_overrides").$type<Record<string, string>>().notNull().default({}),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
+  /**
+   * Who this person answers to, when the company has said.
+   *
+   * Read by task escalation and nothing else: "tell the assignee's manager"
+   * needs somebody to tell, and a role preset is not a person. Nullable,
+   * because most companies of four people have never written it down, and
+   * an escalation with no manager recorded goes to the owners and says why
+   * rather than going nowhere.
+   */
+  reportsToUserId: uuid("reports_to_user_id").references(() => user.id, { onDelete: "set null" }),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({

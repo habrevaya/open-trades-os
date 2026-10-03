@@ -1,6 +1,6 @@
 {
-  "id": "48a7efcf-60ad-4820-bf05-16c27a208638",
-  "prevId": "ff737289-69bc-4a3d-a712-2e5d2c0f20dd",
+  "id": "00b2d7cc-8ca5-448b-8d88-a8d8a9b02c03",
+  "prevId": "27c12fd3-28f5-4329-bf5a-32656548fc9f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -201,61 +201,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.demo_visit": {
-      "name": "demo_visit",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "ip_hash": {
-          "name": "ip_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "demo_visit_ip_idx": {
-          "name": "demo_visit_ip_idx",
-          "columns": [
-            {
-              "expression": "ip_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.location": {
       "name": "location",
       "schema": "",
@@ -335,6 +280,78 @@
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_source": {
+          "name": "location_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_precision": {
+          "name": "location_precision",
+          "type": "geocode_precision",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "located_at": {
+          "name": "located_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "located_address": {
+          "name": "located_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_key": {
+          "name": "address_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "\n    lower(btrim(regexp_replace(coalesce(address_line1, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(address_line2, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(city, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(state, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(postal_code, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(country, ''), '[[:space:]]+', ' ', 'g')))",
+            "type": "stored"
+          }
+        },
+        "geocode_attempted_address": {
+          "name": "geocode_attempted_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocode_attempts": {
+          "name": "geocode_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "geocode_retry_at": {
+          "name": "geocode_retry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocode_error": {
+          "name": "geocode_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -935,12 +952,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "demo_user_id": {
-          "name": "demo_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1017,19 +1028,6 @@
           "tableTo": "network",
           "columnsFrom": [
             "network_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "organization_demo_user_id_user_id_fk": {
-          "name": "organization_demo_user_id_user_id_fk",
-          "tableFrom": "organization",
-          "tableTo": "user",
-          "columnsFrom": [
-            "demo_user_id"
           ],
           "columnsTo": [
             "id"
@@ -2647,6 +2645,66 @@
         },
         "longitude": {
           "name": "longitude",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_source": {
+          "name": "location_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_precision": {
+          "name": "location_precision",
+          "type": "geocode_precision",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "located_at": {
+          "name": "located_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "located_address": {
+          "name": "located_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_key": {
+          "name": "address_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "\n    lower(btrim(regexp_replace(coalesce(address_line1, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(address_line2, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(city, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(state, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(postal_code, ''), '[[:space:]]+', ' ', 'g'))) || '|' ||\n    lower(btrim(regexp_replace(coalesce(country, ''), '[[:space:]]+', ' ', 'g')))",
+            "type": "stored"
+          }
+        },
+        "geocode_attempted_address": {
+          "name": "geocode_attempted_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocode_attempts": {
+          "name": "geocode_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "geocode_retry_at": {
+          "name": "geocode_retry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocode_error": {
+          "name": "geocode_error",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -14532,6 +14590,33 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "ledger_entry_customer_idx": {
+          "name": "ledger_entry_customer_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "customer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -22264,127 +22349,6 @@
         "integration_connection_organization_id_organization_id_fk": {
           "name": "integration_connection_organization_id_organization_id_fk",
           "tableFrom": "integration_connection",
-          "tableTo": "organization",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.integration_secret": {
-      "name": "integration_secret",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sealed_secret": {
-          "name": "sealed_secret",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "key_id": {
-          "name": "key_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "secret_last4": {
-          "name": "secret_last4",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "integration_secret_org_name_idx": {
-          "name": "integration_secret_org_name_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "integration_secret_key_idx": {
-          "name": "integration_secret_key_idx",
-          "columns": [
-            {
-              "expression": "key_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "integration_secret_organization_id_organization_id_fk": {
-          "name": "integration_secret_organization_id_organization_id_fk",
-          "tableFrom": "integration_secret",
           "tableTo": "organization",
           "columnsFrom": [
             "organization_id"
@@ -32467,6 +32431,18 @@
     }
   },
   "enums": {
+    "public.geocode_precision": {
+      "name": "geocode_precision",
+      "schema": "public",
+      "values": [
+        "rooftop",
+        "interpolated",
+        "street",
+        "postal_code",
+        "locality",
+        "placed"
+      ]
+    },
     "public.member_role": {
       "name": "member_role",
       "schema": "public",

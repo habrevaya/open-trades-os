@@ -33,6 +33,17 @@ export interface StepOption {
   description: string;
   permissions: string[];
   allowed: boolean;
+  /**
+   * What a step's fields offer, for a step that picks from the company's own
+   * records: the reports and the people a report can be emailed to. Carried on
+   * the option rather than threaded through every lane, because it is a fact
+   * about the step and not about where it sits.
+   */
+  choices?: {
+    reports: { value: string; label: string }[];
+    people: { userId: string; name: string }[];
+    periods: { key: string; label: string }[];
+  } | undefined;
 }
 
 /** A node on the canvas, with an id so React can keep track of a lane. */
@@ -316,8 +327,25 @@ function Card({
       </div>
 
       {node.kind === "send_message" && <MessageFields config={node.config} set={set} />}
+      {node.kind === "text_caller" && <CallerFields config={node.config} set={set} />}
       {node.kind === "create_task" && <TaskFields config={node.config} set={set} />}
       {node.kind === "wait" && <WaitFields config={node.config} set={set} />}
+      {node.kind === "email_report" && (
+        <ReportFields config={node.config} set={set} choices={option?.choices} name={titled} />
+      )}
+      {node.kind === "stop_unless" && <CheckFields config={node.config} set={set} />}
+      {(node.kind === "send_estimate" || node.kind === "send_review_request") && (
+        <LinkMessageFields
+          config={node.config} set={set}
+          placeholder={node.kind === "send_estimate"
+            ? "Hi {{ customer.name }}, just checking you saw estimate #{{ estimate.number }}: {{ link }}"
+            : "Hi {{ customer.name }}, would you leave us a review? {{ review.url }}"}
+          note={node.kind === "send_estimate"
+            ? "Has to include {{ link }}, which becomes a fresh link to the estimate. Sent only while it is still waiting for an answer."
+            : "{{ review.url }} is the link to the review site the request names. Sent only if your review rules queued a request."}
+        />
+      )}
+      {node.kind === "request_review" && <PlatformFields config={node.config} set={set} />}
 
       {node.kind === "branch" && (
         <div className="mt-3">
@@ -436,6 +464,27 @@ function MessageFields({
   );
 }
 
+/** The text back after a missed call: only the words, because the number is the caller's. */
+function CallerFields({
+  config, set,
+}: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
+  return (
+    <label className="mt-3 block text-sm">
+      <span className="block text-ink-700">What it says</span>
+      <textarea
+        rows={2}
+        value={String(config["body"] ?? "")}
+        onChange={(e) => set({ ...config, body: e.target.value })}
+        placeholder="Hi, this is {{ organization.name }}. Sorry we missed your call."
+        className="mt-1 w-full rounded border border-steel-300 p-2 text-sm"
+      />
+      <span className="mt-1 block text-xs text-ink-500">
+        Sent to the number that rang, from your main texting number. Somebody who replied STOP is not texted.
+      </span>
+    </label>
+  );
+}
+
 function TaskFields({
   config, set,
 }: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
@@ -493,6 +542,183 @@ function WaitFields({
       </label>
       <p className="pb-2 text-xs text-ink-500">Stored on the run, so it survives a restart.</p>
     </div>
+  );
+}
+
+/**
+ * Which report, to whom, over which days.
+ *
+ * The people are everybody in the company, ticked; anybody who could not open
+ * the report themselves is refused by name when the automation is saved,
+ * rather than missing from this list with no explanation. Outside addresses
+ * are one box. The report runs as whoever publishes the automation.
+ */
+function ReportFields({
+  config, set, choices, name,
+}: {
+  config: Record<string, unknown>;
+  set: (c: Record<string, unknown>) => void;
+  choices: StepOption["choices"];
+  name: string;
+}) {
+  const reports = choices?.reports ?? [];
+  const people = choices?.people ?? [];
+  const ticked = Array.isArray(config["userIds"]) ? (config["userIds"] as string[]) : [];
+  const addresses = Array.isArray(config["addresses"])
+    ? (config["addresses"] as string[]).join(", ")
+    : String(config["addresses"] ?? "");
+  return (
+    <div className="mt-3 space-y-3 text-sm">
+      <div className="flex flex-wrap gap-3">
+        <label>
+          <span className="block text-ink-700">Report</span>
+          <select
+            value={String(config["report"] ?? "")}
+            onChange={(e) => set({ ...config, report: e.target.value })}
+            aria-label={`${name}, report`}
+            className={`${FIELD} w-64`}
+          >
+            <option value="">Pick a report</option>
+            {reports.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="block text-ink-700">Which days it covers</span>
+          <select
+            value={String(config["period"] ?? "all")}
+            onChange={(e) => set({ ...config, period: e.target.value })}
+            aria-label={`${name}, which days it covers`}
+            className={`${FIELD} w-56`}
+          >
+            {(choices?.periods ?? []).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <fieldset>
+        <legend className="text-ink-700">Email it to</legend>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+          {people.map((person) => (
+            <label key={person.userId} className="inline-flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={ticked.includes(person.userId)}
+                onChange={(e) => set({
+                  ...config,
+                  userIds: e.target.checked
+                    ? [...ticked, person.userId]
+                    : ticked.filter((id) => id !== person.userId),
+                })}
+              />
+              {person.name}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label className="block">
+        <span className="block text-ink-700">And outside the company</span>
+        <input
+          value={addresses}
+          onChange={(e) => set({ ...config, addresses: e.target.value })}
+          placeholder="books@youraccountant.com"
+          aria-label={`${name}, outside addresses`}
+          className={`${FIELD} w-80`}
+        />
+      </label>
+      <p className="text-xs text-ink-500">
+        It runs as whoever publishes this automation, with what they can see, and goes with a spreadsheet of
+        every row. Each run sends it once.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Which fact to look at again. A list from the engine's own catalogue, so
+ * there is no way to type a question this build cannot ask.
+ */
+function CheckFields({
+  config, set,
+}: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
+  const checks = Object.entries(automation.CHECKS);
+  return (
+    <label className="mt-3 block text-sm">
+      <span className="block text-ink-700">Carry on only while</span>
+      <select
+        value={String(config["check"] ?? checks[0]?.[0] ?? "")}
+        onChange={(e) => set({ ...config, check: e.target.value })}
+        className={`${FIELD} w-full`}
+      >
+        {checks.map(([key, check]) => <option key={key} value={key}>{check.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+/** A message that carries a link: by text or by email, with a subject for an email. */
+function LinkMessageFields({
+  config, set, placeholder, note,
+}: {
+  config: Record<string, unknown>;
+  set: (c: Record<string, unknown>) => void;
+  placeholder: string;
+  note: string;
+}) {
+  const channel = config["channel"] === "email" ? "email" : "sms";
+  return (
+    <div className="mt-3 space-y-2 text-sm">
+      <label className="block">
+        <span className="block text-ink-700">How</span>
+        <select
+          value={channel}
+          onChange={(e) => set({ ...config, channel: e.target.value })}
+          className={`${FIELD} w-40`}
+        >
+          <option value="sms">By text</option>
+          <option value="email">By email</option>
+        </select>
+      </label>
+      {channel === "email" && (
+        <label className="block">
+          <span className="block text-ink-700">Subject</span>
+          <input
+            value={String(config["subject"] ?? "")}
+            onChange={(e) => set({ ...config, subject: e.target.value })}
+            className={`${FIELD} w-full`}
+          />
+        </label>
+      )}
+      <label className="block">
+        <span className="block text-ink-700">What it says</span>
+        <textarea
+          rows={3}
+          value={String(config["body"] ?? "")}
+          onChange={(e) => set({ ...config, body: e.target.value })}
+          placeholder={placeholder}
+          className="mt-1 w-full rounded border border-steel-300 p-2 text-sm"
+        />
+      </label>
+      <p className="text-xs text-ink-500">{note} Consent is checked when it is sent, not now.</p>
+    </div>
+  );
+}
+
+/** Which review site the ask points at, by the key it was declared under. */
+function PlatformFields({
+  config, set,
+}: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
+  return (
+    <label className="mt-3 block text-sm">
+      <span className="block text-ink-700">Review site</span>
+      <input
+        value={String(config["platform"] ?? "")}
+        onChange={(e) => set({ ...config, platform: e.target.value })}
+        placeholder="google"
+        className={`${FIELD} w-48`}
+      />
+      <span className="mt-1 block text-xs text-ink-500">
+        The key you declared it under on the reviews screen. Your review rules decide whether and when to ask.
+      </span>
+    </label>
   );
 }
 

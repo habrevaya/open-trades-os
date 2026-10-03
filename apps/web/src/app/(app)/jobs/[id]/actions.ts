@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { commercial, entitlements, jobs, ConflictError } from "@opentradesos/api/services";
+import { commercial, entitlements, jobs, visitChanges, ConflictError } from "@opentradesos/api/services";
 import type { coverage } from "@opentradesos/core";
 import { partiesFromForm } from "@/lib/job-parties";
 import { completeVisit } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
+import { sourceFrom } from "@/lib/lead-source";
 import { PART_ROWS } from "./parts";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -146,6 +147,60 @@ export async function setJobStatus(_previous: FormState, form: FormData): Promis
   if (status !== "completed" && status !== "in_progress") return refused(form, "Nothing to do.");
   const result = await attempt(form, async () => {
     await jobs.update(await ctx(), { id: jobId, status });
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}
+
+/**
+ * Answering a customer's request to move or cancel a visit, from the job or
+ * from the office queue. The service moves the visit, closes the task and
+ * tells the customer; this only reports what it said.
+ */
+export async function approveVisitChange(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const answered = await visitChanges.approve(await ctx(), { id: field(form, "id") ?? "" });
+    return {
+      message: answered.notified === "queued"
+        ? "Done, and the customer has been told."
+        : `Done. The customer could not be told: ${answered.notified ?? "no way to reach them"}`,
+    };
+  });
+  revalidatePath("/tasks");
+  revalidatePath("/jobs");
+  return result;
+}
+
+export async function declineVisitChange(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const answered = await visitChanges.decline(await ctx(), {
+      id: field(form, "id") ?? "", response: field(form, "response"),
+    });
+    return {
+      message: answered.notified === "queued"
+        ? "Declined, and the customer has been told."
+        : `Declined. The customer could not be told: ${answered.notified ?? "no way to reach them"}`,
+    };
+  });
+  revalidatePath("/tasks");
+  revalidatePath("/jobs");
+  return result;
+}
+
+/**
+ * The office corrects where a job came from. Recorded as a declared touch on
+ * the job and written to its columns as chosen; choosing nothing clears it.
+ */
+export async function setJobSource(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const picked = sourceFrom(form);
+  const result = await attempt(form, async () => {
+    await jobs.update(await ctx(), {
+      id: jobId,
+      ...(picked.campaignId ? { campaignId: picked.campaignId }
+        : picked.channelId ? { channelId: picked.channelId }
+          : { leadSource: null, channelId: null, campaignId: null }),
+    });
   });
   revalidatePath(`/jobs/${jobId}`);
   return result;

@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, properties, NotFoundError } from "@opentradesos/api/services";
+import { customers, customFields, jobs, properties, acquisition, NotFoundError } from "@opentradesos/api/services";
 import { assertCan } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import { VisitFields } from "@/components/VisitFields";
+import { LeadSourceSelect } from "@/components/LeadSourceSelect";
+import { CustomFieldInputs } from "@/components/CustomFieldInputs";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { bookJob } from "../actions";
@@ -55,10 +57,13 @@ export default async function BookJobPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   });
-  const [addresses, types, technicians] = await Promise.all([
+  const [addresses, types, technicians, sources, settings, jobFields] = await Promise.all([
     properties.list(ctx, { limit: 50, customerId }),
     jobs.listTypes(ctx, { includeInactive: false }),
     technicianChoices(ctx, user.organizationTimezone),
+    acquisition.channelOptions(ctx),
+    acquisition.getSettings(ctx),
+    customFields.formFields(ctx, "job"),
   ]);
 
   return (
@@ -93,7 +98,22 @@ export default async function BookJobPage({
           <TextField label="Summary" name="summary" required maxLength={300}
                      placeholder="No cooling upstairs" />
           <TextArea label="Customer said" name="customerComplaint" maxLength={5000} />
+          {/*
+            Left blank, the job is credited from what the customer already did:
+            the call on a tracking number, the click that booked online. Chosen,
+            it is recorded as what the office was told, beside that evidence
+            rather than over it. Required only when the company says so, and
+            then only when nothing was recorded for the customer at all.
+          */}
+          <LeadSourceSelect
+            options={sources} required={settings.requireLeadSource && !customer.leadSource}
+            label="Where this job came from"
+            help={customer.leadSource
+              ? "Leave it to credit what this customer already did. Choose one if they say otherwise."
+              : "Leave it if they rang a tracking number: the call already says."}
+          />
           <TextArea label="Description" name="description" maxLength={5000} />
+          <CustomFieldInputs definitions={jobFields} legend="Your fields" />
           <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
                        optional legend="First visit" />
         </ActionForm>

@@ -1,9 +1,10 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, customType } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, sourceRef } from "./_shared";
 import { organization, businessUnit, user } from "./tenancy";
 import { customer, contact } from "./crm";
 import { job } from "./work";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 import { integrationConnection } from "./integrations";
 
 /**
@@ -139,6 +140,13 @@ export const phoneNumberPurpose = pgEnum("phone_number_purpose", [
   /** Outbound only, for a sending pool. */
   "sending",
   "fax",
+  /**
+   * One of the numbers the website snippet swaps onto a page, one per visitor
+   * at a time, so a call on it can be matched back to the visit that showed
+   * it. Never sent from and never credited to a campaign of its own: the
+   * visit it was shown on is its attribution.
+   */
+  "pool",
 ]);
 
 /**
@@ -158,7 +166,22 @@ export const phoneNumber = pgTable("phone_number", {
   e164: text("e164").notNull(),
   label: text("label"),
   purpose: phoneNumberPurpose("purpose").notNull().default("main"),
-  campaignId: uuid("campaign_id").references(() => messagingCampaign.id, { onDelete: "set null" }),
+  /**
+   * The CARRIER registration this number sends under. Called `campaign_id`
+   * until the marketing module grew a campaign of its own, at which point a
+   * column named only "campaign" on the table tracking numbers live in was
+   * one somebody would point at the wrong thing.
+   */
+  messagingCampaignId: uuid("messaging_campaign_id").references(() => messagingCampaign.id, { onDelete: "set null" }),
+  /**
+   * The tracking campaign a call to this number is credited to, and its
+   * channel. Set together, and `attribution_source` is kept equal to the
+   * channel's catalogue key, so the number map core reads and the campaign
+   * on the screen cannot disagree.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   /** The user this number rings for, when it is theirs. */
   userId: uuid("user_id").references(() => user.id, { onDelete: "set null" }),
   capabilities: jsonb("capabilities").$type<{ voice?: boolean; sms?: boolean; mms?: boolean; fax?: boolean }>()
@@ -173,6 +196,29 @@ export const phoneNumber = pgTable("phone_number", {
   attributionSource: text("attribution_source"),
   /** Whether the provider has confirmed it may send. */
   smsRegistered: boolean("sms_registered").notNull().default(false),
+  /**
+   * The carrier's own id for the number, set when it was bought through this
+   * product (Twilio's `PN...`). It is what releasing it at the carrier needs,
+   * and its absence is what says a number was typed in by hand and is the
+   * operator's to hand back.
+   */
+  providerNumberId: text("provider_number_id"),
+  /**
+   * HOW A CALL TO IT IS ANSWERED, for a number whose calls this product
+   * routes. Four plain settings rather than a routing table, because a
+   * tracking number does one thing: ring the office, and say where the call
+   * came from before it connects.
+   *
+   * `whisper` names the channel and campaign to the person answering.
+   * `record_calls` asks the caller whether the call may be recorded, and
+   * nothing is recorded unless the recording check then says yes.
+   * `route_by_hours` sends calls outside the company's business hours to
+   * `after_hours_forwards_to_e164`, or to voicemail when that is empty.
+   */
+  whisper: boolean("whisper").notNull().default(false),
+  recordCalls: boolean("record_calls").notNull().default(false),
+  routeByHours: boolean("route_by_hours").notNull().default(false),
+  afterHoursForwardsToE164: text("after_hours_forwards_to_e164"),
   releasedAt: timestamp("released_at", { withTimezone: true }),
   ...timestamps,
   ...sourceRef,
@@ -400,6 +446,35 @@ export const message = pgTable("message", {
   providerIdx: index("message_provider_idx").on(t.organizationId, t.providerMessageId),
 }));
 
+/**
+ * A FILE THAT GOES WITH AN EMAIL.
+ *
+ * `message.media` is attachments by reference, a URL the provider fetches,
+ * which is the MMS shape and assumes an object store this product does not
+ * have. A delivered report's CSV is a few kilobytes made at the moment it is
+ * sent, so it is kept here as bytes beside the message it belongs to and
+ * handed to the provider with it, and the outbox's retry sends the same file
+ * the first attempt would have.
+ *
+ * Bytes in Postgres, for the reason `stored_file` gives: a contractor self
+ * hosting this should be able to email a spreadsheet without standing up a
+ * bucket first.
+ */
+export const messageAttachment = pgTable("message_attachment", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  messageId: uuid("message_id").notNull().references(() => message.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  content: customType<{ data: Buffer; driverData: Buffer }>({
+    dataType: () => "bytea",
+  })("content").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  messageIdx: index("message_attachment_message_idx").on(t.organizationId, t.messageId),
+}));
+
 /* ---------------------------------------------------------------- voice */
 
 export const callStatus = pgEnum("call_status", [
@@ -461,7 +536,22 @@ export const call = pgTable("call", {
   /** When the recording notice was played. The precondition, not an inference from it. */
   announcementPlayedAt: timestamp("announcement_played_at", { withTimezone: true }),
   recordingDeletedAt: timestamp("recording_deleted_at", { withTimezone: true }),
+  /**
+   * Where the audio is kept, when this product keeps it: the content
+   * addressed key of a stored file. `recording_url` is cleared with it on
+   * deletion, and both are only ever written after the recording check said
+   * yes for this call.
+   */
+  recordingStorageKey: text("recording_storage_key"),
   voicemailUrl: text("voicemail_url"),
+  /** The voicemail's stored file, for a call this product answered. */
+  voicemailStorageKey: text("voicemail_storage_key"),
+  /**
+   * Why the call went where it went, in one sentence, from core's router.
+   * "Why did that customer get voicemail at two in the afternoon" is the
+   * question this is kept to answer.
+   */
+  routedBecause: text("routed_because"),
   /** The readable rendering, already redacted. Never the provider's raw text. */
   transcript: text("transcript"),
   /**
@@ -485,6 +575,21 @@ export const call = pgTable("call", {
   /** What the call was: booked, quote requested, wrong number, spam. */
   disposition: text("disposition"),
   attributionSource: text("attribution_source"),
+  /**
+   * Whether this was the first time this number had rung the company. Null
+   * when nobody can say: a call tracking provider's own answer wins when it
+   * sends one, because it has seen calls this product never did.
+   */
+  firstTimeCaller: boolean("first_time_caller"),
+  /**
+   * The channel and tracking campaign of the number it arrived on, AT THE
+   * TIME. Copied rather than joined for the reason `received_on_e164` is: a
+   * number moves to next season's campaign and last season's calls must not
+   * move with it.
+   */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   providerCallId: text("provider_call_id"),
   ...timestamps,
   ...sourceRef,

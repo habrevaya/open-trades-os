@@ -211,6 +211,7 @@ integer key would still sort correctly.
 | `calendar_feed` | `token_hash` | Reissue it; the technician's phone needs a new URL anyway. |
 | `unsubscribe_link` | `token_hash` | The address and whether it was used are exported; the link is not. |
 | `device` | `push_token` | A live push credential, reissued by the app on first run. |
+| `device` | `session_token_hash` | The hash of the phone app's live sign in. Phones sign in again. |
 
 An export carrying live tokens is a breach in a file. An export that silently
 drops them is a claim of completeness that is false. So each one is named, with

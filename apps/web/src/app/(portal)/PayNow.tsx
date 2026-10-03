@@ -63,6 +63,19 @@ export function PayNow({ start, balance, label, cta }: {
 
   useEffect(() => () => elementRef.current?.destroy(), []);
 
+  /**
+   * Mounted once the box it goes in has been drawn. Waiting a frame instead
+   * was a race: on a busy phone the frame could come before React drew the
+   * box, and the customer was left with a Pay button and no card form.
+   */
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (state === "ready" && !mounted.current && elementRef.current && mountRef.current) {
+      elementRef.current.mount(mountRef.current);
+      mounted.current = true;
+    }
+  }, [state]);
+
   async function open() {
     setState("loading");
     setError(null);
@@ -79,11 +92,8 @@ export function PayNow({ start, balance, label, cta }: {
       const element = elements.create("payment");
       stripeRef.current = { stripe, elements };
       elementRef.current = element;
+      mounted.current = false;
       setState("ready");
-      // Mounted after the container renders.
-      requestAnimationFrame(() => {
-        if (mountRef.current) element.mount(mountRef.current);
-      });
     } catch {
       setError("The card form could not load. Check your connection and try again.");
       setState("idle");

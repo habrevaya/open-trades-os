@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { comms, consent, contacts, customerLifecycle, portal, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { comms, consent, contacts, customerLifecycle, portal, customers, ConflictError, NotFoundError } from "@opentradesos/api/services";
 import { issuePortalGrant } from "@opentradesos/api/contracts";
-import { attempt, parsed, type FormState, refused } from "@/lib/actions";
+import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
+import { sourceFrom } from "@/lib/lead-source";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -195,4 +196,24 @@ export async function accountLink(_previous: FormState, form: FormData): Promise
     }));
     return { message: "Their account link. It opens everything they have with you, without a password.", link: issued.url };
   });
+}
+
+/**
+ * Where a customer came from, corrected by the office. Checked against the
+ * channel list by the service and recorded as a declared touch, so the
+ * correction reaches the marketing report rather than only this page.
+ */
+export async function setCustomerSource(_previous: FormState, form: FormData): Promise<FormState> {
+  const customerId = field(form, "customerId") ?? "";
+  const picked = sourceFrom(form);
+  const result = await attempt(form, async () => {
+    await customers.update(await ctx(), {
+      id: customerId,
+      ...(picked.campaignId ? { campaignId: picked.campaignId }
+        : picked.channelId ? { channelId: picked.channelId }
+          : { leadSource: null, channelId: null, campaignId: null }),
+    });
+  });
+  revalidatePath(`/customers/${customerId}`);
+  return result;
 }

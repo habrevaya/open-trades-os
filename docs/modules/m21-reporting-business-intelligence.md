@@ -178,6 +178,51 @@ that the cost is zero, and they act on it.
 definition is re-resolved against whoever runs it. An owner saving "revenue by
 month" does not thereby hand it to a technician.
 
+**Every number opens onto the records behind it, and they add up to it.** A row
+of a report is already a precise description of a set of records: the report's
+own definition (dataset, filters, date range, scope) with each grouped dimension
+pinned to the value on that row. So drill through is not a second query written
+per report or per screen. It is the same conditions the aggregate used, with one
+`is not distinct from` per dimension and the grouping taken off, which is why a
+group the report shows as "Not set" opens the records with nothing in that field
+rather than none at all. Each measure is selected per record from the same SQL
+fragment the aggregate sums, so the drilled list shows what each invoice or job
+added to the number, and the totals at the bottom are the number that was
+clicked.
+
+What each dataset adds is only what one of its rows IS: its id, what to call it,
+which screen opens it, and a few columns to recognise it by. That is
+`RecordShape` in `packages/core/src/reporting/drill.ts`, and it is REQUIRED on a
+dataset, so a dataset added tomorrow cannot be summed without saying what it
+summed. A job opens on `/jobs/{id}`, an invoice on `/invoices/{id}`, an estimate
+on `/estimates/{id}`, the job costing and margin rows on the job (which carries
+the per job statement), and the customer on each record links to the customer.
+
+`report-drill.integration.test.ts` runs every report that ships and every tile
+on every dashboard that ships against a company with invoices in every aging
+bucket, a draft with no issue date, a voided invoice, a part paid one, a card
+fee and hours at a frozen rate, drills every row, adds the records up itself and
+compares. Money and counts exactly, hours to a millionth, averages at four
+places.
+
+**A report that arrives is the same report, run as somebody.** A schedule points
+at a report (one that ships, or a saved one) rather than copying it, so
+correcting the report corrects what is emailed. It runs as the person who set it
+up, re-read from their membership on the day it runs, so somebody who loses the
+right to see it stops receiving it in their name. Each person in the company it
+goes to must be able to open that report themselves, and what they are sent is
+the report run again AS THEM, with their own scope: a technician who may run
+"jobs by status" is emailed their own jobs, not the company's. An address outside
+the company (the accountant) is sent the run of the person who set it up, which
+is the owner's own decision, and it is on every delivery row.
+
+**Once per occurrence is a unique index.** Each delivery row carries the key of
+the occurrence it was for, `schedule:{id}:{day}` in the company's calendar, and
+is inserted first in the same transaction as the emails and the move of the
+schedule's clock. A worker that dies rolls all three back; a second worker, a
+restart, or somebody moving the time from seven to eight after the seven o'clock
+one went inserts nothing and sends nothing.
+
 ## Setup
 
 Nothing. The catalogue and the built-in reports ship with the product, and
@@ -207,6 +252,39 @@ loaded, which is the usual way a custom report starts.
 Named, described, and visible to everybody who can read reports. What they see
 when they run it is still their own work.
 
+### Open the records behind a number
+
+Every number on a report, and every number, bar and month on a dashboard tile,
+is a link to `/reports/drill`. The page names the row (Age: Over 90 days), says
+the report's filters and dates in words, lists the records with what each added
+to every measure, and totals them under the columns. Up to a thousand records
+are listed; the totals are always over every one, and the page says when the
+list was cut short.
+
+### Have a report emailed
+
+"Email on a schedule" on any report, or `/reports/schedules/new`. Every day,
+every week on the days ticked, or every month on a day from 1 to 28, at a time
+in the company's timezone. Pick which days it covers (the day, seven days or
+month before, this month so far, or everything) and who gets it. The email is a
+summary of the first twenty rows and the whole report as a CSV attached; people
+in the company also get a link back to it in the app. The first one goes at the
+next occurrence, not straight away.
+
+`/reports/schedules` lists every schedule with when it next goes, and its last
+delivery: when, which dates, how many rows, and for each recipient the
+message's status or why it was not sent (left the company, may not see it,
+asked not to be emailed, no email connected). Pause keeps the history and comes
+back on the clock without catching up on what it missed; Change makes the
+person saving it whose authority it runs under; Stop deletes it and keeps what
+it sent.
+
+### Email a report from an automation
+
+"Run and email a report" is a step on the automation canvas. It goes through the
+same delivery as a schedule, runs as whoever published the automation, and is
+sent once per run, so a run resumed after a wait does not send it again.
+
 ## Permissions
 
 | Role | Access |
@@ -217,15 +295,31 @@ when they run it is still their own work.
 | dispatcher, csr | The operational datasets. Invoices and estimate values are refused |
 | technician | Their own work only, and only where `report:read` is granted |
 
-`report:read` runs reports. `report:build` saves and deletes them. The
-financial datasets additionally need `report.financial:read`.
+`report:read` runs reports, opens the records behind them and lists schedules.
+`report:build` saves and deletes reports and sets up, changes, pauses and stops
+schedules. The financial datasets additionally need `report.financial:read`, and
+a drill is refused exactly where its report would be, in the same words.
 
 ## API
 
 `reports.run(ctx, definition)` takes a definition and returns columns and
-rows. `reports.available(ctx)` returns the catalogue trimmed to what the
+rows. `reports.drill(ctx, { definition, match })` returns the records behind one
+row. `reports.available(ctx)` returns the catalogue trimmed to what the
 caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
 `list`, `save`, `remove` and `runSaved` cover the rest.
+
+| Call | Needs |
+|---|---|
+| `POST /v1/reports/drill` | `report:read` |
+| `GET /v1/report-schedules` | `report:read` |
+| `POST /v1/report-schedules` | `report:build` |
+| `PATCH /v1/report-schedules/{id}` | `report:build` |
+| `POST /v1/report-schedules/{id}/paused` | `report:build` |
+| `DELETE /v1/report-schedules/{id}` | `report:build` |
+| `GET /v1/report-deliveries` | `report:read` |
+
+The worker sends what is due on every pass (`docs/self-hosting/worker.md`), and
+then hands that company's outbox to its mail provider.
 
 ## Common questions
 
@@ -240,6 +334,14 @@ without saying so is the worst failure this screen has.
 **Why is "To" exclusive?** So a range of one month does not silently include
 the first moment of the next one.
 
+**Why did my report not arrive?** `/reports/schedules` says, on the row: the
+person who set it up can no longer see it, the person it was for may not, the
+address asked not to be emailed, or no email provider is connected. A schedule
+emails nothing until one is (Settings, Integrations).
+
+**Why does my technician's copy show fewer jobs than mine?** Because it is their
+copy: everybody in the company is sent the report as they would see it.
+
 **The aging buckets have numbers in front of them in the database.** They sort
 that way on purpose: "Over 90" lands between "1 to 30" and "31 to 60"
 alphabetically. The catalogue marks the column, and the screen takes the
@@ -252,8 +354,13 @@ names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition.
 
-No drill through: an aggregate row does not open the rows behind it, so somebody
-who wants the detail opens the jobs. No scheduled delivery, so a report is run by
-a person rather than arriving in an inbox on Monday morning, and there is no
-workflow step that runs one. No charts: every report is a table. No cross company
-report other than the four network aggregates, which are `docs/concepts/networks.md`.
+The trade scorecard does not drill: its numbers carry their two halves but do
+not open the records behind them. A task opens the queue at `/tasks` rather than
+the task, and a visit opens its job, because neither has a screen of its own. A
+drill lists at most a thousand records (its totals still cover all of them).
+
+A scheduled report has no "send it now" button, attaches a CSV and nothing else
+(no PDF, no chart), and an emailed report appears as a thread in the inbox like
+every other email this product sends. Nothing is emailed until an email provider
+is connected. No charts: every report is a table. No cross company report other
+than the four network aggregates, which are `docs/concepts/networks.md`.

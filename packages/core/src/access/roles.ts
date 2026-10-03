@@ -104,6 +104,12 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "customer:merge", "customer.financials:read", "customer.financials:write",
       "contract:read", "contract:write",
       "visit:dispatch", "visit:reschedule",
+      /**
+       * The office manager answers for who was sent where, so the override
+       * sits with them. A dispatcher is given it by name when the company
+       * wants the person at the board to make that call.
+       */
+      "visit:assign_unqualified",
       "estimate:discount", "estimate:approve",
       "booking:configure",
       "portal:revoke",

@@ -78,7 +78,13 @@ export const Job = z.object({
   jobTypeId: Uuid.nullable(),
   territoryId: Uuid.nullable(),
   equipmentId: Uuid.nullable(),
+  /** A key from the lead source catalogue, for the screens that show one word. */
   leadSource: z.string().nullable(),
+  /** `manual` when somebody chose it, `derived` when the attribution filled it, `imported` from a migration. */
+  leadSourceOrigin: z.string().nullable().optional(),
+  /** The channel and tracking campaign the job is credited to. */
+  channelId: Uuid.nullable().optional(),
+  acquisitionCampaignId: Uuid.nullable().optional(),
   isWarranty: z.boolean(),
   parentJobId: Uuid.nullable(),
   /** Whose price governs. See the commercial schema. */
@@ -111,7 +117,17 @@ export const JobCreate = z.object({
   description: z.string().max(5000).optional(),
   customerComplaint: z.string().max(5000).optional(),
   equipmentId: Uuid.optional(),
+  /**
+   * Where the work came from, if somebody knows: a catalogue key or anything
+   * its alias list places, a channel, or a tracking campaign. Recorded as a
+   * declared touch. Leave it out and the job is credited from what the
+   * customer did before it (the call, the click), under the company's model.
+   */
   leadSource: z.string().max(100).optional(),
+  channelId: Uuid.optional(),
+  campaignId: Uuid.optional(),
+  /** The call this job was booked from, which links the two and credits the call. */
+  callId: Uuid.optional(),
   purchaseOrderNumber: z.string().max(100).optional(),
   costCode: z.string().max(50).optional(),
   /**
@@ -226,9 +242,15 @@ export const updateJob = defineRoute({
   summary: "Update a job",
   module: "M10",
   permissions: ["job:write"],
-  input: JobCreate.partial().omit({ visit: true, parties: true, coverage: true, number: true, externalRef: true }).extend({
+  input: JobCreate.partial().omit({
+    visit: true, parties: true, coverage: true, number: true, externalRef: true, callId: true,
+  }).extend({
     id: Uuid,
     status: JobStatus.optional(),
+    /** Null clears the job's lead source; a value is checked against the channel list. */
+    leadSource: z.string().max(100).nullable().optional(),
+    channelId: Uuid.nullable().optional(),
+    campaignId: Uuid.nullable().optional(),
     /**
      * When the work was finished, sent with `status: "completed"` and only
      * then. Omit for now. A completion more than a week back is history and

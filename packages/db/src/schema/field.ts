@@ -47,6 +47,17 @@ export const device = pgTable("device", {
    */
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  /**
+   * The SHA-256 of the sign in this phone is using, when it signed in with
+   * the phone app rather than a browser.
+   *
+   * Kept so that revoking the device ends the sign in as well. Revoking only
+   * the device would stop the phone syncing and leave its token reading the
+   * customer list, which is the half of a lost phone that matters. Only the
+   * hash, the same as `session.token_hash`: a copy of this table opens
+   * nothing, because the API hashes whatever it is presented with.
+   */
+  sessionTokenHash: text("session_token_hash"),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("device_org_idx").on(t.organizationId, t.technicianId),

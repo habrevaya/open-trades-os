@@ -132,6 +132,41 @@ be credited for more than it charged, counting every earlier credit and draft, a
 goodwill needs a note. `/invoices/credit-notes` lists every one, with what is still
 unused.
 
+A company syncing its books gets each credit note there too: the credit note itself,
+each use of it on an invoice on the day it was used, and a void as an invoice
+reversing it on the day of the void. M14 says how each lands in QuickBooks and Xero.
+
+### Statements
+
+**Statement** on a customer's page shows what they owed at the start of a period,
+every invoice, payment, refund and credit in it with a running balance, what they
+owe at the end, and the open invoices aged by how late they are. It prints as a
+document. The customer sees the same statement from their account link, under
+**Your statement**. It is read from the ledger, so it agrees with the receivables
+report, and moving money already held onto an invoice is not a line because nothing
+the customer owes changed. On commercial work an invoice appears on the statement of
+whoever pays it, not the tenant's.
+
+**Email statement**, on the same page, sends the customer a link to that
+statement on their own account page, for the dates on screen, to the address on
+file or one the office types (a commercial customer's accounts mailbox is rarely
+the person who booked the work). The email carries no amounts: the page reads the
+books when the customer opens it, so a cheque that cleared since is already on it,
+and a balance is not sitting in an inbox anybody can read. An address that asked
+not to be emailed, a customer with no address, or no email provider connected is
+recorded as not sent, with the reason, under the button, and the link minted for
+it is revoked rather than left alive.
+
+**Monthly statements** are a setting at `/invoices/statements`, off until
+somebody turns it on: on a day from 1 to 28, at a time in the company's
+timezone, every customer owing more than the amount set on open invoices
+(counted by whoever pays them) is emailed a link to their statement for the
+month before. Each customer is sent at most one per month, whatever the worker
+does: the record of it is keyed on the customer and the month under a unique
+index, and is written in the same transaction as the email. The same page lists
+every statement sent, by hand or by the run, with where it went, what was owed
+then, and what became of it.
+
 ### Deposits
 
 `POST /v1/deposits` asks for one, `POST /v1/deposits/{id}/apply` puts it against
@@ -165,6 +200,11 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/invoices/{invoiceId}/send` | `invoice:send` |
 | `POST /v1/invoices/{id}/void` | `invoice:void` |
 | `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
+| `GET /v1/customers/{id}/statement` | `invoice:read` |
+| `POST /v1/customers/{id}/statement/email` | `invoice:send` |
+| `GET /v1/statement-deliveries` | `invoice:read` |
+| `GET /v1/statement-schedule` | `invoice:read` |
+| `POST /v1/statement-schedule` | `invoice:send` |
 | `GET /v1/credit-notes` | `invoice:read` |
 | `POST /v1/credit-notes` | `invoice:credit` |
 | `POST /v1/credit-notes/{id}/issue` | `invoice:credit` |
@@ -208,10 +248,8 @@ hold one for.
 A credit note cannot be paid out as money: an unused credit is used on a later
 invoice, or a refund is recorded against a payment. A credit note that has been used
 cannot be voided; the invoice it settled has to be dealt with on its own.
-Credit notes do not reach QuickBooks or Xero yet, so a company syncing its books
-raises the matching credit memo there by hand.
-There is no customer statement across invoices, so a customer asking "what do I
-owe in total" is answered from the balance on their account page rather than from
-a document. Tipping is not built. Tax rate determination is deliberately not
+A statement is emailed as a link; there is no PDF of it attached, and it is not sent
+by text. The monthly run covers the calendar month before and nothing else, and it
+emails nothing until an email provider is connected. Tipping is not built. Tax rate determination is deliberately not
 built: the rate is on the line it was charged on, and BUILD.md says why. Automatic
 dunning is a workflow somebody builds in M29.

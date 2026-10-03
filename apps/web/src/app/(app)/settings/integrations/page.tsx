@@ -46,6 +46,8 @@ const GROUPS: { capability: string; title: string; description: string }[] = [
     description: "Your own key, your own bill, the same permissions as the person asking." },
   { capability: "calendar", title: "Calendar",
     description: "A technician's visits in the calendar they already use." },
+  { capability: "maps", title: "Maps and addresses",
+    description: "Puts customers' addresses on the dispatch map in the background, so the route optimiser has something to measure. A pin placed by hand on a property always wins." },
 ];
 
 const MARKETING = new Set(["ads", "lead_source", "analytics", "reviews"]);

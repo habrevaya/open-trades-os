@@ -36,6 +36,8 @@ export interface Preview {
   inWords: string;
   pace: { firstBatch: number; days: number; secondsBetween: number | null; staged: boolean };
   sample: { customerId: string; name: string; address: string }[];
+  /** The message as the first person on the list will read it. */
+  rendered?: { for: string | null; body: string; subject: string | null } | null;
 }
 
 /**
@@ -211,9 +213,27 @@ export function Audience({ preview }: { preview: Preview }) {
       ) : preview.pace.days > 1 ? (
         <p className="mt-2 text-sm text-ink-700">
           The carrier's daily cap takes this over {preview.pace.days} days,{" "}
-          {preview.pace.firstBatch.toLocaleString("en-US")} a day. Each day is one more send: there
-          is no scheduler yet.
+          {preview.pace.firstBatch.toLocaleString("en-US")} a day. Once it has started, the rest goes
+          out a day's worth at a time on its own, outside quiet hours.
         </p>
+      ) : null}
+
+      {/*
+        THE MESSAGE AS THE FIRST PERSON WILL READ IT, merge fields filled in by
+        the renderer the send uses. "Hi {{ customer.firstName }}" is a template;
+        "Hi Maria" is what somebody checks before four thousand go out, and it
+        is the version that shows a field that came out empty.
+      */}
+      {preview.rendered ? (
+        <figure className="mt-3 max-w-xl rounded border border-steel-200 bg-steel-100 p-3">
+          <figcaption className="text-xs font-medium text-ink-700">
+            {preview.rendered.for ? `As ${preview.rendered.for} will read it` : "As it will read"}
+          </figcaption>
+          {preview.rendered.subject ? (
+            <p className="mt-1 text-sm font-medium">{preview.rendered.subject}</p>
+          ) : null}
+          <p className="mt-1 whitespace-pre-wrap text-sm text-ink-900">{preview.rendered.body}</p>
+        </figure>
       ) : null}
 
       {preview.sample.length === 0 ? (

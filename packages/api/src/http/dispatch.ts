@@ -118,6 +118,43 @@ export async function dispatch(request: Request, deps: DispatchDeps): Promise<Re
   if (isOperatorPath(path)) {
     return handleOperator(request, path, { db: deps.db, ...deps.operator });
   }
+
+  /**
+   * THE PUBLIC ROUTES ANSWER ANY ORIGIN, AND ONLY THEY DO.
+   *
+   * The website snippet runs on the company's own domain and calls these
+   * from there, so the browser asks first (a preflight) and then refuses to
+   * hand the page the answer unless it is marked readable from anywhere.
+   * That is safe for exactly these routes because they take no credential:
+   * no cookie is read and no session exists, so a page on another origin
+   * learns nothing it could not learn by calling them itself. Every other
+   * route stays same origin, which is what keeps a signed in session from
+   * being driven by somebody else's page.
+   */
+  if (request.method === "OPTIONS") {
+    const methods = (["get", "post"] as const).filter((m) => {
+      const found = matchRoute(m.toUpperCase(), path).match;
+      return found && (found.route as RouteDefinition).authorization === "public";
+    });
+    if (methods.length === 0) return problem(404, `No route for ${url.pathname}`);
+    return new Response(null, { status: 204, headers: corsHeaders(methods.map((m) => m.toUpperCase())) });
+  }
+  const response = await route(request, deps, url, path);
+  const found = matchRoute(request.method, path).match;
+  if (found && (found.route as RouteDefinition).authorization === "public") {
+    for (const [key, value] of Object.entries(corsHeaders([request.method]))) response.headers.set(key, value);
+  }
+  return response;
+}
+
+const corsHeaders = (methods: string[]): Record<string, string> => ({
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": methods.join(", "),
+  "access-control-allow-headers": "content-type, idempotency-key",
+  "access-control-max-age": "86400",
+});
+
+async function route(request: Request, deps: DispatchDeps, url: URL, path: string): Promise<Response> {
   const { match, pathMatched, allowed } = matchRoute(request.method, path);
 
   if (!match) {

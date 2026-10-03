@@ -1,6 +1,8 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, date, timestamp } from "drizzle-orm/pg-core";
-import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
-import { organization } from "./tenancy";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, uniqueIndex, date, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pk, timestamps, sourceRef, sourceRefIndex, money, geocodeColumns } from "./_shared";
+import { organization, user } from "./tenancy";
+import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
  * CRM SPINE
@@ -36,7 +38,24 @@ export const customer = pgTable("customer", {
   billingState: text("billing_state"),
   billingPostalCode: text("billing_postal_code"),
   billingCountry: text("billing_country").notNull().default("US"),
+  /**
+   * The catalogue key this customer is credited to, for the screens that show
+   * one word. The full story is the touches in `marketing_touch`; this is a
+   * denormalisation of it, and `lead_source_origin` says whose answer it is.
+   */
   leadSource: text("lead_source"),
+  /**
+   * `manual` when somebody chose it on a form, `derived` when the attribution
+   * filled it in from the touches, `imported` when it arrived with a
+   * migration. Kept because "the CSR said Google" and "the tracking number
+   * said Google" are different evidence, and a report that cannot tell them
+   * apart cannot say how much of itself is a guess.
+   */
+  leadSourceOrigin: text("lead_source_origin"),
+  /** The company's own channel and campaign behind `lead_source`, when one is known. */
+  channelId: uuid("channel_id").references(() => marketingChannel.id, { onDelete: "set null" }),
+  acquisitionCampaignId: uuid("acquisition_campaign_id")
+    .references(() => acquisitionCampaign.id, { onDelete: "set null" }),
   /** Net terms in days. 0 means due on receipt. */
   paymentTermsDays: text("payment_terms_days").notNull().default("0"),
   taxExempt: boolean("tax_exempt").notNull().default(false),
@@ -62,13 +81,67 @@ export const customer = pgTable("customer", {
    * that is actually current.
    */
   mergedIntoId: uuid("merged_into_id"),
+  /**
+   * The customer who sent them, when somebody did.
+   *
+   * Written once, from a referral link they arrived through or by the office,
+   * and never overwritten by a later link: the neighbour who told them about
+   * the company is the referrer, and a second neighbour sharing a link a year
+   * later does not take the first one's reward. Set null when the referrer is
+   * deleted rather than cascading, because the referred customer is still a
+   * customer.
+   */
+  referredByCustomerId: uuid("referred_by_customer_id")
+    .references((): AnyPgColumn => customer.id, { onDelete: "set null" }),
+  /**
+   * The code in this customer's own shareable link. Minted the first time
+   * anybody asks for it rather than at creation, so the thousands of
+   * customers nobody will ever ask to refer anyone carry nothing. Short,
+   * unambiguous to read aloud, and unique within the company: it is typed
+   * into a phone by a neighbour as often as it is clicked.
+   */
+  referralCode: text("referral_code"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("customer_source_ref_idx", t),
+  referralCodeIdx: uniqueIndex("customer_referral_code_idx").on(t.organizationId, t.referralCode)
+    .where(sql`${t.referralCode} is not null`),
+  referredByIdx: index("customer_referred_by_idx").on(t.organizationId, t.referredByCustomerId),
   orgIdx: index("customer_org_idx").on(t.organizationId),
   nameIdx: index("customer_name_idx").on(t.organizationId, t.name),
   emailIdx: index("customer_email_idx").on(t.organizationId, t.email),
+}));
+
+/**
+ * TWO RECORDS SOMEBODY LOOKED AT AND SAID ARE DIFFERENT PEOPLE.
+ *
+ * The company wide duplicate sweep matches on a shared phone, a shared email
+ * or a similar name, and two of those are true of people who are not the
+ * same: a landlord and the tenant whose bills she pays share a number, and
+ * "John Smith" is two customers in any town of size. Without a memory of the
+ * decision the sweep shows the same pair every morning until somebody stops
+ * opening it, which is the failure a duplicate list most often dies of.
+ *
+ * Stored as an ORDERED pair, the smaller id first, so the pair has one row
+ * whichever side somebody dismissed it from, and the unique index makes a
+ * second press a no op rather than a second row.
+ */
+export const customerNotDuplicate = pgTable("customer_not_duplicate", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The smaller of the two ids. */
+  customerAId: uuid("customer_a_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** The larger. */
+  customerBId: uuid("customer_b_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** Why, when somebody said. "Landlord and tenant" is the usual one. */
+  reason: text("reason"),
+  decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pairIdx: uniqueIndex("customer_not_duplicate_pair_idx").on(t.organizationId, t.customerAId, t.customerBId),
+  /** The per record matcher asks from either side. */
+  bIdx: index("customer_not_duplicate_b_idx").on(t.customerBId),
 }));
 
 export const property = pgTable("property", {
@@ -81,8 +154,13 @@ export const property = pgTable("property", {
   state: text("state").notNull(),
   postalCode: text("postal_code").notNull(),
   country: text("country").notNull().default("US"),
-  latitude: text("latitude"),
-  longitude: text("longitude"),
+  /**
+   * Where it is, how close, and who said so. Filled by the worker from the
+   * company's geocoder, never inline in the request that saved the address,
+   * so a slow geocoder never holds up a customer being added; or placed by
+   * hand from the property page, which then wins. See `geocodeColumns`.
+   */
+  ...geocodeColumns(),
   /** Resolved at save time from the service-area territories. Drives dispatch zoning. */
   territoryId: uuid("territory_id"),
   /** Jurisdiction stack for sales tax. Historical rates live on the invoice line. */

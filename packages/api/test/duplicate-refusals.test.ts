@@ -67,11 +67,21 @@ const REFUSED: Record<string, Refused> = {
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
   report_name_idx: { file: "reports.ts", how: "catch" },
+  delivery_schedule_statements_idx: { file: "delivery-schedules.ts", how: "catch" },
   dashboard_name_idx: { file: "dashboards.ts", how: "catch" },
   agreement_plan_code_idx: { file: "agreements.ts", how: "catch" },
+  /** A second press of "Turn on" for a recommended automation already installed. */
+  workflow_template_idx: { file: "workflows.ts", how: "catch" },
+  /** A customer asking twice about one visit before the office has answered. */
+  visit_change_request_pending_idx: { file: "visit-changes.ts", how: "catch" },
   vendor_name_idx: { file: "inventory.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
+  /** Two shelves with one name under one parent, typed into the category manager. */
+  price_book_category_name_idx: { file: "price-categories.ts", how: "catch" },
   marketing_campaign_utm_idx: { file: "campaigns.ts", how: "catch" },
+  marketing_channel_name_idx: { file: "acquisition.ts", how: "catch" },
+  acquisition_campaign_name_idx: { file: "acquisition.ts", how: "catch" },
+  acquisition_campaign_utm_idx: { file: "acquisition.ts", how: "catch" },
   organization_slug_idx: { file: "organizations.ts", how: "catch" },
   organization_external_ref_idx: { file: "operator.ts", how: "catch" },
   user_email_idx: { file: "operator.ts", how: "catch" },
@@ -129,9 +139,19 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   /* --- idempotency keys, where a collision is the point --- */
   ai_usage_idempotency_idx: "An idempotency key: a repeat is meant to collide and be ignored.",
   workflow_run_idem_idx: "An idempotency key for a workflow run.",
+  report_delivery_key_idx:
+    "The occurrence a report delivery was for. A second attempt colliding is the once-per-period guarantee, inserted with on conflict do nothing.",
+  statement_delivery_period_idx:
+    "One customer's statement for one month. The monthly run inserts with on conflict do nothing, so a repeat sends nothing.",
   field_operation_client_idx: "The client's own operation id, which makes a retry safe.",
   field_upload_client_idx: "The client's own upload id, which makes a retry safe.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",
+  dni_session_live_idx:
+    "One live lease per pool number. Leasing inserts with on conflict do nothing and the loser "
+    + "takes the next free number, so two visitors are never shown one number.",
+  referral_reward_referred_idx:
+    "One reward per referred customer. The worker claims it with on conflict do nothing, which is "
+    + "what makes granting a reward idempotent however many passes look.",
   review_external_idx: "The platform's own review id, so a re-poll is not a second review.",
   lead_offer_external_idx: "The marketplace's own offer id.",
   external_work_order_uniq_idx:
@@ -142,6 +162,15 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   commission_reversal_cause_idx: "One reversal per cause, derived from the refund.",
   review_request_job_idx: "One request per job, which is what stops a second ask.",
   task_automation_idx: "One task per automation run, which is what makes the rule idempotent.",
+  task_template_occurrence_idx:
+    "One task per recurring template per company day. The worker inserts with on conflict do "
+    + "nothing, so a restarted or doubled worker raises the day's task once.",
+  task_escalation_once_idx:
+    "One escalation per task per rule, inserted first with on conflict do nothing, so only the "
+    + "pass whose insert landed tells anybody.",
+  customer_not_duplicate_pair_idx:
+    "The ordered pair of two customers somebody said are different people, inserted with on "
+    + "conflict do nothing: saying it twice is not news.",
   campaign_recipient_once_idx:
     "One row per address per campaign. The sender writes it; nobody types an address into it.",
 
@@ -161,6 +190,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   setup_token_token_idx:
     "The hash of a first-run setup link made from 256 random bits, emailed rather than typed.",
   stored_file_key_idx: "A generated storage key, not a filename somebody chose.",
+  customer_referral_code_idx:
+    "A referral code drawn at random by the service, which retries on a collision. Nobody types one in.",
+  web_form_public_key_idx:
+    "A hosted form's key made from 72 random bits on save, kept through every edit, never chosen.",
   credential_user_idx: "One credential row per user, written by the signup path.",
 
   /* --- one row per thing, upserted rather than inserted --- */

@@ -5,6 +5,12 @@ import { inTenant, type ServiceContext } from "./context";
 import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
+import { geocodePending, type GeocodeDeps } from "./geocoding";
+import { deliverDue } from "./delivery-schedules";
+import { renewalsPass } from "./agreements";
+import { sendDue } from "./campaigns";
+import { taskPass } from "./task-rules";
+import { deliverOwed, type Transport } from "./webhooks";
 
 /**
  * THE WORKER
@@ -199,6 +205,16 @@ export interface PassOptions {
    */
   schedules?: boolean;
   /**
+   * Whether this pass also puts a few addresses on the map, and with what.
+   *
+   * On by default, for companies that have connected a geocoder and nobody
+   * else, and bounded by its own small time budget so a backfill of a large
+   * customer list against a one-request-a-second service never holds up a
+   * text. `false` turns it off; an object passes the geocoder's dependencies,
+   * which is how a test supplies a fake one.
+   */
+  geocoding?: false | { deps?: GeocodeDeps; budgetMs?: number };
+  /**
    * Runs after each drain, for the organizations that had events.
    *
    * The outbox is separate from the runner on purpose: a workflow queues a
@@ -226,6 +242,13 @@ export interface PassOptions {
    * worker; see `only` on `drainAll` for who it is for.
    */
   only?: readonly string[];
+  /**
+   * Whether this pass also delivers the webhooks owed in companies that had
+   * no events: replays somebody asked for and retries a receiver is waiting
+   * on. On by default; `false` turns it off, and an object passes the
+   * transport, which is how a test keeps it off the network.
+   */
+  webhooks?: false | { send?: Transport };
 }
 
 /**
@@ -247,6 +270,14 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * The clock first, so anything it fires is in the log before this pass
    * reads it and goes out on the same pass rather than the next.
    */
+  /**
+   * Companies whose scheduled reports, statements or campaign batches went into
+   * the outbox on this pass. None of those writes an event, so a company whose
+   * only activity was one of them has nothing in the drain results, and without
+   * this its messages would sit queued until it next did something else.
+   */
+  const delivered = new Set<string>();
+
   if (options.schedules !== false) {
     try {
       await tick(options.db, scope);
@@ -254,10 +285,72 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       await resumeDue(options.db, scope);
       // And the records that have been sitting there too long.
       await sweep(options.db, scope);
+      /**
+       * And the agreements whose term is ending: renewed when the plan and the
+       * member both said so, lapsed when they did not, and told beforehand
+       * when the plan owes a notice. On the clock rather than on an event,
+       * because the end of a term is a date arriving rather than anything
+       * somebody did. Its texts go into the outbox like a workflow's, and each
+       * renewal and notice writes an event, so the drain below sends them on
+       * this pass.
+       */
+      await renewalsPass(options.db, scope);
+      /**
+       * And the campaign sends that are due: a scheduled one whose time has
+       * come, or a staged one with a new day of its carrier's cap. Before the
+       * drain, like the schedules, so the texts it queues leave on this pass.
+       */
+      for (const due of await sendDue(options.db, scope)) {
+        if (due.action === "sent") delivered.add(due.organizationId);
+      }
     } catch (error) {
       // Logged and retried on the next pass. A worker that exits here stops
       // every automation in the product.
       console.error("[worker] schedules:", (error as Error).message);
+    }
+    /**
+     * The office queue's own clock: recurring tasks raised for the company's
+     * day, and late tasks escalated. Its own try, so a broken template cannot
+     * hold up a scheduled workflow or the other way round, and each company's
+     * failure inside it is kept to that company. Both halves are idempotent on
+     * a unique index, so a pass cut short and repeated raises and tells once.
+     */
+    try {
+      for (const result of await taskPass(options.db, scope)) {
+        if (result.escalated.length > 0) delivered.add(result.organizationId);
+        for (const failure of result.failed) console.error(`[worker] tasks ${result.organizationId}: ${failure}`);
+      }
+    } catch (error) {
+      console.error("[worker] tasks:", (error as Error).message);
+    }
+    /**
+     * Reports and statements on a clock. Its own try, so a broken workflow
+     * schedule cannot hold up the Monday reports, and the other way round.
+     */
+    try {
+      for (const tick of await deliverDue(options.db, scope)) {
+        if (tick.queued) delivered.add(tick.organizationId);
+      }
+    } catch (error) {
+      console.error("[worker] deliveries:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Addresses, before the log, on a budget of their own. Not inside the
+   * schedules block above: a geocoder that is down must not be the reason a
+   * scheduled workflow is late, and the same try for both would make it so.
+   */
+  if (options.geocoding !== false) {
+    try {
+      const geocoding = options.geocoding ?? {};
+      await geocodePending(options.db, {
+        ...scope,
+        ...(geocoding.deps ? { deps: geocoding.deps } : {}),
+        ...(geocoding.budgetMs !== undefined ? { budgetMs: geocoding.budgetMs } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] geocoding:", (error as Error).message);
     }
   }
 
@@ -270,14 +363,35 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * in the outbox until that company happens to produce another event, which
    * on a quiet afternoon is hours. The budget is set with room for it.
    */
-  for (const result of results) {
-    if (result.events === 0) continue;
+  const sending = new Set([
+    ...results.filter((result) => result.events > 0).map((result) => result.organizationId),
+    ...delivered,
+  ]);
+  for (const organizationId of sending) {
     try {
-      await options.afterDrain?.(result.organizationId);
+      await options.afterDrain?.(organizationId);
     } catch (error) {
       // One organization's carrier being down must not stop the loop for
       // everybody else. The messages stay queued and go on the next pass.
-      console.error(`[worker] outbox ${result.organizationId}:`, (error as Error).message);
+      console.error(`[worker] outbox ${organizationId}:`, (error as Error).message);
+    }
+  }
+
+  /**
+   * Webhooks owed where nothing happened this pass. After the hook above, so
+   * a company that did have events is delivered to once, by it, and skipped
+   * here.
+   */
+  if (options.webhooks !== false) {
+    try {
+      await deliverOwed(options.db, {
+        /** Only when the hook ran: without one, nobody has delivered to them yet. */
+        skip: options.afterDrain ? sending : new Set(),
+        ...scope,
+        ...(options.webhooks?.send ? { send: options.webhooks.send } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] webhooks:", (error as Error).message);
     }
   }
 

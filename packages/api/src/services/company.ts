@@ -234,6 +234,15 @@ export interface LocationView {
   timezone: string | null;
   isWarehouse: boolean;
   active: boolean;
+  /**
+   * Where it is on the map, because a location is where technicians' days
+   * start. Filled by the geocoding worker or placed by hand, exactly as a
+   * property's are, and never published without its precision and source.
+   */
+  latitude: string | null;
+  longitude: string | null;
+  locationPrecision: typeof schema.geocodePrecision.enumValues[number] | null;
+  locationSource: string | null;
 }
 
 const viewOfLocation = (row: typeof schema.location.$inferSelect): LocationView => ({
@@ -241,6 +250,8 @@ const viewOfLocation = (row: typeof schema.location.$inferSelect): LocationView 
   addressLine1: row.addressLine1, city: row.city, state: row.state,
   postalCode: row.postalCode, country: row.country,
   timezone: row.timezone, isWarehouse: row.isWarehouse, active: row.active,
+  latitude: row.latitude, longitude: row.longitude,
+  locationPrecision: row.locationPrecision, locationSource: row.locationSource,
 });
 
 export async function listLocations(

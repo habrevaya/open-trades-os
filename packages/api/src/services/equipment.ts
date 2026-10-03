@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { time } from "@opentradesos/core";
 import {
@@ -577,10 +577,40 @@ export async function warrantyWatch(
         )`,
       ));
 
+    /**
+     * WHO TO RING about each unit, which the list could not say: it named an
+     * address and stopped, so the call a lapsing warranty is for started with
+     * somebody looking the address up. The customer is the one linked to the
+     * property now, primary first and owners before tenants, because the
+     * person who decides about a replacement furnace is the owner.
+     */
+    const propertyIds = [...new Set(rows.map((r) => r.equipment.propertyId))];
+    const links = propertyIds.length === 0 ? [] : await tx.select({
+      propertyId: schema.customerProperty.propertyId,
+      customerId: schema.customer.id,
+      name: schema.customer.name,
+    }).from(schema.customerProperty)
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.customerProperty.customerId))
+      .where(and(
+        inArray(schema.customerProperty.propertyId, propertyIds),
+        isNull(schema.customerProperty.endedOn),
+        isNull(schema.customer.deletedAt),
+      ))
+      .orderBy(
+        desc(schema.customerProperty.isPrimary),
+        sql`(${schema.customerProperty.role} = 'owner') desc`,
+        schema.customerProperty.createdAt,
+      );
+    const customerAt = new Map<string, { id: string; name: string }>();
+    for (const link of links) {
+      if (!customerAt.has(link.propertyId)) customerAt.set(link.propertyId, { id: link.customerId, name: link.name });
+    }
+
     return rows
       .map(({ equipment, line1, city }) => ({
         ...shape(equipment, today),
         address: [line1, city].filter(Boolean).join(", "),
+        customer: customerAt.get(equipment.propertyId) ?? null,
       }))
       .sort((a, b) => (a.warranty.soonestExpiry ?? "").localeCompare(b.warranty.soonestExpiry ?? ""));
   });

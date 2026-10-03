@@ -232,7 +232,21 @@ export const agreement = pgTable("agreement", {
   billingFrequency: billingFrequency("billing_frequency").notNull(),
   autoRenews: boolean("auto_renews").notNull().default(true),
   renewalCount: integer("renewal_count").notNull().default(0),
+  /**
+   * When the notice the plan owes before a renewal was dealt with, for THIS
+   * term. Cleared when the agreement renews, so the next term owes its own.
+   *
+   * Set whether the notice went or not, and the outcome beside it says
+   * which. A customer whose number replied STOP cannot be texted the notice,
+   * and a sweep that only recorded successes would try them again on every
+   * pass for a month. The refusal is the record, and the office is handed a
+   * task to tell them another way.
+   */
   renewalNoticeSentAt: timestamp("renewal_notice_sent_at", { withTimezone: true }),
+  /** `queued` when it went to the outbox, otherwise the refusal in words. */
+  renewalNoticeOutcome: text("renewal_notice_outcome"),
+  /** The last day a term was added, by a person or by the worker. */
+  lastRenewedOn: date("last_renewed_on"),
 
   /** Delivery, kept deliberately separate from billing below. */
   visitScheduleId: uuid("visit_schedule_id").references(() => recurringSchedule.id, { onDelete: "set null" }),
@@ -264,6 +278,13 @@ export const agreementVisit = pgTable("agreement_visit", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   agreementId: uuid("agreement_id").notNull().references(() => agreement.id, { onDelete: "cascade" }),
   sequence: integer("sequence").notNull(),
+  /**
+   * Which term owes it, counting from one. A renewed agreement keeps its
+   * earlier terms' visits, because a visit the member was owed in the first
+   * year and never got is still a fact about that year, and the second
+   * year's list should not have to be told apart from it by date.
+   */
+  term: integer("term").notNull().default(1),
   /** When it should happen. Seasonal plans set this from anchor months. */
   dueOn: date("due_on").notNull(),
   windowStartOn: date("window_start_on"),
@@ -298,6 +319,8 @@ export const agreementBilling = pgTable("agreement_billing", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   agreementId: uuid("agreement_id").notNull().references(() => agreement.id, { onDelete: "cascade" }),
   sequence: integer("sequence").notNull(),
+  /** Which term this instalment bills, counting from one. See `agreement_visit.term`. */
+  term: integer("term").notNull().default(1),
   dueOn: date("due_on").notNull(),
   amount: money("amount").notNull(),
   status: billingScheduleStatus("status").notNull().default("scheduled"),

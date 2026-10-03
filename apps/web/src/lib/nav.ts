@@ -80,10 +80,25 @@ export const NAV: NavGroup[] = [
            * servicer before it is a cadence.
            */
           { href: "/schedule/routes", label: "Routes" },
+          /**
+           * What each person is recorded as doing and where their day starts:
+           * the two things the board's qualification check and the route
+           * optimiser read, and that had no screen.
+           */
+          { href: "/schedule/technicians", label: "Technicians" },
         ],
       },
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
-      { href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks" },
+      {
+        href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks",
+        children: [
+          { href: "/tasks", label: "The queue" },
+          /** Work that comes round daily, weekly or monthly, raised by the worker. */
+          { href: "/tasks/recurring", label: "Recurring" },
+          /** Who hears about a task that stays late, and who takes it over. */
+          { href: "/tasks/escalation", label: "Escalation" },
+        ],
+      },
       { href: "/recurring", label: "Recurring", permission: "job:read", icon: "recurring" },
       /** Phased work under one contract, billed in draws. Work, because it is jobs. */
       { href: "/projects", label: "Projects", permission: "job:read", icon: "projects" },
@@ -103,7 +118,21 @@ export const NAV: NavGroup[] = [
   {
     label: "Customers",
     items: [
-      { href: "/customers", label: "Customers", permission: "customer:read", icon: "customers" },
+      {
+        href: "/customers", label: "Customers", permission: "customer:read", icon: "customers",
+        children: [
+          { href: "/customers", label: "All customers" },
+          /** The company's tags with counts, and the rename and merge every tag list needs. */
+          { href: "/customers/tags", label: "Tags" },
+          /** The per customer matcher run over the whole book, for whoever may merge. */
+          { href: "/customers/duplicates", label: "Likely duplicates" },
+          /**
+           * Equipment cover running out, by customer. Under Customers rather than
+           * a register of its own, because the list is a list of people to ring.
+           */
+          { href: "/customers/warranties", label: "Warranties" },
+        ],
+      },
       /**
        * Under Customers rather than under Money, because the question it
        * answers is about a client ("whose price governs for them?") rather
@@ -135,10 +164,33 @@ export const NAV: NavGroup[] = [
         children: [
           { href: "/invoices", label: "Invoices" },
           { href: "/invoices/credit-notes", label: "Credit notes" },
+          /**
+           * Statements sent, and the monthly run that sends them. Under
+           * Invoices because a statement is the invoices a customer owes on,
+           * added up, and the person who sends one is the person who sends
+           * those.
+           */
+          { href: "/invoices/statements", label: "Statements" },
         ],
       },
-      { href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements" },
-      { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
+      {
+        href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements",
+        children: [
+          { href: "/agreements", label: "The book" },
+          /** The renewal conversation starts here: who ends in the next thirty days. */
+          { href: "/agreements/renewals", label: "Ending soon" },
+        ],
+      },
+      {
+        href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook",
+        children: [
+          { href: "/pricebook", label: "Items" },
+          /** The shelves a technician browses by, which nothing could reorganise. */
+          { href: "/pricebook/categories", label: "Categories" },
+          /** Many prices at once, previewed, written as new versions and undoable. */
+          { href: "/pricebook/changes", label: "Change prices" },
+        ],
+      },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
       { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
@@ -173,6 +225,14 @@ export const NAV: NavGroup[] = [
            * not the person entitled to decide what people are paid.
            */
           { href: "/payroll/commissions", label: "Commission plans" },
+          /**
+           * When overtime starts and what each classification is paid. It
+           * inherits `payroll:read` to be SHOWN and the page needs
+           * `timesheet:read` to read and `payroll:configure` to change, for the
+           * reason commission plans give: declaring what people are owed is
+           * not the same job as paying them.
+           */
+          { href: "/payroll/pay-rules", label: "Pay rules" },
         ],
       },
       { href: "/booking", label: "Online booking", permission: "booking:configure", icon: "booking" },
@@ -201,6 +261,12 @@ export const NAV: NavGroup[] = [
            * shows the numbers your trade already said it runs on.
            */
           { href: "/reports/scorecard", label: "Trade scorecard" },
+          /**
+           * Reports that arrive on their own. A child rather than a tab on
+           * each report, because "what am I sending, to whom, and did it go"
+           * is a question about all of them at once.
+           */
+          { href: "/reports/schedules", label: "Schedules" },
           { href: "/reports/new", label: "Build one" },
         ],
       },
@@ -210,15 +276,36 @@ export const NAV: NavGroup[] = [
       {
         href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
         children: [
-          { href: "/marketing", label: "What it cost" },
+          /**
+           * The funnel first: what each channel, campaign and number cost and
+           * what came back, every figure opening into its rows. Then the
+           * worklists behind it (the calls and the marketplace offers), then
+           * what is set up once (channels, tracking campaigns, spend), then
+           * what goes back out to the ad accounts.
+           */
+          { href: "/marketing", label: "Funnel" },
+          { href: "/marketing/calls", label: "Calls" },
+          { href: "/marketing/leads", label: "Lead offers" },
+          { href: "/marketing/tracking", label: "Tracking campaigns" },
+          { href: "/marketing/channels", label: "Channels" },
+          { href: "/marketing/spend", label: "Spend" },
+          { href: "/marketing/conversions", label: "Conversions" },
           /**
            * The other half of marketing: what you send to the list you already
            * own. Under Marketing rather than beside it, and it inherits
            * `adspend:read` to be SHOWN while the page itself needs
            * `campaign:read`, which is the same arrangement as Take a copy under
-           * Settings and for the same reason.
+           * Settings and for the same reason. Called "Texts and emails" so it
+           * cannot be mistaken for the tracking campaigns two lines up.
            */
-          { href: "/marketing/campaigns", label: "Campaigns" },
+          { href: "/marketing/campaigns", label: "Texts and emails" },
+          /**
+           * The forms the website and the hosted pages collect leads with, and
+           * the customers who send other customers. Beside the calls and the
+           * lead offers, because both are where leads come from.
+           */
+          { href: "/marketing/forms", label: "Lead forms" },
+          { href: "/marketing/referrals", label: "Referrals" },
           { href: "/marketing/connectors", label: "Connectors" },
         ],
       },
@@ -236,6 +323,11 @@ export const NAV: NavGroup[] = [
           { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
+           * The snippet a company pastes into its own site and the pool of
+           * numbers it swaps in. Under Settings because it is set up once.
+           */
+          { href: "/settings/website", label: "Website" },
+          /**
            * The applications a company has let in, which is a different list from
            * the integrations this product ships: one is somebody else's software
            * acting with a grant, the other is an adapter written here. Keeping
@@ -243,6 +335,13 @@ export const NAV: NavGroup[] = [
            * reading my customer list", and that is not a question about Stripe.
            */
           { href: "/settings/apps", label: "Applications" },
+          /**
+           * Where this company's events are sent, and what each receiver said
+           * back. Beside Applications because both are about other software,
+           * and apart from it because an application reads from here and a
+           * webhook is told.
+           */
+          { href: "/settings/webhooks", label: "Webhooks" },
           /**
            * The group this company is in, and what it has agreed to let the
            * group's operator see. Under Settings because it is a standing

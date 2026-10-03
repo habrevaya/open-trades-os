@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid } from "./common";
+import { PageRequest, Uuid, pageOf } from "./common";
 
 /**
  * OUTBOUND WEBHOOKS
@@ -149,7 +149,111 @@ export const listWebhookEvents = defineRoute({
   }),
 });
 
+/**
+ * One attempt to deliver one event to one endpoint, and what came back.
+ *
+ * `status` is derived from the other fields and is what the history filters
+ * by: delivered (a 2xx), refused (any other answer) or unreachable (no
+ * answer at all: a timeout, a refused connection, DNS).
+ */
+export const WebhookDelivery = z.object({
+  id: Uuid,
+  endpointId: Uuid,
+  eventId: Uuid,
+  eventSequence: z.number().int(),
+  eventName: z.string(),
+  /** 1 for the first try of this event at this endpoint, counting replays. */
+  attempt: z.number().int(),
+  /** Set when the attempt was a replay somebody asked for. */
+  replayId: Uuid.nullable(),
+  requestedAt: z.string(),
+  durationMs: z.number().int(),
+  responseStatus: z.number().int().nullable(),
+  /** The first two thousand characters of what the receiver answered. */
+  responseExcerpt: z.string().nullable(),
+  error: z.string().nullable(),
+  status: z.enum(["delivered", "refused", "unreachable"]),
+});
+
+export const WebhookReplay = z.object({
+  id: Uuid,
+  endpointId: Uuid,
+  eventId: Uuid.nullable(),
+  fromSequence: z.number().int(),
+  /** Fixed when it was asked for, so a replay finishes. */
+  throughSequence: z.number().int(),
+  /** The last sequence sent and answered. */
+  position: z.number().int(),
+  status: z.enum(["pending", "done", "failed"]),
+  failureCount: z.number().int(),
+  lastError: z.string().nullable(),
+  createdAt: z.string(),
+  finishedAt: z.string().nullable(),
+});
+
+export const listWebhookDeliveries = defineRoute({
+  method: "get",
+  path: "/v1/webhooks/endpoints/{id}/deliveries",
+  summary: "What was sent to this endpoint and what it answered",
+  description:
+    "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for thirty days and at most a thousand attempts per endpoint, whichever is shorter. Filter by status or by one event.",
+  module: "M26",
+  permissions: ["integration:read"],
+  input: PageRequest.extend({
+    id: Uuid,
+    status: z.enum(["delivered", "refused", "unreachable"]).optional(),
+    eventId: Uuid.optional(),
+  }),
+  output: pageOf(WebhookDelivery),
+});
+
+export const listWebhookEventDeliveries = defineRoute({
+  method: "get",
+  path: "/v1/webhooks/deliveries",
+  summary: "Every attempt to deliver one event, to every endpoint",
+  description:
+    "The question asked from the receiving end: this happened and our system never heard about it, so what did you send and what did we say. Removed endpoints are included.",
+  module: "M26",
+  permissions: ["integration:read"],
+  input: z.object({ eventId: Uuid }),
+  output: z.object({
+    event: z.object({ id: Uuid, name: z.string(), sequence: z.number().int(), occurredAt: z.string() }),
+    deliveries: z.array(WebhookDelivery.extend({ endpointUrl: z.string() })),
+  }),
+});
+
+export const replayWebhookDeliveries = defineRoute({
+  method: "post",
+  path: "/v1/webhooks/endpoints/{id}/replays",
+  summary: "Send an event, or everything from a point in the log, again",
+  description:
+    "Name one of `eventId`, `deliveryId` or `fromSequence` (with `throughSequence` to stop early). Queued and sent by the worker in order, after the endpoint's live deliveries, signed afresh and carrying the same `x-otos-delivery` header as the original, so a receiver that deduplicates on it is never made to process an event twice. A range covers only events the endpoint subscribes to, ends at the newest event when it is asked for, and is at most five thousand events. Asking again for a replay that is still waiting returns it rather than queuing a second.",
+  module: "M26",
+  permissions: ["integration:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    eventId: Uuid.optional(),
+    deliveryId: Uuid.optional(),
+    fromSequence: z.number().int().min(1).optional(),
+    throughSequence: z.number().int().min(1).optional(),
+  }),
+  output: WebhookReplay,
+});
+
+export const listWebhookReplays = defineRoute({
+  method: "get",
+  path: "/v1/webhooks/endpoints/{id}/replays",
+  summary: "The replays asked for on this endpoint",
+  description: "Newest first, with how far each has got and why one stopped.",
+  module: "M26",
+  permissions: ["integration:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({ replays: z.array(WebhookReplay) }),
+});
+
 export const webhookRoutes = {
   registerWebhookEndpoint, listWebhookEndpoints, updateWebhookEndpoint,
   deleteWebhookEndpoint, getWebhookPosition, listWebhookEvents,
+  listWebhookDeliveries, listWebhookEventDeliveries, replayWebhookDeliveries, listWebhookReplays,
 } as const;

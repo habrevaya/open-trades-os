@@ -84,6 +84,9 @@ export const REDACTED: Record<string, Record<string, string>> = {
     push_token:
       "A live push credential for a specific phone. It identifies a device to a notification "
       + "service and is reissued by the app on first run, so it is of no use in a copy.",
+    session_token_hash:
+      "The hash of the phone app's live sign in on this device. Phones sign in again against "
+      + "the new system; a hash is a cracking target and is useless to you.",
   },
 };
 
@@ -100,6 +103,19 @@ export const REDACTED: Record<string, Record<string, string>> = {
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   integration_secret: {
     key_id: "A fingerprint of which master key sealed the secret, not the key, and useless without it.",
+  },
+  property: {
+    address_key: "The address itself, lower cased with its spacing tidied, which the geocoder "
+      + "compares to decide whether a coordinate still answers for it. A key in the sense of a "
+      + "lookup, not a credential.",
+  },
+  location: {
+    address_key: "The same normalised address as on a property, for a branch or yard. Nothing "
+      + "secret in it.",
+  },
+  marketing_channel: {
+    source_key: "Which lead source in the catalogue the channel is, such as google_ads. A word "
+      + "from a public list, not a credential, and the export is unreadable as marketing without it.",
   },
   integration_connection: {
     credential_ref: "The NAME of a secret in the deployment's own store, never the secret. A "
@@ -118,6 +134,15 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     storage_key: "Where the bytes are in object storage. Without it an export cannot be matched "
       + "to the files it describes.",
   },
+  call: {
+    recording_storage_key: "Which stored file holds the call's recording, kept here because the "
+      + "recording check allowed it. A pointer to bytes in the same export, not a credential.",
+    voicemail_storage_key: "Which stored file holds the voicemail the caller left. A pointer, as above.",
+  },
+  web_form: {
+    public_key: "The address of the form's hosted page, which is printed on flyers and linked "
+      + "from websites. Public by design, and a company rebuilding its forms needs the old address.",
+  },
   field_upload: {
     storage_key: "Where the bytes of a field upload are in object storage.",
     content_hash: "A checksum of the file, which is how a copy is verified rather than a secret.",
@@ -135,6 +160,14 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   },
   integration_event: { idempotency_key: "A retry key the worker chose. Not a credential." },
   workflow_run: { idempotency_key: "A retry key the workflow chose. Not a credential." },
+  report_delivery: {
+    idempotency_key: "The occurrence a report was delivered for, a schedule and a day or a run and a step. "
+      + "Not a credential.",
+  },
+  workflow: {
+    template_key: "The name of the recommended automation a workflow was installed from, such as "
+      + "estimate_follow_up. A label in the product's own catalogue, not a credential.",
+  },
   ai_usage: {
     idempotency_key: "A retry key the AI call chose. Not a credential.",
     /**
@@ -219,6 +252,11 @@ const OUTSIDE: { table: string; reason: string }[] = [
     table: "organization",
     reason: "This company's own row. Its name, timezone, currency and settings, which a new "
       + "deployment is configured with rather than restored from.",
+  },
+  {
+    table: "public_rate_limit",
+    reason: "A count of requests to the public endpoints per key and minute, kept for a day. It "
+      + "names no customer, holds nothing but a number, and is counted before any company is known.",
   },
   {
     table: "network",

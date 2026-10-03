@@ -48,6 +48,8 @@ export interface SmtpMailOptions {
   html?: string | undefined;
   replyTo?: string | undefined;
   headers?: Record<string, string> | undefined;
+  /** nodemailer's own shape, which builds the multipart body. */
+  attachments?: { filename: string; content: Buffer; contentType: string }[] | undefined;
 }
 
 /** What a transport tells us back. Structurally what nodemailer returns. */
@@ -220,6 +222,13 @@ export function createSmtpProvider(
           ...(message.replyTo ? { replyTo: message.replyTo } : {}),
           ...(message.headers && Object.keys(message.headers).length > 0
             ? { headers: message.headers }
+            : {}),
+          ...(message.attachments && message.attachments.length > 0
+            ? {
+                attachments: message.attachments.map((file) => ({
+                  filename: file.filename, content: file.content, contentType: file.contentType,
+                })),
+              }
             : {}),
         });
 

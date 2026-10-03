@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { tasks, obligations, inTenant } from "@opentradesos/api/services";
+import { tasks, obligations, visitChanges, inTenant, taskRules } from "@opentradesos/api/services";
 import { schema } from "@opentradesos/db";
 import { inArray } from "drizzle-orm";
 import { can } from "@opentradesos/core";
@@ -10,6 +10,10 @@ import { Empty, PageHeader } from "@/components/Table";
 import { TASK_PRIORITY, label } from "@/lib/labels";
 import { TaskActions } from "./TaskActions";
 import { ObligationActions } from "./ObligationActions";
+import { VisitChangeDecision } from "@/components/VisitChangeDecision";
+import { approveVisitChange, declineVisitChange } from "../jobs/[id]/actions";
+import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
+import { addTask } from "./rule-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +57,11 @@ const LINKS: Record<string, (id: string) => string> = {
   customer: (id) => `/customers/${id}`,
   invoice: (id) => `/invoices/${id}`,
   conversation: (id) => `/inbox/${id}`,
+  /** Raised by the estimate follow up, and by a renewal notice that could not go. */
+  estimate: (id) => `/estimates/${id}`,
+  agreement: (id) => `/agreements/${id}`,
+  /** An escalation's notice is about the late task, and opens it. */
+  task: (id) => `/tasks/${id}`,
 };
 
 export default async function TasksPage({
@@ -67,6 +76,21 @@ export default async function TasksPage({
   const ctx = { actor: user.actor, db: getDb() };
   const page = await tasks.list(ctx, { view, limit: 100 });
   const writes = can(user.actor, "task:write");
+
+  /**
+   * A customer's request to move or cancel a visit is answered here, not
+   * marked done: the answer is what moves the visit and tells the customer,
+   * and a task ticked off without it would leave both undone with the queue
+   * saying otherwise. The request is read once for the page.
+   */
+  const changeIds = page.data
+    .filter((t) => t.entityType === "visit_change_request" && t.entityId)
+    .map((t) => t.entityId!);
+  const changes = new Map(
+    changeIds.length > 0 && can(user.actor, "visit:read")
+      ? (await visitChanges.list(ctx, { ids: changeIds })).map((r) => [r.id, r] as const)
+      : [],
+  );
 
   /**
    * Deadlines, above the queue.
@@ -94,6 +118,21 @@ export default async function TasksPage({
     )).map((v) => [v.id, v.jobId] as const),
   );
 
+  /**
+   * A unit has no page of its own either; it is shown on its address. A
+   * warranty follow up keeps the unit's id, and the hop to the address is
+   * made here for the same reason as the visit's.
+   */
+  const unitIds = page.data.filter((t) => t.entityType === "equipment" && t.entityId).map((t) => t.entityId!);
+  const addressOfUnit = new Map<string, string>(
+    unitIds.length === 0 ? [] : (await inTenant(ctx, (tx) =>
+      tx.select({ id: schema.equipment.id, propertyId: schema.equipment.propertyId })
+        .from(schema.equipment)
+        .where(inArray(schema.equipment.id, unitIds)),
+    )).map((u) => [u.id, u.propertyId] as const),
+  );
+  const people = writes ? await taskRules.assignable(ctx) : [];
+
   /** Where a deadline about a record goes, with the visit hop applied. */
   const deadlineLink = (entityType: string, entityId: string): string | undefined =>
     entityType === "visit"
@@ -103,6 +142,22 @@ export default async function TasksPage({
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <PageHeader title="Tasks" count={page.data.length} />
+
+      {writes && (
+        <details className="mt-4 rounded-md border border-steel-200 bg-canvas p-4">
+          <summary className="cursor-pointer text-sm font-medium">Add a task</summary>
+          <ActionForm action={addTask} submit="Add task" className="mt-3 space-y-3">
+            <TextField label="What needs doing" name="title" required maxLength={300} />
+            <TextArea label="More detail" name="body" rows={2} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextField label="Due" name="dueAt" type="datetime-local" />
+              <Select label="For" name="assigneeUserId"
+                      options={[{ value: "", label: "Nobody yet (the queue)" }, ...people.map((p) => ({ value: p.userId, label: p.name }))]} />
+            </div>
+            <TextArea label="Checklist, one item a line" name="checklist" rows={3} />
+          </ActionForm>
+        </details>
+      )}
 
       {due.length > 0 && (
         <section className="mt-6">
@@ -167,17 +222,31 @@ export default async function TasksPage({
       ) : (
         <ul className="mt-6 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
           {page.data.map((task) => {
-            const link = task.entityType && task.entityId
-              ? LINKS[task.entityType]?.(task.entityId)
+            const change = task.entityType === "visit_change_request" && task.entityId
+              ? changes.get(task.entityId)
               : undefined;
+            const link = change
+              ? `/jobs/${change.jobId}`
+              : task.entityType === "equipment" && task.entityId
+                ? (addressOfUnit.has(task.entityId) ? `/properties/${addressOfUnit.get(task.entityId)}` : undefined)
+                : task.entityType && task.entityId
+                  ? LINKS[task.entityType]?.(task.entityId)
+                  : undefined;
             return (
               <li key={task.id} className="bg-canvas p-4">
                 <div className="flex flex-wrap items-baseline gap-2">
-                  <span className="font-medium">{task.title}</span>
+                  <a href={`/tasks/${task.id}`} className="font-medium hover:underline">{task.title}</a>
                   {task.priority !== "normal" && (
                     <Chip tone={TONE[task.priority]}>{label(TASK_PRIORITY, task.priority)}</Chip>
                   )}
                   {task.overdue && <Chip tone="danger">Late</Chip>}
+                  {task.escalatedAt && <Chip tone="warning">Escalated</Chip>}
+                  {task.checklistTotal > 0 && (
+                    <Chip tone={task.checklistDone === task.checklistTotal ? "success" : "neutral"}>
+                      {`${task.checklistDone} of ${task.checklistTotal} ticked`}
+                    </Chip>
+                  )}
+                  {task.templateId && <span className="text-xs text-ink-500">recurring</span>}
                   {task.assigneeUserId === null && <Chip tone="info">Unclaimed</Chip>}
                   {/*
                     Named, because "why is this in my queue" is the first
@@ -204,15 +273,34 @@ export default async function TasksPage({
                   */}
                   {link && (
                     <a href={link} className="text-ink-700 hover:underline">
-                      Open the {task.entityType}
+                      {change ? "Open the job"
+                        : task.entityType === "equipment" ? "Open the address"
+                        : task.entityType === "task" ? "Open the late task"
+                        : `Open the ${task.entityType}`}
                     </a>
                   )}
                 </div>
 
+                {change && change.status === "pending" ? (
+                  <div className="mt-3">
+                    <VisitChangeDecision
+                      request={change}
+                      timezone={user.organizationTimezone}
+                      approve={approveVisitChange}
+                      decline={declineVisitChange}
+                      canDecide={can(user.actor, "visit:reschedule")}
+                    />
+                  </div>
+                ) : null}
+
+                {/*
+                  A task with a checklist is closed from its own page, where
+                  the items are and where an unticked one asks for a reason.
+                */}
                 <TaskActions
                   id={task.id}
                   claimable={task.assigneeUserId === null}
-                  closable={writes}
+                  closable={writes && !(change && change.status === "pending") && task.checklistTotal === 0}
                 />
               </li>
             );
