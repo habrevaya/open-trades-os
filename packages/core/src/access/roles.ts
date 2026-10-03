@@ -213,6 +213,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "deposit:read", "deposit:refund",
       "ledger:read", "ledger:post", "accounting:sync", "accounting:close",
       "report.financial:read", "report:read", "report:build",
+      "finance:configure",
       "vendor:read", "vendor:write", "po:read", "po:approve",
       "inventory:read",
       "timesheet:read", "timesheet:approve",

@@ -110,6 +110,14 @@ export const PERMISSIONS = {
   "accounting:sync": "Run and configure the accounting sync",
   "accounting:close": "Close an accounting period",
   "report.financial:read": "View financial reports and P and L",
+  /**
+   * The rates that turn a direct margin into a fully loaded one (labour
+   * burden and overhead) and the company's yearly budget. Separate from
+   * `settings:write` because these change what every margin and every
+   * budget report says, which is finance's decision, and the accountant who
+   * makes it should not need the power to change the company's settings.
+   */
+  "finance:configure": "Set labour burden, overhead rates and the company budget",
 
   // --- Purchasing and inventory -------------------------------------------
   "vendor:read": "View vendors",

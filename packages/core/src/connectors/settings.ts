@@ -135,6 +135,21 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     minIntervalMs: { kind: "number" },
     baseUrl: BASE_URL,
   },
+  /**
+   * Consumer financing. The plans are the merchant agreement's, typed in as
+   * "months@APR", because they are what "as low as" is worked out from and
+   * Wisetack is not asked for them per customer.
+   */
+  wisetack: {
+    merchantId: { kind: "text" },
+    webhookSecretRef: { kind: "secret_name" },
+    plans: { kind: "list" },
+    minAmount: { kind: "text" },
+    maxAmount: { kind: "text" },
+    /** Off hides the monthly figure everywhere and keeps the apply link. On by default once connected. */
+    showMonthly: { kind: "boolean" },
+    baseUrl: BASE_URL,
+  },
   whisper: {
     /** Where the API lives: OpenAI's, or a Whisper server the company runs itself. */
     endpoint: { kind: "text" },
