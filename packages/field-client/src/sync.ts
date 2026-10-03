@@ -3,7 +3,7 @@ import {
 } from "./queue";
 import type { Storage } from "./storage";
 import type { UploadQueue, UploadTransport } from "./uploads";
-import type { FieldSnapshot, PriceBookEntry } from "./wire";
+import type { FieldInspectionProgram, FieldSnapshot, PriceBookEntry } from "./wire";
 import { projectDay, todayIn, type DayView } from "./day";
 import { describeOperation, describeUpload, type Problem } from "./problems";
 
@@ -224,6 +224,8 @@ export class SyncEngine {
     day: DayView;
     /** What a part can be picked from, as the server last sent it. */
     priceBook: PriceBookEntry[];
+    /** What an inspection can be run against, as the server last sent it. Empty for somebody who may not. */
+    inspectionPrograms: FieldInspectionProgram[];
     from: string | null;
     waiting: number;
     uploadsWaiting: number;
@@ -252,6 +254,7 @@ export class SyncEngine {
     return {
       day,
       priceBook: cached?.snapshot.priceBook ?? [],
+      inspectionPrograms: cached?.snapshot.inspectionPrograms ?? [],
       from: cached?.from ?? null,
       // Conflicted operations are recorded; only what has not landed is waiting.
       waiting: pending.filter((o) => o.status !== "conflicted" && o.status !== "rejected").length,

@@ -49,6 +49,33 @@ export interface FieldVisit {
     fields: ReportField[];
   };
   parts: Array<{ id: string; name: string; quantity: string }>;
+  /** Inspections filed against this visit. Absent from servers older than the field inspection. */
+  inspections?: FiledInspection[] | undefined;
+}
+
+export interface FiledInspection {
+  id: string;
+  programId: string | null;
+  programName: string;
+  /** The server's verdict: pass, pass_with_deficiencies, fail or partial. */
+  result: string | null;
+  performedOn: string | null;
+}
+
+/** A programme as the phone runs it. Only sent to somebody who may file inspections. */
+export interface FieldInspectionProgram {
+  id: string;
+  name: string;
+  standard: string | null;
+  version: number;
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    requiresReading: boolean;
+    unit: string | null;
+    min: number | null;
+    max: number | null;
+  }>;
 }
 
 export interface ReportField {
@@ -81,6 +108,8 @@ export interface FieldSnapshot {
   /** What the technician can pick from when recording a part. */
   priceBook: PriceBookEntry[];
   openTimeEntry: { id: string; kind: string; startedAt: string } | null;
+  /** Absent from older servers, and empty for somebody who may not file inspections. */
+  inspectionPrograms?: FieldInspectionProgram[] | undefined;
 }
 
 export interface CodeRequestResult {

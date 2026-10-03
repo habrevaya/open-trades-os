@@ -31,6 +31,14 @@ const ctxFor = (roles: Actor["roles"]): ServiceContext => ({
   actor: { userId: USER, organizationId: ORG, roles }, db: db(),
 });
 const tech = () => ctxFor(["technician"]);
+/** A technician the company has let file inspections, which the presets do not. */
+const inspector = (): ServiceContext => ({
+  actor: {
+    userId: USER, organizationId: ORG, roles: ["technician"],
+    grants: ["compliance:read", "compliance:write"],
+  },
+  db: db(),
+});
 
 let technicianId = "";
 let customerId = "";
@@ -825,6 +833,7 @@ run("every operation does something", () => {
   const SIDE_EFFECT_TABLES = [
     "visit", "job_line", "equipment", "timeclock_entry",
     "service_report", "service_report_field", "field_upload", "portal_event", "payment",
+    "inspection",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -845,6 +854,9 @@ run("every operation does something", () => {
     const [report] = await raw`insert into public.service_report
       (organization_id, visit_id, job_id, customer_id, property_id)
       values (${ORG}, ${visitId}, ${jobId}, ${customerId}, ${propertyId}) returning id`;
+    const [program] = await raw`insert into public.inspection_program (organization_id, name, checkpoints)
+      values (${ORG}, 'Annual test', ${raw.json([{ key: "valve", label: "Valve holds", severityOnFail: "major" }])})
+      returning id`;
 
     const cases: Array<{
       kind: (typeof field.OPERATION_KINDS)[number];
@@ -871,6 +883,10 @@ run("every operation does something", () => {
         payload: { uploadId: uuid(), contentType: "image/png" } },
       { kind: "service_report.submit", subjectId: report!.id, payload: {} },
       { kind: "payment.collect", subjectId: visitId, payload: { method: "cash", amount: "50.00" } },
+      { kind: "inspection.record", subjectId: uuid(), payload: {
+        visitId, programId: program!.id, signedByName: "Ray Nunez",
+        answers: [{ itemKey: "valve", value: { kind: "pass_fail", passed: true }, at: new Date().toISOString(), by: "Ray Nunez" }],
+      } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 
@@ -886,7 +902,7 @@ run("every operation does something", () => {
     for (const [i, testCase] of cases.entries()) {
       const before = await fingerprint();
 
-      const result = await fieldOps.sync(tech(), {
+      const result = await fieldOps.sync(inspector(), {
         deviceId: device,
         operations: [{
           clientId: uuid(),

@@ -4,6 +4,8 @@ import { inspections } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
+import Link from "next/link";
+import { QuoteForm } from "./QuoteForm";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +42,12 @@ export default async function InspectionsPage() {
     );
   }
 
-  const [open, programs] = await Promise.all([
+  const [open, programs, filed] = await Promise.all([
     inspections.backlog(ctx, {}),
     inspections.programs(ctx),
+    inspections.recent(ctx, { limit: 20 }),
   ]);
+  const quotes = can(user.actor, "compliance:write") && can(user.actor, "estimate:write");
 
   const overdue = open.filter((row) => row.overdue);
 
@@ -108,13 +112,45 @@ export default async function InspectionsPage() {
                 {row.correctByOn ? ` · correct by ${row.correctByOn}` : " · no deadline"}
                 {` · ${row.status}`}
               </p>
+              {row.estimateId ? (
+                <Link href={`/estimates/${row.estimateId}`} className="mt-1 inline-block text-sm underline underline-offset-4">Its quote</Link>
+              ) : quotes && (row.status === "open" || row.status === "deferred") ? (
+                <QuoteForm deficiencyId={row.id} needsPrice={!row.hasRemedy} />
+              ) : null}
             </li>
           ))}
         </ul>
       )}
+
+      <section aria-label="Inspections filed" className="mt-10">
+        <h2 className="text-base font-semibold">Inspections filed</h2>
+        {filed.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-500">None yet. Technicians file them from a visit on their phone or on My day.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+            {filed.map((row) => (
+              <li key={row.id} className="flex flex-wrap items-center gap-3 bg-canvas p-3 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium">{row.programName}</span>
+                  <span className="block text-xs text-ink-500">{row.customerName}, {row.address}, {row.performedOn}</span>
+                </span>
+                <Chip tone={row.result === "fail" ? "danger" : row.result === "partial" ? "warning" : row.result === "pass" ? "success" : "neutral"}>
+                  {RESULT[row.result ?? ""] ?? row.result ?? "No result"}
+                </Chip>
+                <Link href={`/inspections/${row.id}/report`} className="underline underline-offset-4">Report</Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
+
+const RESULT: Record<string, string> = {
+  pass: "Passed", pass_with_deficiencies: "Passed, with findings", fail: "Failed",
+  partial: "Not finished", not_tested: "Not tested", not_accessible: "Could not get to it",
+};
 
 const label = (severity: string): string =>
   severity === "safety" ? "Safety"

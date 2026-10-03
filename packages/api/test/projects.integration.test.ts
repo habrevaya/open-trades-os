@@ -180,7 +180,7 @@ run("changing a project", () => {
     const made = await project();
     await projects.addPhase(owner(), { projectId: made.id, name: "Rough in", billingValue: "60000" });
     await expect(projects.update(owner(), { id: made.id, contractValue: "50000" }))
-      .rejects.toThrow(/phases on this project add up to 60000.00/);
+      .rejects.toThrow(/phases on this project add up to \$60,000.00/);
   });
 
   it("refuses a contract value below what has already been billed", async () => {
@@ -195,7 +195,7 @@ run("changing a project", () => {
     await projects.raiseDraw(owner(), { id: draw.id });
 
     await expect(projects.update(owner(), { id: made.id, contractValue: "20000" }))
-      .rejects.toThrow(/already billed 30000.00/);
+      .rejects.toThrow(/already billed \$30,000.00/);
   });
 
   it("refuses to complete a project with a phase still open", async () => {

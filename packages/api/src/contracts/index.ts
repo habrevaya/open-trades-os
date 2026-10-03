@@ -36,6 +36,7 @@ import { agentRoutes } from "./agents";
 import { assetRoutes } from "./assets";
 import { complianceRoutes } from "./compliance";
 import { projectRoutes } from "./projects";
+import { projectDocumentRoutes } from "./project-documents";
 import { calendarRoutes } from "./calendar";
 import { callTrackingRoutes } from "./call-tracking";
 import { trackingRoutes } from "./tracking";
@@ -111,6 +112,7 @@ export * from "./agents";
 export * from "./assets";
 export * from "./compliance";
 export * from "./projects";
+export * from "./project-documents";
 export * from "./calendar";
 export * from "./call-tracking";
 export * from "./tracking";
@@ -196,6 +198,7 @@ export const routes = {
   ...assetRoutes,
   ...complianceRoutes,
   ...projectRoutes,
+  ...projectDocumentRoutes,
   ...calendarRoutes,
   ...callTrackingRoutes,
   ...trackingRoutes,

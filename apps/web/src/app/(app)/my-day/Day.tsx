@@ -9,6 +9,8 @@ import type { dispatch } from "@opentradesos/api/services";
 import { sync, onMyWay, paymentLink } from "./actions";
 import { punchNotice } from "@/lib/punch-notice";
 import { preparePhoto } from "@/lib/photo";
+import { InspectionRun, type VisitInspection } from "./InspectionRun";
+import { inspectionPayload, type FieldInspectionProgram } from "@opentradesos/field-client";
 
 type Snapshot = Awaited<ReturnType<typeof dispatch.snapshot>>;
 type Visit = Snapshot["visits"][number];
@@ -28,7 +30,7 @@ type Visit = Snapshot["visits"][number];
  * does nothing.
  */
 export function Day({
-  date, deviceId, lastSequence, visits, openTimeEntry, technicianName, timezone,
+  date, deviceId, lastSequence, visits, openTimeEntry, technicianName, timezone, inspectionPrograms = [],
 }: {
   date: string;
   deviceId: string;
@@ -38,6 +40,8 @@ export function Day({
   technicianName: string;
   /** The company's timezone. Every time on this screen is rendered in it. */
   timezone: string;
+  /** What this person may run an inspection against. Empty for somebody who may not file one. */
+  inspectionPrograms?: FieldInspectionProgram[];
 }) {
   const queueRef = useRef<FieldQueue | null>(null);
   /**
@@ -52,6 +56,8 @@ export function Day({
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   /** Cash and checks recorded on this page, until the next load shows them in what is owed. */
   const [payments, setPayments] = useState<Record<string, RecordedPayment[]>>({});
+  /** Inspections filed on this page, until the next load carries the server's verdict. */
+  const [inspections, setInspections] = useState<Record<string, Array<{ id: string; clientId: string; programName: string }>>>({});
   const [queued, setQueued] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -204,26 +210,56 @@ export function Day({
    * signal allows; a problem is said under the button that was pressed.
    */
   async function takePhoto(visitId: string, file: File): Promise<string | null> {
+    const kept = await keepPhoto(visitId, file);
+    return "problem" in kept ? kept.problem : null;
+  }
+
+  /** The same, answering with the photo's id, which an inspection checkpoint names. */
+  async function keepPhoto(visitId: string, file: File): Promise<{ uploadId: string } | { problem: string }> {
     const queue = queueRef.current;
     const uploads = uploadsRef.current;
     const files = filesRef.current;
     if (!queue || !uploads || !files) {
-      return "This browser cannot keep photos while there is no signal. Use the phone app, or turn off private browsing.";
+      return { problem: "This browser cannot keep photos while there is no signal. Use the phone app, or turn off private browsing." };
     }
+    const uploadId = crypto.randomUUID();
     try {
       const photo = await preparePhoto(file);
-      const uploadId = crypto.randomUUID();
       const localUri = await files.keep(uploadId, photo.base64);
       await uploads.add({
         uploadId, visitId, kind: "photo", contentType: photo.contentType,
         byteSize: photo.byteSize, contentHash: photo.contentHash, localUri,
       });
     } catch {
-      return "The photo could not be kept on this phone. Try again, or use the phone app.";
+      return { problem: "The photo could not be kept on this phone. Try again, or use the phone app." };
     }
     await refresh(queue);
     void flush();
-    return null;
+    return { uploadId };
+  }
+
+  /**
+   * An inspection, filed whole into the queue. Its id is made here, so a
+   * retry names the same inspection and the server files it once.
+   */
+  async function fileInspection(visitId: string, input: Parameters<Parameters<typeof InspectionRun>[0]["onFile"]>[0]) {
+    const queue = queueRef.current;
+    if (!queue) return;
+    const inspectionId = crypto.randomUUID();
+    const queued = await queue.enqueue({
+      kind: "inspection.record",
+      subjectId: inspectionId,
+      payload: inspectionPayload({
+        visitId, program: input.program, built: input.built,
+        inspectorName: input.inspectorName, inspectorLicense: input.inspectorLicense, signedByName: input.signedByName,
+      }),
+    });
+    setInspections((all) => ({
+      ...all,
+      [visitId]: [...(all[visitId] ?? []), { id: inspectionId, clientId: queued.clientId, programName: input.program.name }],
+    }));
+    await refresh(queue);
+    void flush();
   }
 
   // A background attempt every half minute, and one whenever the browser says
@@ -304,6 +340,20 @@ export function Day({
                 onToggle={() => setOpen(open === v.id ? null : v.id)}
                 onRecord={(kind, payload) => void record(kind, v.id, payload)}
                 onPhoto={(file) => takePhoto(v.id, file)}
+                inspection={(
+                  <InspectionRun
+                    programs={inspectionPrograms}
+                    inspectorName={technicianName}
+                    filed={[
+                      ...(v.inspections ?? []).map((i) => ({ id: i.id, programName: i.programName, result: i.result, waiting: false })),
+                      ...(inspections[v.id] ?? [])
+                        .filter((i) => !(v.inspections ?? []).some((s) => s.id === i.id))
+                        .map((i): VisitInspection => ({ id: i.id, programName: i.programName, result: null, waiting: pendingIds.has(i.clientId) })),
+                    ]}
+                    onFile={(input) => fileInspection(v.id, input)}
+                    onPhoto={(file) => keepPhoto(v.id, file)}
+                  />
+                )}
                 photos={photos[v.id] ?? { waiting: 0, sent: 0, failed: 0 }}
                 payments={(payments[v.id] ?? []).map((p) => ({ ...p, waiting: pendingIds.has(p.clientId) }))}
                 timezone={timezone}
@@ -402,7 +452,7 @@ const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "v
 };
 
 function VisitCard({
-  visit, index, status, expanded, onToggle, onRecord, onPhoto, photos, payments, timezone,
+  visit, index, status, expanded, onToggle, onRecord, onPhoto, photos, payments, timezone, inspection,
 }: {
   visit: Visit;
   index: number;
@@ -418,6 +468,8 @@ function VisitCard({
   onPhoto: (file: File) => Promise<string | null>;
   photos: { waiting: number; sent: number; failed: number };
   payments: Array<RecordedPayment & { waiting: boolean }>;
+  /** Running an inspection on this visit, when the person may. */
+  inspection?: React.ReactNode;
 }) {
   const [note, setNote] = useState("");
   const [sendingEta, setSendingEta] = useState(false);
@@ -577,6 +629,8 @@ function VisitCard({
           </div>
 
           <Photos photos={photos} onPhoto={onPhoto} />
+
+          {inspection}
 
           <Payment visit={visit} payments={payments} onRecord={(payload) => onRecord("payment.collect", payload)} />
 

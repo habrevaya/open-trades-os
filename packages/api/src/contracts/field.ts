@@ -10,6 +10,7 @@ export const OperationKind = z.enum([
   "visit.add_line", "equipment.record",
   "attachment.attach", "signature.capture",
   "payment.collect",
+  "inspection.record",
 ]);
 
 export const OperationStatus = z.enum([
@@ -199,6 +200,39 @@ export const VisitForField = z.object({
     name: z.string(),
     quantity: z.string(),
   })),
+  /**
+   * Inspections already filed against this visit, from any phone or the
+   * office, with the verdict the server drew. Empty for a caller who may
+   * not read compliance records.
+   */
+  inspections: z.array(z.object({
+    id: Uuid,
+    programId: Uuid.nullable(),
+    programName: z.string(),
+    result: z.string().nullable(),
+    performedOn: z.string().date().nullable(),
+  })),
+});
+
+/**
+ * An inspection programme as the phone runs it: the checkpoints in order,
+ * each a pass or fail or a reading with its unit and range, so a reading
+ * outside its range is said on the phone before it is saved. The verdict is
+ * still the server's.
+ */
+export const InspectionProgramForField = z.object({
+  id: Uuid,
+  name: z.string(),
+  standard: z.string().nullable(),
+  version: z.number().int(),
+  checkpoints: z.array(z.object({
+    key: z.string(),
+    label: z.string(),
+    requiresReading: z.boolean(),
+    unit: z.string().nullable(),
+    min: z.number().nullable(),
+    max: z.number().nullable(),
+  })),
 });
 
 /**
@@ -240,6 +274,12 @@ export const getFieldSnapshot = defineRoute({
       kind: z.string(),
       startedAt: z.string().datetime(),
     }).nullable(),
+    /**
+     * The programmes a technician can run an inspection against, only for one
+     * who may file inspections (`compliance:write`). Empty otherwise, so the
+     * phone offers nothing it would then refuse.
+     */
+    inspectionPrograms: z.array(InspectionProgramForField),
   }),
 });
 

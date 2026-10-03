@@ -6,7 +6,10 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
-import { formatAmount, type Problem, type SyncEngine, type SyncReport } from "@opentradesos/field-client";
+import {
+  formatAmount, inspectionPayload, type BuiltInspection, type FieldInspectionProgram, type Problem,
+  type SyncEngine, type SyncReport,
+} from "@opentradesos/field-client";
 import type { Session } from "../lib/session";
 import { deviceInstallationId, sessionExpired } from "../lib/session";
 import {
@@ -57,6 +60,13 @@ interface FieldState {
   record(kind: RecordKind, visitId?: string, payload?: Record<string, unknown>): Promise<void>;
   takePhoto(visitId: string): Promise<string | null>;
   saveSignature(visitId: string, dataUrl: string, signedBy: string): Promise<string | null>;
+  /** A photo for one inspection checkpoint: its upload id, a reason it could not be kept, or null when cancelled. */
+  checkpointPhoto(visitId: string): Promise<{ uploadId: string } | { problem: string } | null>;
+  /** An inspection, filed whole: the answers, who signed it off and their drawn signature when there is one. */
+  fileInspection(visitId: string, input: {
+    program: FieldInspectionProgram; built: BuiltInspection;
+    inspectorName: string; inspectorLicense: string; signedByName: string; signature: string | null;
+  }): Promise<string | null>;
   resolve(problem: Problem, choice: "acknowledge" | "retry" | "discard"): Promise<void>;
   onMyWay(visitId: string, etaMinutes: number): Promise<string>;
 }
@@ -222,6 +232,59 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     void sync(true);
   }, [refreshView, sync]);
 
+  const checkpointPhoto = useCallback<FieldState["checkpointPhoto"]>(async (visitId) => {
+    const c = clientRef.current;
+    if (!c) return { problem: "Not signed in." };
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      return { problem: "The camera is turned off for this app. Turn it on in the phone's settings to take photos." };
+    }
+    const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.6, exif: false });
+    const asset = shot.canceled ? null : shot.assets[0];
+    if (!asset) return null;
+    const uploadId = Crypto.randomUUID();
+    const { extension, contentType } = extensionFor(asset.mimeType);
+    const kept = await keepPhoto(asset.uri, uploadId, extension);
+    await c.uploads.add({ uploadId, visitId, kind: "photo", contentType, ...kept });
+    await refreshView(c);
+    void sync(true);
+    return { uploadId };
+  }, [refreshView, sync]);
+
+  /**
+   * The signature first, as an upload like any other, then the inspection
+   * naming it, both into the queue before anything is sent, so the record of
+   * the inspection and the image of who signed it cannot be separated by a
+   * dead battery. The inspection's id is made here, so a retry files it once.
+   */
+  const fileInspection = useCallback<FieldState["fileInspection"]>(async (visitId, input) => {
+    const c = clientRef.current;
+    if (!c) return "Not signed in.";
+    let signatureUploadId: string | undefined;
+    if (input.signature) {
+      const png = pngFromDataUrl(input.signature);
+      if (!png) return "The signature could not be saved. Sign again.";
+      signatureUploadId = Crypto.randomUUID();
+      const kept = await keepSignature(png, signatureUploadId);
+      await c.uploads.add({
+        uploadId: signatureUploadId, visitId, kind: "signature", contentType: "image/png", ...kept,
+        caption: `Inspection signed off by ${input.signedByName.trim()}`,
+      });
+    }
+    await c.queue.enqueue({
+      kind: "inspection.record",
+      subjectId: Crypto.randomUUID(),
+      payload: inspectionPayload({
+        visitId, program: input.program, built: input.built,
+        inspectorName: input.inspectorName, inspectorLicense: input.inspectorLicense,
+        signedByName: input.signedByName, signatureUploadId,
+      }),
+    });
+    await refreshView(c);
+    void sync(true);
+    return null;
+  }, [refreshView, sync]);
+
   const takePhoto = useCallback<FieldState["takePhoto"]>(async (visitId) => {
     const c = clientRef.current;
     if (!c) return null;
@@ -318,9 +381,9 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const value = useMemo<FieldState>(() => ({
     status, session, view, syncing, report, signInEnded, push,
     signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
-    resolve, onMyWay, paymentLink,
+    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
   }), [status, session, view, syncing, report, signInEnded, push, signIn, requestCode, signInWithCode, signOut,
-    sync, record, takePhoto, saveSignature, resolve, onMyWay, paymentLink]);
+    sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

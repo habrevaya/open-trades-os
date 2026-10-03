@@ -49,6 +49,15 @@ export async function act(_previous: ProjectState, form: FormData): Promise<Proj
           id: projectId, status: String(form.get("status")) as "active",
         });
         break;
+      case "retainage": {
+        /** Typed as a percentage, stored as a fraction: 10 means 0.1. Blank means none is held. */
+        const percent = text(form, "retainagePercent");
+        await projects.handlers.updateProject(c, {
+          id: projectId,
+          retainageRate: percent === null ? null : String(Number(percent) / 100),
+        });
+        break;
+      }
       case "phase":
         await projects.handlers.addProjectPhase(c, {
           projectId,

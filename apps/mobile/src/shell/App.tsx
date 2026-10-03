@@ -7,20 +7,22 @@ import { SignInScreen } from "../screens/SignInScreen";
 import { DayScreen } from "../screens/DayScreen";
 import { VisitScreen } from "../screens/VisitScreen";
 import { SignatureScreen } from "../screens/SignatureScreen";
+import { InspectionScreen } from "../screens/InspectionScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { color } from "../components/theme";
 import { onNoticeTapped } from "../platform/notifications";
 
 /**
- * Five screens and a stack, held in state rather than in a navigation
- * library. The app is a list, a detail, a signature pad and a list of
- * problems; a router would be the largest dependency in it and do nothing
+ * Six screens and a stack, held in state rather than in a navigation
+ * library. The app is a list, a detail, a signature pad, an inspection and
+ * a list of problems; a router would be the largest dependency in it and do nothing
  * the back button below does not.
  */
 export type Route =
   | { name: "day" }
   | { name: "visit"; visitId: string }
   | { name: "signature"; visitId: string }
+  | { name: "inspection"; visitId: string; programId: string }
   | { name: "outbox" }
   | { name: "sign-in-again" };
 
@@ -69,6 +71,7 @@ function Screens() {
   switch (route.name) {
     case "visit": return <VisitScreen visitId={route.visitId} nav={nav} />;
     case "signature": return <SignatureScreen visitId={route.visitId} nav={nav} />;
+    case "inspection": return <InspectionScreen visitId={route.visitId} programId={route.programId} nav={nav} />;
     case "outbox": return <OutboxScreen nav={nav} />;
     case "sign-in-again": return <SignInScreen again onDone={nav.back} />;
     default: return <DayScreen nav={nav} />;

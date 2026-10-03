@@ -34,6 +34,8 @@ const ORDER = [
    * the invoices they became. Nothing points at a project but these, so the
    * project itself follows its own children.
    */
+  "project_lien_record", "project_application_line", "project_application",
+  "project_change_order_line", "project_change_order",
   "project_draw", "project_job", "project_phase", "project",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",

@@ -554,6 +554,13 @@
       "when": 1791052643002,
       "tag": "0078_massive_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1791052938511,
+      "tag": "0079_fat_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

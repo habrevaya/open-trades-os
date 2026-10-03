@@ -47,3 +47,4 @@ export * as customerPortal from "./customer-portal/index.js";
 export * as catalogue from "./catalogue/index.js";
 export * as ads from "./ads/index.js";
 export * as agents from "./agents/index.js";
+export * as project from "./project/index.js";

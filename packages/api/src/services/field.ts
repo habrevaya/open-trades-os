@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { field, money as m } from "@opentradesos/core";
-import type { z } from "zod";
+import { can, field, money as m } from "@opentradesos/core";
+import { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
@@ -9,6 +9,8 @@ import * as billing from "./billing";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
 import { bindToken } from "./field-devices";
+import * as inspections from "./inspections";
+import { RecordedAnswer } from "../contracts/inspections";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
 } from "../contracts/field";
@@ -578,6 +580,83 @@ async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperati
   }
 }
 
+/**
+ * AN INSPECTION, RUN ON THE PHONE AND FILED WHOLE.
+ *
+ * The technician walks the programme's checkpoints at the visit, offline if
+ * need be, and the phone sends the answers, who signed it off and the id it
+ * gave the inspection, in one operation. It goes through the same
+ * `inspections.recordIn` the office and the API file through, so the verdict
+ * is core's and never the phone's: the phone sends what was seen and the
+ * server decides whether that is a pass, which is the one rule the
+ * inspection module exists to keep.
+ *
+ * The customer, the property and the job come off the VISIT, not the
+ * payload, so an inspection filed from a visit cannot land on somebody
+ * else's address. `compliance:write` is checked here, because the sync
+ * itself only needs `field:sync`, and a refusal comes back to the phone in
+ * words rather than as a failed batch.
+ *
+ * In a savepoint, so a refusal halfway through (equipment that is not at
+ * this address) leaves nothing half filed in a batch that otherwise lands.
+ */
+async function fileInspection(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<string | null> {
+  if (!can(ctx.actor, "compliance:write")) {
+    return "Your account may not file inspections. Ask the office to give you inspection access, and it will send again.";
+  }
+  if (!op.subjectId) return "That inspection has no id.";
+  const visitId = typeof op.payload["visitId"] === "string" ? op.payload["visitId"] : null;
+  const programId = typeof op.payload["programId"] === "string" ? op.payload["programId"] : null;
+  if (!visitId || !programId) return "That inspection names no visit or no programme.";
+
+  const [visit] = await tx.select({
+    jobId: schema.visit.jobId, customerId: schema.job.customerId, propertyId: schema.job.propertyId,
+  }).from(schema.visit)
+    .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(eq(schema.visit.id, visitId)).limit(1);
+  if (!visit) return "That visit is not here.";
+
+  const answers = RecordedAnswerList.safeParse(op.payload["answers"]);
+  if (!answers.success) return "Some of the answers on that inspection could not be read.";
+  if (answers.data.length === 0) return "That inspection has no answers on it.";
+  const text = (key: string) => typeof op.payload[key] === "string" && (op.payload[key] as string).trim() !== ""
+    ? (op.payload[key] as string).trim().slice(0, 200) : null;
+
+  try {
+    await tx.transaction(async (savepoint) => {
+      await inspections.recordIn(savepoint as unknown as Database, ctx, {
+        id: op.subjectId,
+        programId,
+        propertyId: visit.propertyId,
+        customerId: visit.customerId,
+        jobId: visit.jobId,
+        visitId,
+        answers: answers.data.map((answer) => ({
+          itemKey: answer.itemKey,
+          value: answer.value,
+          at: new Date(answer.at),
+          by: answer.by,
+          ...(answer.note !== undefined ? { note: answer.note } : {}),
+          ...(answer.photoIds !== undefined ? { photoIds: answer.photoIds } : {}),
+          ...(answer.equipmentId !== undefined ? { equipmentId: answer.equipmentId } : {}),
+        })),
+        inspectorName: text("inspectorName"),
+        inspectorLicense: text("inspectorLicense"),
+        signedByName: text("signedByName"),
+        signedAt: op.occurredAt,
+        signatureUploadId: text("signatureUploadId"),
+      });
+    });
+    return null;
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (REFUSALS.has(name)) return (error as Error).message;
+    throw error;
+  }
+}
+
+const RecordedAnswerList = z.array(RecordedAnswer);
+
 async function effect(
   tx: Database,
   ctx: ServiceContext,
@@ -940,6 +1019,9 @@ async function effect(
 
     case "payment.collect":
       return collect(tx, ctx, op);
+
+    case "inspection.record":
+      return fileInspection(tx, ctx, op);
 
     default:
       /**

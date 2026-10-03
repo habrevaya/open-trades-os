@@ -221,6 +221,8 @@ export const estimateLine = pgTable("estimate_line", {
  */
 export const signatureSubject = pgEnum("signature_subject", [
   "estimate", "service_report", "agreement", "authorization",
+  /** A change order on a project, signed through its link or recorded by the office. */
+  "change_order",
 ]);
 
 export const documentSignature = pgTable("document_signature", {

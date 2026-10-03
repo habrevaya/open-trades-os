@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid } from "./common";
+import { Uuid, MoneyString } from "./common";
 
 const IsoDate = z.string().date();
 
@@ -115,6 +115,8 @@ export const recordInspection = defineRoute({
     inspectorName: z.string().max(200).nullish(),
     inspectorLicense: z.string().max(120).nullish(),
     performedOn: IsoDate.optional(),
+    /** Who signed the report off. Printed beside the signature line. */
+    signedByName: z.string().max(200).nullish(),
   }),
   output: z.object({
     id: Uuid,
@@ -161,6 +163,10 @@ export const listDeficiencies = defineRoute({
       correctByOn: IsoDate.nullable(),
       ageDays: z.number().int(),
       overdue: z.boolean(),
+      /** The quote it became, once somebody quoted it. */
+      estimateId: Uuid.nullable(),
+      /** Whether its checkpoint declared a repair to price it from. */
+      hasRemedy: z.boolean(),
       /** Core's sentence about where this one stands. */
       statement: z.string(),
     })),
@@ -186,6 +192,119 @@ export const setDeficiencyStatus = defineRoute({
   output: z.object({ id: Uuid, status: DeficiencyStatus }),
 });
 
+export const listInspections = defineRoute({
+  method: "get",
+  path: "/v1/inspections",
+  summary: "Inspections filed, newest first",
+  module: "M33",
+  permissions: ["compliance:read"],
+  input: z.object({
+    propertyId: Uuid.optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: z.object({
+    inspections: z.array(z.object({
+      id: Uuid,
+      programName: z.string(),
+      performedOn: IsoDate.nullable(),
+      result: z.string().nullable(),
+      customerName: z.string(),
+      address: z.string(),
+      visitId: Uuid.nullable(),
+      nextDueOn: IsoDate.nullable(),
+    })),
+  }),
+});
+
+export const getInspectionReport = defineRoute({
+  method: "get",
+  path: "/v1/inspections/{id}/report",
+  summary: "The inspection report, rendered from the data held",
+  description:
+    "Every checkpoint as it was asked, what was recorded, the range a reading was judged against and what it came to, the findings with severity, code and correction date, photographs, inspector, licence, signature and next due date. Rendered from the checkpoints and answers kept with the inspection, so revising the programme later does not change what an old report says. The same facts an authority's own form asks for; there is no per authority formatter.",
+  module: "M33",
+  permissions: ["compliance:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    id: Uuid,
+    organizationName: z.string(),
+    program: z.object({
+      id: Uuid.nullable(),
+      name: z.string(),
+      standard: z.string().nullable(),
+      reportAudience: z.string(),
+      authorityName: z.string().nullable(),
+      version: z.number().int().nullable(),
+    }),
+    customer: z.object({ id: Uuid, name: z.string() }),
+    property: z.object({ id: Uuid, address: z.string() }),
+    performedOn: IsoDate.nullable(),
+    result: z.string().nullable(),
+    statement: z.string().nullable(),
+    inspectorName: z.string().nullable(),
+    inspectorLicense: z.string().nullable(),
+    nextDueOn: IsoDate.nullable(),
+    submittedAt: z.string().datetime().nullable(),
+    submissionReference: z.string().nullable(),
+    items: z.array(z.object({
+      key: z.string(),
+      prompt: z.string(),
+      kind: z.enum(["pass_fail", "reading"]),
+      unit: z.string().nullable(),
+      range: z.string().nullable(),
+      answer: z.string().nullable(),
+      verdict: z.enum(["pass", "borderline", "finding", "not_applicable", "not_answered"]),
+      severity: z.string().nullable(),
+      note: z.string().nullable(),
+      by: z.string().nullable(),
+      at: z.string().nullable(),
+      equipmentId: z.string().nullable(),
+      photos: z.array(z.object({ id: z.string(), storageKey: z.string().nullable() })),
+    })),
+    deficiencies: z.array(z.object({
+      id: Uuid,
+      severity: z.enum(["safety", "failure", "wear", "recommendation"]),
+      label: z.string(),
+      recordedSeverity: z.string(),
+      description: z.string(),
+      code: z.string().nullable(),
+      correctByOn: IsoDate.nullable(),
+      status: z.string(),
+      estimateId: Uuid.nullable(),
+    })),
+    signature: z.object({
+      name: z.string(),
+      at: z.string().datetime().nullable(),
+      storageKey: z.string().nullable(),
+    }).nullable(),
+    /** False for an inspection filed before its checkpoints were kept with it. */
+    checkpointsKept: z.boolean(),
+  }),
+});
+
+export const quoteDeficiency = defineRoute({
+  method: "post",
+  path: "/v1/inspection-deficiencies/{id}/quote",
+  summary: "Turn a finding into a quote, in one action",
+  description:
+    "The repairs the checkpoint declared become the lines of a new estimate, priced from your price book by item code, with what was seen as the evidence. Refused for a finding with no observation behind it, for a repair whose code is not in the price book, and for a finding with no declared repair unless a price is given. A finding already quoted returns its estimate. Needs estimate:write as well.",
+  module: "M33",
+  permissions: ["compliance:write", "estimate:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    /** The price for correcting a finding whose checkpoint declares no repair. */
+    price: MoneyString.nullish(),
+  }),
+  output: z.object({
+    deficiencyId: Uuid,
+    estimateId: Uuid,
+    amount: z.string().nullable(),
+    created: z.boolean(),
+  }),
+});
+
 export const inspectionRoutes = {
   listInspectionPrograms, recordInspection, listDeficiencies, setDeficiencyStatus,
+  listInspections, getInspectionReport, quoteDeficiency,
 } as const;
