@@ -92,7 +92,7 @@ export function createWhisperTranscription(
 
     async transcribe(audio) {
       const form = new FormData();
-      form.set("file", new Blob([audio.bytes], { type: audio.contentType }), audio.fileName);
+      form.set("file", new Blob([new Uint8Array(audio.bytes)], { type: audio.contentType }), audio.fileName);
       form.set("model", model);
       form.set("response_format", "verbose_json");
       form.append("timestamp_granularities[]", "segment");

@@ -582,7 +582,7 @@ async function answer(leg: Leg, to: tel.RoutingDestination, hops: number): Promi
     await note(leg.tx, leg.call, `It went through ${hops} destinations without anybody answering, so it went to voicemail.`);
     return voicemail();
   }
-  const query = hops > 0 ? { h: hops } : {};
+  const query: Record<string, number> = hops > 0 ? { h: hops } : {};
 
   switch (to.kind) {
     case "voicemail":

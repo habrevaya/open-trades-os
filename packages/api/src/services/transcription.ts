@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import {
-  guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { emit } from "./events";
 import * as telephony from "./telephony";
@@ -283,6 +283,14 @@ export async function transcribeNow(ctx: ServiceContext, callId: string, deps: T
       id: schema.call.id, transcriptStatus: schema.call.transcriptStatus, transcriptError: schema.call.transcriptError,
     }).from(schema.call).where(eq(schema.call.id, callId)).limit(1);
     return { id: callId, status: call?.transcriptStatus ?? null, error: call?.transcriptError ?? null };
+  });
+}
+
+/** Whether calls are being written out, for the settings screen. */
+export async function status(ctx: ServiceContext) {
+  return guardedRead(ctx, "settings:read", async (tx) => {
+    const row = await connectionOf(tx, ctx.actor.organizationId);
+    return { connected: row !== null, provider: row?.provider ?? null };
   });
 }
 

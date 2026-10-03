@@ -72,6 +72,19 @@ export async function act(_previous: CrewState, form: FormData): Promise<CrewSta
           rateMultiplier: field(form, "rateMultiplier") ?? null,
         });
         return;
+      case "weeks":
+        /**
+         * The people in the order they take the phone. Four pickers rather
+         * than one multi-select, because a multi-select has no order and the
+         * order is the whole point of a rota.
+         */
+        await onCall.fillWeeks(ctx, {
+          technicianIds: fields(form, "week"),
+          firstDay: String(form.get("firstDay") ?? ""),
+          handoverAt: String(form.get("handoverAt") ?? ""),
+          weeks: Number(form.get("weeks") ?? 0),
+        });
+        return;
       case "handover":
         await onCall.handOver(ctx, {
           toTechnicianId: String(form.get("toTechnicianId") ?? ""),

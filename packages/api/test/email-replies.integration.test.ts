@@ -153,8 +153,10 @@ run("the reply coming back", () => {
   it("starts a thread of its own for somebody writing to the reply address fresh", async () => {
     const outcome = await post({ email_id: "in_3", from: "new@lead.example", to: [`reply+nothing-real-here-at-all@${DOMAIN}`], subject: "Quote?", text: "Do you fit heat pumps?" });
     expect(outcome).toMatchObject({ outcome: { kind: "message", matchedBy: "address" } });
-    if (outcome.kind !== "recorded" || outcome.outcome.kind !== "message") throw new Error("not stored");
-    expect(outcome.outcome.conversationId).not.toBe(invoiceThread);
+    const stored = outcome.kind === "recorded" && "kind" in outcome.outcome && outcome.outcome.kind === "message"
+      ? outcome.outcome : null;
+    if (!stored) throw new Error("not stored");
+    expect(stored.conversationId).not.toBe(invoiceThread);
   });
 
   it("ignores the company's own address coming back to it", async () => {

@@ -459,6 +459,27 @@ export async function setAnsweringPhone(ctx: ServiceContext, input: { userId: st
   });
 }
 
+/**
+ * Everything a destination can be, named, for the settings screen's pickers.
+ * The same directory every save is checked against, so the screen cannot
+ * offer something the check would refuse for not existing.
+ */
+export async function choices(ctx: ServiceContext) {
+  return guardedRead(ctx, "settings:read", async (tx) => {
+    const directory = await directoryFor(tx, ctx.actor.organizationId);
+    const list = (map: ReadonlyMap<string, string>) =>
+      [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      people: [...directory.people.entries()]
+        .map(([userId, p]) => ({ userId, name: p.name, phone: p.phone }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      ringGroups: list(directory.ringGroups),
+      menus: list(directory.menus),
+      branches: list(directory.rotas),
+    };
+  });
+}
+
 /* --------------------------------------------------------------- handlers */
 
 const menuInput = (input: {

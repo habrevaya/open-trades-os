@@ -171,6 +171,33 @@ export default async function CrewsPage() {
           </div>
 
           <div>
+            <h3 className="text-sm font-medium text-ink-700">Fill the rota by the week</h3>
+            <ActionForm op="weeks" label="Fill weeks" className="mt-2 flex flex-wrap items-end gap-2">
+              {[1, 2, 3, 4].map((turn) => (
+                <select key={turn} name="week" className={input} aria-label={`Week ${turn} of the turn`}
+                        defaultValue={turn === 1 ? crew[0]?.technicianId ?? "" : ""}>
+                  <option value="">{turn === 1 ? "Who first" : "Then"}</option>
+                  {crew.map((person) => (
+                    <option key={person.technicianId!} value={person.technicianId!}>
+                      {person.displayName ?? person.name ?? person.email}
+                    </option>
+                  ))}
+                </select>
+              ))}
+              <input name="firstDay" type="date" required className={input} aria-label="First week starts" />
+              <input name="handoverAt" type="time" required defaultValue="08:00" className={input} aria-label="Phone changes hands at" />
+              <input name="weeks" type="number" min={1} max={52} required defaultValue={8}
+                     className={`${input} w-20`} aria-label="How many weeks" />
+            </ActionForm>
+            <p className="mt-1 text-xs text-ink-500">
+              The people take a week each, in this order, round and round. The phone changes hands at
+              the same time on your clock every week, including the weeks the clocks change. If any
+              week clashes with somebody already on call, nothing is added and the week is named.
+              After hours calls to a phone menu ring whoever is on call.
+            </p>
+          </div>
+
+          <div>
             <h3 className="text-sm font-medium text-ink-700">Hand over now</h3>
             <ActionForm op="handover" label="Hand over" className="mt-2 flex flex-wrap items-end gap-2">
               <select name="toTechnicianId" className={input} aria-label="Hand over to">

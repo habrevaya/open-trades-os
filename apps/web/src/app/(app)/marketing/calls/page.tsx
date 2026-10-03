@@ -33,11 +33,13 @@ export default async function CallsPage(
   const uuid = (value: string | undefined) => value && /^[0-9a-f-]{36}$/.test(value) ? value : undefined;
   const numberId = uuid(params["number"]);
   const campaignId = uuid(params["campaign"]);
+  const q = params["q"]?.trim().slice(0, 200) || undefined;
 
   const { calls } = await marketingReport.handlers.listMarketingCalls(ctx, {
     from, to,
     ...(numberId ? { numberId } : {}),
     ...(campaignId ? { campaignId } : {}),
+    ...(q ? { q } : {}),
   });
 
   return (
@@ -52,11 +54,25 @@ export default async function CallsPage(
           <span className="text-ink-700">To</span>
           <input type="date" name="to" defaultValue={to} className="h-9 rounded border border-steel-300 px-2" />
         </label>
+        {/*
+          Searches what was said on calls that were written out (recordings
+          and voicemails, with card numbers already removed), or the digits
+          of the number that rang.
+        */}
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-ink-700">What was said, or a number</span>
+          <input type="search" name="q" defaultValue={q ?? ""} placeholder="water heater"
+                 className="h-9 w-56 rounded border border-steel-300 px-2" />
+        </label>
         {numberId ? <input type="hidden" name="number" value={numberId} /> : null}
         <button type="submit" className="inline-flex h-9 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white">Show</button>
       </form>
 
-      {calls.length === 0 ? (
+      {calls.length === 0 && q ? (
+        <Empty title="No calls match">
+          Only calls whose recording or voicemail was written out can be searched by what was said.
+        </Empty>
+      ) : calls.length === 0 ? (
         <Empty title="No calls in these dates">
           Calls arrive from your call tracking provider. Connect CallRail under Settings, then put each
           tracking number on a campaign.
@@ -68,7 +84,14 @@ export default async function CallsPage(
         }>
           {calls.map((call) => (
             <tr key={call.id}>
-              <Td>{formatIn(call.startedAt, user.organizationTimezone)}</Td>
+              <Td>
+                <a href={`/marketing/calls/${call.id}`} className="underline underline-offset-4">
+                  {formatIn(call.startedAt, user.organizationTimezone)}
+                </a>
+                {call.transcriptMatch ? (
+                  <span className="mt-1 block max-w-xs text-xs text-ink-500">&quot;{call.transcriptMatch}&quot;</span>
+                ) : null}
+              </Td>
               <Td><Phone value={call.from} /></Td>
               <Td>
                 {call.receivedOn ? <Phone value={call.receivedOn} /> : null}

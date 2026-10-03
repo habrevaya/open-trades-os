@@ -275,8 +275,11 @@ call tracking, attribution through to invoiced revenue (built: channels,
 tracking campaigns and numbers, every path crediting its work, the funnel
 from spend to return, tracking numbers bought and answered on Twilio, missed
 call text back, the website snippet with number insertion, hosted lead forms and
-referrals; not built: ad platform connectors, direct mail, and voice beyond
-tracking numbers). Reviews.
+referrals; phone menus, ring groups and the on call rota by the week answering
+the company's own number, call transcripts through a speech to text seam and
+searchable on the call log, email replies landing in their thread, and
+pictures by text both ways; not built: ad platform connectors, direct mail, a
+waiting line with hold music, and calls placed from the browser). Reviews.
 
 **Done means:** recurring revenue and marketing attribution work end to end.
 

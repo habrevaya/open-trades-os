@@ -3,7 +3,7 @@
 import { useKeptAction } from "@/lib/use-kept-action";
 import { sendReply } from "./actions";
 
-export function ReplyBox({ conversationId }: { conversationId: string }) {
+export function ReplyBox({ conversationId, byEmail = false }: { conversationId: string; byEmail?: boolean }) {
   const [state, actionForm, pending] = useKeptAction(sendReply, null);
   /*
     Cleared on success by React's own reset after the action. A refusal
@@ -23,10 +23,18 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
       <label className="block">
         <span className="sr-only">Reply</span>
         <textarea
-          name="body" rows={3} required
-          placeholder="Write a reply"
+          name="body" rows={3} required={byEmail}
+          placeholder={byEmail ? "Write a reply by email" : "Write a reply"}
           className="w-full rounded border border-steel-300 px-3 py-2 text-sm"
         />
+      </label>
+      <label className="mt-2 block text-sm">
+        <span className="text-ink-700">{byEmail ? "Attach pictures" : "Send pictures"}</span>
+        <input type="file" name="pictures" accept="image/jpeg,image/png,image/gif" multiple
+               className="mt-1 block text-sm" />
+        <span className="mt-1 block text-xs text-ink-500">
+          Up to three JPEG, PNG or GIF pictures, five megabytes together.
+        </span>
       </label>
       <div className="mt-3 flex items-center gap-3">
         <button type="submit" disabled={pending}
@@ -34,7 +42,9 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
           {pending ? "Sending" : "Send"}
         </button>
         <span className="text-sm text-ink-500">
-          Queued and handed to the carrier by the worker.
+          {byEmail
+            ? "Queued and handed to your email provider by the worker."
+            : "Queued and handed to the carrier by the worker."}
         </span>
       </div>
     </form>

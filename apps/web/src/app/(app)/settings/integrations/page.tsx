@@ -40,6 +40,8 @@ const GROUPS: { capability: string; title: string; description: string }[] = [
     description: "Invoices, estimates and notices by email." },
   { capability: "telephony", title: "Call tracking",
     description: "Which marketing made the phone ring." },
+  { capability: "transcription", title: "Call transcripts",
+    description: "Recordings and voicemails written out, card numbers removed, and searchable on the call log." },
   { capability: "ai_model", title: "AI models",
     description: "Your own key, your own bill, the same permissions as the person asking." },
   { capability: "calendar", title: "Calendar",
