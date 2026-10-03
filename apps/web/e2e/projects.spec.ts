@@ -108,7 +108,7 @@ test("Application for payment: filled in line by line, retainage held, and raise
   const summary = owner.getByRole("region", { name: "Summary" });
   await expect(summary).toContainText("$7,000.00");
   await expect(summary).toContainText("$700.00");
-  await expect(summary.getByText("$6,300.00")).toBeVisible();
+  await expect(summary).toContainText(/Payment due now\s*\$6,300\.00/);
 
   await owner.getByRole("button", { name: "Raise the invoice" }).click();
   await expect(owner.getByText("Invoiced", { exact: true })).toBeVisible();

@@ -724,14 +724,11 @@ async function approveIn(
     updatedAt: new Date(),
   }).where(eq(schema.projectChangeOrder.id, order.id)).returning();
 
-  /** The link has done its job. */
-  await tx.update(schema.portalGrant).set({ revokedAt: new Date() })
-    .where(and(
-      eq(schema.portalGrant.scope, "change_order"),
-      eq(schema.portalGrant.subjectId, order.id),
-      isNull(schema.portalGrant.revokedAt),
-    ));
-
+  /**
+   * The link is NOT revoked here. The customer reloads the page they just
+   * signed on and should see that it is signed, as an approved estimate's
+   * link still shows the approval; the status is what stops a second yes.
+   */
   await audit(tx, ctx, "project_change_order.approved", "project_change_order", order.id,
     { status: order.status, contractValue: project.contractValue },
     { status: "approved", contractValue: folded.contractValue, signerName: name, via: signer.via, row: after });
@@ -749,12 +746,6 @@ async function declineIn(
     declineReason: input.reason?.trim() || null,
     updatedAt: new Date(),
   }).where(eq(schema.projectChangeOrder.id, order.id));
-  await tx.update(schema.portalGrant).set({ revokedAt: new Date() })
-    .where(and(
-      eq(schema.portalGrant.scope, "change_order"),
-      eq(schema.portalGrant.subjectId, order.id),
-      isNull(schema.portalGrant.revokedAt),
-    ));
   await audit(tx, ctx, "project_change_order.declined", "project_change_order", order.id,
     { status: order.status }, { status: "declined", reason: input.reason, via: input.via });
 }

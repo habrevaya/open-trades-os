@@ -123225,6 +123225,16 @@
                 "overdue": {
                   "type": "boolean"
                 },
+                "estimateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "hasRemedy": {
+                  "type": "boolean"
+                },
                 "statement": {
                   "type": "string"
                 }
@@ -123241,6 +123251,8 @@
                 "correctByOn",
                 "ageDays",
                 "overdue",
+                "estimateId",
+                "hasRemedy",
                 "statement"
               ]
             }

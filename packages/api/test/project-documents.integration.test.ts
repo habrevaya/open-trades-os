@@ -174,9 +174,23 @@ run("a change order", () => {
       contractValueBefore: "100000.0000", contractValueAfter: "101025.5000",
     });
 
-    /** The link has done its job. */
-    await expect(changeOrders.approveForCustomer(db(), { token, signerName: "Pat", acceptedTerms: true }))
-      .rejects.toBeInstanceOf(InvalidGrantError);
+    /**
+     * The link still shows the signed page, and a second yes through it is
+     * the first one again: nothing moves twice.
+     */
+    await expect(changeOrders.viewForCustomer(db(), { token })).resolves.toMatchObject({ status: "approved" });
+    await changeOrders.approveForCustomer(db(), { token, signerName: "Pat", acceptedTerms: true });
+    expect((await projectRow(project.id)).contract_value).toBe("101025.5000");
+    const [{ n: signatures } = { n: -1 }] = await raw<{ n: number }[]>`
+      select count(*)::int as n from public.document_signature where subject = 'change_order' and subject_id = ${requested.id}`;
+    expect(signatures).toBe(1);
+
+    /** A withdrawn change order's link stops working. */
+    const other = await changeOrders.request(owner(), { projectId: project.id, title: "Spare" });
+    await changeOrders.addLine(owner(), { changeOrderId: other.id, name: "Spare", quantity: "1", unitPrice: "10" });
+    const otherLink = tokenOf((await changeOrders.send(owner(), { id: other.id })).url);
+    await changeOrders.withdraw(owner(), { id: other.id, reason: "Not needed" });
+    await expect(changeOrders.viewForCustomer(db(), { token: otherLink })).rejects.toBeInstanceOf(InvalidGrantError);
   });
 
   it("is priced at the customer's rate card where one covers the item, and refused where one applies and does not", async () => {
