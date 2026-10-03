@@ -128,3 +128,7 @@ export * as tips from "./tips";
 export * as setup from "./setup";
 export * as team from "./team";
 export * as branches from "./branches";
+export * as ads from "./ads";
+export * as adPlatforms from "./ad-platforms";
+export * as adConversions from "./ad-conversions";
+export * as reviewSync from "./review-sync";

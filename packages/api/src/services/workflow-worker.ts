@@ -6,6 +6,8 @@ import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
+import { adsPass } from "./ads";
+import type { AdsDeps } from "./ad-platforms";
 import { deliverDue } from "./delivery-schedules";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
@@ -208,6 +210,15 @@ export interface PassOptions {
    */
   geocoding?: false | { deps?: GeocodeDeps; budgetMs?: number };
   /**
+   * Whether this pass also visits the connected ad platforms, analytics and
+   * review listings: spend every six hours, Local Services leads every ten
+   * minutes, reviews hourly, conversions every quarter hour, each by its own
+   * clock. On by default, for companies with one connected and nobody else.
+   * `false` turns it off; an object passes the platforms' dependencies, which
+   * is how a test supplies fakes.
+   */
+  ads?: false | { deps?: AdsDeps };
+  /**
    * Runs after each drain, for the organizations that had events.
    *
    * The outbox is separate from the runner on purpose: a workflow queues a
@@ -342,6 +353,22 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       });
     } catch (error) {
       console.error("[worker] geocoding:", (error as Error).message);
+    }
+  }
+
+  /**
+   * The ad platforms, before the log for the same reason: a pull that books a
+   * Local Services lead writes its touch now and the drain carries it. Its
+   * own try, because Google being down must not hold up a text.
+   */
+  if (options.ads !== false) {
+    try {
+      await adsPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.ads?.deps ? { deps: options.ads.deps } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] ad platforms:", (error as Error).message);
     }
   }
 

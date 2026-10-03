@@ -45,6 +45,11 @@ import { registeredProviders as registeredMessagingProviders } from "../src/comm
  * registry stops covering it in both directions at once.
  */
 import { registeredGeocoders } from "../src/maps/index";
+/**
+ * The ad platforms, analytics and the review listing, which share one seam
+ * because they move the same things in the same directions.
+ */
+import { registeredAdsAdapters } from "../src/ads/index";
 
 /**
  * THE CATALOGUE CANNOT CLAIM SOMETHING THAT IS NOT BUILT
@@ -82,7 +87,7 @@ describe("the connector catalogue", () => {
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(),
-      ...registeredTranscriptionProviders(),
+      ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -107,7 +112,7 @@ describe("the connector catalogue", () => {
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(),
-      ...registeredTranscriptionProviders(),
+      ...registeredTranscriptionProviders(), ...registeredAdsAdapters(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);

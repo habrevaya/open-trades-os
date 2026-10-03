@@ -71,6 +71,11 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `mapbox` | maps | The commercial geocoder, always on the permanent tier because every answer is stored. Google is not offered: its terms forbid keeping the coordinates. |
 | `whisper` | transcription | Speech to text for kept recordings and voicemails, over the Whisper API: OpenAI's, or a server the company runs itself so calls never leave the building. Card numbers are removed before the words are stored. |
 | `xero` | accounting | The second adapter on the accounting seam. No change feed on their side, so inbound is a modified-since boundary; refresh tokens rotate with no grace period at all. |
+| `google_ads` | ads | Spend per campaign per day pulled into the spend rows and mapped onto tracking campaigns; paid jobs uploaded as click conversions with the job's id as Google's order id. Needs the operator's own developer token. |
+| `google_lsa` | ads | Local Services leads into the lead inbox and their spend under Local Services, through the Google Ads API with the same token and sign in. |
+| `meta_ads` | ads | Spend per campaign per day, and booked and paid jobs through the Conversions API with hashed details only where consent allows. Meta's sign in lasts sixty days. |
+| `ga4` | analytics | Leads and purchases through the Measurement Protocol, tied to the visit by the analytics id the website snippet reads. An API secret, no sign in. |
+| `google_business_profile` | reviews | Reviews read hourly into the review work list, replies posted back, and who wrote one suggested rather than asserted. Needs Google's separate approval for the API. |
 
 ---
 

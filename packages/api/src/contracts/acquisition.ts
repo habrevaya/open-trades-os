@@ -214,7 +214,7 @@ export const setMarketingSettings = defineRoute({
 
 /* ------------------------------------------------------------- the funnel */
 
-const Dimension = z.enum(["channel", "campaign", "number"]);
+const Dimension = z.enum(["channel", "campaign", "number", "platform"]);
 const Measure = z.enum([
   "spend", "calls", "answered", "missed", "firstTime", "leads", "booked", "completed", "revenue",
 ]);

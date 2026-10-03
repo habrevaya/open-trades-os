@@ -57,6 +57,9 @@ const toCore = (row: typeof schema.marketingTouch.$inferSelect): mk.Touch => ({
   ...(row.unrecognised ? { unrecognised: row.unrecognised } : {}),
 });
 
+/** The same conversion, for the services that send a job's touches to an ad platform. */
+export const touchToCore = toCore;
+
 /**
  * A touch whose source is DECLARED rather than inferred.
  *
@@ -134,6 +137,10 @@ export interface RecordTouchInput {
   callId?: string | null | undefined;
   /** The number that rang, normalised by the caller with `mk.callerKey`. */
   callerE164?: string | null | undefined;
+  /** The visitor's Google Analytics client id, checked by the caller. */
+  gaClientId?: string | null | undefined;
+  /** Meta's `_fbp` browser id, checked by the caller. */
+  metaBrowserId?: string | null | undefined;
 }
 
 /**
@@ -213,6 +220,9 @@ export async function recordTouch(
     utmTerm: touch.utm.term ?? null,
     utmContent: touch.utm.content ?? null,
     clickId: touch.clickId,
+    clickIdParam: touch.clickParam ?? null,
+    gaClientId: input.gaClientId ?? null,
+    metaBrowserId: input.metaBrowserId ?? null,
     referrerHost: touch.referrerHost,
     landingPath: input.landingPath ?? null,
     trackedNumberE164: input.trackedNumber ?? null,
@@ -1569,6 +1579,19 @@ export async function conversions(
 
     if (jobRows.length === 0) return [];
 
+    /**
+     * Jobs a connected Google Ads or Meta has been sent, or is being sent,
+     * as a purchase, keyed by the lead source the file groups by.
+     */
+    const sends = await tx.select({ provider: schema.adConversionSend.provider, jobId: schema.adConversionSend.jobId })
+      .from(schema.adConversionSend).where(and(
+        eq(schema.adConversionSend.organizationId, ctx.actor.organizationId),
+        eq(schema.adConversionSend.kind, "purchase"),
+        inArray(schema.adConversionSend.state, ["sent", "sending"]),
+        inArray(schema.adConversionSend.jobId, jobRows.map((j) => j.jobId)),
+      ));
+    const sentByConnector = new Set(sends.map((row) => `${row.provider}:${row.jobId}`));
+
     const out: ConversionRow[] = [];
 
     for (const job of jobRows) {
@@ -1625,6 +1648,11 @@ export async function conversions(
       for (const [source, clickIds] of bySource) {
         const share = shareOf.get(source as mk.LeadSourceKey);
         if (!share) continue;
+        /**
+         * A job already told to the platform by its connector is left out of
+         * the file, so uploading the file as well cannot count it twice.
+         */
+        if (sentByConnector.has(`${source}:${job.jobId}`)) continue;
         const perClick = m.allocate(share, clickIds.map(() => "1"), 2);
         clickIds.forEach((clickId, index) => {
           out.push({

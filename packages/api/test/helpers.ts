@@ -44,6 +44,12 @@ const ORDER = [
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
   // Then work.
+  /**
+   * What each ad platform was told about a job, and each customer's answer
+   * about their details and advertising. Both point at the job or the
+   * customer below.
+   */
+  "ad_conversion_send", "advertising_consent",
   "delivery",
   "obligation", "authorization", "external_work_order",
   /**
@@ -173,6 +179,11 @@ const ORDER = [
    * ceiling was set.
    */
   "ai_usage", "ai_budget",
+  /**
+   * A sign in in flight, the sealed grant it left and the platform's
+   * campaigns, all before the connection each cascades from.
+   */
+  "oauth_authorization", "sealed_credential", "ad_platform_campaign",
   "integration_connection",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.

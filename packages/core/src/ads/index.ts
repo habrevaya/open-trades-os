@@ -149,6 +149,15 @@ export function answersFor(provider: AdsProvider, source: string): boolean {
   return spec === "any" || spec.includes(source);
 }
 
+/**
+ * The lead source keys that are ad platforms: an account somebody pays by the
+ * click or the lead, with spend to pull and a return to compare it against.
+ * The funnel's "by ad platform" view groups by these, and everything else
+ * (the van, a referral, organic search) is one row of its own rather than
+ * being spread across them.
+ */
+export const AD_PLATFORM_SOURCES: readonly string[] = ["google_ads", "google_lsa", "meta_ads", "bing_ads"];
+
 /* ------------------------------------------------------------- sign in */
 
 export const OAUTH_ENDPOINTS: Readonly<Record<OAuthFamily, { authorize: string; token: string }>> = {

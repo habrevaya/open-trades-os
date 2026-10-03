@@ -621,10 +621,11 @@ export interface ReviewInput {
 /**
  * Record a review that exists in the world.
  *
- * Entered by hand today, because no review platform connector is built and
- * the catalogue says so. That is not a placeholder: a company with forty
- * reviews and a work list telling them which three are owed a reply is
- * better off than one waiting for an API.
+ * Entered by hand, or read from a Google Business Profile listing by the
+ * review sync, which calls this so both arrive the same way. The hand path
+ * is not a placeholder: every platform without a connector is typed in, and
+ * a company with forty reviews and a work list telling them which three are
+ * owed a reply is better off than one waiting for an API.
  *
  * The recovery clock is set HERE, on the way in, rather than computed on
  * every read. It is the one derived value in this file that is stored, and
@@ -800,6 +801,12 @@ export async function respond(ctx: ServiceContext, input: { id: string; body: st
       respondedAt: new Date(),
       responseBody: body,
       respondedByUserId: ctx.actor.userId,
+      /**
+       * A review read from a connected listing has its reply posted back to
+       * the listing by the review sync, which this marks it as waiting for.
+       * One typed in by hand is still answered on the platform by hand.
+       */
+      ...(existing.connectionId && existing.externalId ? { replyState: "pending", replyError: null } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.review.id, input.id)).returning();
 
