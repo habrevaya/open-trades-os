@@ -18,6 +18,7 @@ import {
   acquisition, marketingReport, phoneNumbers,
   customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
   laborSettings,
+  voice, websiteTracking, referrals,
 } from "../services/index";
 
 /**
@@ -741,6 +742,23 @@ export const handlers = {
   addTaskChecklistItem: taskChecklist.handlers.addTaskChecklistItem,
   tickTaskChecklistItem: taskChecklist.handlers.tickTaskChecklistItem,
   removeTaskChecklistItem: taskChecklist.handlers.removeTaskChecklistItem,
+  // Native call tracking, the website snippet and referrals (M19)
+  searchAvailableNumbers: voice.handlers.searchAvailableNumbers,
+  buyTrackingNumber: voice.handlers.buyTrackingNumber,
+  setNumberRouting: voice.handlers.setNumberRouting,
+  releasePhoneNumber: voice.handlers.releasePhoneNumber,
+  recordPublicTouch: websiteTracking.handlers.recordPublicTouch,
+  getVisitorNumber: websiteTracking.handlers.getVisitorNumber,
+  getWebsiteTracking: websiteTracking.handlers.getWebsiteTracking,
+  setWebsiteTracking: websiteTracking.handlers.setWebsiteTracking,
+  getReferrals: referrals.handlers.getReferrals,
+  setReferralSettings: referrals.handlers.setReferralSettings,
+  settleReferralReward: referrals.handlers.settleReferralReward,
+  getCustomerReferral: referrals.handlers.getCustomerReferral,
+  setCustomerReferrer: referrals.handlers.setCustomerReferrer,
+  viewPortalReferral: referrals.handlers.viewPortalReferral,
+  getForm: forms.handlers.getForm,
+  getHostedForm: forms.handlers.getHostedForm,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

@@ -133,9 +133,12 @@ test("A customer's statement opens on the period an emailed one names", async ({
   await stranger.goto(`${path}/statement?from=${from}&to=${to}`);
   await expect(stranger.getByText(`${shown(from)} to ${shown(to)}`)).toBeVisible();
 
-  // A period it cannot show falls back to the usual one rather than a 404.
+  // A period it cannot show falls back to the usual one rather than a 404,
+  // ending on the company's today: the seeded company keeps Chicago's clock,
+  // which between midnight UTC and midnight there is still yesterday in UTC.
   await stranger.goto(`${path}/statement?from=${from}&to=${iso(30)}`);
-  await expect(stranger.getByText(`to ${shown(iso(0))}`)).toBeVisible();
+  const companyToday = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  await expect(stranger.getByText(`to ${shown(companyToday)}`)).toBeVisible();
 });
 
 test("The automation canvas: a step that runs and emails a report is drawn and saved", async ({ owner }) => {

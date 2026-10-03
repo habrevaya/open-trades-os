@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { marketing as mk, money as m } from "@opentradesos/core";
+import { marketing as mk, money as m, referrals } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
@@ -169,6 +169,22 @@ export async function recordTouch(
   });
 
   /**
+   * A REFERRAL CODE BEATS EVERYTHING THE PARSER INFERRED. `ref` in the
+   * landing query is the code from one of this company's own customers'
+   * shareable links, so the visit was sent by a named person, and the touch
+   * says so: source `referral_customer`, basis `declared`, and the referrer
+   * on the row. A code nobody holds is ignored and the touch is whatever the
+   * rest of the query says, because a mistyped code is not evidence of
+   * anything.
+   */
+  const referrer = await referrerFor(tx, organizationId, input.query ?? null);
+  if (referrer) {
+    touch.source = "referral_customer";
+    touch.basis = "declared";
+    delete touch.unrecognised;
+  }
+
+  /**
    * The number wins over the tag only when the touch's source CAME from the
    * number. A tagged click that then rang a tracking number has a utm pair
    * that resolved, and its campaign is the one in the tag.
@@ -190,6 +206,7 @@ export async function recordTouch(
     acquisitionCampaignId: dimension.campaignId,
     callId: input.callId ?? null,
     callerE164: input.callerE164 ?? null,
+    referrerCustomerId: referrer?.id ?? null,
     utmSource: touch.utm.source ?? null,
     utmMedium: touch.utm.medium ?? null,
     utmCampaign: touch.utm.campaign ?? null,
@@ -210,6 +227,23 @@ export async function recordTouch(
   }).returning({ id: schema.marketingTouch.id });
 
   return { id: row!.id, touch };
+}
+
+/** The customer whose referral code is in a landing query, if anybody's is. */
+export async function referrerFor(
+  tx: Database, organizationId: string, query: string | null,
+): Promise<{ id: string; name: string } | null> {
+  if (!query) return null;
+  const code = referrals.normaliseCode(mk.parseQuery(query)["ref"]);
+  if (!code) return null;
+  const [row] = await tx.select({ id: schema.customer.id, name: schema.customer.name })
+    .from(schema.customer)
+    .where(and(
+      eq(schema.customer.organizationId, organizationId),
+      eq(schema.customer.referralCode, code),
+      isNull(schema.customer.deletedAt),
+    )).limit(1);
+  return row ?? null;
 }
 
 /**
@@ -280,7 +314,35 @@ export async function identify(
     isNull(schema.marketingTouch.customerId),
   )).returning({ id: schema.marketingTouch.id });
 
+  await claimReferral(tx, organizationId, input.customerId);
   return { stitched: rows.length };
+}
+
+/**
+ * A customer whose history now holds a referral learns who referred them.
+ *
+ * The earliest referral touch wins and is written once: the neighbour who
+ * first sent them is the referrer, and a second link clicked a year later
+ * does not move the reward. A customer cannot refer themselves, which is the
+ * one shape a shared family device produces.
+ */
+export async function claimReferral(tx: Database, organizationId: string, customerId: string): Promise<void> {
+  const [first] = await tx.select({ referrer: schema.marketingTouch.referrerCustomerId })
+    .from(schema.marketingTouch)
+    .where(and(
+      eq(schema.marketingTouch.organizationId, organizationId),
+      eq(schema.marketingTouch.customerId, customerId),
+      isNotNull(schema.marketingTouch.referrerCustomerId),
+      sql`${schema.marketingTouch.referrerCustomerId} <> ${customerId}`,
+    ))
+    .orderBy(asc(schema.marketingTouch.occurredAt)).limit(1);
+  if (!first?.referrer) return;
+  await tx.update(schema.customer).set({ referredByCustomerId: first.referrer, updatedAt: new Date() })
+    .where(and(
+      eq(schema.customer.id, customerId),
+      eq(schema.customer.organizationId, organizationId),
+      isNull(schema.customer.referredByCustomerId),
+    ));
 }
 
 /**
@@ -320,7 +382,27 @@ export async function identifyCaller(
       isNull(schema.call.customerId),
     ));
 
-  return { stitched: rows.length };
+  /**
+   * AND THE WEBSITE VISITS BEHIND THOSE CALLS. A call on a pool number
+   * carries the visitor id of the visit that was shown the number, so the
+   * pages somebody read before ringing are theirs as well. Without this the
+   * call would be the customer's and the ad click that led to it nobody's.
+   */
+  const visits = await tx.selectDistinct({ visitorId: schema.marketingTouch.visitorId })
+    .from(schema.marketingTouch)
+    .where(and(
+      eq(schema.marketingTouch.organizationId, organizationId),
+      eq(schema.marketingTouch.callerE164, caller),
+      eq(schema.marketingTouch.customerId, input.customerId),
+      isNotNull(schema.marketingTouch.visitorId),
+    ));
+  let stitched = rows.length;
+  for (const visit of visits) {
+    stitched += (await identify(tx, organizationId, { visitorId: visit.visitorId!, customerId: input.customerId })).stitched;
+  }
+  await claimReferral(tx, organizationId, input.customerId);
+
+  return { stitched };
 }
 
 /**

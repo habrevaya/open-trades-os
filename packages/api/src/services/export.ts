@@ -124,6 +124,15 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     storage_key: "Where the bytes are in object storage. Without it an export cannot be matched "
       + "to the files it describes.",
   },
+  call: {
+    recording_storage_key: "Which stored file holds the call's recording, kept here because the "
+      + "recording check allowed it. A pointer to bytes in the same export, not a credential.",
+    voicemail_storage_key: "Which stored file holds the voicemail the caller left. A pointer, as above.",
+  },
+  web_form: {
+    public_key: "The address of the form's hosted page, which is printed on flyers and linked "
+      + "from websites. Public by design, and a company rebuilding its forms needs the old address.",
+  },
   field_upload: {
     storage_key: "Where the bytes of a field upload are in object storage.",
     content_hash: "A checksum of the file, which is how a copy is verified rather than a secret.",
@@ -228,6 +237,11 @@ const OUTSIDE: { table: string; reason: string }[] = [
     table: "organization",
     reason: "This company's own row. Its name, timezone, currency and settings, which a new "
       + "deployment is configured with rather than restored from.",
+  },
+  {
+    table: "public_rate_limit",
+    reason: "A count of requests to the public endpoints per key and minute, kept for a day. It "
+      + "names no customer, holds nothing but a number, and is counted before any company is known.",
   },
   {
     table: "network",

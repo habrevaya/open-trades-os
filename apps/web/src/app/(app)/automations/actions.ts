@@ -54,6 +54,8 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
   switch (kind) {
     case "send_message":
       return { channel: "sms", purpose: "transactional", body: text("body") };
+    case "text_caller":
+      return { body: text("body") };
     case "create_task":
       return {
         title: text("title"),

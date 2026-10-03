@@ -80,12 +80,39 @@ describe("asking for a review", () => {
   });
 });
 
+describe("texting back a missed call", () => {
+  it("waits, looks again, texts the caller and raises a call back, on a missed call", () => {
+    const built = buildTemplate("missed_call_text_back", { minutes: 3 });
+    if (!built.ok) throw new Error(built.reason);
+    expect(built.definition.triggerEvents).toEqual(["call.missed"]);
+    const steps = flattenPlan(built.definition.steps);
+    expect(steps.map((s) => s.kind)).toEqual(["wait", "stop_unless", "text_caller", "create_task"]);
+    expect(steps[0]!.config).toEqual({ minutes: 3 });
+    expect(steps[1]!.config).toEqual({ check: "caller_not_reached" });
+  });
+
+  it("texts at once when told to wait nought minutes, rather than writing a wait of nothing", () => {
+    const built = buildTemplate("missed_call_text_back", { minutes: 0 });
+    if (!built.ok) throw new Error(built.reason);
+    expect(flattenPlan(built.definition.steps)[0]!.kind).toBe("stop_unless");
+  });
+
+  it("refuses an hour of waiting, which is a call back nobody needs any more", () => {
+    expect(buildTemplate("missed_call_text_back", { minutes: 61 }).ok).toBe(false);
+  });
+
+  it("needs only the permission to send a message to text the caller", () => {
+    expect(STEP_PERMISSIONS["text_caller"]).toEqual(["message:send"]);
+  });
+});
+
 describe("the checks a run can ask again", () => {
   it("names only what the catalogue declares", () => {
     expect(isCheck("estimate_undecided")).toBe(true);
+    expect(isCheck("caller_not_reached")).toBe(true);
     expect(isCheck("__proto__")).toBe(false);
     expect(isCheck("drop table")).toBe(false);
-    expect(Object.keys(CHECKS)).toEqual(["estimate_undecided"]);
+    expect(Object.keys(CHECKS)).toEqual(["estimate_undecided", "caller_not_reached"]);
   });
 
   it("refuses a template nobody wrote", () => {

@@ -4,7 +4,7 @@ import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, telephony, phoneNumbers, ConflictError } from "@opentradesos/api/services";
+import { branding, telephony, phoneNumbers, voice, websiteTracking, ConflictError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -196,11 +196,97 @@ export async function assignNumber(_previous: unknown, form: FormData) {
 export async function releaseNumber(_previous: unknown, form: FormData) {
   let result;
   try {
-    result = await phoneNumbers.release(await ctx(), { id: String(form.get("id") ?? "") });
+    /**
+     * Through the voice service, which hands a number bought here back at the
+     * carrier first and then here, and a typed in number here only.
+     */
+    result = await voice.releaseNumber(await ctx(), { id: String(form.get("id") ?? "") });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath("/settings");
   return { done: true, nowSendingFrom: result.nowSendingFrom };
+}
+
+/**
+ * Numbers the company's own Twilio account could buy.
+ *
+ * The list comes back in the form's state rather than a page reload, because
+ * it is a question asked of the carrier, not something this product stores.
+ */
+export async function searchNumbers(_previous: unknown, form: FormData) {
+  try {
+    const numbers = await voice.searchNumbers(await ctx(), {
+      areaCode: String(form.get("areaCode") ?? "") || undefined,
+      locality: String(form.get("locality") ?? "") || undefined,
+      region: String(form.get("region") ?? "") || undefined,
+    });
+    return { done: true, numbers };
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+}
+
+const e164Or = (form: FormData, name: string) => {
+  const value = String(form.get(name) ?? "").trim();
+  return value === "" ? undefined : value;
+};
+
+/** Buy one of them, credited and routed as the form says. */
+export async function buyNumber(_previous: unknown, form: FormData) {
+  try {
+    const purpose = String(form.get("purpose") ?? "tracking") === "pool" ? "pool" as const : "tracking" as const;
+    const credit = creditFrom(form);
+    const forwardsToE164 = e164Or(form, "forwardsToE164");
+    const afterHoursForwardsToE164 = e164Or(form, "afterHoursForwardsToE164");
+    await voice.buyNumber(await ctx(), {
+      e164: String(form.get("e164") ?? ""),
+      purpose,
+      label: String(form.get("label") ?? "") || null,
+      ...(purpose === "tracking" ? credit : {}),
+      ...(forwardsToE164 ? { forwardsToE164 } : {}),
+      ...(afterHoursForwardsToE164 ? { afterHoursForwardsToE164 } : {}),
+      whisper: form.get("whisper") === "yes",
+      recordCalls: form.get("recordCalls") === "yes",
+      routeByHours: form.get("routeByHours") === "yes",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true, bought: String(form.get("e164") ?? "") };
+}
+
+/** How a routed number's calls are answered. */
+export async function setRouting(_previous: unknown, form: FormData) {
+  try {
+    await phoneNumbers.update(await ctx(), {
+      id: String(form.get("id") ?? ""),
+      forwardsToE164: e164Or(form, "forwardsToE164") ?? null,
+      afterHoursForwardsToE164: e164Or(form, "afterHoursForwardsToE164") ?? null,
+      whisper: form.get("whisper") === "yes",
+      recordCalls: form.get("recordCalls") === "yes",
+      routeByHours: form.get("routeByHours") === "yes",
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings");
+  return { done: true };
+}
+
+/** How long a quiet website visitor keeps their pool number. */
+export async function setIdleMinutes(_previous: unknown, form: FormData) {
+  try {
+    await websiteTracking.setSettings(await ctx(), { idleMinutes: Number(form.get("idleMinutes") ?? "") });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath("/settings/website");
+  return { done: true, message: "Saved." };
 }

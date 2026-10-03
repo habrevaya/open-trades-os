@@ -29,6 +29,13 @@ The third sends to the list you already own: an audience selected from your
 own customers, by text or by email, with consent checked on every recipient at
 the moment of sending, now or at a time you set.
 
+The fourth measures the company's own channels directly: tracking numbers
+bought from its own Twilio account and answered by this product (whispered,
+routed by business hours, recorded only when the caller agrees), a snippet for
+its own website that records how visitors arrived and swaps a pool number onto
+the page per visitor, hosted lead forms, and referral links its customers
+share, with a reward when the person they sent pays for their first job.
+
 ## The story, end to end
 
 1. **A channel and a tracking campaign.** `Marketing > Channels` starts as the
@@ -45,7 +52,10 @@ the moment of sending, now or at a time you set.
    the channel and the channel implies the catalogue key, and all three are
    written together. Each tracking number shows its calls in the last ninety
    days.
-3. **A call comes in.** Through the CallRail webhook. The call is stored with
+3. **A call comes in.** On a number bought here, through the company's own
+   Twilio account, or through the CallRail webhook. Both are recorded by the
+   same function (`callTracking.record`), so the rest of this story is the
+   same for either. The call is stored with
    the number's channel and campaign AT THE TIME (a number moved to next
    season's campaign does not drag last season's calls with it), whether this
    caller has rung before (CallRail's own answer when it sends one), and a
@@ -66,6 +76,166 @@ the moment of sending, now or at a time you set.
 
 `marketing-funnel.integration.test.ts` and the browser spec `marketing.spec.ts`
 both walk this story, through the paths the product uses.
+
+## Tracking numbers this product answers
+
+`Settings`, under phone numbers, with Twilio connected on `Settings >
+Integrations`: give an area code or a town, pick a number, say what it is for
+and what its calls are credited to, and buy it. It is bought from the company's
+own account (`GET /v1/marketing/available-numbers`, then
+`POST /v1/marketing/tracking-numbers`), with its voice and status webhooks
+pointed at this installation as it is bought, so there is nothing to paste
+into Twilio. Everything this product can refuse (a pool number with a campaign,
+an after hours number nothing would use) is checked before the carrier is asked;
+a purchase that cannot then be recorded is handed back at the carrier.
+
+How a call to it is answered is four settings on the number
+(`PATCH /v1/marketing/tracking-numbers/{id}/routing`, and the "Save how it rings"
+row on the settings screen):
+
+- **Ring.** The number calls are forwarded to.
+- **Say where it came from.** A whisper to the person answering, before the
+  caller is put through: "Call from Google Ads, Spring AC tune up." The caller
+  hears nothing of it.
+- **Ask to record.** The caller is asked to press 1 if the call may be
+  recorded, and is connected either way. Recording is switched on in the dial
+  only when `telephony.mayRecord`, under the company's own declared recording
+  policies, says yes. A caller's location is never known (an area code says
+  where a phone was sold), so a native call resolves to `unknown`: everybody
+  must agree and the notice must have played. The caller pressing 1 is their
+  agreement; the company switched recording on for its own line, and the
+  person answering is told by the whisper. Pressing nothing records nothing,
+  and the refusal is written on the call.
+- **By business hours.** Outside the hours the company keeps for online
+  booking, calls go to the after hours number, or to voicemail when there is
+  none. `telephony.route` decides, and its sentence ("Open hours matched
+  because it is inside business hours") is kept on the call and shown on the
+  call screen as "Where it went". A company with no hours declared is not
+  closed all week: the clock is ignored until there are hours.
+
+Every call to the number is recorded through the same function the CallRail
+webhook uses, so the call, its touch, its channel and campaign at the time, and
+the funnel are the same rows either way. A call nobody answers goes to
+voicemail; the voicemail is fetched, kept as a stored file and played on the
+call screen, and the carrier's copy is deleted. A permitted recording is kept
+the same way, attached through the existing `attachRecording` gate, and the
+carrier's copy deleted, so the recording lives in one place and
+`DELETE /v1/calls/{id}/recording` really deletes it, bytes included. A
+recording the carrier made for a call that was not allowed one is deleted at
+the carrier and never kept. Recordings older than an active `call_recording`
+retention policy that allows purging are deleted by the worker the same way.
+Releasing a number bought here (`POST /v1/marketing/tracking-numbers/{id}/release`)
+releases it at Twilio first; if Twilio refuses, nothing changes here.
+
+`docs/self-hosting/voice.md` is the operator's side.
+
+## Missed calls
+
+A call nobody at the company picked up (no answer, busy, a forward that failed,
+the caller hanging up while it rang, or a voicemail) emits `call.missed`, once
+per call, from both the native path and the CallRail webhook (CallRail's only
+when the call is over, so a pre-call delivery is not a missed call). The
+caller's number rides on the event as `from`, because most missed callers are
+not customers yet.
+
+The recommended automation "Text back a missed call" (`Automations`, under
+recommended) waits a couple of minutes, stops if anybody has spoken to the
+caller since (they rang back and were answered, or somebody here rang them),
+texts them from the company's ordinary texting number through the consent
+checked sender, and raises a call back in the office queue. A tracking number
+never sends it, by the existing sender rule, and somebody who replied STOP is
+not texted; the call back task is raised either way.
+
+## The website snippet and number insertion
+
+`Settings > Website` (`/settings/website`) shows one line to paste into every
+page of the company's own site:
+
+```
+<script src="https://your-installation/t.js?c=your-company" async></script>
+```
+
+It is the same small file for every visitor, cached for an hour, with no third
+party code. On the company's own site it keeps a first party visitor id
+(`ot_vid`, a random value, never a fingerprint), reads how the visitor arrived
+(utm tags, the click ids gclid, gbraid, wbraid, fbclid and msclkid, a referral
+code, the landing path and the referring site), and:
+
+- posts one touch per arrival to `POST /v1/public/touches`, which keeps the
+  attribution parameters and nothing else from the address bar, keeps the
+  referring host and never the full referring URL, counts its callers per
+  company, per address and per visitor and refuses past a ceiling, and
+  recognises the same arrival from the same visitor within half an hour;
+- adds the visitor id (`otv`) and the arrival to links to this product's
+  booking page and hosted forms, and hidden fields to the site's own forms;
+- asks `GET /v1/public/dni` for a number to show, and replaces the company's
+  main and tracking numbers on the page with it, written the way the original
+  was ("(512) 555-0100" stays in brackets, "512.555.0100" keeps its dots), in
+  text and in `tel:` links.
+
+The number is from the company's pool: numbers bought with the purpose
+"Website pool". Each visitor holds one at a time (a database index makes two
+visitors holding one number impossible), renewed while their page is open and
+handed back after the company's idle time (thirty minutes by default, set on
+the same screen). With every pool number held, the visitor is shown the tracking
+number for their own source if the company has one, else the main number.
+
+When a call arrives on a pool number, the visit that held it at that moment is
+found and the call's touch is recorded with that visit's tags and click id,
+through the same parser the landing page went through, under the visitor's id.
+When the caller becomes a customer, their pages and their call are one history.
+A call on a pool number with no visit to match reads as direct.
+
+`/settings/website/test` loads the real snippet on a page carrying the
+company's numbers, to see the swap before touching the website. The hosted
+booking page takes the snippet's visitor id from `otv` and keeps it, so a
+booking joins the visits made on the company's site.
+
+## Hosted lead forms
+
+`Marketing > Lead forms` (`/marketing/forms`) lists the forms and starts a new
+one with the fields every trades lead form needs. The builder edits the fields
+in order, the consent boxes with what each agrees to (texts or emails, about
+offers or about their work), the spam trap, the "too fast to be a person" time,
+and what happens after a good submission: the sentence the page shows, and an
+optional confirmation text or email.
+
+Each form has a hosted page at `/f/{key}`, a random key that is kept through
+every edit, which works with no snippet anywhere (the arrival is read from the
+page's own address) and with it (the visitor id arrives as `otv`). A
+submission is throttled per address and per form; a filled spam trap or a
+submission faster than a person can type is kept as spam and thanked like a
+person, so a script learns nothing. A good one, in one transaction:
+
+- matches the customer by phone, then email, or creates one, and stitches the
+  visits and calls they made before;
+- records consent only for a ticked box the form declared what for, with the
+  box's own words as the proof, the page as the reference and the address it
+  was given from;
+- records the touch with its attribution;
+- raises a call back in the office queue with what they wrote;
+- sends the confirmation text through the consent checked sender, and the
+  confirmation email after the lead is saved, so a refused email never loses
+  the lead.
+
+## Referrals
+
+Every customer has a referral code, minted the first time anybody asks, and a
+link: the company's booking page with `ref` on it. It is on their record in the
+office (with "Record referrer" for a referral the office was told about on the
+phone) and on their own account page. `ref` is read by every path that records
+a touch (the booking page, hosted forms, the snippet), and a visit through it
+is a touch credited to `referral_customer`, basis `declared`, naming the
+referrer. When that visitor becomes a customer they learn who sent them
+(`customer.referred_by_customer_id`), once: a second link a year later does not
+move it.
+
+`Marketing > Referrals` (`/marketing/referrals`) sets what a referral earns: a
+credit note on the referrer's account, an amount recorded as owed, or nothing.
+The worker grants it when the referred customer's first job has invoices and
+all of them are paid, once per referred customer however many times it looks,
+and the screen lists the referrers, who they sent and every reward, with "Mark
+paid" for an owed one and "Withdraw".
 
 ## Crediting work, on every path
 
@@ -255,21 +425,24 @@ In order, with the permission each step needs:
 1. **Channels, tracking campaigns and tracking numbers.** `adspend:write` for
    the first two, `settings:write` for the numbers. A tracking number is
    credited to a campaign or a channel; without one every call from it
-   resolves to `unknown`.
-2. **Consent.** `message:send`. Marketing needs a granted consent row per
+   resolves to `unknown`. To buy numbers here and have their calls answered,
+   connect Twilio and set `PUBLIC_URL` (`docs/self-hosting/voice.md`).
+2. **The website snippet and its pool.** `settings:write`. Paste the line from
+   `Settings > Website` into the site, and buy pool numbers for it.
+3. **Consent.** `message:send`. Marketing needs a granted consent row per
    address and implies nothing, ever. A company with no consent rows can send
    no marketing at all, which is correct and is the first thing to check when a
    campaign reports every recipient skipped.
-3. **A sending number, registered.** `settings:write`. For SMS, register the
+4. **A sending number, registered.** `settings:write`. For SMS, register the
    A2P brand and campaign with the carrier and record the throughput and daily
    cap it assigned; the sender paces against them rather than letting the
    carrier reject the overflow.
-4. **An email provider with a From address.** `settings:write`. Resend or any
+5. **An email provider with a From address.** `settings:write`. Resend or any
    SMTP server. Marketing email is refused without a working unsubscribe URL,
    so `PUBLIC_BASE_URL` has to be set: it is what the one-click unsubscribe
    link is built from, and a relative URL in a `List-Unsubscribe` header is not
    a working one.
-5. **Quiet hours, if the default is wrong.** `settings:write`. The default is
+6. **Quiet hours, if the default is wrong.** `settings:write`. The default is
    9pm to 8am in the company's own timezone, which is the TCPA window rather
    than a guess at good manners. `organization.settings.quietHours` set to
    `null` turns it off, which a B2B contractor texting facilities managers may
@@ -347,8 +520,15 @@ revenue are facts; what share of them the campaign caused is what
 | accountant | no | no | yes | no |
 | readonly | no | no | no | no |
 
-`adspend:read` reads the funnel, its rows, the call log, spend and conversions;
-`adspend:write` manages channels, tracking campaigns and spend. Choosing a lead
+`adspend:read` reads the funnel, its rows, the call log, spend, conversions,
+lead forms and referrals; `adspend:write` manages channels, tracking campaigns,
+spend and lead forms. Buying, routing and releasing numbers, the snippet's idle
+time and what a referral earns are `settings:write`; reading the snippet's key
+and pool is `settings:read`. A customer's referral code is `customer:read` and
+recording who referred them is `customer:write`. Marking an owed reward paid or
+withdrawing one is `invoice:credit`, because both are the company giving a
+customer money. Hearing a call's recording or voicemail is `message:read`, the
+permission that reads the call. Choosing a lead
 source on a form needs neither: the channel picker is `job:read`
 (`GET /v1/marketing/channel-options`), because the person booking a job is a
 CSR who does not read the marketing report, and a channel's name is not a
@@ -395,9 +575,19 @@ most real use:
 - `GET /v1/marketing/settings` and `PATCH /v1/marketing/settings`.
 - `GET /v1/jobs/{jobId}/attribution` for one job's touches and every model's credit.
 - `GET /v1/marketing/touches` to read the touches for a customer, visitor or job.
-  There is no route to RECORD a touch from your own front end yet: touches are
-  written by the booking widget, the lead form, the call tracking and lead
-  webhooks, and a lead source chosen on a form.
+  `POST /v1/public/touches` records one from a website, as the snippet does.
+- `GET /v1/marketing/available-numbers`, `POST /v1/marketing/tracking-numbers`,
+  `PATCH /v1/marketing/tracking-numbers/{id}/routing` and
+  `POST /v1/marketing/tracking-numbers/{id}/release` for numbers bought here.
+- `GET /v1/public/dni`, `GET /v1/marketing/website-tracking` and
+  `PATCH /v1/marketing/website-tracking` for number insertion.
+- `GET /v1/marketing/forms/{slug}/definition`, `PUT /v1/marketing/forms/{slug}`,
+  `GET /v1/public/hosted-forms/{key}` and `POST /v1/public/forms/{formSlug}` for
+  lead forms.
+- `GET /v1/marketing/referrals`, `PUT /v1/marketing/referral-settings`,
+  `POST /v1/marketing/referral-rewards/{id}/settle`,
+  `GET /v1/customers/{id}/referral`, `PUT /v1/customers/{id}/referrer` and
+  `GET /v1/portal/referral` for referrals.
 - `GET /v1/marketing/conversions` for the offline conversion files.
 - `POST /v1/campaigns/preview` before anything else, then `POST /v1/campaigns`
   and `POST /v1/campaigns/{id}/send`, and `GET /v1/campaigns/{id}/results`.
@@ -439,7 +629,10 @@ Copy it into a new campaign.
 ## The screens
 
 `Marketing > Funnel`, `Calls`, `Lead offers`, `Tracking campaigns`, `Channels`,
-`Spend` and `Conversions` are described above. The send half is `Marketing >
+`Spend`, `Conversions`, `Lead forms` and `Referrals`, and `Settings > Website`,
+are described above. The call screen (`/marketing/calls/{id}`) plays a kept
+recording and a voicemail, says why nothing was recorded when recording was
+asked for and refused, and says where the call went. The send half is `Marketing >
 Texts and emails`, at `/marketing/campaigns`. Previewing is `campaign:read`; creating and sending is
 `campaign:write`, so a reader who holds only the first sees the campaigns and the
 results and no buttons. That is the right shape for a screen whose buttons spend
@@ -483,25 +676,36 @@ sample and therefore not a test of anything.
 
 ## What is not built
 
-- **Buying numbers and routing voice.** A tracking number is entered by hand,
-  and calls arrive only from a call tracking provider (CallRail). Nothing buys
-  a number from Twilio, forwards or routes a call, or places one.
-- **Call recordings.** Not stored. CallRail's recording link carries its own
-  access key and no permission was decided for the call, so it is dropped, as
-  the call tracking service explains.
-- **A website tracking snippet and dynamic number insertion.** Nothing swaps
-  the number on a website per visitor. The hosted booking page now sends its
-  query string, referrer and a visitor id, but no script is offered for a
-  company's own site, and no route records a touch from one.
-- **Hosted form pages.** Lead forms can be defined and submitted through the
-  API; there is no page serving one.
-- **A referral programme and direct mail.** Neither is built. Both can be
-  measured today only as a channel with its own tracking number or a lead
-  source chosen on the form.
 - **Ad platform API connectors.** No OAuth connection to Google Ads, Meta,
   LSA, Bing, GA4 or Search Console. Each needs vendor approval as well as code.
   Spend imports from the CSV the operator exports, and conversions go back as
   the file each platform accepts.
+- **Direct mail.** Nothing sends or tracks a mailer beyond giving it its own
+  tracking number or a referral code, which measure it today.
+- **Voice beyond tracking numbers.** A number bought here forwards, whispers,
+  routes by hours and takes voicemail. There is no IVR menu, ring group, queue,
+  on call rota or call placed from the browser, though core's router models
+  them. Only Twilio has a voice adapter. A number bought elsewhere and typed in
+  is answered wherever its carrier sends it, and its calls arrive here only
+  through CallRail.
+- **Recording consent by keypress only.** A caller agrees by pressing 1. There
+  is no spoken agreement, and no way to record a caller who says nothing, even
+  where the operator believes one party consent applies, because a caller's
+  location is never known.
+- **Transcripts of native calls.** Recordings are kept; nothing transcribes
+  them.
+- **Number insertion's limits.** The snippet swaps numbers already on the page
+  when it loads and when it renews; a number added to the page later by the
+  site's own script is swapped at the next renewal, a few minutes on. One pool
+  number is held per visitor, not per source, so a large site needs a pool as
+  large as its concurrent visitors.
+- **Hosted forms' limits.** No file upload field, no multi page form, no
+  third party captcha (the spam trap, the timing check and the per address
+  ceiling are what there is). A confirmation goes as written, with no
+  placeholders.
+- **Referral rewards' limits.** One reward per referred customer, on their
+  first paid job. A reward paid as owed is marked paid by hand; nothing pays it.
+  A credit note reward is not applied to an invoice until somebody applies it.
 - **An outbound campaign's own phone number.** A text campaign's credit comes
   from a click on its utm tag, not from a reply to a dedicated number.
 - **No A/B test.** Two campaigns to two audiences is the available answer.

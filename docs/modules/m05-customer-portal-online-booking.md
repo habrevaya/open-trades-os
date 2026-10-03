@@ -137,9 +137,22 @@ records whether they were.
 `GET /v1/public/services` and `GET /v1/public/availability` are read by a
 stranger, so they resolve the company from its slug rather than from a session
 and return nothing about anybody. `POST /v1/public/bookings` writes the request.
-Those three and the portal reads are the only routes in the product with no
-permission, and the only place where an explicit organization filter is the
-mechanism rather than a backstop.
+Those three, the portal reads and M19's website and lead form routes are the
+only routes in the product with no permission.
+
+The booking page keeps a visitor id in the browser so the visit and the booking
+are one history. When the link came from the company's own website carrying the
+snippet (M19), the snippet's visitor id arrives as `otv` and the page keeps that
+one, so the visits on the company's site and the booking join. A link carrying
+a customer's referral code (`ref`) credits the booking to that customer's
+referral, and confirming it records who referred the new customer.
+
+### A customer's referral link
+
+The account page (`/c/{token}`) shows the customer their own referral link and
+code, what the company gives for a referral when it gives something, and the
+first names of the people they have sent. `GET /v1/portal/referral` is what it
+reads, by the account link and nothing else.
 
 ### Decide a request
 
@@ -175,6 +188,7 @@ approving on their behalf.
 | `GET /v1/public/availability` | nothing |
 | `POST /v1/public/bookings` | nothing |
 | `GET /v1/portal/visit-change` | nothing |
+| `GET /v1/portal/referral` | nothing: the account link is the authority |
 | `POST /v1/portal/visit-change` | nothing |
 | `GET /v1/visit-change-requests` | `visit:read` |
 | `POST /v1/visit-change-requests/{id}/approve` | `visit:reschedule` |

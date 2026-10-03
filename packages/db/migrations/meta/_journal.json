@@ -498,6 +498,13 @@
       "when": 1790997732215,
       "tag": "0070_vengeful_kat_farrell",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1790998415974,
+      "tag": "0071_public_the_hunter",
+      "breakpoints": true
     }
   ]
 }

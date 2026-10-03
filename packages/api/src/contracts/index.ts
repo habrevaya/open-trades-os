@@ -37,6 +37,7 @@ import { complianceRoutes } from "./compliance";
 import { projectRoutes } from "./projects";
 import { calendarRoutes } from "./calendar";
 import { callTrackingRoutes } from "./call-tracking";
+import { trackingRoutes } from "./tracking";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
@@ -105,6 +106,7 @@ export * from "./compliance";
 export * from "./projects";
 export * from "./calendar";
 export * from "./call-tracking";
+export * from "./tracking";
 export * from "./company";
 export * from "./readbacks";
 export * from "./service-reports";
@@ -183,6 +185,7 @@ export const routes = {
   ...projectRoutes,
   ...calendarRoutes,
   ...callTrackingRoutes,
+  ...trackingRoutes,
   ...companyRoutes,
   ...readbackRoutes,
   ...serviceReportRoutes,

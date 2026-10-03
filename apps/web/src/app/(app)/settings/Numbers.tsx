@@ -3,7 +3,7 @@
 import { useKeptAction } from "@/lib/use-kept-action";
 import { useState } from "react";
 import { Chip, Phone } from "@opentradesos/ui";
-import { addNumber, releaseNumber, assignNumber } from "./actions";
+import { addNumber, releaseNumber, assignNumber, setRouting } from "./actions";
 
 const BUTTON =
   "inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm hover:bg-steel-100 disabled:opacity-60";
@@ -21,6 +21,13 @@ export interface NumberRow {
   isSender: boolean;
   /** Inbound calls in the last ninety days, on a tracking number. */
   calls90: number | null;
+  /** Bought through the company's carrier account, so its calls are routed here. */
+  routedHere: boolean;
+  forwardsToE164: string | null;
+  whisper: boolean;
+  recordCalls: boolean;
+  routeByHours: boolean;
+  afterHoursForwardsToE164: string | null;
 }
 
 /** The company's channels and their tracking campaigns, for "calls to it are credited to". */
@@ -75,6 +82,7 @@ export function Numbers({
   const [addState, addForm, adding] = useKeptAction(addNumber, null);
   const [releaseState, releaseForm, releasing] = useKeptAction(releaseNumber, null);
   const [assignState, assignForm, assigning] = useKeptAction(assignNumber, null);
+  const [routingState, routingForm, routing] = useKeptAction(setRouting, null);
   const nameOf = (number: NumberRow) => {
     for (const channel of credits) {
       const campaign = channel.campaigns.find((c) => c.id === number.campaignId);
@@ -86,7 +94,7 @@ export function Numbers({
   const [open, setOpen] = useState(false);
   const [purpose, setPurpose] = useState("main");
 
-  const error = [addState, releaseState, assignState]
+  const error = [addState, releaseState, assignState, routingState]
     .map((state) => (state && "error" in state ? state.error : null))
     .find(Boolean);
   const lost = releaseState && "nowSendingFrom" in releaseState
@@ -147,9 +155,37 @@ export function Numbers({
               <form {...releaseForm} className="ml-auto">
                 <input type="hidden" name="id" value={number.id} />
                 <button type="submit" disabled={releasing} className={BUTTON}>
-                  {releasing ? "Releasing" : "Hand it back"}
+                  {releasing ? "Releasing" : number.routedHere ? "Hand it back to Twilio" : "Hand it back"}
                 </button>
               </form>
+              {/*
+                Only for a number whose calls this product answers. A number
+                typed in by hand is answered wherever its carrier sends it,
+                and settings here would be settings that do nothing.
+              */}
+              {number.routedHere && (
+                <form {...routingForm} className="flex w-full flex-wrap items-end gap-3 border-t border-steel-200 pt-2 text-sm">
+                  <input type="hidden" name="id" value={number.id} />
+                  <label className="text-xs text-ink-500">Ring
+                    <input name="forwardsToE164" defaultValue={number.forwardsToE164 ?? ""} placeholder="+15125550100"
+                           aria-label={`Where calls to ${number.e164} ring`} className={`mt-1 block ${FIELD}`} />
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input type="checkbox" name="whisper" value="yes" defaultChecked={number.whisper} /> Say where it came from
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input type="checkbox" name="recordCalls" value="yes" defaultChecked={number.recordCalls} /> Ask to record
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input type="checkbox" name="routeByHours" value="yes" defaultChecked={number.routeByHours} /> By business hours
+                  </label>
+                  <label className="text-xs text-ink-500">After hours (blank for voicemail)
+                    <input name="afterHoursForwardsToE164" defaultValue={number.afterHoursForwardsToE164 ?? ""}
+                           className={`mt-1 block ${FIELD}`} />
+                  </label>
+                  <button type="submit" disabled={routing} className={BUTTON}>{routing ? "Saving" : "Save how it rings"}</button>
+                </form>
+              )}
             </li>
           ))}
         </ul>
@@ -191,6 +227,7 @@ export function Numbers({
               <option value="sending">Outbound sending</option>
               <option value="user">One person&rsquo;s line</option>
               <option value="fax">Fax</option>
+              <option value="pool">Website pool</option>
             </select>
           </div>
           {/*

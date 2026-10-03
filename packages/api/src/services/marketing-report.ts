@@ -754,6 +754,11 @@ export async function getCall(ctx: ServiceContext, input: { id: string }) {
       customerId: row.call.customerId,
       customerName: row.customerName,
       jobId: row.call.jobId,
+      /** Whether this product keeps the audio, so the page can offer a player. */
+      hasRecording: row.call.recordingStorageKey !== null && row.call.recordingDeletedAt === null,
+      hasVoicemail: row.call.voicemailStorageKey !== null,
+      routedBecause: row.call.routedBecause,
+      recordingRefusal: row.call.recordingRefusal,
     };
   });
 }

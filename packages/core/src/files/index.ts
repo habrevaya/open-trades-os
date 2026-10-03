@@ -55,9 +55,29 @@ export const SIGNATURES: readonly FileSignature[] = [
   { type: "application/pdf", bytes: [0x25, 0x50, 0x44, 0x46, 0x2d], extension: "pdf" },
 ];
 
+/**
+ * Call audio, accepted ONLY where a recording is being kept.
+ *
+ * Not in the list above, because nothing a person uploads is a call
+ * recording: the only audio this product keeps is what its own carrier
+ * webhook fetched for a call the recording check allowed. A general upload
+ * form that took MP3s would be a way to put any audio at all on the
+ * company's server.
+ */
+export const AUDIO_SIGNATURES: readonly FileSignature[] = [
+  /** An MP3 with an ID3 tag, which is how carriers usually hand them over. */
+  { type: "audio/mpeg", bytes: [0x49, 0x44, 0x33], extension: "mp3" },
+  /** A bare MP3 frame header, MPEG-1 layer III, with and without a CRC. */
+  { type: "audio/mpeg", bytes: [0xff, 0xfb], extension: "mp3" },
+  { type: "audio/mpeg", bytes: [0xff, 0xfa], extension: "mp3" },
+  { type: "audio/mpeg", bytes: [0xff, 0xf3], extension: "mp3" },
+  /** RIFF....WAVE, the carrier's default when no format is asked for. */
+  { type: "audio/wav", bytes: [0x57, 0x41, 0x56, 0x45], offset: 8, extension: "wav" },
+];
+
 /** What the bytes are, or nothing. Never what the upload claimed. */
-export function sniff(bytes: Uint8Array): FileSignature | null {
-  for (const signature of SIGNATURES) {
+export function sniff(bytes: Uint8Array, accept: "documents" | "recordings" = "documents"): FileSignature | null {
+  for (const signature of accept === "recordings" ? AUDIO_SIGNATURES : SIGNATURES) {
     const at = signature.offset ?? 0;
     if (bytes.length < at + signature.bytes.length) continue;
     if (signature.bytes.every((byte, i) => bytes[at + i] === byte)) return signature;
@@ -90,7 +110,7 @@ export type FileVerdict =
  */
 export function checkFile(
   bytes: Uint8Array,
-  options: { maxBytes?: number; claimedType?: string | undefined } = {},
+  options: { maxBytes?: number; claimedType?: string | undefined; accept?: "documents" | "recordings" } = {},
 ): FileVerdict {
   if (bytes.length === 0) return { ok: false, reason: "That file is empty." };
 
@@ -102,7 +122,10 @@ export function checkFile(
     };
   }
 
-  const signature = sniff(bytes);
+  const signature = sniff(bytes, options.accept ?? "documents");
+  if (!signature && options.accept === "recordings") {
+    return { ok: false, reason: "That is not an MP3 or WAV recording." };
+  }
   if (!signature) {
     const claimed = options.claimedType?.trim();
     const mismatch = claimed

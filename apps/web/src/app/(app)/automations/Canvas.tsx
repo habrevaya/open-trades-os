@@ -327,6 +327,7 @@ function Card({
       </div>
 
       {node.kind === "send_message" && <MessageFields config={node.config} set={set} />}
+      {node.kind === "text_caller" && <CallerFields config={node.config} set={set} />}
       {node.kind === "create_task" && <TaskFields config={node.config} set={set} />}
       {node.kind === "wait" && <WaitFields config={node.config} set={set} />}
       {node.kind === "email_report" && (
@@ -458,6 +459,27 @@ function MessageFields({
       <span className="mt-1 block text-xs text-ink-500">
         Placeholders are filled from the event. Nothing is evaluated: it is substitution and no
         more. Consent is checked when the message is sent, not now.
+      </span>
+    </label>
+  );
+}
+
+/** The text back after a missed call: only the words, because the number is the caller's. */
+function CallerFields({
+  config, set,
+}: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
+  return (
+    <label className="mt-3 block text-sm">
+      <span className="block text-ink-700">What it says</span>
+      <textarea
+        rows={2}
+        value={String(config["body"] ?? "")}
+        onChange={(e) => set({ ...config, body: e.target.value })}
+        placeholder="Hi, this is {{ organization.name }}. Sorry we missed your call."
+        className="mt-1 w-full rounded border border-steel-300 p-2 text-sm"
+      />
+      <span className="mt-1 block text-xs text-ink-500">
+        Sent to the number that rang, from your main texting number. Somebody who replied STOP is not texted.
       </span>
     </label>
   );

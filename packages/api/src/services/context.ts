@@ -144,6 +144,20 @@ export class ConflictError extends Error {
 }
 
 /**
+ * Somebody on the open internet has knocked too often.
+ *
+ * Only the public endpoints raise it, and the message says to wait rather
+ * than what the ceiling is: a ceiling a script can read is a ceiling it can
+ * pace itself just under.
+ */
+export class TooManyRequestsError extends Error {
+  constructor(readonly retryAfterSeconds = 60) {
+    super("Too many requests. Wait a minute and try again.");
+    this.name = "TooManyRequestsError";
+  }
+}
+
+/**
  * A request that was well formed and cannot be what it says.
  *
  * The schema check in the dispatcher answers "is this the right shape", and a

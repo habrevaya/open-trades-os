@@ -77,6 +77,12 @@ describe("permissions", () => {
        */
       "GET /v1/portal/invoice",
       "GET /v1/portal/job",
+      /**
+       * The customer's own referral link, from their account link. The grant
+       * names the customer; the answer is their code and the first names of
+       * people they sent, nothing about anybody else's account.
+       */
+      "GET /v1/portal/referral",
       "GET /v1/portal/session",
       /**
        * A customer asking to move or cancel a visit from the link they were
@@ -86,6 +92,15 @@ describe("permissions", () => {
        */
       "GET /v1/portal/visit-change",
       "GET /v1/public/availability",
+      /**
+       * The website snippet's two calls and the hosted form's read. All three
+       * take a company's public key (its slug) and return nothing about
+       * anybody: a pool number to show, and a form's fields. The snippet's
+       * touch keeps attribution parameters only, and all of them are counted
+       * per key and refused past a ceiling.
+       */
+      "GET /v1/public/dni",
+      "GET /v1/public/hosted-forms/{key}",
       "GET /v1/public/services",
       /**
        * The phone app signing in. Open because nobody is signed in yet, and
@@ -115,6 +130,7 @@ describe("permissions", () => {
        * in front of it, the same as for the booking endpoint.
        */
       "POST /v1/public/forms/{formSlug}",
+      "POST /v1/public/touches",
       /**
        * UNSUBSCRIBE, AND IT HAS TO BE OPEN. A recipient pressing the
        * unsubscribe control in Gmail has no account, and the mailbox provider

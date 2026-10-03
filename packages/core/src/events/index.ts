@@ -144,6 +144,20 @@ export const EVENTS = {
     entity: "conversation",
     emitted: true,
   },
+  /**
+   * Somebody rang and nobody at the company picked up: no answer, busy, a
+   * forward that failed, or a voicemail. Emitted by both ways a call reaches
+   * this product, the company's own tracking numbers and a call tracking
+   * provider's webhook, once per call and only for an inbound one. The
+   * caller's number rides on the payload as `from`, because most missed
+   * callers are not customers yet and a step that waited for a customer
+   * record would never text them back.
+   */
+  "call.missed": {
+    summary: "A call came in and nobody answered it",
+    entity: "call",
+    emitted: true,
+  },
 
   /* ------------------------------------------------------------- the clock */
 

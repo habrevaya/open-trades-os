@@ -278,39 +278,50 @@ export interface RecordingDecisionInput {
  * null URL, and only one of them must never be retried.
  */
 export async function decideRecording(ctx: ServiceContext, input: RecordingDecisionInput) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
+  return guardedWrite(ctx, "message:send", (tx) => decideRecordingIn(tx, ctx, input));
+}
 
-    if (call.recordingDeletedAt) {
-      throw new ConflictError(
-        "This call's recording was deleted. Granting permission again would only invite somebody to attach another copy of the thing that was destroyed.",
-      );
-    }
+/**
+ * The decision itself, inside a transaction somebody else opened.
+ *
+ * Split out for the company's own tracking numbers, whose carrier webhook has
+ * no actor to hold `message:send` (see `voice.ts`). Granting a synthetic
+ * actor the permission its own guard checks would make the guard mean
+ * nothing, so the webhook calls THIS, the same function the guarded route
+ * calls, and the one decision about recording a call stays in one place.
+ */
+export async function decideRecordingIn(tx: Database, ctx: ServiceContext, input: RecordingDecisionInput) {
+  const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
 
-    const decision = telephony.mayRecord({
-      parties: input.parties,
-      policies: await policies(tx, ctx.actor.organizationId),
-      announcementPlayed: input.announcementPlayed,
-    });
-
-    const now = new Date();
-    await tx.update(schema.call).set({
-      recordingConsent: decision.governing,
-      recordingStartedAt: decision.ok ? (call.recordingStartedAt ?? now) : null,
-      recordingRefusal: decision.ok ? null : decision.reason,
-      announcementPlayedAt: input.announcementPlayed ? (call.announcementPlayedAt ?? now) : null,
-      updatedAt: now,
-    }).where(eq(schema.call.id, call.id));
-
-    await audit(
-      tx, ctx,
-      decision.ok ? "call.recording_permitted" : "call.recording_refused",
-      "call", call.id, null,
-      { governing: decision.governing, ...(decision.ok ? { why: decision.why } : { reason: decision.reason }) },
+  if (call.recordingDeletedAt) {
+    throw new ConflictError(
+      "This call's recording was deleted. Granting permission again would only invite somebody to attach another copy of the thing that was destroyed.",
     );
+  }
 
-    return decision;
+  const decision = telephony.mayRecord({
+    parties: input.parties,
+    policies: await policies(tx, ctx.actor.organizationId),
+    announcementPlayed: input.announcementPlayed,
   });
+
+  const now = new Date();
+  await tx.update(schema.call).set({
+    recordingConsent: decision.governing,
+    recordingStartedAt: decision.ok ? (call.recordingStartedAt ?? now) : null,
+    recordingRefusal: decision.ok ? null : decision.reason,
+    announcementPlayedAt: input.announcementPlayed ? (call.announcementPlayedAt ?? now) : null,
+    updatedAt: now,
+  }).where(eq(schema.call.id, call.id));
+
+  await audit(
+    tx, ctx,
+    decision.ok ? "call.recording_permitted" : "call.recording_refused",
+    "call", call.id, null,
+    { governing: decision.governing, ...(decision.ok ? { why: decision.why } : { reason: decision.reason }) },
+  );
+
+  return decision;
 }
 
 /**
@@ -324,29 +335,39 @@ export async function decideRecording(ctx: ServiceContext, input: RecordingDecis
  * recompute.
  */
 export async function attachRecording(ctx: ServiceContext, callId: string, recordingUrl: string) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const call = await loadCall(tx, ctx.actor.organizationId, callId);
+  return guardedWrite(ctx, "message:send", (tx) => attachRecordingIn(tx, ctx, callId, recordingUrl));
+}
 
-    if (call.recordingDeletedAt) {
-      throw new ConflictError("This call's recording was deleted. It cannot be attached again.");
-    }
-    if (!call.recordingStartedAt) {
-      const because = call.recordingRefusal
-        ? `recording was refused for this call (${call.recordingRefusal})`
-        : "nobody asked whether this call could be recorded";
-      throw new ConflictError(
-        `There is no permission to store a recording of this call, because ${because}. `
-        + "Run the recording check first: a recording attached without one is a recording nobody can say was allowed.",
-      );
-    }
+/**
+ * The attachment, inside a transaction somebody else opened, for the same
+ * reason as `decideRecordingIn`. `storageKey` is set when this product keeps
+ * the audio itself, as a stored file, rather than pointing at somebody
+ * else's copy.
+ */
+export async function attachRecordingIn(
+  tx: Database, ctx: ServiceContext, callId: string, recordingUrl: string, storageKey?: string | undefined,
+) {
+  const call = await loadCall(tx, ctx.actor.organizationId, callId);
 
-    const [row] = await tx.update(schema.call)
-      .set({ recordingUrl, updatedAt: new Date() })
-      .where(eq(schema.call.id, call.id)).returning();
+  if (call.recordingDeletedAt) {
+    throw new ConflictError("This call's recording was deleted. It cannot be attached again.");
+  }
+  if (!call.recordingStartedAt) {
+    const because = call.recordingRefusal
+      ? `recording was refused for this call (${call.recordingRefusal})`
+      : "nobody asked whether this call could be recorded";
+    throw new ConflictError(
+      `There is no permission to store a recording of this call, because ${because}. `
+      + "Run the recording check first: a recording attached without one is a recording nobody can say was allowed.",
+    );
+  }
 
-    await audit(tx, ctx, "call.recording_attached", "call", call.id, null, { recordingUrl });
-    return row!;
-  });
+  const [row] = await tx.update(schema.call)
+    .set({ recordingUrl, ...(storageKey ? { recordingStorageKey: storageKey } : {}), updatedAt: new Date() })
+    .where(eq(schema.call.id, call.id)).returning();
+
+  await audit(tx, ctx, "call.recording_attached", "call", call.id, null, { recordingUrl });
+  return row!;
 }
 
 /**
@@ -366,18 +387,66 @@ export async function attachRecording(ctx: ServiceContext, callId: string, recor
  * lands and nobody has to remember to delete it a second time.
  */
 export async function deleteRecording(ctx: ServiceContext, callId: string, reason: string) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
+  return guardedWrite(ctx, "message:send", (tx) => deleteRecordingIn(tx, ctx, callId, reason));
+}
+
+/**
+ * The deletion, inside a transaction somebody else opened: the guarded route
+ * above and the retention sweep, which runs as the worker.
+ *
+ * When this product kept the audio itself, the stored bytes go too, in the
+ * same statement set: a recording whose row says deleted while its bytes sit
+ * in `stored_file` is a recording that was not deleted. The bytes are only
+ * removed when nothing else points at them, which for a recording is always,
+ * since its key is the hash of a call nobody else had.
+ */
+export async function deleteRecordingIn(tx: Database, ctx: ServiceContext, callId: string, reason: string) {
+  const call = await loadCall(tx, ctx.actor.organizationId, callId);
+  if (call.recordingDeletedAt) return call;
+
+  const [row] = await tx.update(schema.call).set({
+    recordingUrl: null,
+    recordingStorageKey: null,
+    recordingDeletedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(schema.call.id, call.id)).returning();
+
+  if (call.recordingStorageKey) {
+    await tx.update(schema.storedFile).set({
+      bytes: Buffer.alloc(0), sizeBytes: 0, deletedAt: new Date(), updatedAt: new Date(),
+    }).where(and(
+      eq(schema.storedFile.organizationId, ctx.actor.organizationId),
+      eq(schema.storedFile.storageKey, call.recordingStorageKey),
+      eq(schema.storedFile.references, 0),
+    ));
+  }
+
+  await audit(tx, ctx, "call.recording_deleted", "call", call.id, { recordingUrl: call.recordingUrl }, { reason });
+  return row!;
+}
+
+/**
+ * The kept audio of one call, for the player on the call screen.
+ *
+ * `message:read`, the permission that reads the call itself: a recording is
+ * the call, and whoever may read the conversation may hear it. Nothing for a
+ * call whose recording was deleted or never kept here.
+ */
+export async function recordingAudio(ctx: ServiceContext, callId: string, which: "recording" | "voicemail" = "recording") {
+  return guardedRead(ctx, "message:read", async (tx) => {
     const call = await loadCall(tx, ctx.actor.organizationId, callId);
-    if (call.recordingDeletedAt) return call;
-
-    const [row] = await tx.update(schema.call).set({
-      recordingUrl: null,
-      recordingDeletedAt: new Date(),
-      updatedAt: new Date(),
-    }).where(eq(schema.call.id, call.id)).returning();
-
-    await audit(tx, ctx, "call.recording_deleted", "call", call.id, { recordingUrl: call.recordingUrl }, { reason });
-    return row!;
+    const key = which === "recording"
+      ? (call.recordingDeletedAt ? null : call.recordingStorageKey)
+      : call.voicemailStorageKey;
+    if (!key) throw new NotFoundError("Recording");
+    const [file] = await tx.select().from(schema.storedFile)
+      .where(and(
+        eq(schema.storedFile.organizationId, ctx.actor.organizationId),
+        eq(schema.storedFile.storageKey, key),
+        isNull(schema.storedFile.deletedAt),
+      )).limit(1);
+    if (!file) throw new NotFoundError("Recording");
+    return { bytes: file.bytes, contentType: file.contentType, sizeBytes: file.sizeBytes };
   });
 }
 

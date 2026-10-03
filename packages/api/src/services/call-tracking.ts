@@ -7,6 +7,7 @@ import {
   type ServiceContext,
 } from "./context";
 import * as marketingService from "./marketing";
+import { emit } from "./events";
 import {
   createCallTrackingProvider,
   type CallTrackingProvider, type TrackedCall, type WebhookRequest,
@@ -427,16 +428,37 @@ function webhookActor(organizationId: string): Actor {
  * would quietly be too high. Checking the natural key first costs one
  * indexed read and closes it.
  */
+/**
+ * Where a call came from, when it is not the call tracking provider.
+ *
+ * The company's own tracking numbers record their calls through this same
+ * function, so a call on a native number and a call reported by CallRail
+ * become the same rows by the same path, and the funnel cannot tell them
+ * apart. `system` names the carrier on the row; `attribution` is set for a
+ * call on a website pool number, where the visit that showed the number is
+ * the attribution rather than the number itself.
+ */
+export interface RecordSource {
+  system: string;
+  attribution?: {
+    query: string | null;
+    referrer: string | null;
+    landingPath: string | null;
+    visitorId: string | null;
+  } | undefined;
+}
+
 export async function record(
   db: Database,
   organizationId: string,
   call: TrackedCall,
   now: Date = new Date(),
+  source: RecordSource = { system: PROVIDER },
 ): Promise<ReceiveOutcome> {
   const ctx: ServiceContext = { actor: webhookActor(organizationId), db };
 
   return inTenant(ctx, async (tx): Promise<ReceiveOutcome> => {
-    const providerCallId = `${PROVIDER}:${call.externalId}`;
+    const providerCallId = `${source.system}:${call.externalId}`;
 
     /**
      * The tracking number as this company holds it, its channel and campaign
@@ -515,6 +537,7 @@ export async function record(
 
     if (existing) {
       await tx.update(schema.call).set(facts).where(eq(schema.call.id, existing.id));
+      if (missedOn(call)) await emitMissed(tx, ctx, existing.id);
       return { kind: "recorded", callId: existing.id, touchId: null, duplicate: true };
     }
 
@@ -531,7 +554,7 @@ export async function record(
        * mistake recoverable a month later, and keeping those two parts of
        * it would be a way around the refusals at the top of this file.
        */
-      sourceSystem: PROVIDER,
+      sourceSystem: source.system,
       sourceId: call.externalId,
       sourcePayload: storable(call.raw),
       /**
@@ -578,6 +601,7 @@ export async function record(
 
       if (existingById) {
         await tx.update(schema.call).set(facts).where(eq(schema.call.id, existingById.id));
+        if (missedOn(call)) await emitMissed(tx, ctx, existingById.id);
         return { kind: "recorded", callId: existingById.id, touchId: null, duplicate: true };
       }
       /**
@@ -597,7 +621,30 @@ export async function record(
        * and counting it as a marketing touch credits the channel on
        * whichever number the office happened to dial out from.
        */
-      const touch = await marketingService.recordTouch(tx, organizationId, {
+      const visit = source.attribution;
+      const visitorId = visit
+        ? visit.visitorId
+        : call.personId ? `${source.system}:${call.personId}` : null;
+      const touch = await marketingService.recordTouch(tx, organizationId, visit ? {
+        /**
+         * A call on a website pool number: the visit that was shown the
+         * number is what the call is credited to, through the same parser
+         * its landing page went through, and the visitor id is the visit's,
+         * so the pages they read before ringing join this call's history.
+         * No session for the call (the pool ran dry, or the number was
+         * written down days ago) leaves the visit empty, which reads as
+         * direct: somebody rang a number from the website and nothing says
+         * how they reached it.
+         */
+        at: call.startedAt,
+        customerId: customer?.id ?? null,
+        callId: fresh.id,
+        callerE164: known?.callerE164 ?? null,
+        query: visit.query,
+        referrer: visit.referrer,
+        landingPath: visit.landingPath,
+        visitorId,
+      } : {
         at: call.startedAt,
         customerId: customer?.id ?? null,
         callId: fresh.id,
@@ -620,7 +667,7 @@ export async function record(
          * they were a customer be stitched onto them the moment they become
          * one, which is the whole reason `identify` exists.
          */
-        visitorId: call.personId ? `${PROVIDER}:${call.personId}` : null,
+        visitorId,
       });
       touchId = touch.id;
 
@@ -632,16 +679,62 @@ export async function record(
        * third belongs to the customer, which is last touch attribution by
        * accident rather than by choice.
        */
-      if (customer?.id && call.personId) {
-        await marketingService.identify(tx, organizationId, {
-          visitorId: `${PROVIDER}:${call.personId}`,
-          customerId: customer.id,
-        });
+      if (customer?.id && visitorId) {
+        await marketingService.identify(tx, organizationId, { visitorId, customerId: customer.id });
       }
     }
 
+    if (missedOn(call)) await emitMissed(tx, ctx, fresh.id);
     return { kind: "recorded", callId: fresh.id, touchId, duplicate: false };
   });
+}
+
+/**
+ * Whether a tracked call is a missed one: inbound, finished (it has a
+ * duration, which a pre-call webhook does not), and nobody answered.
+ * A voicemail is a missed call too: nobody picked up, somebody has to ring
+ * them back, and the voicemail is only what they said while waiting.
+ */
+const missedOn = (call: TrackedCall): boolean =>
+  call.direction === "inbound" && call.durationSeconds !== null && !call.answered;
+
+/**
+ * Tell the workflows a call was missed, once per call.
+ *
+ * Once, because the same call is reported several times (CallRail's
+ * modified webhooks, a backfill over the same window, the carrier's dial
+ * result and then its status callback), and a missed call text back that
+ * fired on each would text the caller three times. The event itself is the
+ * record that it fired, so the check is a read of the event log.
+ *
+ * Shared by both ways a call arrives, so "missed" means one thing.
+ */
+export async function emitMissed(tx: Database, ctx: ServiceContext, callId: string): Promise<boolean> {
+  const [already] = await tx.select({ id: schema.domainEvent.id }).from(schema.domainEvent)
+    .where(and(
+      eq(schema.domainEvent.organizationId, ctx.actor.organizationId),
+      eq(schema.domainEvent.name, "call.missed"),
+      eq(schema.domainEvent.entityId, callId),
+    )).limit(1);
+  if (already) return false;
+
+  const [call] = await tx.select().from(schema.call).where(eq(schema.call.id, callId)).limit(1);
+  if (!call || call.direction !== "inbound") return false;
+
+  await emit(tx, ctx, {
+    name: "call.missed", entityType: "call", entityId: call.id,
+    payload: {
+      callId: call.id,
+      from: call.fromE164,
+      to: call.receivedOnE164,
+      startedAt: (call.startedAt ?? call.createdAt).toISOString(),
+      status: call.status,
+      customerId: call.customerId,
+      channelId: call.channelId,
+      campaignId: call.acquisitionCampaignId,
+    },
+  });
+  return true;
 }
 
 /**

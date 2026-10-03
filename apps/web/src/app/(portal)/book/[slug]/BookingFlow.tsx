@@ -53,15 +53,21 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
    * nothing breaks if storage is blocked, the booking simply carries none.
    */
   useEffect(() => {
+    /**
+     * The website snippet's visitor id first, when the link from the company's
+     * site carries it as `otv`: that is the same visitor, and their visits on
+     * the site and this booking are one history. It replaces the one kept
+     * here, so a later visit straight to this page is the same visitor too.
+     */
     let visitorId: string | undefined;
+    const fromSite = new URLSearchParams(window.location.search).get("otv");
+    const usable = fromSite && /^[A-Za-z0-9_-]{12,64}$/.test(fromSite) ? fromSite : undefined;
     try {
-      visitorId = window.localStorage.getItem("ots_visitor") ?? undefined;
-      if (!visitorId) {
-        visitorId = window.crypto.randomUUID();
-        window.localStorage.setItem("ots_visitor", visitorId);
-      }
+      visitorId = usable ?? window.localStorage.getItem("ots_visitor") ?? undefined;
+      if (!visitorId) visitorId = window.crypto.randomUUID();
+      window.localStorage.setItem("ots_visitor", visitorId);
     } catch {
-      visitorId = undefined;
+      visitorId = usable;
     }
     arrival.current = {
       landingQuery: window.location.search.replace(/^\?/, "") || undefined,

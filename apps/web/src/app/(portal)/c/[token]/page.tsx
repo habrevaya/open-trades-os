@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { portalAccount } from "@opentradesos/api/services";
+import { portalAccount, referrals } from "@opentradesos/api/services";
 import { PortalBrand } from "../../PortalBrand";
 import { PayNow } from "../../PayNow";
 import { AccountView, money, type AccountViewData } from "./AccountView";
 import { startAccountPayment } from "./actions";
+import { ReferralBlock } from "./ReferralBlock";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,8 @@ export default async function AccountPage({
   } catch {
     notFound();
   }
+  /** Never the reason the page fails: an account opens whether or not this does. */
+  const referral = await referrals.forPortal(getDb(), { token }).catch(() => null);
 
   return (
     <PortalBrand token={token}>
@@ -47,6 +50,7 @@ export default async function AccountPage({
           />
         )}
       />
+      {referral ? <ReferralBlock referral={referral} /> : null}
     </PortalBrand>
   );
 }

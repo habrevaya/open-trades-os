@@ -1127,7 +1127,19 @@ export interface FormField {
   rules?: FieldRule[] | undefined;
   /** For `choice` and `multi_choice`. A submitted value outside this is refused. */
   options?: FormOption[] | undefined;
+  /**
+   * For a `consent` box: what ticking it agrees to, by which channel and for
+   * which purpose. A ticked box records a consent row with the label (and the
+   * help under it) as the exact wording shown, and records nothing at all
+   * when this is absent, because a box that does not say what it is for is
+   * not consent to anything in particular.
+   */
+  consentFor?: { channel: "sms" | "email"; purpose: "marketing" | "transactional" } | undefined;
 }
+
+/** The exact words a consent box showed, as the consent row keeps them. */
+export const consentWording = (field: FormField): string =>
+  field.help?.trim() ? `${field.label.trim()} ${field.help.trim()}` : field.label.trim();
 
 export interface FormDefinition {
   key: string;
@@ -1574,6 +1586,13 @@ export function checkForm(form: FormDefinition): FormVerdict {
     }
     if ((field.type === "choice" || field.type === "multi_choice") && (field.options ?? []).length === 0) {
       problems.push(`"${field.key}" asks somebody to choose and offers nothing to choose from.`);
+    }
+    if (field.consentFor && field.type !== "consent") {
+      problems.push(`"${field.key}" is not a consent box, so what it agrees to means nothing.`);
+    }
+    if (field.consentFor && (!["sms", "email"].includes(field.consentFor.channel)
+      || !["marketing", "transactional"].includes(field.consentFor.purpose))) {
+      problems.push(`"${field.key}" agrees to something this product cannot record: texts or emails, for marketing or about work.`);
     }
     if ((field.type === "hidden" || field.type === "honeypot") && field.required) {
       // Nobody can fill in a field they cannot see, so this form can never be

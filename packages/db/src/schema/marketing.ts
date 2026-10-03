@@ -89,6 +89,12 @@ export const marketingTouch = pgTable("marketing_touch", {
    * what a customer said on the phone.
    */
   enteredByUserId: uuid("entered_by_user_id"),
+  /**
+   * The customer whose referral link this visit arrived through. Set only
+   * with source `referral_customer`, and it is what names the referrer on
+   * the report rather than leaving "a referral" as the whole answer.
+   */
+  referrerCustomerId: uuid("referrer_customer_id").references(() => customer.id, { onDelete: "set null" }),
 
   /**
    * Stored as five columns rather than one blob, because every one of them
@@ -222,9 +228,26 @@ export const webForm = pgTable("web_form", {
   definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
   /** Where a submission lands when it is not a booking: a source key for the touch it creates. */
   source: text("source").notNull().default("website"),
+  /**
+   * The form's address on the hosted page, `/f/{key}`. Unique across every
+   * company, because the page is reached before anybody knows whose form it
+   * is, and random rather than the slug, because two companies may both call
+   * a form "quote".
+   */
+  publicKey: text("public_key"),
+  /**
+   * What happens after a good submission: a confirmation text or email to the
+   * person who sent it, and the sentence the page shows. Data the office
+   * edits, never code.
+   */
+  settings: jsonb("settings").$type<{
+    thankYou?: string; confirmationText?: string;
+    confirmationEmailSubject?: string; confirmationEmailBody?: string;
+  }>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   slugIdx: uniqueIndex("web_form_slug_idx").on(t.organizationId, t.slug).where(sql`${t.deletedAt} is null`),
+  publicKeyIdx: uniqueIndex("web_form_public_key_idx").on(t.publicKey).where(sql`${t.publicKey} is not null`),
 }));
 
 export const formSubmissionState = pgEnum("form_submission_state", [
@@ -426,4 +449,53 @@ export const unsubscribeLink = pgTable("unsubscribe_link", {
 }, (t) => ({
   hashIdx: uniqueIndex("unsubscribe_link_token_idx").on(t.tokenHash),
   addressIdx: index("unsubscribe_link_address_idx").on(t.organizationId, t.address),
+}));
+
+/* ------------------------------------------------------------- referrals */
+
+export const referralRewardState = pgEnum("referral_reward_state", [
+  /** A credit note was issued to the referrer and sits on their account. */
+  "credited",
+  /** A fixed amount the company owes the referrer and has not paid yet. */
+  "owed",
+  /** That amount, paid, by whatever means the office pays people. */
+  "paid",
+  /** Withdrawn by the office, with a reason. Never re-granted. */
+  "void",
+]);
+
+/**
+ * WHAT A REFERRAL EARNED, AND WHETHER IT HAS BEEN GIVEN
+ *
+ * One row per referred customer, granted when their first job is paid in
+ * full. The unique index is the idempotency: the worker can look at the same
+ * paid invoice on every pass, and a second pass finds the row and does
+ * nothing, so a referrer is rewarded once for each person they sent however
+ * many times the check runs.
+ *
+ * The reward is a LEDGER, not a flag on the customer, because "did we ever
+ * pay Mrs Alvarez for sending the Nguyens" is a question with a date, an
+ * amount and a document behind it, and a boolean answers none of them.
+ */
+export const referralReward = pgTable("referral_reward", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  referrerCustomerId: uuid("referrer_customer_id").notNull()
+    .references(() => customer.id, { onDelete: "cascade" }),
+  referredCustomerId: uuid("referred_customer_id").notNull()
+    .references(() => customer.id, { onDelete: "cascade" }),
+  /** The first job, whose payment earned it. */
+  jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
+  /** `credit_note` or `owed`, as the company's referral settings said when it was granted. */
+  kind: text("kind").notNull(),
+  amount: money("amount").notNull(),
+  state: referralRewardState("state").notNull(),
+  /** The credit note issued for it, when the reward was a credit. */
+  creditNoteId: uuid("credit_note_id"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  note: text("note"),
+  ...timestamps,
+}, (t) => ({
+  referredIdx: uniqueIndex("referral_reward_referred_idx").on(t.organizationId, t.referredCustomerId),
+  referrerIdx: index("referral_reward_referrer_idx").on(t.organizationId, t.referrerCustomerId),
 }));

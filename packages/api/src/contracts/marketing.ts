@@ -285,6 +285,24 @@ export const FormField = z.object({
     z.object({ rule: z.literal("pattern"), value: z.enum(["us_zip", "digits", "letters_and_spaces", "us_state"]) }),
   ])).optional(),
   options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+  /**
+   * For a consent box: what ticking it agrees to. A ticked box records a
+   * consent row with its label as the exact wording; without this, nothing.
+   */
+  consentFor: z.object({
+    channel: z.enum(["sms", "email"]),
+    purpose: z.enum(["marketing", "transactional"]),
+  }).optional(),
+});
+
+/** What happens after a good submission, as the office set it. */
+export const FormSettings = z.object({
+  /** The sentence the hosted page shows once a submission is accepted. */
+  thankYou: z.string().max(500).optional(),
+  /** A text to the person who sent it, through the consent checked sender. */
+  confirmationText: z.string().max(320).optional(),
+  confirmationEmailSubject: z.string().max(200).optional(),
+  confirmationEmailBody: z.string().max(4000).optional(),
 });
 
 export const listForms = defineRoute({
@@ -298,6 +316,8 @@ export const listForms = defineRoute({
     forms: z.array(z.object({
       id: Uuid, slug: z.string(), title: z.string(),
       source: z.string(), fields: z.number().int(),
+      /** The hosted page, `/f/{publicKey}`. */
+      publicKey: z.string().nullable(),
     })),
   }),
 });
@@ -325,8 +345,43 @@ export const saveForm = defineRoute({
      * away real leads from browsers that blocked the script.
      */
     minimumFillSeconds: z.number().int().min(0).max(300).optional(),
+    settings: FormSettings.optional(),
   }),
-  output: z.object({ id: Uuid, slug: z.string(), title: z.string(), source: z.string() }),
+  output: z.object({
+    id: Uuid, slug: z.string(), title: z.string(), source: z.string(), publicKey: z.string(),
+  }),
+});
+
+export const getForm = defineRoute({
+  method: "get",
+  path: "/v1/marketing/forms/{slug}/definition",
+  summary: "One lead form, as the builder edits it",
+  module: "M19",
+  permissions: ["adspend:read"],
+  input: z.object({ slug: z.string().min(1).max(100) }),
+  output: z.object({
+    id: Uuid, slug: z.string(), title: z.string(), source: z.string(), publicKey: z.string().nullable(),
+    fields: z.array(FormField), minimumFillSeconds: z.number().int().nullable(), settings: FormSettings,
+  }),
+});
+
+/**
+ * The hosted page's read: the form a public key names, with nothing about
+ * the company but its name and slug, and nothing about any submission.
+ */
+export const getHostedForm = defineRoute({
+  method: "get",
+  path: "/v1/public/hosted-forms/{key}",
+  summary: "A lead form, for the page that hosts it",
+  module: "M19",
+  permissions: [],
+  authorization: "public",
+  input: z.object({ key: z.string().min(6).max(40) }),
+  output: z.object({
+    organizationName: z.string(), organizationSlug: z.string(),
+    formSlug: z.string(), title: z.string(), fields: z.array(FormField),
+    thankYou: z.string().nullable(),
+  }),
 });
 
 export const submitForm = defineRoute({
@@ -357,6 +412,8 @@ export const submitForm = defineRoute({
       field: z.string(), reason: z.string(), message: z.string(),
     })),
     customerId: Uuid.nullable(),
+    /** What the page says next, when it was accepted. */
+    thankYou: z.string().nullable(),
   }),
 });
 
@@ -437,6 +494,6 @@ export const getConversions = defineRoute({
 export const marketingRoutes = {
   listTouches, getJobAttribution, recordSpend, importSpend,
   getPerformance, listUnplacedSources,
-  listForms, saveForm, submitForm, listSubmissions, getFormRefusals,
+  listForms, saveForm, getForm, getHostedForm, submitForm, listSubmissions, getFormRefusals,
   getConversions,
 } as const;

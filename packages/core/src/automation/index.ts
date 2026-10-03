@@ -287,6 +287,15 @@ export const STEP_PERMISSIONS: Record<string, Permission[]> = {
    */
   request_review: ["review:respond"],
   send_review_request: ["review:respond", "message:send"],
+  /**
+   * Text back the number that rang. Not `send_message`, which texts the
+   * customer an event is about: a missed caller usually has no customer
+   * record, and waiting for one is waiting for the office to ring them back,
+   * which is the thing this step exists to cover for. It sends through the
+   * same consent checked sender, so a STOP is honoured, and from the same
+   * number every other conversational text comes from, never a tracking one.
+   */
+  text_caller: ["message:send"],
 };
 
 /* ------------------------------------------------------------------ re-checks */
@@ -313,6 +322,16 @@ export const CHECKS = {
   estimate_undecided: {
     label: "The estimate is still waiting for an answer",
     entity: "estimate",
+  },
+  /**
+   * Nobody has spoken to the caller since the missed call: they have not
+   * rung back and been answered, and nobody here has rung them. A text back
+   * two minutes after somebody already returned the call reads as a machine
+   * that does not know what the office is doing.
+   */
+  caller_not_reached: {
+    label: "Nobody has spoken to the caller since",
+    entity: "call",
   },
 } as const;
 

@@ -6,6 +6,9 @@ import { inTenant } from "./context";
 import { ProviderNotConfiguredError } from "../comms/provider";
 import * as accounting from "./accounting";
 import * as email from "./email";
+import * as websiteTracking from "./website-tracking";
+import * as voice from "./voice";
+import * as referrals from "./referrals";
 import { AccountingNotConfiguredError } from "../accounting/provider";
 import { EmailProviderNotConfiguredError } from "../email/provider";
 // The email adapters, registered the same way, so the worker can find the
@@ -142,6 +145,18 @@ async function syncAccounting(db: Database, organizationId: string): Promise<voi
 }
 
 /**
+ * The marketing side's own upkeep: pool numbers quiet visitors still hold go
+ * back, call recordings past a declared retention are deleted, and referral
+ * rewards that have come due are granted. Each is idempotent, so a pass that
+ * finds nothing to do costs a few reads.
+ */
+async function marketingUpkeep(db: Database, organizationId: string): Promise<void> {
+  await websiteTracking.releaseIdle(db, organizationId);
+  await voice.sweepRecordings(db, organizationId);
+  await referrals.grantDue(db, organizationId);
+}
+
+/**
  * BOTH RUN, AND NEITHER CAN STOP THE OTHER.
  *
  * `afterDrain` is awaited inside the worker's pass, so a throw from any of
@@ -164,6 +179,7 @@ export function backgroundHooks(
     { name: "sendQueuedEmail", run: (org: string) => sendQueuedEmail(db, readSecret, org) },
     { name: "sendWebhooks", run: (org: string) => sendWebhooks(db, org) },
     { name: "syncAccounting", run: (org: string) => syncAccounting(db, org) },
+    { name: "marketingUpkeep", run: (org: string) => marketingUpkeep(db, org) },
   ];
   return async (organizationId: string) => {
     for (const step of steps) {

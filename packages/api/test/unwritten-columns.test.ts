@@ -96,7 +96,7 @@ const SOFT_DELETE_NOT_OFFERED = [
   "integrationConnection", "invoice", "job", "overtimePolicy", "priceBookItem",
   "property", "purchaseOrder", "rateCard", "recurringSchedule", "review",
   "reviewPlatform", "reviewPolicy", "reviewRequest", "serviceContract",
-  "storedFile", "vendor", "wageScale", "webForm",
+  "vendor", "wageScale", "webForm",
   /**
    * `campaignRecipient` and `unsubscribeLink` are deliberately NOT here, and
    * that is worth saying because both carry the column. Neither is filtered on

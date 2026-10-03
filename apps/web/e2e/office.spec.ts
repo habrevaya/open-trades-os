@@ -56,16 +56,23 @@ test("likely duplicates across the book: one pair set aside, one merged", async 
   await make(`Aaberg Bob ${run}`, phoneB);
 
   await owner.goto("/customers/duplicates");
-  const landlordPair = owner.getByRole("listitem").filter({ hasText: `Aardvark Landlord ${run}` });
+  /**
+   * The pair by BOTH names. A record from an earlier run of this suite has a
+   * name close enough to this run's to be a likely duplicate of it too, so
+   * one name alone can match two rows on a database that is not fresh.
+   */
+  const landlordPair = owner.getByRole("listitem")
+    .filter({ hasText: `Aardvark Landlord ${run}` }).filter({ hasText: `Aardvark Tenant ${run}` });
   await expect(landlordPair).toContainText("Same phone number");
   await landlordPair.getByRole("textbox").fill("Landlord and tenant");
   await landlordPair.getByRole("button", { name: "Not the same person" }).click();
-  await expect(owner.getByRole("listitem").filter({ hasText: `Aardvark Landlord ${run}` })).toHaveCount(0);
+  await expect(landlordPair).toHaveCount(0);
 
-  const bobPair = owner.getByRole("listitem").filter({ hasText: `Aaberg Robert ${run}` });
+  const bobPair = owner.getByRole("listitem")
+    .filter({ hasText: `Aaberg Robert ${run}` }).filter({ hasText: `Aaberg Bob ${run}` });
   await bobPair.getByRole("button", { name: `Keep Aaberg Robert ${run}, merge the other in` }).click();
   // Merged, so the pair is no longer a pair; the kept record is still a customer.
-  await expect(owner.getByRole("listitem").filter({ hasText: `Aaberg Robert ${run}` })).toHaveCount(0);
+  await expect(bobPair).toHaveCount(0);
   await owner.goto(`/customers?q=${encodeURIComponent(`Aaberg Robert ${run}`)}`);
   await expect(owner.getByRole("link", { name: `Aaberg Robert ${run}` })).toBeVisible();
   await owner.goto(`/customers?q=${encodeURIComponent(`Aaberg Bob ${run}`)}`);

@@ -19,6 +19,7 @@ import { customerTags } from "@opentradesos/api/services";
 import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
+import { Referral } from "./Referral";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
@@ -237,6 +238,8 @@ export default async function CustomerPage({
           label: [property.addressLine1, property.city].filter(Boolean).join(", "),
         }))}
       />
+
+      <Referral ctx={ctx} customerId={id} />
 
       {(removable || mergeable.length > 0) && (
         <Lifecycle

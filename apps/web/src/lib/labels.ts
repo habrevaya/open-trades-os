@@ -93,6 +93,7 @@ export const PHONE_PURPOSE: Record<string, string> = {
   user: "Assigned to a person",
   sending: "Outbound only",
   fax: "Fax",
+  pool: "Website pool",
 };
 
 /** Look up a label, falling back to the stored value. */

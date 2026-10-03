@@ -371,7 +371,15 @@ export const getMarketingCall = defineRoute({
   module: "M19",
   permissions: ["adspend:read"],
   input: z.object({ id: Uuid }),
-  output: MarketingCall,
+  output: MarketingCall.extend({
+    /** Whether this product keeps the call's recording, or a voicemail, to play. */
+    hasRecording: z.boolean(),
+    hasVoicemail: z.boolean(),
+    /** Why a call to one of the company's own numbers went where it went. */
+    routedBecause: z.string().nullable(),
+    /** Why nothing was recorded, when recording was asked for and refused. */
+    recordingRefusal: z.string().nullable(),
+  }),
 });
 
 /* --------------------------------------------------------------- spend */
