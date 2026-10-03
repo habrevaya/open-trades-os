@@ -27,6 +27,7 @@ import {
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
   safety, retention,
+  stockUnits, purchaseApprovals, purchaseOrderEmail, rentalBilling, peopleRecords,
 } from "../services/index";
 
 /**
@@ -954,6 +955,16 @@ export const handlers = {
   setCustomerAdData: ads.handlers.setCustomerAdData,
   confirmReviewMatch: ads.handlers.confirmReviewMatch,
   syncReviews: ads.handlers.syncReviews,
+
+  // Serials, lots and truck stock (M16)
+  ...stockUnits.handlers,
+  // Approval steps and emailing an order to its vendor (M16)
+  ...purchaseApprovals.handlers,
+  ...purchaseOrderEmail.handlers,
+  // Collections, charges on a haul, invoicing a hire and scale tickets (M22)
+  ...rentalBilling.handlers,
+  // Onboarding, emergency contacts, employment, skills, continuing education, a job's own skills (M24)
+  ...peopleRecords.handlers,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

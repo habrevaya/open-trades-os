@@ -636,6 +636,10 @@ async function rentalViewWithin(
     materialType: row.materialType,
     disposalFee: row.disposalFee,
     previousRentalId: row.previousRentalId,
+    /** The stop that will collect it, once the collection scheduler has booked one. */
+    collectionVisitId: row.collectionVisitId,
+    /** The invoice its period and meters went on, once raised. */
+    invoiceId: row.invoiceId,
   };
 }
 

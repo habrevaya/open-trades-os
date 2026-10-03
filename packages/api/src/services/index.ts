@@ -151,3 +151,8 @@ export * as adConversions from "./ad-conversions";
 export * as reviewSync from "./review-sync";
 export * as safety from "./safety";
 export * as retention from "./retention";
+export * as stockUnits from "./stock-units";
+export * as purchaseApprovals from "./purchase-approvals";
+export * as purchaseOrderEmail from "./purchase-order-email";
+export * as rentalBilling from "./rental-billing";
+export * as peopleRecords from "./people-records";

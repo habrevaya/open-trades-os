@@ -74,6 +74,10 @@ import { branchRoutes } from "./branches";
 import { phoneMenuRoutes } from "./phone-menus";
 import { safetyRoutes } from "./safety";
 import { retentionRoutes } from "./retention";
+import { stockTrackingRoutes } from "./stock-tracking";
+import { purchasingRoutes } from "./purchasing";
+import { rentalBillingRoutes } from "./rental-billing";
+import { peopleRecordRoutes } from "./people-records";
 
 export * from "./common";
 export * from "./customers";
@@ -143,6 +147,10 @@ export * from "./branches";
 export * from "./phone-menus";
 export * from "./tasks";
 export * from "./ads";
+export * from "./stock-tracking";
+export * from "./purchasing";
+export * from "./rental-billing";
+export * from "./people-records";
 
 /**
  * Every route in the product, and the only description of them.
@@ -239,6 +247,10 @@ export const routes = {
   ...adsRoutes,
   ...safetyRoutes,
   ...retentionRoutes,
+  ...stockTrackingRoutes,
+  ...purchasingRoutes,
+  ...rentalBillingRoutes,
+  ...peopleRecordRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

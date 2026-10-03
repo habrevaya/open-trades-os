@@ -342,7 +342,7 @@ export function planTickets(rows: readonly TicketRow[], hauls: readonly Haul[]):
         if (owner.weightTons !== null && !sameTons(owner.weightTons, row.netTons)) {
           plans.push({
             line: row.line, action: "skip", row,
-            why: `Ticket ${row.ticketNumber} is already on that haul at ${owner.weightTons} tons, and the file says ${row.netTons}. Check the paper ticket and correct the haul by hand.`,
+            why: `Ticket ${row.ticketNumber} is already on that haul at ${Number(owner.weightTons)} tons, and the file says ${Number(row.netTons)}. Check the paper ticket and correct the haul by hand.`,
           });
         } else {
           plans.push({ line: row.line, action: "unchanged", rentalId: owner.rentalId, row, why: `Ticket ${row.ticketNumber} is already recorded on this haul.` });
@@ -379,7 +379,7 @@ export function planTickets(rows: readonly TicketRow[], hauls: readonly Haul[]):
     if (haul.weightTons !== null && !sameTons(haul.weightTons, row.netTons)) {
       plans.push({
         line: row.line, action: "skip", row,
-        why: `Container ${row.container}'s haul on ${haul.collectedOn} was typed in at ${haul.weightTons} tons and ticket ${row.ticketNumber} says ${row.netTons}. Check the paper ticket and correct the haul by hand.`,
+        why: `Container ${row.container}'s haul on ${haul.collectedOn} was typed in at ${Number(haul.weightTons)} tons and ticket ${row.ticketNumber} says ${Number(row.netTons)}. Check the paper ticket and correct the haul by hand.`,
       });
       claimed.add(haul.rentalId);
       continue;

@@ -5,7 +5,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
-import { qualify } from "./qualification";
+import { qualify, workSkills } from "./qualification";
 
 /**
  * THE DAY ON A MAP, AND WHAT ORDER TO DRIVE IT IN
@@ -211,6 +211,7 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
     summary: schema.job.summary,
     jobTypeId: schema.job.jobTypeId,
     requiredSkills: schema.jobType.requiredSkills,
+    jobSkills: schema.job.requiredSkills,
     customerName: schema.customer.name,
     property: {
       id: schema.property.id,
@@ -273,7 +274,7 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
       routeId: r.visit.routeId,
       arrivedAt: r.visit.arrivedAt,
       jobTypeId: r.jobTypeId,
-      requiredSkills: r.requiredSkills ?? [],
+      requiredSkills: workSkills(r.requiredSkills, r.jobSkills),
       place: placeOf(r.property),
       technicianIds: assigned.get(r.visit.id) ?? [],
       isLate: Boolean(r.visit.windowEnd && r.visit.windowEnd < now && !done.has(r.visit.status)),

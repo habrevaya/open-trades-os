@@ -124,6 +124,8 @@ export const listCertificationTypes = defineRoute({
       expires: z.boolean(),
       defaultValidMonths: z.number().int().nullable(),
       renewalLeadDays: z.number().int(),
+      /** Continuing education hours a renewal needs, or null when it needs none. */
+      ceHoursRequired: z.string().nullable(),
       active: z.boolean(),
       note: z.string().nullable(),
     })),
@@ -148,6 +150,8 @@ export const defineCertificationType = defineRoute({
     expires: z.boolean().optional(),
     defaultValidMonths: z.number().int().positive().max(600).nullable().optional(),
     renewalLeadDays: z.number().int().min(0).max(3650).optional(),
+    /** Continuing education hours a renewal needs, where the authority asks for any: "16", "7.5". */
+    ceHoursRequired: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
     note: z.string().max(2000).nullable().optional(),
   }),
   output: z.object({
@@ -172,6 +176,8 @@ export const updateCertificationType = defineRoute({
     grantsSkills: z.array(z.string().max(100)).max(50).optional(),
     defaultValidMonths: z.number().int().positive().max(600).nullable().optional(),
     renewalLeadDays: z.number().int().min(0).max(3650).optional(),
+    /** Continuing education hours a renewal needs, where the authority asks for any: "16", "7.5". */
+    ceHoursRequired: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
     note: z.string().max(2000).nullable().optional(),
     active: z.boolean().optional(),
   }),

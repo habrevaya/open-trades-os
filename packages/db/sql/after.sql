@@ -2493,3 +2493,31 @@ returns table (organization_id uuid)
 
 revoke all on function app.retention_purge_organizations(int) from public;
 grant execute on function app.retention_purge_organizations(int) to background;
+
+-- ---- A purchase order's printable link, for the vendor ------------------
+-- An emailed order carries a link that opens the order as the vendor reads
+-- it, with no sign in, because a supply house counter has no account here.
+-- The link is a random token whose SHA-256 is all `purchase_order_send`
+-- keeps. This resolves a hash to the company and the order, and nothing else,
+-- for the same reason the portal grant functions above do: the page has no
+-- tenant until the token says which one, and row level security is what
+-- keeps the rest of that company out of reach once it does. An expired link,
+-- or one from a suspended company, resolves to nothing.
+create or replace function app.purchase_order_link(p_token_hash text)
+returns table (organization_id uuid, purchase_order_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id, s.purchase_order_id
+    from public.purchase_order_send s
+    where s.link_token_hash = p_token_hash
+      and s.link_expires_at > now()
+      and s.state = 'queued'
+      and not exists (
+        select 1 from public.organization o
+         where o.id = s.organization_id and o.suspended_at is not null
+      )
+    limit 1
+  $$;
+
+revoke all on function app.purchase_order_link(text) from public;
+grant execute on function app.purchase_order_link(text) to authenticated;

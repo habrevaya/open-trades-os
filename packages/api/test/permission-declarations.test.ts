@@ -61,9 +61,10 @@ const ESCALATES: Record<string, { also: Permission; when: string; service: strin
   setPurchaseOrderStatus: {
     also: "po:approve",
     when:
-      "Submitting an order for approval demands it; every other transition takes "
-      + "`po:write`. Declaring both would tell a reader and an agent that moving an "
-      + "order back to draft needs approval authority, which it does not.",
+      "Submitting an order no approval step applies to demands it; an order the steps "
+      + "apply to is sent on `po:write` once every step has approved it, and every other "
+      + "transition takes `po:write`. Declaring both would tell a reader and an agent that "
+      + "moving an order back to draft needs approval authority, which it does not.",
     service: "inventory.ts",
   },
   assignVisit: {
