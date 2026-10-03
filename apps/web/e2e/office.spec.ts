@@ -144,10 +144,11 @@ test("a lapsing warranty is on the watch, by customer, and a follow up goes in t
   await expect(theirs).toContainText("A follow up is already in the task queue.");
   await expect(theirs.getByRole("button", { name: "Raise a follow up task" })).toHaveCount(0);
 
-  // And the task opens the address the unit is on.
+  // And the task opens the unit's own page.
+  const unitId = (await unit.json() as { id: string }).id;
   await owner.goto("/tasks?view=all");
   const task = owner.getByRole("listitem").filter({ hasText: `Warranty: Carrier W${run} at 4 Cover Court` });
-  await expect(task.getByRole("link", { name: "Open the address" })).toHaveAttribute("href", `/properties/${propertyId}`);
+  await expect(task.getByRole("link", { name: "Open the unit" })).toHaveAttribute("href", `/equipment/${unitId}`);
 });
 
 test("a task with a checklist closes only when ticked or with a reason, and the queue's rules are set", async ({ owner }) => {
