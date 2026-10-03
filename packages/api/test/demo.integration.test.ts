@@ -11,6 +11,8 @@ import { inTenant, DemoReadOnlyError, type ServiceContext } from "../src/service
 import * as customers from "../src/services/customers";
 import * as portal from "../src/services/portal";
 import * as booking from "../src/services/booking";
+import * as referrals from "../src/services/referrals";
+import * as websiteTracking from "../src/services/website-tracking";
 import { usage } from "../src/services/operator";
 import { drainAll } from "../src/services/workflow-worker";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
@@ -236,6 +238,30 @@ run("the demo company's customer side and background work", () => {
     await expect(portal.consume(db(), token)).rejects.toBeInstanceOf(DemoReadOnlyError);
     const [grant] = await raw<{ use_count: number }[]>`select use_count from public.portal_grant where token_hash = ${hash(token)}`;
     expect(grant!.use_count).toBe(0);
+  });
+
+  it("opens a customer, whose referral code was minted when the demo was set up", async () => {
+    /**
+     * The customer page mints a referral code on first view, a write the
+     * demo's read only session cannot make. Setting the demo up mints them
+     * all, so the page reads and the demo writes nothing.
+     */
+    const customer = await customers.create(ownerOf(DEMO_ORG, OWNER), {
+      type: "residential", name: "Rae Referral", paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {},
+    });
+    await raw`update public.customer set referral_code = null where id = ${customer.id}`;
+    const { ctx } = await demoSession();
+    await expect(referrals.forCustomer(ctx, customer.id)).rejects.toBeInstanceOf(DemoReadOnlyError);
+
+    expect((await setupDemo(db(), DEMO_ORG)).changed).toBe(true);
+    const mine = await referrals.forCustomer(ctx, customer.id);
+    expect(mine.code).toMatch(/\S/);
+    expect((await setupDemo(db(), DEMO_ORG)).changed).toBe(false);
+  });
+
+  it("its website snippet records no visit", async () => {
+    await expect(websiteTracking.companyFor(db(), "demo-co")).rejects.toBeInstanceOf(DemoReadOnlyError);
+    await expect(websiteTracking.companyFor(db(), "real-co")).resolves.toMatchObject({ slug: "real-co" });
   });
 
   it("its booking page books nothing", async () => {

@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { sql } from "drizzle-orm";
-import type { Database } from "@opentradesos/db";
-import { ConflictError, NotFoundError } from "./context";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { schema, type Database } from "@opentradesos/db";
+import { SYSTEM_USER_ID } from "@opentradesos/core";
+import { ConflictError, NotFoundError, inTenant } from "./context";
 import { createUser } from "./organizations";
+import { codeFor } from "./referrals";
 
 /**
  * THE PUBLIC DEMO
@@ -93,7 +95,7 @@ export interface DemoSetup {
 export async function setupDemo(db: Database, organizationId: string): Promise<DemoSetup> {
   if (!isUuid(organizationId)) throw new NotFoundError("Company");
 
-  return db.transaction(async (raw) => {
+  const setup = await db.transaction(async (raw) => {
     const tx = raw as unknown as Database;
     const [org] = await tx.execute<{ id: string; name: string; demo_user_id: string | null; suspended_at: Date | null }>(
       sql`select id, name, demo_user_id, suspended_at from public.organization where id = ${organizationId}::uuid for update`,
@@ -152,4 +154,27 @@ export async function setupDemo(db: Database, organizationId: string): Promise<D
 
     return { organizationId, organizationName: org.name, userId, changed };
   });
+
+  /**
+   * Every customer's referral code, minted now rather than on first view.
+   *
+   * The customer page mints a code the first time somebody opens it, which
+   * is a write, and the demo's session is a read only transaction: without
+   * this the first customer a visitor opens is an error page. Done here, by
+   * whoever sets the demo up, so the demo itself never has to write.
+   */
+  const minted = await inTenant(
+    { actor: { userId: SYSTEM_USER_ID, organizationId, roles: [] }, db },
+    async (tx) => {
+      const without = await tx.select({ id: schema.customer.id }).from(schema.customer)
+        .where(and(
+          eq(schema.customer.organizationId, organizationId),
+          isNull(schema.customer.referralCode),
+          isNull(schema.customer.deletedAt),
+        ));
+      for (const customer of without) await codeFor(tx, organizationId, customer.id);
+      return without.length;
+    },
+  );
+  return { ...setup, changed: setup.changed || minted > 0 };
 }
