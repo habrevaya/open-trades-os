@@ -27914,7 +27914,7 @@
       "post": {
         "operationId": "syncOperations",
         "summary": "Submit queued field operations",
-        "description": "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt.\n\nRequires a session holding: field:sync.",
+        "description": "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`.\n\nRequires a session holding: field:sync.",
         "tags": [
           "M11"
         ],
@@ -110323,6 +110323,14 @@
               ]
             },
             "minItems": 1,
+            "maxItems": 500
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
             "maxItems": 500
           }
         },

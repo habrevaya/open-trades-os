@@ -208,6 +208,8 @@ export function orderOperations(ops: FieldOperation[]): FieldOperation[] {
 export function findSequenceGaps(
   ops: FieldOperation[],
   lastAppliedSequence: Record<string, number>,
+  /** Sequences the device has said will never come. See `applicablePrefix`. */
+  skipped: Record<string, readonly number[]> = {},
 ): { deviceId: string; missing: number[] }[] {
   const byDevice = new Map<string, number[]>();
   for (const op of ops) {
@@ -220,8 +222,9 @@ export function findSequenceGaps(
     const from = (lastAppliedSequence[deviceId] ?? 0) + 1;
     const missing: number[] = [];
 
+    const declared = new Set(skipped[deviceId] ?? []);
     for (let n = from; n < (sorted[sorted.length - 1] ?? from); n++) {
-      if (!sorted.includes(n)) missing.push(n);
+      if (!sorted.includes(n) && !declared.has(n)) missing.push(n);
     }
     if (missing.length > 0) gaps.push({ deviceId, missing });
   }
@@ -238,10 +241,28 @@ export function findSequenceGaps(
 export function applicablePrefix(
   ops: FieldOperation[],
   lastAppliedSequence: Record<string, number>,
+  /**
+   * Sequences a device has declared it will never send, per device.
+   *
+   * A device can number an operation and then lose it: the phone died between
+   * advancing its counter and writing the operation, or the technician
+   * discarded one that had never got through. Without a way to say so, every
+   * operation after that number was held for ever, waiting on something that
+   * did not exist. A declared number is stepped over as if it had been
+   * applied, and if the operation does turn up later it is applied as a late
+   * arrival, which is what it would be.
+   */
+  skipped: Record<string, readonly number[]> = {},
 ): { applicable: FieldOperation[]; held: FieldOperation[] } {
   const ordered = orderOperations(ops);
   const nextExpected = new Map<string, number>();
   const blocked = new Set<string>();
+  const declared = new Map(Object.entries(skipped).map(([d, seqs]) => [d, new Set(seqs)]));
+  const past = (deviceId: string, n: number): number => {
+    let next = n;
+    while (declared.get(deviceId)?.has(next)) next += 1;
+    return next;
+  };
 
   const applicable: FieldOperation[] = [];
   const held: FieldOperation[] = [];
@@ -252,7 +273,10 @@ export function applicablePrefix(
       continue;
     }
 
-    const expected = nextExpected.get(op.deviceId) ?? (lastAppliedSequence[op.deviceId] ?? 0) + 1;
+    const expected = past(
+      op.deviceId,
+      nextExpected.get(op.deviceId) ?? (lastAppliedSequence[op.deviceId] ?? 0) + 1,
+    );
 
     if (op.sequence < expected) {
       // Already applied. A replay, which is normal on a flaky connection: the

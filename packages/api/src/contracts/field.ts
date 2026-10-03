@@ -69,13 +69,21 @@ export const syncOperations = defineRoute({
   path: "/v1/field/sync",
   summary: "Submit queued field operations",
   description:
-    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt.",
+    "Idempotent by clientId. Operations behind a gap in the device's sequence are held, not rejected, because the missing one usually arrives on the next attempt, and a held operation sent again is applied once the gap is filled or declared in `skipped`.",
   module: "M11",
   permissions: ["field:sync"],
   idempotent: true,
   input: z.object({
     deviceId: Uuid,
     operations: z.array(FieldOperationInput).min(1).max(500),
+    /**
+     * Sequences this device numbered and will never send: the phone died
+     * between numbering an operation and writing it, or the technician
+     * discarded one that never got through. Without this the operations
+     * after such a number were held for ever. Send the numbers the last
+     * response listed in `awaiting` that the device does not hold.
+     */
+    skipped: z.array(z.number().int().min(1)).max(500).optional(),
   }),
   output: z.object({
     results: z.array(OperationResult),

@@ -1,5 +1,23 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { MemoryStorage, WebStorage, FieldQueue, type Storage } from "../src/index";
+import { createRequire } from "node:module";
+import { MemoryStorage, WebStorage, SqlStorage, FieldQueue, type Storage, type SqlDriver } from "../src/index";
+
+/**
+ * Node's own SQLite, behind the driver the phone app's expo-sqlite adapter
+ * implements. Loaded through require because the bundler under vitest does
+ * not yet list `node:sqlite` among Node's built in modules.
+ */
+const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+
+function nodeSqlite(): SqlDriver {
+  const db = new DatabaseSync(":memory:");
+  return {
+    async run(sql, params) { db.prepare(sql).run(...params); },
+    async all<T>(sql: string, params: Array<string | number | null>) {
+      return db.prepare(sql).all(...params) as T[];
+    },
+  };
+}
 
 /**
  * ONE SUITE, EVERY BACKEND
@@ -34,6 +52,7 @@ const BACKENDS: Array<{ name: string; make: () => Storage }> = [
       return new WebStorage("otos:");
     },
   },
+  { name: "sqlite", make: () => new SqlStorage(nodeSqlite()) },
 ];
 
 describe.each(BACKENDS)("$name storage", ({ make }) => {
@@ -93,5 +112,26 @@ describe.each(BACKENDS)("$name storage", ({ make }) => {
 
     expect((await q.pending()).map((o) => o.sequence)).toEqual([1, 2]);
     expect(await q.currentSequence()).toBe(2);
+  });
+});
+
+describe("sqlite storage", () => {
+  it("treats an underscore and a percent in a prefix as themselves, not as wildcards", async () => {
+    const storage = new SqlStorage(nodeSqlite());
+    await storage.set("a_b.1", "x");
+    await storage.set("axb.1", "y");
+    await storage.set("a%.1", "z");
+    expect(await storage.keys("a_b.")).toEqual(["a_b.1"]);
+    expect(await storage.keys("a%.")).toEqual(["a%.1"]);
+  });
+
+  it("keeps what it wrote across a reopen of the same database", async () => {
+    const db = nodeSqlite();
+    await new SqlStorage(db).set("otos.sequence", "41");
+    expect(await new SqlStorage(db).get("otos.sequence")).toBe("41");
+  });
+
+  it("refuses a table name that would be spliced into SQL", () => {
+    expect(() => new SqlStorage(nodeSqlite(), "kv; drop table x")).toThrow();
   });
 });
