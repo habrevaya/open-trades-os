@@ -11,6 +11,8 @@ import { Money } from "@opentradesos/ui";
 import { Consent } from "./Consent";
 import { Contacts } from "./Contacts";
 import { Lifecycle } from "./Lifecycle";
+import { Tags } from "./Tags";
+import { customerTags } from "@opentradesos/api/services";
 import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
@@ -167,6 +169,13 @@ export default async function CustomerPage({
           ? <Fact label="Balance"><Money value={customer.balance} /></Fact>
           : null}
       </Facts>
+
+      <Tags
+        customerId={id}
+        tags={customer.tags}
+        known={can(user.actor, "customer:write") ? (await customerTags.list(ctx)).map((t) => t.tag) : []}
+        canWrite={can(user.actor, "customer:write")}
+      />
 
       {addresses.length > 0 && (
         <div className="mt-10">

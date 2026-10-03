@@ -154,6 +154,28 @@ export async function list(
   });
 }
 
+/**
+ * One task, for its own page: where its checklist is ticked and where a task
+ * with items unticked is closed with a reason.
+ */
+export async function get(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "task:read", async (tx) => {
+    const [row] = await tx.select().from(schema.task).where(eq(schema.task.id, input.id)).limit(1);
+    if (!row) throw new NotFoundError("Task");
+    const named = row.assigneeUserId
+      ? (await tx.execute<{ name: string | null; email: string }>(
+        sql`select name, email from app.organization_people() where user_id = ${row.assigneeUserId}::uuid`,
+      ))[0]
+      : undefined;
+    return {
+      ...row,
+      assigneeName: named ? (named.name ?? named.email) : null,
+      overdue: row.dueAt !== null && row.dueAt.getTime() < Date.now()
+        && (row.status === "open" || row.status === "in_progress"),
+    };
+  });
+}
+
 /** What the navigation badge needs, and nothing more. */
 export async function counts(ctx: ServiceContext) {
   return guardedRead(ctx, "task:read", async (tx) => {

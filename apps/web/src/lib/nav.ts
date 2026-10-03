@@ -89,7 +89,16 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
-      { href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks" },
+      {
+        href: "/tasks", label: "Tasks", permission: "task:read", icon: "tasks",
+        children: [
+          { href: "/tasks", label: "The queue" },
+          /** Work that comes round daily, weekly or monthly, raised by the worker. */
+          { href: "/tasks/recurring", label: "Recurring" },
+          /** Who hears about a task that stays late, and who takes it over. */
+          { href: "/tasks/escalation", label: "Escalation" },
+        ],
+      },
       { href: "/recurring", label: "Recurring", permission: "job:read", icon: "recurring" },
       /** Phased work under one contract, billed in draws. Work, because it is jobs. */
       { href: "/projects", label: "Projects", permission: "job:read", icon: "projects" },
@@ -109,7 +118,21 @@ export const NAV: NavGroup[] = [
   {
     label: "Customers",
     items: [
-      { href: "/customers", label: "Customers", permission: "customer:read", icon: "customers" },
+      {
+        href: "/customers", label: "Customers", permission: "customer:read", icon: "customers",
+        children: [
+          { href: "/customers", label: "All customers" },
+          /** The company's tags with counts, and the rename and merge every tag list needs. */
+          { href: "/customers/tags", label: "Tags" },
+          /** The per customer matcher run over the whole book, for whoever may merge. */
+          { href: "/customers/duplicates", label: "Likely duplicates" },
+          /**
+           * Equipment cover running out, by customer. Under Customers rather than
+           * a register of its own, because the list is a list of people to ring.
+           */
+          { href: "/customers/warranties", label: "Warranties" },
+        ],
+      },
       /**
        * Under Customers rather than under Money, because the question it
        * answers is about a client ("whose price governs for them?") rather
@@ -158,7 +181,16 @@ export const NAV: NavGroup[] = [
           { href: "/agreements/renewals", label: "Ending soon" },
         ],
       },
-      { href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook" },
+      {
+        href: "/pricebook", label: "Price book", permission: "pricebook:read", icon: "pricebook",
+        children: [
+          { href: "/pricebook", label: "Items" },
+          /** The shelves a technician browses by, which nothing could reorganise. */
+          { href: "/pricebook/categories", label: "Categories" },
+          /** Many prices at once, previewed, written as new versions and undoable. */
+          { href: "/pricebook/changes", label: "Change prices" },
+        ],
+      },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
       { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */

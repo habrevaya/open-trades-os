@@ -88,6 +88,21 @@ function mustBeActive(people: Map<string, Person>, userId: string | null | undef
   if (!people.get(userId)?.active) throw new ConflictError(`${what} has to be somebody who works here now.`);
 }
 
+/**
+ * The people work can be given to, for the pickers on the task screens.
+ *
+ * `task:read`, not `user:read`: somebody who may hand a task to a colleague
+ * has to be able to name the colleague, and the directory behind it carries
+ * names and nothing else here.
+ */
+export async function assignable(ctx: ServiceContext): Promise<{ userId: string; name: string; role: string }[]> {
+  return guardedRead(ctx, "task:read", async (tx) => {
+    const people = await directory(tx, ctx.actor.organizationId);
+    return [...people.values()].filter((p) => p.active)
+      .map((p) => ({ userId: p.userId, name: p.name ?? p.email, role: p.role }));
+  });
+}
+
 /* ------------------------------------------------------- reporting lines */
 
 export interface ReportingLine {

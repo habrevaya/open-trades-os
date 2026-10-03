@@ -116,6 +116,7 @@ export * from "./visit-changes";
 export * from "./customer-tags";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
+export * from "./tasks";
 
 /**
  * Every route in the product, and the only description of them.
