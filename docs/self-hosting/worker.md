@@ -52,8 +52,13 @@ saved in the office never waits on a geocoder. It runs on its own budget of a
 few seconds a pass, before the drain, and a geocoder that is down is logged and
 skipped rather than holding up a text. Against the public OpenStreetMap server it
 asks one address a second at most, which is a limit **per process**: run one
-worker, or point the connection at your own Nominatim server, before sending it a
-customer list in the thousands. A company with no geocoder connected is never
+worker, or set `NOMINATIM_URL` to your own Nominatim server, before sending it a
+customer list in the thousands. That address is the deployment's to set and
+applies to every company on it; a connection cannot name one, because the
+server would send every customer address, from inside your network, to
+whatever it named ([secrets.md](secrets.md#provider-addresses-are-fixed)). A
+Mapbox token is a secret name like any other, read from the company's own
+secrets. A company with no geocoder connected is never
 looked at. Turn it off for a deployment with `geocoding: false` on the pass.
 ## Reports and statements that arrive on their own
 

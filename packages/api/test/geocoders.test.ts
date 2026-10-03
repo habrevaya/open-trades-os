@@ -162,17 +162,29 @@ describe("nominatim", () => {
     expect(clock.slept).toEqual([1_100]);
   });
 
-  it("lets a company's own server go at whatever pace it sets", async () => {
-    const clock = fakeClock();
-    const http = fakeFetch(() => json(house));
-    const geocoder = createGeocoder("nominatim", {
-      settings: { endpoint: "https://geo.ridgeline.example/", minIntervalMs: 0 },
-      secret: null, fetch: http.fn, clock,
-    });
-    await geocoder.geocode(ADDRESS);
-    await geocoder.geocode(ADDRESS);
-    expect(clock.slept).toEqual([]);
-    expect(http.calls[0]!.url.href.startsWith("https://geo.ridgeline.example/search?")).toBe(true);
+  it("lets the deployment's own server go at whatever pace the company sets", async () => {
+    /**
+     * A self hosted server is the deployment's `NOMINATIM_URL`. A company's
+     * connection cannot name one: its `endpoint` is an endpoint override,
+     * dropped before the adapter is built (secret-namespace.integration).
+     */
+    const previous = process.env["NOMINATIM_URL"];
+    process.env["NOMINATIM_URL"] = "https://geo.ridgeline.example/";
+    try {
+      const clock = fakeClock();
+      const http = fakeFetch(() => json(house));
+      const geocoder = createGeocoder("nominatim", {
+        settings: { endpoint: "https://elsewhere.example/", minIntervalMs: 0 },
+        secret: null, fetch: http.fn, clock,
+      });
+      await geocoder.geocode(ADDRESS);
+      await geocoder.geocode(ADDRESS);
+      expect(clock.slept).toEqual([]);
+      expect(http.calls.every((call) => call.url.href.startsWith("https://geo.ridgeline.example/search?"))).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env["NOMINATIM_URL"];
+      else process.env["NOMINATIM_URL"] = previous;
+    }
   });
 });
 

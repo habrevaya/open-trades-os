@@ -126,8 +126,14 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
   },
   google: { defaultModel: { kind: "text" }, rates: { kind: "record" }, baseUrl: BASE_URL },
   nominatim: {
-    /** A self hosted server, or the public one when absent. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the lookups go. An endpoint like any other: no credential rides
+     * on it, but every customer address does, and a server fetching a URL a
+     * company typed is a way into the deployment's own network. A self
+     * hosted Nominatim is the deployment's choice, `NOMINATIM_URL`, never a
+     * company's (docs/self-hosting/worker.md).
+     */
+    endpoint: BASE_URL,
     /** Who the public server's operators can write to, as their usage policy asks. */
     contactEmail: { kind: "text" },
     /** Slower than the floor is allowed; faster than one a second against the public server is not. */

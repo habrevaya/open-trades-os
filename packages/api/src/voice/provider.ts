@@ -1,3 +1,5 @@
+import { adapterSettings } from "../secrets/endpoints";
+
 /**
  * THE VOICE SEAM
  *
@@ -76,7 +78,9 @@ export function registerVoiceProvider(name: string, factory: Factory): void {
 export function createVoiceProvider(name: string, settings: Record<string, unknown>, secret: string): VoiceProvider {
   const factory = registry.get(name);
   if (!factory) throw new VoiceProviderNotConfiguredError(name);
-  return factory(settings, secret);
+  // Never a stored endpoint override: see `adapterSettings`. Without this a
+  // connection's `baseUrl` would receive the account's auth token.
+  return factory(adapterSettings(name, settings), secret);
 }
 
 export const voiceCapableProviders = (): string[] => [...registry.keys()];

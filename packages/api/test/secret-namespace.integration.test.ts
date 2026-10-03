@@ -7,12 +7,18 @@ import * as billing from "../src/services/billing";
 import * as customers from "../src/services/customers";
 import * as leadIntake from "../src/services/lead-intake";
 import * as ai from "../src/services/ai";
+import * as voice from "../src/services/voice";
+import * as geocoding from "../src/services/geocoding";
 import { createPaymentProvider } from "../src/payments/provider";
 import { createAiProvider } from "../src/ai/provider";
+import { createVoiceProvider } from "../src/voice/provider";
+import { createGeocoder, resetPace } from "../src/maps/provider";
 import { environmentSecretStore, readerFor, SecretNotSetError } from "../src/secrets/store";
 import { ConflictError, type ServiceContext } from "../src/services/context";
 import "../src/payments";
 import "../src/ai";
+import "../src/voice";
+import "../src/maps";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -240,5 +246,189 @@ run("the whole attack, through a payment link", () => {
     expect(new URL(sent[0]!.url).host).toBe("api.stripe.com");
     expect(sent[0]!.headers).toContain(own);
     expect(sent[0]!.headers).not.toContain(process.env["AUTH_SECRET"]!);
+  });
+});
+
+/* ------------------------------------------------------------------------
+ * THE PROVIDERS THAT ARRIVED AFTER THE FIX
+ *
+ * Calls on Twilio and the two geocoders came in with their own secret
+ * readers (`process.env[credentialRef]`, the bug itself) and their own
+ * endpoint settings (`baseUrl` on Mapbox and Twilio, `endpoint` on
+ * Nominatim). The same attack against each: the credential named
+ * AUTH_SECRET and the address pointed at the attacker. Nothing may reach
+ * the attacker's host, and the deployment's key may go nowhere at all.
+ * --------------------------------------------------------------------- */
+
+const ACCOUNT_SID = "AC0000000000000000000000000000ns";
+const WEBHOOK_TOKEN = "ns".repeat(24);
+
+async function storeConnection(
+  org: string, capability: string, provider: string, credentialRef: string | null, settings: Record<string, unknown>,
+) {
+  await raw`
+    insert into public.integration_connection
+      (organization_id, capability, provider, status, credential_ref, settings)
+    values (${org}, ${capability}, ${provider}, 'connected', ${credentialRef}, ${raw.json(settings as never)})
+    on conflict (organization_id, capability, provider)
+      do update set credential_ref = excluded.credential_ref, settings = excluded.settings,
+                    status = 'connected', deleted_at = null`;
+}
+
+/** The only maps connection the company has, so the pass asks this one. */
+async function onlyGeocoder(provider: string, credentialRef: string | null, settings: Record<string, unknown>) {
+  await raw`update public.integration_connection set status = 'disconnected'
+            where organization_id = ${ORG} and capability = 'maps'`;
+  await storeConnection(ORG, "maps", provider, credentialRef, settings);
+}
+
+/** An address the worker has never looked up, so the next pass asks the geocoder about it. */
+async function freshAddress(): Promise<void> {
+  await raw`
+    insert into public.property (organization_id, address_line1, city, state, postal_code)
+    values (${ORG}, ${`${Math.floor(Math.random() * 9000) + 100} Secret Ns Way`}, 'Austin', 'TX', '78701')`;
+}
+
+/** A clock that never makes the test wait for the public server's one a second. */
+const quickClock = { now: () => 0, sleep: async () => {} };
+
+async function geocodeOnce() {
+  resetPace();
+  return geocoding.geocodePending(db(), { only: [ORG], limit: 1000, deps: { clock: quickClock } });
+}
+
+const leaked = (secret: string) => sent.filter((r) => r.url.includes(secret) || r.headers.includes(secret));
+
+run("the whole attack, through calls on Twilio", () => {
+  it("refuses a baseUrl on the Twilio connection that voice uses", async () => {
+    await expect(leadIntake.connect(ctx(), {
+      provider: "twilio",
+      credentialRef: "TWILIO_AUTH_TOKEN",
+      settings: { accountSid: ACCOUNT_SID, baseUrl: ATTACKER },
+    })).rejects.toThrow(/where this server sends/);
+  });
+
+  it("never sends the deployment's session key when buying a number, and never reaches the attacker", async () => {
+    const platform = fakeValue("platform-session-key");
+    setEnv("AUTH_SECRET", platform);
+    await storeConnection(ORG, "messaging", "twilio", "AUTH_SECRET", {
+      accountSid: ACCOUNT_SID, webhookToken: WEBHOOK_TOKEN, baseUrl: ATTACKER,
+    });
+
+    const outcome = await voice.searchNumbers(ctx(), { areaCode: "512" }).catch((e: unknown) => e);
+    expect(outcome).toBeInstanceOf(SecretNotSetError);
+    expect((outcome as Error).message).toContain(connectors.environmentVariableFor(ORG, "AUTH_SECRET"));
+
+    // The carrier's webhook resolves its tenant from the token and reads that tenant's secret only.
+    const webhook = await voice.resolveWebhook(db(), WEBHOOK_TOKEN).catch((e: unknown) => e);
+    expect(webhook).toBeInstanceOf(SecretNotSetError);
+
+    expect(sent.filter((r) => r.url.includes("attacker"))).toEqual([]);
+    expect(leaked(platform)).toEqual([]);
+  });
+
+  it("sends the company's own token to api.twilio.com when that is what is set", async () => {
+    const own = fakeValue("company-twilio-token");
+    const platform = fakeValue("platform-session-key");
+    setEnv(connectors.environmentVariableFor(ORG, "AUTH_SECRET"), own);
+    setEnv("AUTH_SECRET", platform);
+    await storeConnection(ORG, "messaging", "twilio", "AUTH_SECRET", {
+      accountSid: ACCOUNT_SID, webhookToken: WEBHOOK_TOKEN, baseUrl: ATTACKER,
+    });
+
+    await voice.searchNumbers(ctx(), { areaCode: "512" }).catch(() => null);
+    const resolved = await voice.resolveWebhook(db(), WEBHOOK_TOKEN);
+    await resolved!.provider.releaseNumber("PN0000").catch(() => null);
+
+    expect(sent.length).toBeGreaterThanOrEqual(2);
+    for (const request of sent) expect(new URL(request.url).host).toBe("api.twilio.com");
+    expect(sent[0]!.headers).toContain(Buffer.from(`${ACCOUNT_SID}:${own}`).toString("base64"));
+    expect(leaked(platform)).toEqual([]);
+    expect(leaked(Buffer.from(`${ACCOUNT_SID}:${platform}`).toString("base64"))).toEqual([]);
+  });
+
+  it("ignores a stored baseUrl when the voice adapter is built, recordings included", async () => {
+    const key = fakeValue("company-key");
+    const carrier = createVoiceProvider("twilio", { accountSid: ACCOUNT_SID, baseUrl: ATTACKER }, key);
+    await carrier.searchNumbers({ areaCode: "512", limit: 5 });
+    // A recording "on the carrier's API" by the attacker's own reckoning is not on Twilio's.
+    const recording = await carrier.fetchRecording(`${ATTACKER}/2010-04-01/Accounts/${ACCOUNT_SID}/Recordings/RE1`);
+    expect(recording.ok).toBe(false);
+
+    expect(sent).toHaveLength(1);
+    expect(new URL(sent[0]!.url).host).toBe("api.twilio.com");
+  });
+});
+
+run("the whole attack, through the Mapbox geocoder", () => {
+  it("refuses a baseUrl on connect", async () => {
+    await expect(leadIntake.connect(ctx(), {
+      provider: "mapbox", credentialRef: "MAPBOX_TOKEN", settings: { baseUrl: ATTACKER },
+    })).rejects.toThrow(/where this server sends/);
+  });
+
+  it("never sends the deployment's session key to look an address up, and never reaches the attacker", async () => {
+    const platform = fakeValue("platform-session-key");
+    setEnv("AUTH_SECRET", platform);
+    await onlyGeocoder("mapbox", "AUTH_SECRET", { baseUrl: ATTACKER });
+    await freshAddress();
+
+    const pass = await geocodeOnce();
+
+    const mine = pass.unusable.filter((u) => u.organizationId === ORG);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.reason).toContain(connectors.environmentVariableFor(ORG, "AUTH_SECRET"));
+    expect(sent.filter((r) => r.url.includes("attacker"))).toEqual([]);
+    expect(leaked(platform)).toEqual([]);
+  });
+
+  it("sends the company's own token to api.mapbox.com when that is what is set", async () => {
+    const own = fakeValue("company-mapbox-token");
+    const platform = fakeValue("platform-session-key");
+    setEnv(connectors.environmentVariableFor(ORG, "AUTH_SECRET"), own);
+    setEnv("AUTH_SECRET", platform);
+    await onlyGeocoder("mapbox", "AUTH_SECRET", { baseUrl: ATTACKER });
+    await freshAddress();
+
+    await geocodeOnce();
+
+    expect(sent.length).toBeGreaterThan(0);
+    for (const request of sent) expect(new URL(request.url).host).toBe("api.mapbox.com");
+    expect(sent[0]!.url).toContain(own);
+    expect(leaked(platform)).toEqual([]);
+  });
+
+  it("ignores a stored baseUrl when the geocoder is built", async () => {
+    const key = fakeValue("company-key");
+    const mapbox = createGeocoder("mapbox", { settings: { baseUrl: ATTACKER }, secret: key, clock: quickClock });
+    resetPace();
+    await mapbox.geocode({ query: "1 Main St, Austin, TX", address: { addressLine1: "1 Main St", city: "Austin", state: "TX", postalCode: "78701", country: "US" } });
+    expect(sent).toHaveLength(1);
+    expect(new URL(sent[0]!.url).host).toBe("api.mapbox.com");
+  });
+});
+
+run("the whole attack, through the OpenStreetMap geocoder", () => {
+  it("refuses an endpoint on connect", async () => {
+    await expect(leadIntake.connect(ctx(), {
+      provider: "nominatim", settings: { endpoint: ATTACKER, contactEmail: "office@example.com" },
+    })).rejects.toThrow(/where this server sends/);
+  });
+
+  it("sends a company's addresses only to the public server or the deployment's own, never where a connection says", async () => {
+    setEnv("NOMINATIM_URL", undefined);
+    await onlyGeocoder("nominatim", null, { endpoint: ATTACKER });
+    await freshAddress();
+    await geocodeOnce();
+    expect(sent.length).toBeGreaterThan(0);
+    for (const request of sent) expect(new URL(request.url).host).toBe("nominatim.openstreetmap.org");
+
+    // The deployment's operator, not the company, chooses a self hosted server.
+    sent.length = 0;
+    setEnv("NOMINATIM_URL", "https://nominatim.deployment.example");
+    await freshAddress();
+    await geocodeOnce();
+    expect(sent.length).toBeGreaterThan(0);
+    for (const request of sent) expect(new URL(request.url).host).toBe("nominatim.deployment.example");
   });
 });

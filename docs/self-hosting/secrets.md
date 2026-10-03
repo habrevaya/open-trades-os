@@ -125,9 +125,9 @@ stores it under `<PROVIDER>_CREDENTIAL` and points the connection there.
 ## Provider addresses are fixed
 
 Every adapter talks to its provider's own address. The `baseUrl` and
-`tokenUrl` settings exist so the test suites can point an adapter at a local
-fake, and they are refused on connect and ignored if found in a stored
-connection, unless the server is started with
+`tokenUrl` settings (and Nominatim's `endpoint`) exist so the test suites can
+point an adapter at a local fake, and they are refused on connect and ignored
+if found in a stored connection, unless the server is started with
 
 ```
 ALLOW_PROVIDER_BASE_URL=1
@@ -136,3 +136,8 @@ ALLOW_PROVIDER_BASE_URL=1
 Never set this outside a test environment. With it set, anybody who can
 connect an integration can send the provider credential the server holds to a
 host of their choosing.
+
+That covers every provider: payments, accounting, texts, calls on Twilio
+(numbers, recordings), email, AI models, call tracking and the geocoders. A
+self hosted Nominatim server is set for the whole deployment with
+`NOMINATIM_URL`, by whoever runs it, rather than on a company's connection.

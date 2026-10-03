@@ -9,6 +9,7 @@ import * as callTracking from "./call-tracking";
 import * as telephony from "./telephony";
 import * as files from "./files";
 import { leaseForCall } from "./website-tracking";
+import { readerFor } from "../secrets/store";
 /**
  * The barrel rather than the seam, so the Twilio adapter is registered by
  * whatever reaches this service: the settings screen buying a number has no
@@ -60,24 +61,21 @@ import {
 export type ReadSecret = (ref: string) => Promise<string>;
 
 export interface VoiceDeps {
-  readSecret: ReadSecret;
+  /**
+   * For a test. Left out, the carrier's auth token is read from the secrets
+   * of the company the connection belongs to (`readerFor`), never from a
+   * variable named by the connection: a bare name would let anybody holding
+   * `integration:write` name AUTH_SECRET and have it sent to Twilio, or to
+   * wherever a `baseUrl` pointed.
+   */
+  readSecret?: ReadSecret | undefined;
   /** Injected so no test reaches Twilio and no deployment fakes one. */
   provider?: VoiceProvider | undefined;
   /** The deployment's public address, which every webhook URL is built from. */
   publicBase?: string | undefined;
 }
 
-const secretFromEnvironment: ReadSecret = async (ref) => {
-  const value = process.env[ref];
-  if (!value) {
-    throw new ConflictError(
-      `No carrier credential in the environment under "${ref}". The Twilio connection names that secret and nothing is set there.`,
-    );
-  }
-  return value;
-};
-
-export const DEFAULT_DEPS: VoiceDeps = { readSecret: secretFromEnvironment };
+export const DEFAULT_DEPS: VoiceDeps = {};
 
 function baseOf(deps: VoiceDeps): string {
   const base = deps.publicBase ?? process.env["PUBLIC_URL"];
@@ -132,7 +130,10 @@ async function carrierFor(tx: Database, organizationId: string, deps: VoiceDeps)
   const token = typeof settings["webhookToken"] === "string" ? settings["webhookToken"] : "";
   if (token.length < 32) throw new ConflictError("The Twilio connection has no webhook address yet. Reconnect it.");
   const provider = deps.provider
-    ?? createVoiceProvider(row.provider, settings, row.credentialRef ? await deps.readSecret(row.credentialRef) : "");
+    ?? createVoiceProvider(
+      row.provider, settings,
+      row.credentialRef ? await (deps.readSecret ?? readerFor(tx, organizationId))(row.credentialRef) : "",
+    );
   return { connectionId: row.id, token, provider };
 }
 
@@ -270,7 +271,9 @@ export async function resolveWebhook(db: Database, token: string, deps: VoiceDep
   }>(sql`select * from app.messaging_webhook_connection(${token})`);
   const row = rows[0];
   if (!row || !voiceCapableProviders().includes(row.provider)) return null;
-  const secret = row.credential_ref ? await deps.readSecret(row.credential_ref) : "";
+  const secret = row.credential_ref
+    ? await (deps.readSecret ?? readerFor(db, row.organization_id))(row.credential_ref)
+    : "";
   return {
     connectionId: row.connection_id,
     organizationId: row.organization_id,

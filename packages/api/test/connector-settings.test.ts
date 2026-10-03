@@ -20,7 +20,7 @@ const ADAPTERS: Record<string, string[]> = {
   stripe: ["payments/stripe.ts"],
   quickbooks: ["accounting/quickbooks.ts"],
   xero: ["accounting/xero.ts"],
-  twilio: ["comms/twilio.ts"],
+  twilio: ["comms/twilio.ts", "voice/twilio.ts"],
   justcall: ["comms/justcall.ts"],
   resend: ["email/resend.ts"],
   smtp: ["email/smtp.ts"],

@@ -63,7 +63,15 @@ export function precisionOf(place: Place): Exclude<geo.GeocodePrecision, "placed
 
 export function nominatimGeocoder(options: GeocoderOptions): GeocodingProvider {
   const settings = options.settings;
-  const endpoint = String(settings["endpoint"] ?? PUBLIC_ENDPOINT).replace(/\/+$/, "");
+  /**
+   * The deployment's own server when its operator set one. A connection's
+   * `endpoint` reaches here only where endpoint overrides are allowed, which
+   * is the test suites: a company cannot point the server's requests, and its
+   * customers' addresses, at a host of its choosing.
+   */
+  const endpoint = String(
+    settings["endpoint"] ?? (process.env["NOMINATIM_URL"]?.trim() || PUBLIC_ENDPOINT),
+  ).replace(/\/+$/, "");
   const isPublic = new URL(endpoint).hostname === new URL(PUBLIC_ENDPOINT).hostname;
   const configured = typeof settings["minIntervalMs"] === "number" ? settings["minIntervalMs"] : 0;
   const minInterval = isPublic ? Math.max(PUBLIC_MIN_INTERVAL_MS, configured) : Math.max(0, configured);

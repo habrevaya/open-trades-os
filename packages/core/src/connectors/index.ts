@@ -545,7 +545,7 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     purpose:
       "Put every customer's address on the dispatch map, and give the route optimiser something to measure, with no account and no key. Addresses are looked up by the background worker, never while somebody is saving a customer.",
     setup:
-      "Nothing to sign up for. Give a contact email so the OpenStreetMap volunteers who run the public server can reach you, as their usage policy asks. With more than a few thousand addresses, run your own Nominatim server and enter its address instead: the public one asks not to be used for bulk work, and this product will only ask it one address a second.",
+      "Nothing to sign up for. Give a contact email so the OpenStreetMap volunteers who run the public server can reach you, as their usage policy asks. With more than a few thousand addresses, run your own Nominatim server and have whoever runs this installation set NOMINATIM_URL to it: the public one asks not to be used for bulk work, and this product will only ask it one address a second. The address is the deployment's to set, not a company's, because the server sends every customer's address to it.",
     limitation:
       "The public server answers one request a second at most, so a backfill of a large customer list takes hours, and its coverage of house numbers is patchy outside cities: many answers land on the street rather than the house, and the map says so. Your customers' addresses are sent to whichever server you point it at. A pin placed by hand on the property page always wins over it.",
   },

@@ -1,4 +1,5 @@
 import type { geo } from "@opentradesos/core";
+import { adapterSettings } from "../secrets/endpoints";
 
 /**
  * THE GEOCODING SEAM
@@ -65,7 +66,9 @@ export function registerGeocoder(name: string, factory: (options: GeocoderOption
 export function createGeocoder(name: string, options: GeocoderOptions): GeocodingProvider {
   const factory = registry.get(name);
   if (!factory) throw new GeocoderNotConfiguredError(name);
-  return factory(options);
+  // Never a stored endpoint override: see `adapterSettings`. Mapbox's token
+  // travels in the query string, so a `baseUrl` would receive it.
+  return factory({ ...options, settings: adapterSettings(name, options.settings) });
 }
 
 export const registeredGeocoders = (): string[] => [...registry.keys()];
