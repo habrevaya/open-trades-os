@@ -81,6 +81,7 @@ export function definitionFrom(params: Params): reporting.ReportDefinition | nul
   const from = one(params.from);
   const to = one(params.to);
   const orderBy = one(params.orderBy);
+  const branchId = one(params.branch);
   const filters = filtersFrom(params);
 
   return {
@@ -91,6 +92,7 @@ export function definitionFrom(params: Params): reporting.ReportDefinition | nul
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
     ...(orderBy ? { orderBy } : {}),
+    ...(branchId ? { branchId } : {}),
   };
 }
 
@@ -107,6 +109,7 @@ export function queryFor(definition: reporting.ReportDefinition): string {
   if (definition.from) query.set("from", definition.from);
   if (definition.to) query.set("to", definition.to);
   if (definition.orderBy) query.set("orderBy", definition.orderBy);
+  if (definition.branchId) query.set("branch", definition.branchId);
   return query.toString();
 }
 
@@ -126,15 +129,19 @@ export function definitionFromForm(form: FormData): reporting.ReportDefinition |
 }
 
 /**
- * Just the date range, as `?from=...&to=...`, or nothing.
+ * Just the date range and the branch, as `?from=...&to=...&branch=...`, or
+ * nothing.
  *
  * For a link back to a built-in or saved report, whose definition is stored
- * and whose dates are the only thing the URL carries.
+ * and whose dates and branch are the only things the URL carries. The branch
+ * rides along because a report somebody narrowed to Houston and then drilled
+ * into has to come back to Houston, not to the whole company.
  */
-export function rangeQuery(definition: Pick<reporting.ReportDefinition, "from" | "to">): string {
+export function rangeQuery(definition: Pick<reporting.ReportDefinition, "from" | "to" | "branchId">): string {
   const query = new URLSearchParams();
   if (definition.from) query.set("from", definition.from);
   if (definition.to) query.set("to", definition.to);
+  if (definition.branchId) query.set("branch", definition.branchId);
   const text = query.toString();
   return text ? `?${text}` : "";
 }

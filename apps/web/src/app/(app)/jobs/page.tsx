@@ -1,17 +1,31 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { jobs } from "@opentradesos/api/services";
+import { jobs, branches } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
 import { can } from "@opentradesos/core";
 import { JOB_STATUS, JOB_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
+import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 
 export const dynamic = "force-dynamic";
 
-export default async function JobsPage() {
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ branch?: string }>;
+}) {
   const user = await requireSetupUser();
+  const ctx = { actor: user.actor, db: getDb() };
+  const options = await branches.options(ctx);
+  /**
+   * `none` is offered here and only here: the job list is where the work
+   * nobody has put in a branch is found and sorted (Settings, Branches moves
+   * it in bulk).
+   */
+  const branch = chosenBranch(options, (await searchParams).branch, true);
+  const named = options.branches.find((b) => b.id === branch)?.name;
 
-  const page = await jobs.list({ actor: user.actor, db: getDb() }, { limit: 100 });
+  const page = await jobs.list(ctx, { limit: 100, ...(branch ? { businessUnitId: branch } : {}) });
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -24,12 +38,19 @@ export default async function JobsPage() {
           </a>
         ) : undefined}
       />
+      <BranchFilter options={options} action="/jobs" current={branch} none />
 
       {page.data.length === 0 ? (
-        <Empty title="No jobs yet">
-          Book one from a customer, or let a customer book themselves from the
-          online booking page.
-        </Empty>
+        branch ? (
+          <Empty title={branch === "none" ? "Every job is in a branch" : `No jobs in ${named ?? "that branch"}`}>
+            Choose every branch to see the whole company&apos;s work.
+          </Empty>
+        ) : (
+          <Empty title="No jobs yet">
+            Book one from a customer, or let a customer book themselves from the
+            online booking page.
+          </Empty>
+        )
       ) : (
         <Table head={<><Th className="w-20">Number</Th><Th>Summary</Th><Th>Customer</Th><Th>Address</Th><Th>Status</Th></>}>
           {page.data.map((job) => (

@@ -100,9 +100,13 @@ describe("the setup wizard", () => {
     }
   });
 
-  it("sends the service area step to the screen that was built for it", () => {
+  it("gives every step a page of its own, and says where the setting lives afterwards", () => {
+    for (const step of SETUP_STEPS) {
+      expect(step.href, step.key).toBe(`/setup/${step.key}`);
+      expect(step.later.href, step.key).toMatch(/^\//);
+    }
     const step = SETUP_STEPS.find((s) => s.key === "service-area");
-    expect(step?.href).toBe("/settings/service-area");
+    expect(step?.later.href).toBe("/settings/service-area");
   });
 
   it("no longer promises tax jurisdictions", () => {

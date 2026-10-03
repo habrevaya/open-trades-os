@@ -39,11 +39,16 @@ function Check({
   );
 }
 
+/** The datasets whose records belong to a branch, and so can be narrowed to one. */
+const BY_BRANCH = new Set(["jobs", "invoices", "estimates", "visits", "profitability"]);
+
 export function Builder({
-  datasets, definition,
+  datasets, definition, branches = [],
 }: {
   datasets: DatasetOption[];
   definition: reporting.ReportDefinition | null;
+  /** Branches to narrow to, empty for somebody already narrowed to one or a company with none. */
+  branches?: { id: string; name: string }[];
 }) {
   const dataset = datasets.find((d) => d.key === definition?.dataset);
   const chosenDimensions = new Set(definition?.dimensions ?? []);
@@ -166,6 +171,19 @@ export function Builder({
                 name="fv" aria-label="Value" placeholder="paid, or paid,void"
                 className="h-9 w-48 rounded border border-steel-300 px-2 text-sm"
               />
+              {branches.length > 0 && BY_BRANCH.has(dataset.key) ? (
+                /*
+                  Offered only on the datasets whose records belong to a
+                  branch. The service refuses a branch on the others rather
+                  than ignoring it, and a choice that can only be refused is
+                  not one to offer.
+                */
+                <select name="branch" defaultValue={definition?.branchId ?? ""} aria-label="Branch"
+                        className="h-9 rounded border border-steel-300 px-2 text-sm">
+                  <option value="">Every branch</option>
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              ) : null}
             </div>
 
             {filters.length > 0 ? (

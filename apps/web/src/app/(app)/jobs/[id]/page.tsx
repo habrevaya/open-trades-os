@@ -4,12 +4,13 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing,
+  NotFoundError, acquisition, marketing, branches,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Authorize, Coverage } from "./Commercial";
 import { Priority } from "./Priority";
+import { Branch } from "./Branch";
 import { Parties } from "./Parties";
 import { Costing } from "./Costing";
 import { Chip } from "@opentradesos/ui";
@@ -52,12 +53,13 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     ? await profitability.statement(ctx, { jobId: id })
     : null;
 
-  const [parties, authorization, entitlement, customer, sources] = await Promise.all([
+  const [parties, authorization, entitlement, customer, sources, branchOptions] = await Promise.all([
     commercial.parties(ctx, { jobId: id }),
     commercial.authorizationFor(ctx, { jobId: id }),
     entitlements.forJob(ctx, { jobId: id }),
     customers.get(ctx, { id: job.customerId }),
     acquisition.channelOptions(ctx),
+    branches.options(ctx),
   ]);
   /** The evidence behind the source, for whoever reads the marketing figures. */
   const attribution = can(user.actor, "adspend:read")
@@ -139,6 +141,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       </Facts>
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
+      <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />
 
       <Origin jobId={id} job={job} sources={sources} attribution={attribution} writes={writes}
               timezone={user.organizationTimezone} />

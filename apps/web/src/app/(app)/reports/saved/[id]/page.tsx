@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { reports } from "@opentradesos/api/services";
+import { reports, branches } from "@opentradesos/api/services";
 import { can, type reporting } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
 import { queryFor, rangeQuery } from "@/lib/report-params";
-import { RunView } from "../../RunView";
+import { RunView, PrintLink, printHref } from "../../RunView";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ export default async function SavedReportPage({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; branch?: string; chart?: string; measure?: string }>;
 }) {
   const user = await requireSetupUser();
   const { id } = await params;
@@ -44,7 +44,10 @@ export default async function SavedReportPage({
     ...stored,
     ...(range.from ? { from: range.from } : {}),
     ...(range.to ? { to: range.to } : {}),
+    ...(range.branch ? { branchId: range.branch } : {}),
   };
+  const view = { chart: range.chart, measure: range.measure };
+  const branchOptions = await branches.options(ctx);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -52,8 +55,10 @@ export default async function SavedReportPage({
       <div className="mt-2">
         <PageHeader
           title={saved.name}
-          action={can(user.actor, "report:build") ? (
+          action={
             <div className="flex flex-wrap gap-2">
+              <PrintLink href={printHref(queryFor(definition), saved.name, view, `/reports/saved/${id}${rangeQuery(definition)}`)} />
+              {can(user.actor, "report:build") ? (<>
               {/*
                 Beside the report it sends, because "send me this every
                 Monday" is a thought somebody has while looking at it.
@@ -70,8 +75,9 @@ export default async function SavedReportPage({
               >
                 Edit a copy
               </a>
+              </>) : null}
             </div>
-          ) : null}
+          }
         />
       </div>
       {saved.description ? <p className="mt-1 text-sm text-ink-700">{saved.description}</p> : null}
@@ -83,6 +89,8 @@ export default async function SavedReportPage({
         timezone={user.organizationTimezone}
         title={saved.name}
         back={`/reports/saved/${id}${rangeQuery(definition)}`}
+        view={view}
+        branchOptions={branchOptions}
       />
     </div>
   );

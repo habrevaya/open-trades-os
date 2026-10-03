@@ -2,14 +2,20 @@
 
 import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
-import { requireSetupUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { ai, callTracking, leadIntake } from "@opentradesos/api/services";
 import { FORMS, settingsFrom } from "./fields";
 
 export type ActionState = NonNullable<FormState>;
 
-const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
+/**
+ * `requireUser`, not the setup gate: the setup wizard draws these same forms
+ * before setup is finished, and the gate is about which page a person lands
+ * on, not about what they may change. What they may change is the service's
+ * question, asked the same way either side of setup.
+ */
+const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
 
 /**
  * The service's own words, or nothing. Every refusal on this path is written
@@ -73,6 +79,7 @@ export async function connect(_previous: ActionState, data: FormData): Promise<A
     return refused(data, message(error));
   }
   revalidatePath("/settings/integrations");
+  revalidatePath("/setup", "layout");
   return { done: true };
 }
 
@@ -86,5 +93,6 @@ export async function disconnect(_previous: ActionState, data: FormData): Promis
     return refused(data, message(error));
   }
   revalidatePath("/settings/integrations");
+  revalidatePath("/setup", "layout");
   return { done: true };
 }

@@ -52,3 +52,22 @@ export async function deleteSchedule(_previous: unknown, form: FormData) {
   revalidatePath("/reports/schedules");
   return result;
 }
+
+/**
+ * Send one now, as the person pressing it. The page then shows the delivery
+ * under "Last", with who it went to and why anybody was left out, and the
+ * sentence here says when the email itself leaves.
+ */
+export async function sendNow(_previous: unknown, form: FormData) {
+  const result = await attempt(form, async () => {
+    const sent = await deliverySchedules.sendReportScheduleNow(await ctx(), { id: String(form.get("id") ?? "") });
+    const going = sent.recipients.filter((r) => !r.refused).length;
+    return {
+      message: going === 0
+        ? "Run, and sent to nobody. The list below says why."
+        : `Queued for ${going} ${going === 1 ? "person" : "people"}. It leaves with the next email the worker sends.`,
+    };
+  });
+  revalidatePath("/reports/schedules");
+  return result;
+}
