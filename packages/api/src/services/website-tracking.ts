@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, marketing as mk, tracking, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, OrganizationSuspendedError,
+  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, OrganizationSuspendedError, DemoReadOnlyError,
   TooManyRequestsError, type RequestMeta, type ServiceContext,
 } from "./context";
 import * as marketingService from "./marketing";
@@ -111,9 +111,12 @@ export const LIMITS = {
 export async function companyFor(db: Database, companyKey: string): Promise<{ id: string; slug: string }> {
   const [org] = await db.select({
     id: schema.organization.id, slug: schema.organization.slug, suspendedAt: schema.organization.suspendedAt,
+    demoUserId: schema.organization.demoUserId,
   }).from(schema.organization).where(eq(schema.organization.slug, companyKey.trim().toLowerCase())).limit(1);
   if (!org) throw new NotFoundError("Company");
   if (org.suspendedAt) throw new OrganizationSuspendedError();
+  // The public demo keeps nothing a stranger sends it, a visit included.
+  if (org.demoUserId) throw new DemoReadOnlyError();
   return { id: org.id, slug: org.slug };
 }
 
