@@ -692,7 +692,7 @@ export async function escalateFor(
         }
 
         await tx.update(schema.task)
-          .set({ escalatedAt: sql`coalesce(${schema.task.escalatedAt}, ${now})`, updatedAt: new Date() })
+          .set({ escalatedAt: sql`coalesce(${schema.task.escalatedAt}, ${now.toISOString()}::timestamptz)`, updatedAt: new Date() })
           .where(eq(schema.task.id, task.id));
         await tx.update(schema.taskEscalation).set({
           notified: userIds,
