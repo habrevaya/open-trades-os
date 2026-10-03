@@ -86063,6 +86063,29 @@
             ],
             "format": "uuid"
           },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "itemId",
+                "code",
+                "reason"
+              ]
+            }
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -86104,6 +86127,7 @@
           "appliedAt",
           "reversesId",
           "reversedById",
+          "skipped",
           "lines"
         ]
       },
