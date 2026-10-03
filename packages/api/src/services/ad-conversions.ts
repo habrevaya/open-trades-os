@@ -299,7 +299,10 @@ export async function sendConversions(db: Database, row: Connection, deps: AdsDe
           and(eq(schema.adConversionSend.state, "sending"), lt(schema.adConversionSend.updatedAt, new Date(now.getTime() - STUCK_MS))),
         ),
       )).limit(BATCH);
+      const claimedNow = new Set(out.map((c) => c.id));
       for (const send of due) {
+        /** A row claimed a moment ago in this same pass is not a dead worker's. */
+        if (claimedNow.has(send.id)) continue;
         considered += 1;
         const prepared = await prepare(tx, row, send.kind, send.jobId, now).catch(() => null);
         if (!prepared || !prepared.send) {

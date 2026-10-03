@@ -53,25 +53,34 @@ export async function adsPass(db: Database, options: {
   const results = [];
   for (const { organization_id: organizationId } of found) {
     if (options.shouldStop?.()) break;
-    const outcomes: PullOutcome[] = [];
-    try {
-      for (const row of await connectedRows(db, organizationId)) {
-        if (options.shouldStop?.()) break;
-        try {
-          outcomes.push(...await workOn(db, row, deps, now, false));
-        } catch (error) {
-          console.error(`[ads] ${row.provider} for ${organizationId}:`, (error as Error).message);
-        }
-      }
-    } catch (error) {
-      console.error(`[ads] ${organizationId}:`, (error as Error).message);
-    }
-    for (const outcome of outcomes.filter((o) => o.error)) {
-      console.warn(`[ads] ${outcome.provider} ${outcome.entity} for ${organizationId}: ${outcome.error}`);
-    }
-    results.push({ organizationId, outcomes });
+    results.push({ organizationId, outcomes: await adsForOrganization(db, organizationId, { ...options, deps, now }) });
   }
   return results;
+}
+
+/** One company's turn in the pass: each connected platform, whatever is due on it. */
+export async function adsForOrganization(db: Database, organizationId: string, options: {
+  deps?: AdsDeps | undefined; shouldStop?: (() => boolean) | undefined; now?: Date | undefined;
+} = {}): Promise<PullOutcome[]> {
+  const deps = options.deps ?? {};
+  const now = options.now ?? (deps.now ?? (() => new Date()))();
+  const outcomes: PullOutcome[] = [];
+  try {
+    for (const row of await connectedRows(db, organizationId)) {
+      if (options.shouldStop?.()) break;
+      try {
+        outcomes.push(...await workOn(db, row, deps, now, false));
+      } catch (error) {
+        console.error(`[ads] ${row.provider} for ${organizationId}:`, (error as Error).message);
+      }
+    }
+  } catch (error) {
+    console.error(`[ads] ${organizationId}:`, (error as Error).message);
+  }
+  for (const outcome of outcomes.filter((o) => o.error)) {
+    console.warn(`[ads] ${outcome.provider} ${outcome.entity} for ${organizationId}: ${outcome.error}`);
+  }
+  return outcomes;
 }
 
 /**

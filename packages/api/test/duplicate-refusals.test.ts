@@ -162,6 +162,13 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   referral_reward_referred_idx:
     "One reward per referred customer. The worker claims it with on conflict do nothing, which is "
     + "what makes granting a reward idempotent however many passes look.",
+  ad_conversion_send_idx:
+    "One send per job, platform and kind. The conversion pass claims it with on conflict do nothing, so a collision is a second worker and is skipped.",
+  ad_platform_campaign_idx: "The platform's own campaign id per connection, looked up by the spend pull before it inserts.",
+  advertising_consent_live_idx:
+    "One live answer per customer. The service locks and supersedes the live row in the same write before it inserts.",
+  oauth_authorization_state_idx: "The hash of thirty two random bytes the sign in mints.",
+  sealed_credential_connection_idx: "One grant per connection, upserted by the sign in.",
   review_external_idx: "The platform's own review id, so a re-poll is not a second review.",
   lead_offer_external_idx: "The marketplace's own offer id.",
   external_work_order_uniq_idx:

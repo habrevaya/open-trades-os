@@ -59,7 +59,7 @@ export async function pullReviews(db: Database, row: Connection, deps: AdsDeps =
       await inTenant(ctx, async (tx) => {
         const [current] = await tx.select().from(schema.review).where(eq(schema.review.id, recorded.id)).limit(1);
         if (!current) return;
-        const patch: Partial<typeof schema.review.$inferInsert> = { connectionId: row.id };
+        const patch: Partial<typeof schema.review.$inferInsert> = {};
         if (review.reply) {
           if (!current.respondedAt) {
             /** Answered on Google already. The office's work list should not ask for it again. */
@@ -81,7 +81,8 @@ export async function pullReviews(db: Database, row: Connection, deps: AdsDeps =
             patch.suggestionReason = suggestion.because;
           }
         }
-        await tx.update(schema.review).set({ ...patch, updatedAt: new Date() }).where(eq(schema.review.id, recorded.id));
+        await tx.update(schema.review).set({ connectionId: row.id, ...patch, updatedAt: new Date() })
+          .where(eq(schema.review.id, recorded.id));
       });
     }
     const posted = await postPendingReplies(db, row, deps, adapter);
