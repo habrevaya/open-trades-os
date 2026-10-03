@@ -110,6 +110,32 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
           ))}
         </ol>
       )}
+
+      {job.photos.length > 0 && (
+        <section aria-label="Photos" className="rounded-md border border-steel-200 bg-canvas p-5">
+          <h2 className="text-xs uppercase tracking-[0.08em] text-ink-500">Photos</h2>
+          <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {job.photos.map((photo) => (
+              <li key={photo.id}>
+                {/*
+                  Through this link, by id. The token is already in this
+                  page's address, and the route checks the photograph is on
+                  this job and shown to the customer before it sends a byte.
+                */}
+                <a href={`/j/${token}/photos/${photo.id}`} className="block">
+                  <img
+                    src={`/j/${token}/photos/${photo.id}`}
+                    alt={photo.phase ? `${photo.phase[0]!.toUpperCase()}${photo.phase.slice(1)} photo` : "Job photo"}
+                    loading="lazy"
+                    className="aspect-square w-full rounded object-cover"
+                  />
+                </a>
+                {photo.phase && <span className="mt-1 block text-xs capitalize text-ink-500">{photo.phase}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </PortalBrand>
   );
 }

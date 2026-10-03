@@ -108,16 +108,27 @@ export const LIMITS = {
  * identifies, it does not authorise, and nothing here acts on it beyond
  * writing a touch or a lease that the company's own reports then read.
  */
-export async function companyFor(db: Database, companyKey: string): Promise<{ id: string; slug: string }> {
+export async function companyFor(
+  db: Database, companyKey: string,
+): Promise<{ id: string; slug: string; demo: boolean }> {
   const [org] = await db.select({
     id: schema.organization.id, slug: schema.organization.slug, suspendedAt: schema.organization.suspendedAt,
     demoUserId: schema.organization.demoUserId,
   }).from(schema.organization).where(eq(schema.organization.slug, companyKey.trim().toLowerCase())).limit(1);
   if (!org) throw new NotFoundError("Company");
   if (org.suspendedAt) throw new OrganizationSuspendedError();
-  // The public demo keeps nothing a stranger sends it, a visit included.
-  if (org.demoUserId) throw new DemoReadOnlyError();
-  return { id: org.id, slug: org.slug };
+  return { id: org.id, slug: org.slug, demo: org.demoUserId !== null };
+}
+
+/**
+ * The company a public key names, for a request that writes there. The
+ * public demo keeps nothing a stranger sends it: not a visit, not a number
+ * lease, not a sign in code.
+ */
+export async function writableCompanyFor(db: Database, companyKey: string): Promise<{ id: string; slug: string }> {
+  const company = await companyFor(db, companyKey);
+  if (company.demo) throw new DemoReadOnlyError();
+  return company;
 }
 
 function siteActor(organizationId: string): Actor {
@@ -141,7 +152,7 @@ export async function recordVisit(
 ): Promise<{ recorded: boolean; touchId: string | null }> {
   const checked = tracking.checkPublicTouch(input);
   if (!checked.ok) throw new ConflictError(checked.reason);
-  const company = await companyFor(db, input.companyKey);
+  const company = await writableCompanyFor(db, input.companyKey);
   await throttle(db, `touch:co:${company.id}`, LIMITS.touchPerCompany);
   await throttle(db, `touch:ip:${company.id}:${addressOf(meta)}`, LIMITS.touchPerAddress);
   await throttle(db, `touch:v:${company.id}:${checked.visitorId}`, LIMITS.touchPerVisitor);
@@ -197,7 +208,7 @@ export async function numberFor(
 ): Promise<{ number: string | null; pooled: boolean; targets: string[]; idleSeconds: number }> {
   const checked = tracking.checkPublicTouch(input);
   if (!checked.ok) throw new ConflictError(checked.reason);
-  const company = await companyFor(db, input.companyKey);
+  const company = await writableCompanyFor(db, input.companyKey);
   await throttle(db, `dni:co:${company.id}`, LIMITS.dniPerCompany);
   await throttle(db, `dni:ip:${company.id}:${addressOf(meta)}`, LIMITS.dniPerAddress);
 

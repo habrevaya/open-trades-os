@@ -183,6 +183,16 @@ export const viewPortalJob = defineRoute({
     /** Set only once the technician is actually en route. */
     etaMinutes: z.number().int().nullable(),
     timeline: z.array(PortalTimelineEvent),
+    /**
+     * The job's photographs the company chose to show, or all of them when
+     * it says so. The bytes are served through this same link, by id, at
+     * `/j/{token}/photos/{id}` on the portal.
+     */
+    photos: z.array(z.object({
+      id: Uuid,
+      phase: z.string().nullable(),
+      takenAt: z.string().datetime(),
+    })),
   }),
 });
 

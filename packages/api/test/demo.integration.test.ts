@@ -14,6 +14,7 @@ import * as booking from "../src/services/booking";
 import * as referrals from "../src/services/referrals";
 import * as acquisition from "../src/services/acquisition";
 import * as websiteTracking from "../src/services/website-tracking";
+import * as portalSignIn from "../src/services/portal-sign-in";
 import { usage } from "../src/services/operator";
 import { drainAll } from "../src/services/workflow-worker";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
@@ -264,9 +265,13 @@ run("the demo company's customer side and background work", () => {
     expect((await setupDemo(db(), DEMO_ORG)).changed).toBe(false);
   });
 
-  it("its website snippet records no visit", async () => {
-    await expect(websiteTracking.companyFor(db(), "demo-co")).rejects.toBeInstanceOf(DemoReadOnlyError);
-    await expect(websiteTracking.companyFor(db(), "real-co")).resolves.toMatchObject({ slug: "real-co" });
+  it("its website snippet records no visit and its portal sends no sign in code", async () => {
+    await expect(websiteTracking.writableCompanyFor(db(), "demo-co")).rejects.toBeInstanceOf(DemoReadOnlyError);
+    await expect(websiteTracking.writableCompanyFor(db(), "real-co")).resolves.toMatchObject({ slug: "real-co" });
+    await expect(portalSignIn.requestCode(db(), { organizationSlug: "demo-co", address: "pat@example.com" }))
+      .rejects.toBeInstanceOf(DemoReadOnlyError);
+    // Reading the company, for its sign in page, is still a read.
+    await expect(websiteTracking.companyFor(db(), "demo-co")).resolves.toMatchObject({ demo: true });
   });
 
   it("its booking page books nothing", async () => {

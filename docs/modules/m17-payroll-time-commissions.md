@@ -133,6 +133,25 @@ write. `POST /v1/commissions` settles an earning,
 `POST /v1/payroll/commission-payments` records them as paid, which is a payroll
 act and takes `payroll:export`. `/payroll/commissions` is the screen.
 
+### Tips
+
+A tip a customer adds when paying an invoice from the portal (M05, M13) is
+split evenly between the technicians on the job's visits and arrives owed to
+them. Each share is its own line on that technician's register and export,
+`tip` in the pay category column, in the period the payment arrived in, and a
+technician who was tipped and not on the clock that period is still on the
+register. A commission reversal is never taken out of a tip: it is measured
+against wages, carried forward when wages cannot take it, and the tips are
+added whole afterwards, because a tip is the technician's money and an
+employer keeping part of one is what US federal law forbids. A tip arriving
+inside a period after it closed moves the period's fingerprint, so the export
+refuses until it is reopened and closed again.
+
+`POST /v1/payroll/tip-payments` records the tips as passed on, from a closed
+period, everything owed up to its end; it debits Tips payable against cash and
+marks each share with the period that paid it, so running it twice pays nothing
+twice. **Record tips as paid** on `/payroll/{id}` is the same thing.
+
 ### Declare overtime and wage scales
 
 `/payroll/pay-rules` is the screen: the overtime rule in use and the ones it
@@ -184,6 +203,7 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/commissions` | `commission:read` |
 | `POST /v1/commissions/plans` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
+| `POST /v1/payroll/tip-payments` | `payroll:export` |
 | `GET /v1/payroll/overtime-policies` | `timesheet:read` |
 | `POST /v1/payroll/overtime-policies` | `payroll:configure` |
 | `GET /v1/payroll/wage-scales` | `timesheet:read` |
@@ -213,7 +233,9 @@ could hold, which is worse than a coarse one.
 No payroll processing, by design. A wage scale's overtime multipliers, jurisdiction
 and apprentice ratio are taken by the API and not offered on the pay rules screen,
 and a scale cannot be corrected in place: a wrong one is retired and the right one
-loaded. Tips, reimbursements and
-per diem are not modelled. Certified payroll reporting is not built. Commission
+loaded. Tips given through the portal are paid through payroll; a cash tip
+handed to a technician at the door is not recorded anywhere, and a tip is
+split evenly with no way to split it otherwise. Reimbursements and per diem
+are not modelled. Certified payroll reporting is not built. Commission
 splits across several people are computed by core and settled one earning at a
 time rather than from a screen.

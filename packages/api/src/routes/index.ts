@@ -19,6 +19,7 @@ import {
   customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
   laborSettings,
   voice, websiteTracking, referrals,
+  portalSignIn, portalSettings, savedCards, tips, portalAccount,
 } from "../services/index";
 
 /**
@@ -762,6 +763,29 @@ export const handlers = {
   viewPortalReferral: referrals.handlers.viewPortalReferral,
   getForm: forms.handlers.getForm,
   getHostedForm: forms.handlers.getHostedForm,
+  // The customer signed in, saved cards, tips and job photographs (M05, M13)
+  requestPortalCode: portalSignIn.handlers.requestPortalCode,
+  verifyPortalCode: portalSignIn.handlers.verifyPortalCode,
+  signOutOfPortal: portalSignIn.handlers.signOutOfPortal,
+  openPortalRecord: portalSignIn.handlers.openPortalRecord,
+  viewPortalAccount: (db: Database, input: { token: string }) => portalAccount.viewAccount(db, input),
+  payPortalAccountInvoice: (
+    db: Database, input: { token: string; invoiceId: string; tip?: string | undefined }, meta?: RequestMeta,
+  ) => portalAccount.startInvoicePayment(db, input, meta),
+  listPortalCards: savedCards.handlers.listPortalCards,
+  startPortalCardSetup: savedCards.handlers.startPortalCardSetup,
+  confirmPortalCardSetup: savedCards.handlers.confirmPortalCardSetup,
+  removePortalCard: savedCards.handlers.removePortalCard,
+  payPortalInvoiceWithCard: (
+    db: Database,
+    input: { token: string; cardId: string; invoiceId: string; tip?: string | undefined },
+    meta?: RequestMeta,
+  ) => savedCards.pay(db, input, meta),
+  getPortalSettings: portalSettings.handlers.getPortalSettings,
+  setPortalSettings: portalSettings.handlers.setPortalSettings,
+  listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
+  shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
+  payTips: payroll.handlers.payTips,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

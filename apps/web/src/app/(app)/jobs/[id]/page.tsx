@@ -4,7 +4,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing,
+  NotFoundError, acquisition, marketing, portalSettings,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -22,7 +22,7 @@ import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { addVisit } from "../actions";
-import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus } from "./actions";
+import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus, shareJobPhoto } from "./actions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
@@ -89,6 +89,14 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     }),
     { stored: 0, pending: 0, abandoned: 0 },
   );
+  /**
+   * Whether a photograph is shown to the customer is decided one by one, by
+   * whoever may publish a service report, unless the company shows every
+   * photograph on its portal (its portal settings). Somebody who cannot read
+   * settings is shown the per photograph state and no switch.
+   */
+  const photoSharing = (await portalSettings.get(ctx).catch(() => null))?.jobPhotos ?? "chosen";
+  const sharesPhotos = can(user.actor, "servicereport:publish");
   const writes = can(user.actor, "job:write");
   const schedules = can(user.actor, "visit:write") && job.status !== "cancelled" && job.status !== "paid";
   const technicians = await technicianChoices(ctx, user.organizationTimezone);
@@ -418,6 +426,21 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   </a>
                   {photo.phase && (
                     <span className="mt-1 block text-xs text-ink-500">{photo.phase}</span>
+                  )}
+                  {photo.kind === "photo" && photo.contentType?.startsWith("image/") && (
+                    photoSharing === "all" ? (
+                      <span className="mt-1 block text-xs text-ink-500">Shown to the customer</span>
+                    ) : sharesPhotos ? (
+                      <ActionForm
+                        action={shareJobPhoto}
+                        submit={photo.sharedWithCustomerAt ? "Stop showing the customer" : "Show the customer"}
+                        hidden={{ jobId: id, attachmentId: photo.id, shared: photo.sharedWithCustomerAt ? "no" : "yes" }}
+                        tone="quiet"
+                        className="mt-1 w-32"
+                      />
+                    ) : photo.sharedWithCustomerAt ? (
+                      <span className="mt-1 block text-xs text-ink-500">Shown to the customer</span>
+                    ) : null
                   )}
                 </li>
               ))}

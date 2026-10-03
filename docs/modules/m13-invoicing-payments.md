@@ -80,6 +80,26 @@ refund Stripe reports reopens the invoices it paid and posts to the ledger exact
 as one recorded by hand does, dated when it was made, booked once per Stripe
 refund id.
 
+**A tip is the technicians' money, held, never the company's revenue.** A
+customer paying from the portal can add one when the company has turned
+tipping on. The card is charged the balance and the tip together; when the
+money arrives the payment's amount is the balance, which goes on the invoice,
+and its tip amount is credited to Tips payable (2250), a liability, by the
+same `postPayment` that has always had a tip leg. Nothing of it touches
+revenue, sales tax or commission. It is split evenly between the technicians
+on the job's visits, written as shares beside the payment, and leaves the
+books when payroll passes it on (M17), which debits Tips payable against
+cash. When less arrives than was asked for, the invoice is paid first and the
+tip takes what is left. This is what `ledger.ts` already said a tip is, and it
+is now reachable.
+
+**A saved card is a reference, not a card.** A signed in customer saves one
+through Stripe's own setup flow, and this server keeps Stripe's id for it, the
+brand, the last four digits and the expiry, which recognise it and cannot
+charge it. A charge with one is confirmed on the spot because the customer is
+on the page pressing Pay, and is settled, like every card payment, only by the
+signed webhook.
+
 **A job already marked paid stays paid when a refund arrives.** Its lifecycle does
 not go backwards, and the invoice is what now shows money owed.
 
@@ -105,7 +125,12 @@ screen says so.
 `POST /v1/payments` records one, whatever its method.
 `POST /v1/payments/intents` starts a card, which the office takes from the
 invoice screen through Stripe's Payment Element, and the customer takes from
-`/i/{token}`. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
+`/i/{token}`, the account link or their signed in account, with a tip when the
+company takes them (`POST /v1/portal/invoice/pay` and
+`POST /v1/portal/account/pay` carry it). A saved card pays through
+`POST /v1/portal/cards/{cardId}/pay`. The invoice screen lists the tips that
+came with its payments and who each is for, under **Tips**, and
+`GET /v1/invoices/{id}/tips` is the same list. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
 
 ### Give money back
 
@@ -215,6 +240,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/payments` | `payment:collect` |
 | `POST /v1/payments/{id}/apply` | `payment:collect` |
 | `POST /v1/payments/{paymentId}/refund` | `payment:refund` |
+| `GET /v1/invoices/{id}/tips` | `invoice:read` |
 | `GET /v1/deposits` | `deposit:read` |
 | `POST /v1/deposits` | `deposit:collect` |
 | `POST /v1/deposits/{id}/refund` | `deposit:refund` |
@@ -251,6 +277,11 @@ invoice, or a refund is recorded against a payment. A credit note that has been 
 cannot be voided; the invoice it settled has to be dealt with on its own.
 A statement is emailed as a link; there is no PDF of it attached, and it is not sent
 by text. The monthly run covers the calendar month before and nothing else, and it
-emails nothing until an email provider is connected. Tipping is not built. Tax rate determination is deliberately not
+emails nothing until an email provider is connected. A tip is taken only from the portal: the office's own card
+and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
+technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
+Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
+until somebody corrects it by hand. Saved cards are
+Stripe's only. Tax rate determination is deliberately not
 built: the rate is on the line it was charged on, and BUILD.md says why. Automatic
 dunning is a workflow somebody builds in M29.

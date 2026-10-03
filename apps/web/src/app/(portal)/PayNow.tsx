@@ -8,14 +8,21 @@ import type { StartPayment } from "./start-payment";
  * a dependency: Stripe requires the library to be loaded from its own domain
  * anyway, so a package would only be a loader for this one script tag.
  */
-interface StripeElement { mount(target: HTMLElement): void; destroy(): void }
-interface StripeElements { create(kind: "payment"): StripeElement }
-interface StripeClient {
+export interface StripeElement { mount(target: HTMLElement): void; destroy(): void }
+export interface StripeElements { create(kind: "payment"): StripeElement }
+export interface StripeClient {
   elements(options: { clientSecret: string }): StripeElements;
   confirmPayment(options: {
     elements: StripeElements;
     confirmParams: { return_url: string };
   }): Promise<{ error?: { message?: string } }>;
+  /** Saving a card: the same element, in setup mode, sent back to the page with the setup's id. */
+  confirmSetup(options: {
+    elements: StripeElements;
+    confirmParams: { return_url: string };
+  }): Promise<{ error?: { message?: string } }>;
+  /** A bank asking the cardholder to prove it is them, on a saved card confirmed by the server. */
+  handleNextAction(options: { clientSecret: string }): Promise<{ error?: { message?: string } }>;
 }
 declare global {
   interface Window { Stripe?: (key: string) => StripeClient }
@@ -23,7 +30,7 @@ declare global {
 
 const STRIPE_JS = "https://js.stripe.com/v3/";
 
-function loadStripe(): Promise<NonNullable<Window["Stripe"]>> {
+export function loadStripe(): Promise<NonNullable<Window["Stripe"]>> {
   if (window.Stripe) return Promise.resolve(window.Stripe);
   return new Promise((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${STRIPE_JS}"]`);

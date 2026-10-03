@@ -1,4 +1,4 @@
-import { VisitChangeForm } from "./VisitChangeForm";
+import { VisitChangeForm, type SendVisitChange } from "./VisitChangeForm";
 import type { visitChanges } from "@opentradesos/api/services";
 
 type ChangeOptions = visitChanges.ChangeOptions;
@@ -22,9 +22,12 @@ const when = (start: string, end: string | null, timezone: string) => {
  * longer be changed from here (the van is on its way), and the choice.
  */
 export function VisitChange({
-  token, options, path, visitId,
+  token, send, options, path, visitId,
 }: {
-  token: string;
+  /** The link's token, on a link page. */
+  token?: string;
+  /** On a signed in page: an action bound to the company that reads the sign in on the server. */
+  send?: SendVisitChange;
   options: ChangeOptions;
   path: string;
   visitId?: string;
@@ -65,7 +68,8 @@ export function VisitChange({
       {options.canChange ? (
         <section className="rounded-md border border-steel-200 bg-canvas p-5">
           <VisitChangeForm
-            token={token}
+            {...(token ? { token } : {})}
+            {...(send ? { send } : {})}
             {...(visitId ? { visitId } : {})}
             slots={options.slots}
             rescheduleBlockedBy={options.rescheduleBlockedBy}

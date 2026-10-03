@@ -55,6 +55,12 @@ export async function payOut(_previous: PayrollState, form: FormData): Promise<P
   return attempt(form, async () => payroll.payCommissions(await ctx(), { periodId }), `/payroll/${periodId}`);
 }
 
+/** Pass on the tips held for technicians, which clears what the company owed them. */
+export async function payOutTips(_previous: PayrollState, form: FormData): Promise<PayrollState> {
+  const periodId = String(form.get("periodId") ?? "");
+  return attempt(form, async () => payroll.payTips(await ctx(), { periodId }), `/payroll/${periodId}`);
+}
+
 export type ExportState =
   | { file: { name: string; content: string; checksum: string; previouslyExported: boolean } }
   | { error: string; values: Kept }

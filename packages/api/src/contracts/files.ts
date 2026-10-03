@@ -37,6 +37,30 @@ export const Attachment = z.object({
   /** before / after / during, for photo comparison in a proposal or a dispute. */
   phase: z.string().nullable(),
   createdAt: z.string().datetime(),
+  /** When somebody chose to show it on the customer's job link. Null is private. */
+  sharedWithCustomerAt: z.string().datetime().nullable().optional(),
+});
+
+/**
+ * SHOWING A JOB PHOTOGRAPH TO THE CUSTOMER.
+ *
+ * Every photograph is private until somebody says otherwise, because a
+ * technician photographs the alarm code taped inside a panel as readily as
+ * the finished install. This is the per photograph switch; the company wide
+ * one is the portal settings' `jobPhotos`. The customer sees it on the job
+ * link they already hold, and nowhere else.
+ */
+export const shareAttachmentWithCustomer = defineRoute({
+  method: "post",
+  path: "/v1/attachments/{id}/customer-sharing",
+  summary: "Show a job photograph on the customer's job link, or stop showing it",
+  description:
+    "Only a photograph on a job or one of its visits. The same permission as publishing a service report, because showing a customer what a technician recorded is the same decision. Setting it to what it already is changes nothing.",
+  module: "M05",
+  permissions: ["servicereport:publish"],
+  idempotent: true,
+  input: z.object({ id: Uuid, shared: z.boolean() }),
+  output: z.object({ id: Uuid, sharedWithCustomerAt: z.string().datetime().nullable() }),
 });
 
 export const listAttachments = defineRoute({
@@ -198,4 +222,5 @@ export const getUploadStatus = defineRoute({
 
 export const fileRoutes = {
   listAttachments, uploadAttachment, listPendingUploads, storeUpload, failUpload, getUploadStatus,
+  shareAttachmentWithCustomer,
 } as const;

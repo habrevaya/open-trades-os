@@ -306,6 +306,16 @@ export const attachment = pgTable("attachment", {
   /** before / after / during, for job photo comparison in proposals and disputes. */
   phase: text("phase"),
   uploadedByUserId: uuid("uploaded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * When somebody in the office chose to show this photograph to the
+   * customer, from a link that already lets them see the job. Null is
+   * private, which is the default for every photograph: a technician
+   * photographs the alarm code taped inside a panel as readily as the
+   * finished install. A company can instead show every photograph on its
+   * portal, from its portal settings, and then this is not consulted.
+   */
+  sharedWithCustomerAt: timestamp("shared_with_customer_at", { withTimezone: true }),
+  sharedByUserId: uuid("shared_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({ entityIdx: index("attachment_entity_idx").on(t.organizationId, t.entityType, t.entityId) }));
 

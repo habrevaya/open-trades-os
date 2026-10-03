@@ -262,10 +262,10 @@ ticks and parts from the phone: the operations exist and the app offers none
 of them. A camera control on `/my-day`.
 Object storage: the bytes are columns in Postgres, which is right
 for a self hoster with a few gigabytes of photographs and wrong for a company
-with a terabyte. The customer portal cannot show a job photograph, because every
-read of one is scoped by a session and a portal visitor has none; when it needs
-them it gets the treatment the logo already has, a token that already grants
-sight of the record the file is on. Adding an unauthenticated way to read one
-"for later" is how a private photograph of somebody's house becomes public. True
+with a terabyte. The customer portal shows a job's photographs only through
+the job link, the treatment the logo already has (a token that already grants
+sight of the record), and only the ones somebody chose with **Show the
+customer** or all of them when the company says so (M05). There is still no
+unauthenticated way to read one. True
 offline page loads need a service worker: a technician with no signal can record
 a day on a page already open; they cannot open the page.

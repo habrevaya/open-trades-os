@@ -62,6 +62,15 @@ export interface ChargeRequest {
   metadata?: Record<string, string> | undefined;
   /** For a receipt the processor sends on the operator's behalf. */
   receiptEmail?: string | undefined;
+  /**
+   * A card the customer saved, and the processor's record of the customer
+   * it is saved against. When both are given the charge is confirmed on the
+   * spot with that card, because the customer is on the page pressing Pay;
+   * the intent comes back succeeded, processing, or asking the browser to
+   * finish a bank's check. Nothing about it is settled until the webhook.
+   */
+  customerRef?: string | undefined;
+  paymentMethodRef?: string | undefined;
 }
 
 export interface ChargeIntent {
@@ -191,9 +200,63 @@ export interface PaymentRefund {
   status: string | null;
 }
 
+/**
+ * SAVING A CARD, as a processor does it.
+ *
+ * The card details go from the customer's browser to the processor and never
+ * through this server. What crosses this seam is references: the processor's
+ * id for the customer, for the setup the browser completes, and for the card
+ * it ends up holding. A processor that cannot hold cards simply has no vault,
+ * and the portal offers no "save a card" to its customers.
+ */
+export type VaultOutcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: string; message: string; retryable: boolean };
+
+export interface SavedCardDetails {
+  /** The processor's id for the card. The only thing a later charge needs. */
+  ref: string;
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+}
+
+export interface CardSetup {
+  setupId: string;
+  /** The processor's word for where it is. Only `succeeded` means a card is saved. */
+  status: string;
+  /** The customer the setup was made for, as the processor reports it. */
+  customerRef: string | null;
+  card: SavedCardDetails | null;
+  metadata: Record<string, string>;
+}
+
+export interface CardVault {
+  /** A record of this customer at the processor, for cards to be saved against. */
+  createCustomer(request: {
+    idempotencyKey: string;
+    email?: string | undefined;
+    name?: string | undefined;
+    metadata?: Record<string, string> | undefined;
+  }): Promise<VaultOutcome<{ customerRef: string }>>;
+  /** Start saving a card: what the browser needs to collect it. */
+  startSetup(request: {
+    customerRef: string;
+    idempotencyKey: string;
+    metadata?: Record<string, string> | undefined;
+  }): Promise<VaultOutcome<{ setupId: string; clientSecret: string }>>;
+  /** What became of a setup, read from the processor rather than believed from a browser. */
+  readSetup(setupId: string): Promise<VaultOutcome<CardSetup>>;
+  /** Tell the processor to forget a card. */
+  detach(cardRef: string, idempotencyKey: string): Promise<VaultOutcome<{ detached: true }>>;
+}
+
 export interface PaymentProvider {
   readonly name: string;
   charge(request: ChargeRequest): Promise<ChargeOutcome>;
+  /** Present when the processor can keep a card for later. */
+  readonly cards?: CardVault | undefined;
   refund(request: RefundRequest): Promise<RefundOutcome>;
   /**
    * Whether this request genuinely came from the processor.

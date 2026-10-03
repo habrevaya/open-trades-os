@@ -22,6 +22,11 @@ const ORDER = [
    * tripping on a foreign key, and the whole block is here rather than beside
    * the timeclock because it is the most child-like thing in the schema.
    */
+  /**
+   * A tip's share points at the payment it came with, the technician it is
+   * for and the pay period that paid it, so it goes before all three.
+   */
+  "tip_share",
   "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
   "commission_event", "commission_plan", "pay_period",
   /**
@@ -104,7 +109,13 @@ const ORDER = [
   /** A website visitor's lease on a pool number points at the number. */
   "dni_session",
   "phone_number", "messaging_campaign", "messaging_brand",
-  "portal_event", "portal_grant",
+  /**
+   * A saved card points at the customer's processor profile and at the sign
+   * in that saved it, and a sign in's session is a grant naming the code
+   * that opened it, so the cards go first and the codes last.
+   */
+  "saved_payment_method", "payment_profile",
+  "portal_event", "portal_grant", "portal_sign_in",
   "booking_request", "bookable_service", "arrival_window",
   "portal_block", "portal_layout", "service_report_template",
   /**

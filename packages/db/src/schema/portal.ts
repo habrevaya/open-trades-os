@@ -47,6 +47,62 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
 ]);
 
 /**
+ * A CUSTOMER ASKING TO SIGN IN, AND THE CODE THEY WERE SENT.
+ *
+ * A link is still the main way in: a homeowner approving a quote will not
+ * sign in to do it. Signing in is for the customer who comes back, to pay
+ * the next bill with a card they saved, to find last spring's invoice or to
+ * see what is booked. They type the email or mobile number the company
+ * already has for them, a six digit code goes there through the company's
+ * own email and text senders, and typing it back opens their account.
+ *
+ * No password, ever. A password for a company somebody deals with twice a
+ * year is a password they reuse or forget, and a reused one is how a
+ * stranger pays their bill with their card.
+ *
+ * ONLY THE HASH OF THE CODE IS STORED, salted with this row's id, and that
+ * is said plainly rather than oversold: six digits are a million guesses
+ * away from any hash, so the hash is what stops a code being read off this
+ * table by anybody who can see it, not what stops it being worked out. What
+ * stops a code being guessed is that it dies after ten minutes, after one
+ * use, and after five wrong tries, and that asking for codes is counted per
+ * address and per network address.
+ *
+ * Kept after use, as the record of who signed in, when and from where. The
+ * session the code opened is a `portal_grant` naming this row.
+ */
+export const portalSignInChannel = pgEnum("portal_sign_in_channel", ["email", "sms"]);
+
+export const portalSignIn = pgTable("portal_sign_in", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  channel: portalSignInChannel("channel").notNull(),
+  /** As it is compared: a lower cased email or an E.164 number. */
+  address: text("address").notNull(),
+  /** SHA-256 of this row's id and the code. Null when no code was sent, because nobody has that address. */
+  codeHash: text("code_hash"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Wrong codes typed against this one. Five and it is dead. */
+  attempts: integer("attempts").notNull().default(0),
+  /** Set when the code stops working for any reason: used, superseded, or guessed at too often. */
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  /** `signed_in`, `superseded`, `too_many_attempts`, or `no_customer` for an address nobody has. */
+  endedReason: text("ended_reason"),
+  /** Who it signed in as, once it did. */
+  customerId: uuid("customer_id").references(() => customer.id, { onDelete: "set null" }),
+  /** What became of the message: `queued`, or why it could not go. Never shown to whoever asked. */
+  delivery: text("delivery"),
+  /** The caller's own key, so a double tap on "Send me a code" sends one code. */
+  requestKey: text("request_key"),
+  requestedIp: text("requested_ip"),
+  signedInIp: text("signed_in_ip"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  addressIdx: index("portal_sign_in_address_idx").on(t.organizationId, t.address, t.createdAt),
+}));
+
+/**
  * A capability, not a session.
  *
  * Only the hash is stored. A grant leaked from a database backup is useless,
@@ -79,6 +135,14 @@ export const portalGrant = pgTable("portal_grant", {
   lastUsedIp: text("last_used_ip"),
   /** Set the moment the grant is spent, superseded or withdrawn. */
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  /**
+   * Set when this grant is a customer's own sign in rather than a link
+   * somebody sent: the code that opened it. Always a customer scope grant,
+   * held in a cookie rather than a URL, and the only kind of grant that may
+   * save a card, because a link can be forwarded and a code went to the
+   * address on the customer's own record.
+   */
+  signInId: uuid("sign_in_id").references(() => portalSignIn.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   hashIdx: uniqueIndex("portal_grant_token_idx").on(t.tokenHash),

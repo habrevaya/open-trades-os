@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { portalAccount, referrals } from "@opentradesos/api/services";
 import { PortalBrand } from "../../PortalBrand";
-import { PayNow } from "../../PayNow";
-import { AccountView, money, type AccountViewData } from "./AccountView";
+import { PayInvoice } from "../../PayInvoice";
+import { AccountView, type AccountViewData } from "./AccountView";
 import { startAccountPayment } from "./actions";
 import { ReferralBlock } from "./ReferralBlock";
 
@@ -43,9 +43,11 @@ export default async function AccountPage({
         statementHref={`/c/${token}/statement`}
         changeHref={(visitId) => `/c/${token}/change/${visitId}`}
         pay={(invoice) => (
-          <PayNow
+          <PayInvoice
             start={startAccountPayment.bind(null, token, invoice.id)}
-            balance={money(invoice.balance, invoice.currency)}
+            balance={invoice.balance}
+            currency={invoice.currency}
+            tipping={invoice.tipping}
             label={`invoice #${invoice.number}`}
           />
         )}
