@@ -522,6 +522,12 @@ export interface Touch {
   referrerHost: string | null;
   /** The click id we found, if any: gclid, msclkid, fbclid. */
   clickId: string | null;
+  /**
+   * Which parameter carried it. Google takes a gclid, a gbraid and a wbraid in
+   * three different fields and refuses one sent in the wrong field, so the
+   * value alone is not enough to send a conversion back.
+   */
+  clickParam?: string | null | undefined;
   /** The campaign, free text on purpose. A label, never a dimension. */
   campaign: string | null;
   /**
@@ -712,6 +718,7 @@ export function parseTouch(input: TouchInput): Touch {
     utm,
     referrerHost: externalHost,
     clickId,
+    clickParam: clickEntry?.param ?? null,
     campaign: utm.campaign ?? null,
   };
 

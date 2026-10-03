@@ -36,6 +36,13 @@ its own website that records how visitors arrived and swaps a pool number onto
 the page per visitor, hosted lead forms, and referral links its customers
 share, with a reward when the person they sent pays for their first job.
 
+The fifth speaks to the ad platforms themselves: Google Ads, Google Local
+Services, Meta and Google Analytics, connected with a sign in on the
+platform's own consent screen. Spend is pulled into the spend rows every six
+hours and mapped onto the tracking campaigns, Local Services leads arrive in
+the lead inbox, and every booked and paid job is told back to the account
+whose click won it, once, with only what the customer and the company allow.
+
 ## The story, end to end
 
 1. **A channel and a tracking campaign.** `Marketing > Channels` starts as the
@@ -340,7 +347,140 @@ rather than refused. Every ratio is empty, never zero, when its denominator is.
   tracking campaign, typed again to replace it, and an ads platform's CSV
   uploaded through the same import the API offers.
 - `Marketing > Conversions` (`/marketing/conversions`): the Google Ads and Meta
-  offline conversion files for a date range and a model.
+  offline conversion files for a date range and a model, for a platform that is
+  not connected. A job a connected platform has been sent is left out of its
+  file, so uploading the file as well cannot count it twice.
+- `Marketing > Return on spend` (`/marketing/roi`): the funnel's money columns
+  (spend, leads, booked jobs, revenue, cost per lead, cost per booked job and
+  revenue per dollar) by ad platform, channel or tracking campaign, every
+  figure opening into the same rows as the funnel's, with how much of the
+  period's spend was pulled from a platform, loaded from a file or typed, and
+  how fresh each connected platform's last pull is.
+
+## Ad platforms, connected
+
+Every one of these needs the operator's own developer approval from the
+platform before it will move real data, and none of it can be switched on by
+this product on anybody's behalf:
+
+- **Google Ads** needs a developer token, which is an application to Google
+  from a manager account; until it is approved for basic access it answers
+  only for test accounts. Plus an OAuth client in Google Cloud.
+- **Google Local Services** is read through the Google Ads API, so it uses the
+  same developer token and OAuth client.
+- **Meta** needs a Meta app with Marketing API access, and app review for
+  `ads_read` and `ads_management` at advanced access to read an ad account the
+  app's own business does not own.
+- **Google Business Profile** needs Google's separate approval for the
+  Business Profile API (M20).
+- **Google Analytics** needs only a Measurement Protocol API secret from the
+  property.
+
+**The code is tested against fakes of each platform, not against live
+accounts.** The adapters, the sign in, the token refresh, the spend pull, the
+sends and the refusals all run for real in the tests with each platform
+replaced at the HTTP seam (`packages/api/test/ads-*.integration.test.ts`),
+built to each platform's documented request and response shapes. Nothing here
+has been run against a real Google Ads, Meta or Business Profile account, and
+the first real connection is where a difference from the documentation would
+show.
+
+### Connecting and signing in
+
+On `Settings > Integrations`, under Advertising, Website analytics and Review
+listings: save the account ids and the NAMES of the secrets (the OAuth client
+as one JSON value with `clientId` and `clientSecret`, the Google Ads developer
+token), then press "Sign in with Google" or "Sign in with Meta". The
+connection waits as "Waiting for somebody to sign in" until then
+(`POST /v1/connectors/{provider}`, then `POST /v1/connectors/{provider}/authorize`
+for the address, and `POST /v1/oauth/finish` with what the platform sent the
+person back with). The return address to register with the platform is the
+deployment's `PUBLIC_URL` followed by `/settings/integrations/oauth`.
+
+The grant that comes back is kept sealed: AES-256-GCM under
+`CREDENTIAL_SEALING_KEY`, which lives in the deployment's environment and never
+in the database. Without the key the button is refused before anybody leaves
+for the platform, with the reason. An operator who keeps tokens in their own
+vault names a refresh token (or a Meta system user token) as the connection's
+credential instead and never uses the button. Google's grant lasts until it is
+revoked; Meta's lasts about sixty days and the screen counts down to it. A
+grant the platform stops accepting marks the connection "Sign in again" and
+stops every pull for it until somebody does. Disconnecting forgets the grant.
+
+### Spend
+
+Every six hours, and from "Pull now" on `Marketing > Ad platforms`
+(`/marketing/platforms`, `POST /v1/marketing/platforms/{provider}/sync`): each
+campaign's cost, clicks and impressions per day, from thirty days back the
+first time and the last three days again every time after, because platforms
+revise yesterday. Into the ordinary spend rows, so the funnel, the return view
+and the rows behind every cell use them unchanged. A row is found again by the
+platform's campaign and the day, never by name, so renaming a campaign does
+not double it; a day the platform stops reporting is taken out; an account in
+another currency is refused whole. Micros are converted in integers, never
+through a float.
+
+A platform's campaign is filed under the company's tracking campaign whose name
+or link tag matches it exactly, and otherwise under the platform's own channel
+until somebody chooses (`GET /v1/marketing/platform-campaigns`,
+`PATCH /v1/marketing/platform-campaigns/{id}`, and the table on the Ad
+platforms screen). Choosing moves every day already pulled. A Local Services
+campaign in a Google Ads account is filed under Local Services, not blended
+into Google Ads.
+
+### Local Services leads
+
+Every ten minutes: calls, messages and bookings from the `local_services_lead`
+resource, into `Marketing > Lead offers` through the same intake a lead
+webhook uses, credited to the Local Services channel, with the caller's name
+and number where Google discloses them. A lead read twice is the same lead.
+
+### Conversions sent back
+
+Every quarter hour. Google Ads is sent each **paid** job (every invoice on it
+paid) as a click conversion: the gclid, gbraid or wbraid from the visit, the
+platform's share of the job's revenue as its value, the job's event id as
+Google's `orderId`. Meta is sent a **Lead** when a job is booked and a
+**Purchase** when it is paid, through the Conversions API, matched on the
+click (`fbc`, built from the fbclid) and the browser (`fbp`). Google Analytics
+is sent `generate_lead` and `purchase`, tied to the visitor's analytics client
+id, which the website snippet reads from the `_ga` cookie of the company's own
+tag (and the `_fbp` cookie of Meta's pixel), with the whole revenue.
+
+- **Only to the platform that earned it.** A job is sent to a platform only
+  when one of the job's own touches came from it, and its value is that
+  platform's share under the company's attribution model, which for a job only
+  that platform touched is the job's whole revenue. Sending every job to every
+  platform at full value lets two platforms each claim the same job and bid as
+  though the work were worth double. A job the model gives a platform none of
+  is withheld with that reason.
+- **Once.** One row per job, per platform, per kind
+  (`ad_conversion_send`, under a unique index), written before the request
+  goes, so a retry, a second worker and "Pull now" cannot send twice; and the
+  platform deduplicates on the event id the row carries, for a request that
+  succeeded just before a crash.
+- **Only what consent allows.** Each connection has a setting for customers'
+  email and phone: `consented` (the default: only for customers who said yes),
+  `unless_refused`, or `never`. Each customer can say yes or no on their page
+  (`GET /v1/customers/{id}/ad-data`, `PUT /v1/customers/{id}/ad-data`), which
+  is a separate question from whether they may be texted. A customer who said
+  no has nothing sent at all, not even the click. Email and phone are written
+  each platform's way before they are hashed with SHA-256 (Google drops the dots
+  in a Gmail address and wants a phone with its plus sign; Meta wants neither),
+  and the platform is told the consent signal (`adUserData`, `ad_user_data`).
+  Google Analytics is never sent a person's details.
+- **Everything written down.** `Marketing > Ad platforms > Conversions sent`
+  (`/marketing/platforms/sends`, `GET /v1/marketing/conversion-sends`) lists
+  every send and every withheld one with the reason in words, and every refusal
+  in the platform's own words; what went is listed by name (click, email,
+  phone), never the values, and no hash is stored. A refused, failed or
+  withheld send can be tried again, decided afresh
+  (`POST /v1/marketing/conversion-sends/{id}/retry`); a sent one cannot.
+  Failed sends are retried by themselves on a ladder from five minutes to a day.
+
+The funnel also cuts by ad platform (Google Ads, Local Services, Meta,
+Microsoft, and one row for everything else), so pulled spend is compared only
+with the work its own clicks brought.
 
 The report builder has channel, tracking campaign and lead source dimensions on
 the jobs and invoices datasets, and a calls dataset.
@@ -449,6 +589,15 @@ In order, with the permission each step needs:
    than a guess at good manners. `organization.settings.quietHours` set to
    `null` turns it off, which a B2B contractor texting facilities managers may
    legitimately want.
+7. **Ad platforms, if the developer access has been granted.** `integration:write`.
+   Set `CREDENTIAL_SEALING_KEY` and `PUBLIC_URL` for the web app and the worker,
+   register `PUBLIC_URL/settings/integrations/oauth` as the return address with
+   Google and Meta, put the OAuth clients and the developer token in the secret
+   store, then save each platform's settings and sign in on `Settings >
+   Integrations`. Choose the conversion action (Google Ads) and the pixel
+   (Meta) or nothing is sent, and decide what the company sends about
+   customers before switching sending on; the website snippet has to be on the
+   site for Google Analytics to have a visit to tie a job to.
 
 ## Using it
 
@@ -523,8 +672,12 @@ revenue are facts; what share of them the campaign caused is what
 | readonly | no | no | no | no |
 
 `adspend:read` reads the funnel, its rows, the call log, spend, conversions,
-lead forms and referrals; `adspend:write` manages channels, tracking campaigns,
-spend and lead forms. Buying, routing and releasing numbers, the snippet's idle
+lead forms, referrals, the ad platforms' state and every conversion sent;
+`adspend:write` manages channels, tracking campaigns, spend and lead forms,
+pulls a platform now, maps a platform's campaign and tries a send again.
+Connecting an ad platform and signing in to it is `integration:write`. A
+customer's answer about advertising is `customer:read` to see and
+`customer:write` to record. Buying, routing and releasing numbers, the snippet's idle
 time and what a referral earns are `settings:write`; reading the snippet's key
 and pool is `settings:read`. A customer's referral code is `customer:read` and
 recording who referred them is `customer:write`. Marking an owed reward paid or
@@ -591,6 +744,15 @@ most real use:
   `GET /v1/customers/{id}/referral`, `PUT /v1/customers/{id}/referrer` and
   `GET /v1/portal/referral` for referrals.
 - `GET /v1/marketing/conversions` for the offline conversion files.
+- `POST /v1/connectors/{provider}/authorize` and `POST /v1/oauth/finish` to sign
+  in to an ad platform; `GET /v1/marketing/platforms` and
+  `POST /v1/marketing/platforms/{provider}/sync` for its pulls;
+  `GET /v1/marketing/platform-campaigns` and
+  `PATCH /v1/marketing/platform-campaigns/{id}` for its campaigns;
+  `GET /v1/marketing/conversion-sends` and
+  `POST /v1/marketing/conversion-sends/{id}/retry` for what it was told.
+- `GET /v1/customers/{id}/ad-data` and `PUT /v1/customers/{id}/ad-data` for a
+  customer's answer about their details and advertising.
 - `POST /v1/campaigns/preview` before anything else, then `POST /v1/campaigns`
   and `POST /v1/campaigns/{id}/send`, and `GET /v1/campaigns/{id}/results`.
 
@@ -630,9 +792,9 @@ Copy it into a new campaign.
 
 ## The screens
 
-`Marketing > Funnel`, `Calls`, `Lead offers`, `Tracking campaigns`, `Channels`,
-`Spend`, `Conversions`, `Lead forms` and `Referrals`, and `Settings > Website`,
-are described above. The call screen (`/marketing/calls/{id}`) plays a kept
+`Marketing > Funnel`, `Return on spend`, `Calls`, `Lead offers`, `Tracking
+campaigns`, `Channels`, `Spend`, `Conversions`, `Ad platforms`, `Lead forms` and
+`Referrals`, and `Settings > Website`, are described above. The call screen (`/marketing/calls/{id}`) plays a kept
 recording and a voicemail, says why nothing was recorded when recording was
 asked for and refused, says what the caller pressed in a phone menu and where
 the call went, and shows the transcript of the recording or voicemail when one
@@ -680,10 +842,29 @@ sample and therefore not a test of anything.
 
 ## What is not built
 
-- **Ad platform API connectors.** No OAuth connection to Google Ads, Meta,
-  LSA, Bing, GA4 or Search Console. Each needs vendor approval as well as code.
-  Spend imports from the CSV the operator exports, and conversions go back as
-  the file each platform accepts.
+- **Tested against fakes, not live accounts.** The Google Ads, Local Services,
+  Meta, Google Analytics and Business Profile adapters follow each platform's
+  documented API and are exercised only against fakes of it; the first real
+  account is where a difference from the documentation would show. Each needs
+  the operator's own developer approval first.
+- **Microsoft Advertising.** No adapter. Its reporting is a report job that is
+  submitted, waited on and downloaded as a zipped file, a different shape from
+  the other platforms' single query; its daily export loads through the spend
+  file, and conversions go back as a file.
+- **Search Console and analytics read back.** Nothing reads sessions, landing
+  pages or search terms from Google Analytics or Search Console; Google
+  Analytics is only sent leads and purchases.
+- **Meta's instant forms and Local Services messages.** Leads from Meta's own
+  forms are not read (the lead webhook takes them), and a Local Services
+  message lead arrives without the message's text.
+- **Restating a sent conversion.** A job's revenue that changes after it was
+  sent (a credit note, a second invoice) is not restated to the platform.
+  Google refuses a click older than ninety days and Meta an event older than
+  seven, so a job paid after that is told to nobody, and says so.
+- **Spend in another currency.** An ad account billing in a currency other
+  than the company's is refused rather than converted.
+- **Google Analytics' silence.** The Measurement Protocol accepts a malformed
+  event as readily as a good one, so a GA4 send marked sent means received.
 - **Direct mail.** Nothing sends or tracks a mailer beyond giving it its own
   tracking number or a referral code, which measure it today.
 - **Voice beyond menus and ring groups.** A number bought here, or one already

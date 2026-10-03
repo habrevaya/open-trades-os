@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, marketing as mk, tracking, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, ads, marketing as mk, tracking, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, OrganizationSuspendedError,
   TooManyRequestsError, type RequestMeta, type ServiceContext,
@@ -133,17 +133,42 @@ const addressOf = (meta?: RequestMeta) => meta?.ip?.slice(0, 64) || "unknown";
  */
 export async function recordVisit(
   db: Database,
-  input: { companyKey: string; visitorId: string; page?: string | undefined; query?: string | undefined; referrer?: string | undefined },
+  input: {
+    companyKey: string; visitorId: string; page?: string | undefined; query?: string | undefined; referrer?: string | undefined;
+    ga?: string | undefined; fbp?: string | undefined; identify?: boolean | undefined;
+  },
   meta?: RequestMeta,
 ): Promise<{ recorded: boolean; touchId: string | null }> {
   const checked = tracking.checkPublicTouch(input);
   if (!checked.ok) throw new ConflictError(checked.reason);
+  /**
+   * The browser's analytics and Meta ids, only in those platforms' own
+   * shapes. Anything else is dropped rather than refused: a site with an odd
+   * cookie still records its visit.
+   */
+  const gaClientId = ads.gaClientIdFromCookie(input.ga);
+  const metaBrowserId = ads.isMetaBrowserId(input.fbp) ? input.fbp : null;
   const company = await companyFor(db, input.companyKey);
   await throttle(db, `touch:co:${company.id}`, LIMITS.touchPerCompany);
   await throttle(db, `touch:ip:${company.id}:${addressOf(meta)}`, LIMITS.touchPerAddress);
   await throttle(db, `touch:v:${company.id}:${checked.visitorId}`, LIMITS.touchPerVisitor);
 
   return inTenant({ actor: siteActor(company.id), db }, async (tx) => {
+    /** Fills the browser ids onto a touch that has none, and never overwrites one it has. */
+    const fill = async (touchId: string) => {
+      if (!gaClientId && !metaBrowserId) return;
+      await tx.update(schema.marketingTouch).set({
+        ...(gaClientId ? { gaClientId: sql`coalesce(${schema.marketingTouch.gaClientId}, ${gaClientId})` } : {}),
+        ...(metaBrowserId ? { metaBrowserId: sql`coalesce(${schema.marketingTouch.metaBrowserId}, ${metaBrowserId})` } : {}),
+      }).where(eq(schema.marketingTouch.id, touchId));
+    };
+    if (input.identify) {
+      const [latest] = await tx.select({ id: schema.marketingTouch.id }).from(schema.marketingTouch)
+        .where(eq(schema.marketingTouch.visitorId, checked.visitorId))
+        .orderBy(desc(schema.marketingTouch.occurredAt)).limit(1);
+      if (latest) await fill(latest.id);
+      return { recorded: false, touchId: latest?.id ?? null };
+    }
     const host = checked.referrer ? mk.referrerHost(checked.referrer) : null;
     const since = new Date(Date.now() - 30 * 60_000);
     const [recent] = await tx.select({
@@ -162,6 +187,7 @@ export async function recordVisit(
       && (recent.utmCampaign ?? null) === (parsed.utm.campaign ?? null)
       && (recent.clickId ?? null) === parsed.clickId
       && (recent.referrerHost ?? null) === host) {
+      await fill(recent.id);
       return { recorded: false, touchId: recent.id };
     }
 
@@ -171,6 +197,8 @@ export async function recordVisit(
       query: checked.query,
       referrer: checked.referrer,
       landingPath: checked.landingPath,
+      gaClientId,
+      metaBrowserId,
     });
     return { recorded: true, touchId: touch.id };
   });
@@ -314,6 +342,7 @@ export async function leaseForCall(tx: Database, organizationId: string, phoneNu
 export const handlers = {
   recordPublicTouch: (db: Database, input: {
     companyKey: string; visitorId: string; page?: string | undefined; query?: string | undefined; referrer?: string | undefined;
+    ga?: string | undefined; fbp?: string | undefined; identify?: boolean | undefined;
   }, meta?: RequestMeta) => recordVisit(db, input, meta),
 
   getVisitorNumber: (db: Database, input: {

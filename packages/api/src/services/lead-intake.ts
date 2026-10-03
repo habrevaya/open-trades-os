@@ -9,6 +9,7 @@ import {
 import * as marketingService from "./marketing";
 import * as acquisition from "./acquisition";
 import { resolveConnectorChannel } from "./lead-connectors";
+import { afterConnect, forgetGrant } from "./ad-platforms";
 import { nextNumber } from "./jobs";
 import {
   createLeadSource, createSpendSource, registeredLeadSources, registeredSpendSources,
@@ -259,6 +260,13 @@ export async function connect(
       }).where(eq(schema.integrationConnection.id, connected.id)).returning() as [typeof connected];
     }
 
+    /**
+     * An ad platform that signs in through OAuth waits in `pending` until
+     * somebody has, rather than reading "connected" with nothing able to
+     * pull. Its settings are checked there too.
+     */
+    connected = await afterConnect(tx, connected);
+
     await audit(tx, ctx, "connector.connected", "integration_connection", connected.id, null, {
       provider: spec.key,
     });
@@ -276,6 +284,8 @@ export async function disconnect(ctx: ServiceContext, provider: string) {
         isNull(schema.integrationConnection.deletedAt),
       )).returning();
     if (!row) throw new NotFoundError("Connection");
+    /** An ad platform's sealed grant goes with it, so a switched off Google is not a kept Google token. */
+    await forgetGrant(tx, row.id);
 
     await audit(tx, ctx, "connector.disconnected", "integration_connection", row.id, null, { provider });
     return { provider, status: row.status };

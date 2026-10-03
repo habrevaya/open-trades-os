@@ -16,12 +16,18 @@ const input = "h-10 w-full rounded border border-steel-300 px-3 text-sm";
  * never mistaken for "this was never set".
  */
 export function ConnectForm({
-  provider, label, form, connected, credentialRef,
+  provider, label, form, connected, saved = connected, credentialRef,
 }: {
   provider: string;
   label: string;
   form: ProviderForm;
   connected: boolean;
+  /**
+   * Saved but not yet connected: an ad platform waiting for somebody to sign
+   * in. Its settings are kept on an edit and it can be turned off, exactly as
+   * a connected one.
+   */
+  saved?: boolean;
   credentialRef: string | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -37,9 +43,9 @@ export function ConnectForm({
           className="h-9 rounded border border-steel-300 px-3 text-sm font-medium"
           aria-expanded={open}
         >
-          {open ? "Cancel" : connected ? "Change settings" : `Connect ${label}`}
+          {open ? "Cancel" : saved ? "Change settings" : `Connect ${label}`}
         </button>
-        {connected && (
+        {saved && (
           <form {...offActionForm}>
             <input type="hidden" name="provider" value={provider} />
             <button
@@ -57,8 +63,8 @@ export function ConnectForm({
       {open && (
         <form {...actionForm} className="mt-3 grid max-w-xl gap-3">
           <input type="hidden" name="provider" value={provider} />
-          <input type="hidden" name="existing" value={connected ? "1" : "0"} />
-          {connected && (
+          <input type="hidden" name="existing" value={saved ? "1" : "0"} />
+          {saved && (
             <p className="text-sm text-ink-500">
               Leave a box empty to keep what is stored. Nothing stored is shown back here.
             </p>
@@ -85,10 +91,10 @@ export function ConnectForm({
           {form.fields.map((field) => (
             <label key={field.key} className="grid gap-1">
               <span className="text-sm font-medium text-ink-700">{field.label}</span>
-              {field.kind === "select" ? (
+              {field.kind === "select" || field.kind === "yesno" ? (
                 <select name={`setting:${field.key}`} className={input} defaultValue="">
-                  <option value="">{connected ? "Keep as it is" : "Choose"}</option>
-                  {field.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+                  <option value="">{saved ? "Keep as it is" : field.kind === "yesno" ? "Yes" : "Choose"}</option>
+                  {(field.kind === "yesno" ? ["yes", "no"] : field.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
               ) : (
                 <input
@@ -113,7 +119,7 @@ export function ConnectForm({
               disabled={pending}
               className="h-10 rounded bg-ink-900 px-4 text-sm font-medium text-white disabled:opacity-40"
             >
-              {pending ? "Saving" : connected ? "Save" : "Connect"}
+              {pending ? "Saving" : saved ? "Save" : form.signIn ? "Save settings" : "Connect"}
             </button>
           </div>
           {state.error && <p className="text-sm text-red-600" role="alert">{state.error}</p>}

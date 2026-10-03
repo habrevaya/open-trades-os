@@ -2288,3 +2288,36 @@ returns table (organization_id uuid)
 
 revoke all on function app.push_work_organizations(int) from public;
 grant execute on function app.push_work_organizations(int) to background;
+
+-- =========================================================================
+-- THE AD PLATFORMS, ANALYTICS AND REVIEW LISTINGS THE WORKER VISITS
+--
+-- The same shape as the others: which companies have a connected Google Ads,
+-- Local Services, Meta, Google Analytics or Business Profile connection, as
+-- ids and nothing else. Whether anything is DUE for one of them (a spend
+-- pull, a lead pull, a review read, a conversion to send) is the service's
+-- question, asked inside the company's own tenant, so this function never
+-- reads a sync row or a send. The one least recently visited comes first,
+-- so a deployment with more companies than one pass reaches still turns
+-- through all of them.
+-- =========================================================================
+
+create or replace function app.ad_work_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id
+      from public.integration_connection c
+      join public.organization o on o.id = c.organization_id
+      left join public.sync_run r on r.connection_id = c.id
+     where c.provider in ('google_ads', 'google_lsa', 'meta_ads', 'ga4', 'google_business_profile')
+       and c.status = 'connected'
+       and c.deleted_at is null
+       and o.suspended_at is null
+     group by c.organization_id
+     order by max(r.started_at) nulls first
+     limit p_limit
+  $$;
+
+revoke all on function app.ad_work_organizations(int) from public;
+grant execute on function app.ad_work_organizations(int) to background;

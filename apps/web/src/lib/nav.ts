@@ -303,12 +303,20 @@ export const NAV: NavGroup[] = [
            * what goes back out to the ad accounts.
            */
           { href: "/marketing", label: "Funnel" },
+          /** The funnel's money columns, with where the spend came from and how fresh each platform's pull is. */
+          { href: "/marketing/roi", label: "Return on spend" },
           { href: "/marketing/calls", label: "Calls" },
           { href: "/marketing/leads", label: "Lead offers" },
           { href: "/marketing/tracking", label: "Tracking campaigns" },
           { href: "/marketing/channels", label: "Channels" },
           { href: "/marketing/spend", label: "Spend" },
           { href: "/marketing/conversions", label: "Conversions" },
+          /**
+           * The connected ad accounts: what each pulled and sent, their
+           * campaigns mapped onto the tracking campaigns, and every job told
+           * back. Beside Conversions, which is the file the connection replaces.
+           */
+          { href: "/marketing/platforms", label: "Ad platforms" },
           /**
            * The other half of marketing: what you send to the list you already
            * own. Under Marketing rather than beside it, and it inherits

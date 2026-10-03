@@ -237,13 +237,13 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     capability: "ads",
     auth: "oauth",
     flows: ["spend_in", "conversions_out"],
-    state: "declared",
+    state: "built",
     purpose:
-      "Pull spend, clicks and impressions per campaign per day, and report booked jobs back against the gclid so the account can bid on work rather than on form fills.",
+      "Pull every campaign's cost per day into your spend, mapped onto your tracking campaigns, and report each paid job back against the click that won it, with its revenue, so the account bids on work rather than on form fills. Replaces the conversion file once it is on.",
     setup:
-      "A Google Ads developer token, which is an application to Google and is not instant, plus OAuth consent from somebody with account access.",
+      "Three things from Google, then a sign in. A developer token, which is an application to Google from a manager account and is not instant: until it is approved for basic access it only works against test accounts. An OAuth client of the web application type in Google Cloud, with this deployment's sign in return address added to it, kept in your secret store as one JSON value with clientId and clientSecret. And a conversion action in the Ads account, of the import type, for booked jobs. Enter the customer id and the names of the two secrets, then press Sign in with Google with an account that can manage the Ads account.",
     limitation:
-      "It knows what it was paid and what it was clicked. It does not know which of those clicks became a job, which is the whole reason conversions have to be sent back.",
+      "It knows what it was paid and what it was clicked. A conversion can only be sent for a job whose customer arrived through a tagged click, or whose email or phone the company and the customer allow to be matched, and Google refuses a click more than ninety days old. Google's own conversion counts will differ from this product's, because Google models what it cannot see. A job's revenue that changes after it was sent is not restated.",
   },
   {
     key: "google_lsa",
@@ -251,25 +251,27 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     capability: "ads",
     auth: "oauth",
     flows: ["spend_in", "leads_in"],
-    state: "declared",
+    state: "built",
     purpose:
-      "The pay per lead product most trades companies actually spend on. Leads arrive as calls and messages with a charge attached, which is spend and a lead at once.",
-    setup: "OAuth against the Local Services account, which is separate from the Google Ads account even when one person owns both.",
+      "The pay per lead product most trades companies actually spend on. Its calls, messages and bookings arrive in the lead inbox credited to Local Services, and what it charged arrives as spend under Local Services rather than blended into Google Ads.",
+    setup:
+      "The same developer token and OAuth client as Google Ads, because Local Services leads are read through the Google Ads API. Enter the customer id of the Local Services account, which is its own account even when one person owns both, and sign in with Google.",
     limitation:
-      "Disputing a bad lead is a manual process on Google's side and no API changes that, so a charge will be in the numbers before anybody decides whether it should be.",
+      "Disputing a bad lead is a manual process on Google's side and no API changes that, so a charge will be in the numbers before anybody decides whether it should be. Google withholds the caller's details on some leads and in some regions, and the message text of a message lead is not read, only that it arrived. The lead's time is read in the account's own timezone.",
   },
   {
     key: "meta_ads",
     label: "Meta Ads",
     capability: "ads",
     auth: "oauth",
-    flows: ["spend_in", "leads_in", "conversions_out"],
-    state: "declared",
+    flows: ["spend_in", "conversions_out"],
+    state: "built",
     purpose:
-      "Spend per campaign, leads from instant forms, and booked jobs reported back against the fbclid.",
-    setup: "A Meta app with ads_read and leads_retrieval, reviewed by Meta, plus a page admin to authorise it.",
+      "Pull every Facebook and Instagram campaign's cost per day into your spend, and send a Lead when a job is booked and a Purchase when it is paid through the Conversions API, matched on the click and, where allowed, hashed email and phone.",
+    setup:
+      "A Meta app of the business type with Marketing API access, its app id and secret in your secret store as one JSON value with clientId and clientSecret, and this deployment's sign in return address added to it. Reading another business's ad account needs ads_read and ads_management at advanced access, which is Meta's app review. Enter the ad account id and the pixel id, then press Sign in with Meta.",
     limitation:
-      "Attribution inside Meta's own reporting will not agree with what this product measures, and the gap is not a bug in either. Meta counts a view that led to a search a week later; this counts what was tagged.",
+      "Meta's sign in lasts about sixty days and cannot be extended without signing in again; a system user token kept in your own secret store does not expire. Attribution inside Meta's own reporting will not agree with what this product measures, and the gap is not a bug in either. Meta refuses an event more than seven days old, so a job paid later than that is never reported. Leads from Meta's instant forms are not read; use the lead webhook for those.",
   },
   {
     key: "bing_ads",
@@ -279,8 +281,9 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     flows: ["spend_in", "conversions_out"],
     state: "declared",
     purpose: "The same as Google Ads, for the account most contractors forget they are running.",
-    setup: "A Microsoft Advertising developer token and OAuth consent.",
-    limitation: "Lower volume than Google, so per campaign numbers go noisy fast at a contractor's budget.",
+    setup: "A Microsoft Advertising developer token and OAuth consent. Until there is an adapter, its daily export loads through the ad spend file on Marketing, Spend.",
+    limitation:
+      "Lower volume than Google, so per campaign numbers go noisy fast at a contractor's budget. Not built because its reporting is a report job that is submitted, waited on and downloaded as a zipped file, which is a different shape from the other platforms' single query, rather than because it is hard.",
   },
 
   /* ------------------------------------------------------------ leads in */
@@ -328,13 +331,15 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     key: "ga4",
     label: "Google Analytics 4",
     capability: "analytics",
-    auth: "oauth",
-    flows: ["analytics_in"],
-    state: "declared",
-    purpose: "Sessions, landing pages and search terms, to sit beside what the CRM says was booked.",
-    setup: "OAuth against a property, plus the measurement id on the website.",
+    auth: "api_key",
+    flows: ["conversions_out"],
+    state: "built",
+    purpose:
+      "Send a lead when a job is booked and a purchase when it is paid, tied to the visit the website snippet saw, so booked work shows up in your own analytics against the page and the source that brought it.",
+    setup:
+      "Google Analytics on your website, and the website snippet from Settings, Website on the same pages, which is what reads the visitor's analytics id. Then the measurement id of the web data stream, and a Measurement Protocol API secret created in that stream's settings, kept in your secret store with its name entered here.",
     limitation:
-      "GA4 samples, models and thresholds its own data. Its session count and this product's lead count will not reconcile and should not be presented as if they might.",
+      "Google accepts a malformed event as readily as a good one and drops it without a word, so sent here means received there and nothing more. Nothing that identifies a person is sent, which Google's terms forbid. A visitor whose analytics id was never captured, because they rang from a van rather than visiting the site, cannot be tied to a visit at all. Sessions and search terms are not read back.",
   },
   {
     key: "search_console",
@@ -355,12 +360,13 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
     capability: "reviews",
     auth: "oauth",
     flows: ["reviews_in", "reviews_out"],
-    state: "declared",
+    state: "built",
     purpose:
-      "Read reviews as they land and reply from here. For a local trades company this listing is worth more than the website.",
-    setup: "OAuth from an account with manager access to the listing.",
+      "Read reviews into the review work list every hour and post the reply written here back to the listing. For a local trades company this listing is worth more than the website.",
+    setup:
+      "Access to the Business Profile API, which is its own application to Google, granted to a Google Cloud project, and an OAuth client in that project kept in your secret store as one JSON value with clientId and clientSecret. Enter the listing's account id and location id, then sign in with Google as somebody who manages the listing.",
     limitation:
-      "Google rate limits both reading and replying, and a reply posted through an API is still subject to their moderation, so a reply that appears here can be absent there.",
+      "Google rate limits both reading and replying, and a reply posted through an API is still subject to their moderation, so a reply that appears here can be absent there. Who wrote a review is a suggestion here, never a fact, until somebody confirms it.",
   },
 
   /* --------------------------------------------------------- campaigns out */

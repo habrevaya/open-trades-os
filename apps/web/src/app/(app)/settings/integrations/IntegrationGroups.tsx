@@ -2,6 +2,7 @@ import { leadIntake, payments, type ServiceContext } from "@opentradesos/api/ser
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { ConnectForm } from "./ConnectForm";
+import { SignIn } from "./SignIn";
 import { FORMS } from "./fields";
 // Registers the marketing adapters, so the catalogue's built entries resolve.
 import "@opentradesos/api/marketing";
@@ -23,6 +24,12 @@ export const GROUPS: { capability: string; title: string; description: string }[
     description: "Your own key, your own bill, the same permissions as the person asking." },
   { capability: "calendar", title: "Calendar",
     description: "A technician's visits in the calendar they already use." },
+  { capability: "ads", title: "Advertising",
+    description: "Spend pulled from the ad accounts every few hours into your spend, and booked and paid jobs told back to the account whose click won them. Each platform needs its own developer approval before it will answer; see what each one needs below." },
+  { capability: "analytics", title: "Website analytics",
+    description: "Booked and paid jobs sent to your own analytics against the visit that led to them." },
+  { capability: "reviews", title: "Review listings",
+    description: "Reviews read into the review work list every hour, and replies written here posted back." },
   { capability: "maps", title: "Maps and addresses",
     description: "Puts customers' addresses on the dispatch map in the background, so the route optimiser has something to measure. A pin placed by hand on a property always wins." },
 ];
@@ -72,7 +79,7 @@ export async function IntegrationGroups({
                         : c.connected
                           ? <Chip tone="success">Connected</Chip>
                           : c.connectionStatus
-                            ? <Chip tone="neutral">{c.connectionStatus === "disconnected" ? "Off" : c.connectionStatus}</Chip>
+                            ? <Chip tone={c.connectionStatus === "needs_reauth" ? "danger" : "neutral"}>{STATUS_WORDS[c.connectionStatus] ?? c.connectionStatus}</Chip>
                             : null}
                       {c.lastError && <Chip tone="danger">Erroring</Chip>}
                     </div>
@@ -121,7 +128,21 @@ export async function IntegrationGroups({
                         label={c.label}
                         form={form}
                         connected={c.connected}
+                        saved={c.connectionStatus !== null && c.connectionStatus !== "disconnected"}
                         credentialRef={c.credentialRef}
+                      />
+                    )}
+                    {c.state === "built" && form?.signIn && c.connectionStatus && c.connectionStatus !== "disconnected" && (
+                      /*
+                        After the settings are saved, never before: the sign in
+                        needs the OAuth client's name to send the person to
+                        the right consent screen.
+                      */
+                      <SignIn
+                        provider={c.key}
+                        platform={form.signIn}
+                        status={c.connectionStatus}
+                        mayChange={mayChange}
                       />
                     )}
                   </li>
@@ -136,4 +157,12 @@ export async function IntegrationGroups({
   );
 }
 
-export const MARKETING_CAPABILITIES = new Set(["ads", "lead_source", "analytics", "reviews"]);
+/** A connection's state in words, rather than the column's value. */
+const STATUS_WORDS: Record<string, string> = {
+  disconnected: "Off",
+  pending: "Waiting for somebody to sign in",
+  needs_reauth: "Sign in again",
+  error: "Erroring",
+};
+
+export const MARKETING_CAPABILITIES = new Set(["lead_source"]);

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
 import { E2E_CALLRAIL_ENV } from "./e2e/callrail-env";
 import { E2E_TWILIO_ENV } from "./e2e/twilio-env";
+import { E2E_ADS_ENV } from "./e2e/ads-env";
 
 /**
  * THE BROWSER SUITE
@@ -98,9 +99,11 @@ export default defineConfig({
      * second (e2e/stripe.ts). The CallRail pair is the same arrangement for
      * call tracking (e2e/callrail-env.ts): names the spec points the
      * connection at, holding values that are not keys. The Twilio token is
-     * the same again for the voice webhooks (e2e/twilio-env.ts).
+     * the same again for the voice webhooks (e2e/twilio-env.ts). The ad
+     * platforms' sealing key and secret names are the same arrangement again
+     * (e2e/ads-env.ts), for a local fake of Google.
      */
-    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV },
+    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...E2E_ADS_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },

@@ -22,6 +22,7 @@ import {
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
   setup, team, branches, tradePacks,
   phoneMenus, transcription,
+  ads,
 } from "../services/index";
 
 /**
@@ -852,6 +853,19 @@ export const handlers = {
   getBranchOverview: branches.handlers.getBranchOverview,
   assignJobsToBranch: branches.handlers.assignJobsToBranch,
   setMemberBranch: branches.handlers.setMemberBranch,
+
+  startConnectorSignIn: ads.handlers.startConnectorSignIn,
+  finishConnectorSignIn: ads.handlers.finishConnectorSignIn,
+  listMarketingPlatforms: ads.handlers.listMarketingPlatforms,
+  syncMarketingPlatform: ads.handlers.syncMarketingPlatform,
+  listPlatformCampaigns: ads.handlers.listPlatformCampaigns,
+  mapPlatformCampaign: ads.handlers.mapPlatformCampaign,
+  listConversionSends: ads.handlers.listConversionSends,
+  retryConversionSend: ads.handlers.retryConversionSend,
+  getCustomerAdData: ads.handlers.getCustomerAdData,
+  setCustomerAdData: ads.handlers.setCustomerAdData,
+  confirmReviewMatch: ads.handlers.confirmReviewMatch,
+  syncReviews: ads.handlers.syncReviews,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

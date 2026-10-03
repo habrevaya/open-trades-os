@@ -52,10 +52,10 @@ const WEBHOOK_TOKEN: SettingSpec = { kind: "text", system: true };
 /**
  * Every key each built provider reads, and nothing else.
  *
- * Marketing connectors are absent because they never pass operator settings
- * through `integration_connection`: lead webhooks keep their own table and a
- * spend file is parsed on upload. A provider absent from here takes no
- * settings at all.
+ * The lead webhook and the spend file are absent because they never pass
+ * operator settings through `integration_connection`: lead webhooks keep
+ * their own table and a spend file is parsed on upload. A provider absent
+ * from here takes no settings at all.
  */
 export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string, SettingSpec>>>> = {
   stripe: {
@@ -141,6 +141,64 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     model: { kind: "text" },
     language: { kind: "text" },
     baseUrl: BASE_URL,
+  },
+  /**
+   * The ad platforms. Each names its OAuth client by secret name; the grant a
+   * sign in hands back is sealed in `sealed_credential` and never appears
+   * here. `authUrl` and `tokenUrl` exist so a test can send the sign in to a
+   * fake.
+   */
+  google_ads: {
+    customerId: { kind: "text" },
+    loginCustomerId: { kind: "text" },
+    conversionActionId: { kind: "text" },
+    developerTokenRef: { kind: "secret_name" },
+    oauthClientRef: { kind: "secret_name" },
+    personalData: { kind: "text" },
+    sendConversions: { kind: "boolean" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  google_lsa: {
+    customerId: { kind: "text" },
+    loginCustomerId: { kind: "text" },
+    developerTokenRef: { kind: "secret_name" },
+    oauthClientRef: { kind: "secret_name" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  meta_ads: {
+    adAccountId: { kind: "text" },
+    pixelId: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    personalData: { kind: "text" },
+    sendConversions: { kind: "boolean" },
+    /** Meta's Events Manager test code, so a company can watch events arrive before trusting them. */
+    testEventCode: { kind: "text" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  ga4: {
+    measurementId: { kind: "text" },
+    personalData: { kind: "text" },
+    sendConversions: { kind: "boolean" },
+    baseUrl: BASE_URL,
+  },
+  google_business_profile: {
+    accountId: { kind: "text" },
+    locationId: { kind: "text" },
+    /** The review platform key reviews are recorded under, which the review policy names. */
+    platform: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
   },
   callrail: {
     accountId: { kind: "text" },

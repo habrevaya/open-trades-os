@@ -64,6 +64,16 @@ export const REDACTED: Record<string, Record<string, string>> = {
       + "guesses away from it, which is why it is kept from the file even though every code is "
       + "dead within ten minutes. Who signed in, when and from where is exported.",
   },
+  sealed_credential: {
+    sealed_token:
+      "An ad platform's live grant, sealed under this deployment's key. Useless anywhere without "
+      + "that key and dangerous anywhere with it, so it never leaves: sign in to each platform again "
+      + "in the new system. Which platform, what was granted and when are exported.",
+  },
+  oauth_authorization: {
+    state_hash: "The hash of a sign in's single use state. Dead within a quarter of an hour, and a "
+      + "cracking target for nothing.",
+  },
   calendar_feed: {
     token_hash: "The hash of a live calendar subscription URL. Reissue it; a technician's phone "
       + "will need the new one either way.",
@@ -105,6 +115,10 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  sealed_credential: {
+    key_fingerprint: "Twelve hex characters of a hash of the deployment's sealing key, which say which key "
+      + "sealed a grant and nothing about the key itself.",
+  },
   setup_step: {
     step_key: "Which setup step a row is about, such as payments or tax. A word from the "
       + "product's own list of steps, not a key to anything.",
