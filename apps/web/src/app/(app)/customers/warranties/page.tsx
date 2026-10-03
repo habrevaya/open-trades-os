@@ -37,13 +37,24 @@ type Unit = Awaited<ReturnType<typeof equipment.warrantyWatch>>[number];
 const unitName = (u: Unit) =>
   [u.tag, u.manufacturer, u.model].filter(Boolean).join(" ") || u.category;
 
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 export default async function WarrantiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; from?: string; to?: string }>;
 }) {
   const user = await requireSetupUser();
-  const { view: asked } = await searchParams;
+  const { view: asked, from: askedFrom, to: askedTo } = await searchParams;
+  /**
+   * ANY WINDOW, by two dates, beside the four that cover most days: "what
+   * ends before the cooling season" or "what lapsed in last year's heat
+   * wave". Both dates or neither; a window that ends before it starts says so.
+   */
+  const custom = askedFrom && askedTo && DATE.test(askedFrom) && DATE.test(askedTo)
+    ? { from: askedFrom, to: askedTo }
+    : null;
+  const backwards = custom !== null && custom.to < custom.from;
   const view = VIEWS.find((v) => v.key === asked) ?? VIEWS[0];
   const tz = user.organizationTimezone;
 
@@ -60,9 +71,11 @@ export default async function WarrantiesPage({
   }
 
   const ctx = { actor: user.actor, db: getDb() };
-  const units = (await equipment.warrantyWatch(ctx, { withinDays: view.days }))
-    .filter((u) => u.warranty.daysUntilSoonest !== null
-      && (view.past ? u.warranty.daysUntilSoonest < 0 : u.warranty.daysUntilSoonest >= 0));
+  const units = backwards ? [] : custom
+    ? await equipment.warrantyWatch(ctx, custom)
+    : (await equipment.warrantyWatch(ctx, { withinDays: view.days }))
+      .filter((u) => u.warranty.daysUntilSoonest !== null
+        && (view.past ? u.warranty.daysUntilSoonest < 0 : u.warranty.daysUntilSoonest >= 0));
 
   /** Units somebody has already raised an open follow up about, so a second press is not offered. */
   const followed = new Set(
@@ -92,8 +105,8 @@ export default async function WarrantiesPage({
 
       <nav aria-label="Window" className="mt-4 flex flex-wrap gap-2">
         {VIEWS.map((v) => (
-          <a key={v.key} href={`/customers/warranties?view=${v.key}`} aria-current={v.key === view.key ? "page" : undefined}
-             className={`inline-flex h-8 items-center rounded px-3 text-sm ${v.key === view.key
+          <a key={v.key} href={`/customers/warranties?view=${v.key}`} aria-current={!custom && v.key === view.key ? "page" : undefined}
+             className={`inline-flex h-8 items-center rounded px-3 text-sm ${!custom && v.key === view.key
                ? "bg-ink-900 font-medium text-white"
                : "border border-steel-300 text-ink-700 hover:bg-steel-100"}`}>
             {v.label}
@@ -101,8 +114,28 @@ export default async function WarrantiesPage({
         ))}
       </nav>
 
-      {units.length === 0 ? (
-        <Empty title={view.past ? "No warranty ended in the last 90 days" : `No warranty ends in the next ${view.days} days`}>
+      <form method="get" className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+        <label className="flex flex-col gap-1">
+          <span className="text-ink-700">Cover ending from</span>
+          <input type="date" name="from" defaultValue={custom?.from ?? ""} required
+                 className="h-8 rounded border border-steel-300 px-2" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-ink-700">to</span>
+          <input type="date" name="to" defaultValue={custom?.to ?? ""} required
+                 className="h-8 rounded border border-steel-300 px-2" />
+        </label>
+        <button type="submit" className="h-8 rounded border border-steel-300 px-3 font-medium hover:bg-steel-100">
+          Show these dates
+        </button>
+      </form>
+
+      {backwards ? (
+        <Empty title="The window ends before it starts">Swap the two dates and try again.</Empty>
+      ) : units.length === 0 ? (
+        <Empty title={custom
+          ? `No warranty ends between ${formatDay(custom.from, tz)} and ${formatDay(custom.to, tz)}`
+          : view.past ? "No warranty ended in the last 90 days" : `No warranty ends in the next ${view.days} days`}>
           Units appear here when their parts or labour cover is recorded on the address&rsquo;s register.
         </Empty>
       ) : (
@@ -124,7 +157,7 @@ export default async function WarrantiesPage({
                       return (
                         <li key={u.id} className="py-3">
                           <div className="flex flex-wrap items-baseline gap-2">
-                            <a href={`/properties/${propertyId}`} className="font-medium hover:underline">{unitName(u)}</a>
+                            <a href={`/equipment/${u.id}`} className="font-medium hover:underline">{unitName(u)}</a>
                             {u.serialNumber ? <span className="font-mono text-xs text-ink-500">{u.serialNumber}</span> : null}
                             <Chip tone={days < 0 ? "danger" : days <= 30 ? "warning" : "neutral"}>
                               {days < 0 ? `Ended ${-days} days ago` : days === 0 ? "Ends today" : `Ends in ${days} days`}

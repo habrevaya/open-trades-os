@@ -60,8 +60,9 @@ export interface RecordShape {
   /** The screen one record opens on, with `{id}` where the id goes. */
   href: string;
   /**
-   * The id that goes in `href`, when it is not the record's own. A visit has no
-   * screen of its own and opens on its job, so its link is the job's id.
+   * The id that goes in `href`, when it is not the record's own: for a record
+   * with no screen of its own that opens on the one it belongs to. No dataset
+   * needs it today; a visit used to, before it had a page.
    */
   linkId?: string;
   /** A few columns that let somebody recognise the record without opening it. */

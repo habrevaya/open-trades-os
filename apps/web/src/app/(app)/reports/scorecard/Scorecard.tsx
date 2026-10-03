@@ -17,7 +17,17 @@ type Kpi = kpis.KpiResult;
  * says every estimate was lost, and no estimates presented says there is
  * nothing to measure.
  */
-export function Figure({ kpi }: { kpi: Kpi }) {
+export function Figure({ kpi, records }: {
+  kpi: Kpi;
+  /**
+   * Where the records behind one half open. Each half is a link, as every
+   * number on a report is: the list under it adds up to the half clicked.
+   */
+  records?: ((half: "numerator" | "denominator") => string) | undefined;
+}) {
+  const open = (half: "numerator" | "denominator", children: React.ReactNode) => records
+    ? <a href={records(half)} className="underline underline-offset-2 hover:text-ink-900">{children}</a>
+    : children;
   return (
     <>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -35,9 +45,9 @@ export function Figure({ kpi }: { kpi: Kpi }) {
       */}
       {kpi.value === null ? null : (
         <p className="mt-1 text-xs text-ink-500">
-          {half(kpi.format, kpi.numerator)} {kpi.numeratorLabel}
+          {open("numerator", <>{half(kpi.format, kpi.numerator)} {kpi.numeratorLabel}</>)}
           {" over "}
-          {kpi.denominator} {kpi.denominatorLabel}
+          {open("denominator", <>{kpi.denominator} {kpi.denominatorLabel}</>)}
         </p>
       )}
 

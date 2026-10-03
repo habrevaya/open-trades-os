@@ -762,7 +762,8 @@ export async function history(ctx: ServiceContext, input: { id: string }) {
     const uploads = photoIds.size === 0 ? [] : await tx.select({
       storageKey: schema.fieldUpload.storageKey,
       contentType: schema.fieldUpload.contentType,
-      at: schema.fieldUpload.createdAt,
+      /** When it was taken by the device clock, rather than when it finished uploading. */
+      at: sql<Date>`coalesce(${schema.fieldUpload.capturedAt}, ${schema.fieldUpload.createdAt})`.mapWith(schema.fieldUpload.createdAt),
     }).from(schema.fieldUpload).where(inArray(schema.fieldUpload.clientId, [...photoIds]));
     const filed = await tx.select({
       storageKey: schema.attachment.storageKey,

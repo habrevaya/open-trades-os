@@ -11,7 +11,7 @@ import { attempt, field, parsed, type FormState } from "@/lib/actions";
  * A FOLLOW UP ON A WARRANTY, as a task about the unit.
  *
  * About the unit rather than the customer, because the unit is what the call
- * is about and the queue opens the address it is at. Due in two working days
+ * is about, and the queue opens the unit's own page. Due in two working days
  * by default: a lapsing warranty is worth a call this week, not this hour.
  */
 export async function followUp(_previous: FormState, form: FormData): Promise<FormState> {
@@ -37,5 +37,6 @@ export async function followUp(_previous: FormState, form: FormData): Promise<Fo
     return { message: "In the task queue." };
   });
   revalidatePath("/customers/warranties");
+  revalidatePath(`/equipment/${String(form.get("equipmentId") ?? "")}`);
   return state;
 }

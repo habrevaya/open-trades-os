@@ -1,8 +1,9 @@
 import { deflateSync } from "node:zlib";
-import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, or, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, money as m, pdf, reporting, time } from "@opentradesos/core";
-import { guardedRead, NotFoundError, timezoneOf, type ServiceContext } from "./context";
+import { guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
+import { invoiceScopeFilter, estimateScopeFilter } from "./scope";
 import { InvalidGrantError, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
 import { proposalWithin } from "./proposals";
 import { buildStatement, type Statement } from "./statements";
@@ -58,7 +59,12 @@ export async function invoiceDocWithin(
   tx: Database,
   organizationId: string,
   invoiceId: string,
-  options: { customerId?: string | undefined; customerFacing?: boolean | undefined } = {},
+  options: {
+    customerId?: string | undefined;
+    customerFacing?: boolean | undefined;
+    /** The office reader's invoice scope, so a technician's PDF is of their own work only. */
+    scope?: SQL | undefined;
+  } = {},
 ): Promise<pdf.InvoicePdfInput> {
   const [invoice] = await tx.select({
     number: schema.invoice.number,
@@ -85,6 +91,7 @@ export async function invoiceDocWithin(
         eq(schema.invoice.payerCustomerId, options.customerId),
       )] : []),
       ...(options.customerFacing ? [ne(schema.invoice.status, "draft")] : []),
+      options.scope,
     ))
     .limit(1);
   if (!invoice) throw new NotFoundError("Invoice");
@@ -177,10 +184,16 @@ const invoiceFile = (doc: pdf.InvoicePdfInput): PdfFile => ({
   bytes: pdf.invoicePdf(doc, RENDER),
 });
 
-/** The office's copy, under the same permission as reading the invoice. */
+/**
+ * The office's copy, under the same permission as reading the invoice and the
+ * same scope as the invoice list: a technician who sees invoices on their own
+ * work gets a PDF of those and a not found for the rest.
+ */
 export function invoicePdf(ctx: ServiceContext, input: { id: string }): Promise<PdfFile> {
   return guardedRead(ctx, "invoice:read", async (tx) =>
-    invoiceFile(await invoiceDocWithin(tx, ctx.actor.organizationId, input.id)));
+    invoiceFile(await invoiceDocWithin(tx, ctx.actor.organizationId, input.id, {
+      scope: invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor),
+    })));
 }
 
 /**
@@ -226,7 +239,14 @@ function proposalFile(doc: Awaited<ReturnType<typeof proposalWithin>>): PdfFile 
 
 /** The proposal the office prints at `/estimates/{id}/proposal`, as a file. */
 export function proposalPdf(ctx: ServiceContext, input: { id: string }): Promise<PdfFile> {
-  return guardedRead(ctx, "estimate:read", async (tx) => proposalFile(await proposalWithin(tx, ctx, input.id)));
+  return guardedRead(ctx, "estimate:read", async (tx) => {
+    /** In scope, as the estimate list is: out of it reads as not found. */
+    const [visible] = await tx.select({ id: schema.estimate.id }).from(schema.estimate)
+      .where(and(eq(schema.estimate.id, input.id), estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor)))
+      .limit(1);
+    if (!visible) throw new NotFoundError("Estimate");
+    return proposalFile(await proposalWithin(tx, ctx, input.id));
+  });
 }
 
 /** The customer's copy, from their estimate link, peeked like the page. */

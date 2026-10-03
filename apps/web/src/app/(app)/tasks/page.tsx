@@ -1,9 +1,8 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { tasks, obligations, visitChanges, inTenant, taskRules } from "@opentradesos/api/services";
-import { schema } from "@opentradesos/db";
-import { inArray } from "drizzle-orm";
+import { tasks, obligations, visitChanges, taskRules } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
+import { LINKS } from "@/lib/record-links";
 import { Chip } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 import { Empty, PageHeader } from "@/components/Table";
@@ -52,19 +51,6 @@ function hoursAway(minutes: number): string {
 }
 
 /** Where a task about a record actually goes. */
-const LINKS: Record<string, (id: string) => string> = {
-  job: (id) => `/jobs/${id}`,
-  customer: (id) => `/customers/${id}`,
-  invoice: (id) => `/invoices/${id}`,
-  conversation: (id) => `/inbox/${id}`,
-  /** Raised by the estimate follow up, and by a renewal notice that could not go. */
-  estimate: (id) => `/estimates/${id}`,
-  agreement: (id) => `/agreements/${id}`,
-  /** An escalation's notice is about the late task, and opens it. */
-  task: (id) => `/tasks/${id}`,
-  /** Raised when somebody reports an incident, and by every follow up added to one. */
-  incident_report: (id) => `/compliance/incidents/${id}`,
-};
 
 export default async function TasksPage({
   searchParams,
@@ -104,42 +90,15 @@ export default async function TasksPage({
    */
   const due = await obligations.open(ctx, { limit: 50 });
 
-  /**
-   * A visit has no screen of its own; it is shown inside its job. The
-   * obligation keeps the visit id because a job can carry several and only
-   * one of them is the one in question, so the resolution to a job happens
-   * here, where the link is, rather than by the raiser throwing away which
-   * visit it was.
-   */
-  const visitIds = due.filter((o) => o.entityType === "visit").map((o) => o.entityId);
-  const jobOfVisit = new Map<string, string>(
-    visitIds.length === 0 ? [] : (await inTenant(ctx, (tx) =>
-      tx.select({ id: schema.visit.id, jobId: schema.visit.jobId })
-        .from(schema.visit)
-        .where(inArray(schema.visit.id, visitIds)),
-    )).map((v) => [v.id, v.jobId] as const),
-  );
-
-  /**
-   * A unit has no page of its own either; it is shown on its address. A
-   * warranty follow up keeps the unit's id, and the hop to the address is
-   * made here for the same reason as the visit's.
-   */
-  const unitIds = page.data.filter((t) => t.entityType === "equipment" && t.entityId).map((t) => t.entityId!);
-  const addressOfUnit = new Map<string, string>(
-    unitIds.length === 0 ? [] : (await inTenant(ctx, (tx) =>
-      tx.select({ id: schema.equipment.id, propertyId: schema.equipment.propertyId })
-        .from(schema.equipment)
-        .where(inArray(schema.equipment.id, unitIds)),
-    )).map((u) => [u.id, u.propertyId] as const),
-  );
   const people = writes ? await taskRules.assignable(ctx) : [];
 
-  /** Where a deadline about a record goes, with the visit hop applied. */
+  /**
+   * Where a deadline about a record goes. A visit and a unit each have a
+   * page of their own now, so a deadline about one opens it rather than its
+   * job or its address.
+   */
   const deadlineLink = (entityType: string, entityId: string): string | undefined =>
-    entityType === "visit"
-      ? (jobOfVisit.has(entityId) ? `/jobs/${jobOfVisit.get(entityId)}` : undefined)
-      : LINKS[entityType]?.(entityId);
+    LINKS[entityType]?.(entityId);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -188,7 +147,7 @@ export default async function TasksPage({
                       href={deadlineLink(item.entityType, item.entityId)}
                       className="text-ink-700 hover:underline"
                     >
-                      {item.entityType === "visit" ? "Open the job" : `Open the ${item.entityType}`}
+                      {`Open the ${item.entityType === "equipment" ? "unit" : item.entityType}`}
                     </a>
                   )}
                 </div>
@@ -227,13 +186,12 @@ export default async function TasksPage({
             const change = task.entityType === "visit_change_request" && task.entityId
               ? changes.get(task.entityId)
               : undefined;
+            /** A customer's request to move a visit opens the visit it is about. */
             const link = change
-              ? `/jobs/${change.jobId}`
-              : task.entityType === "equipment" && task.entityId
-                ? (addressOfUnit.has(task.entityId) ? `/properties/${addressOfUnit.get(task.entityId)}` : undefined)
-                : task.entityType && task.entityId
-                  ? LINKS[task.entityType]?.(task.entityId)
-                  : undefined;
+              ? `/visits/${change.visitId}`
+              : task.entityType && task.entityId
+                ? LINKS[task.entityType]?.(task.entityId)
+                : undefined;
             return (
               <li key={task.id} className="bg-canvas p-4">
                 <div className="flex flex-wrap items-baseline gap-2">
@@ -275,8 +233,8 @@ export default async function TasksPage({
                   */}
                   {link && (
                     <a href={link} className="text-ink-700 hover:underline">
-                      {change ? "Open the job"
-                        : task.entityType === "equipment" ? "Open the address"
+                      {change ? "Open the visit"
+                        : task.entityType === "equipment" ? "Open the unit"
                         : task.entityType === "task" ? "Open the late task"
                         : task.entityType === "incident_report" ? "Open the incident report"
                         : `Open the ${task.entityType}`}
