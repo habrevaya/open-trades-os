@@ -133,3 +133,19 @@ describe("how often a phone should try", () => {
     expect(files.MAX_UPLOAD_ATTEMPTS).toBeLessThan(20);
   });
 });
+
+describe("call audio, accepted only where a recording is kept", () => {
+  const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00]);
+  const wav = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45, 0, 0]);
+
+  it("takes an MP3 or a WAV as a recording", () => {
+    expect(files.checkFile(mp3, { accept: "recordings" })).toMatchObject({ ok: true, contentType: "audio/mpeg", extension: "mp3" });
+    expect(files.checkFile(wav, { accept: "recordings" })).toMatchObject({ ok: true, contentType: "audio/wav" });
+  });
+
+  it("refuses audio on an ordinary upload, and a photograph as a recording", () => {
+    expect(files.checkFile(mp3).ok).toBe(false);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(files.checkFile(png, { accept: "recordings" }).ok).toBe(false);
+  });
+});

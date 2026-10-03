@@ -16,6 +16,7 @@ import {
   reports, deliverySchedules, statementDelivery,
   agreements, visitChanges,
   acquisition, marketingReport, phoneNumbers,
+  voice, websiteTracking, referrals,
 } from "../services/index";
 
 /**
@@ -685,6 +686,24 @@ export const handlers = {
   setReportSchedulePaused: deliverySchedules.handlers.setReportSchedulePaused,
   deleteReportSchedule: deliverySchedules.handlers.deleteReportSchedule,
   listReportDeliveries: deliverySchedules.handlers.listReportDeliveries,
+
+  // Native call tracking, the website snippet and referrals (M19)
+  searchAvailableNumbers: voice.handlers.searchAvailableNumbers,
+  buyTrackingNumber: voice.handlers.buyTrackingNumber,
+  setNumberRouting: voice.handlers.setNumberRouting,
+  releasePhoneNumber: voice.handlers.releasePhoneNumber,
+  recordPublicTouch: websiteTracking.handlers.recordPublicTouch,
+  getVisitorNumber: websiteTracking.handlers.getVisitorNumber,
+  getWebsiteTracking: websiteTracking.handlers.getWebsiteTracking,
+  setWebsiteTracking: websiteTracking.handlers.setWebsiteTracking,
+  getReferrals: referrals.handlers.getReferrals,
+  setReferralSettings: referrals.handlers.setReferralSettings,
+  settleReferralReward: referrals.handlers.settleReferralReward,
+  getCustomerReferral: referrals.handlers.getCustomerReferral,
+  setCustomerReferrer: referrals.handlers.setCustomerReferrer,
+  viewPortalReferral: referrals.handlers.viewPortalReferral,
+  getForm: forms.handlers.getForm,
+  getHostedForm: forms.handlers.getHostedForm,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

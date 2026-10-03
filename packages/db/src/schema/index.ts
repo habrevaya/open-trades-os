@@ -23,6 +23,7 @@ export * from "./comms";
 export * from "./automation";
 export * from "./inventory";
 export * from "./marketing";
+export * from "./tracking";
 export * from "./reviews";
 export * from "./ai";
 export * from "./assets";

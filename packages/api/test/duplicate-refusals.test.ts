@@ -144,6 +144,12 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   field_operation_client_idx: "The client's own operation id, which makes a retry safe.",
   field_upload_client_idx: "The client's own upload id, which makes a retry safe.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",
+  dni_session_live_idx:
+    "One live lease per pool number. Leasing inserts with on conflict do nothing and the loser "
+    + "takes the next free number, so two visitors are never shown one number.",
+  referral_reward_referred_idx:
+    "One reward per referred customer. The worker claims it with on conflict do nothing, which is "
+    + "what makes granting a reward idempotent however many passes look.",
   review_external_idx: "The platform's own review id, so a re-poll is not a second review.",
   lead_offer_external_idx: "The marketplace's own offer id.",
   external_work_order_uniq_idx:
@@ -173,6 +179,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   setup_token_token_idx:
     "The hash of a first-run setup link made from 256 random bits, emailed rather than typed.",
   stored_file_key_idx: "A generated storage key, not a filename somebody chose.",
+  customer_referral_code_idx:
+    "A referral code drawn at random by the service, which retries on a collision. Nobody types one in.",
+  web_form_public_key_idx:
+    "A hosted form's key made from 72 random bits on save, kept through every edit, never chosen.",
   credential_user_idx: "One credential row per user, written by the signup path.",
 
   /* --- one row per thing, upserted rather than inserted --- */

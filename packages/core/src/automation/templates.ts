@@ -92,6 +92,22 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
       },
     ],
   },
+  {
+    key: "missed_call_text_back",
+    name: "Text back a missed call",
+    summary:
+      "When a call comes in and nobody answers, wait a couple of minutes, and if nobody has spoken to them "
+      + "since, text the caller to say you will ring them back, and put the call back in the office queue.",
+    needs:
+      "A registered texting number that is not a tracking number. A caller who has replied STOP to you "
+      + "is not texted; the call back task is still raised.",
+    parameters: [{
+      key: "minutes",
+      label: "Minutes to wait first",
+      help: "Two gives whoever was on the other line a chance to ring them back before a text goes.",
+      kind: "number", default: 2, min: 0, max: 60,
+    }],
+  },
 ];
 
 export const templateByKey = (key: string): WorkflowTemplate | undefined =>
@@ -214,6 +230,38 @@ export function buildTemplate(key: string, values: Record<string, unknown>): Tem
                 + "have a minute, a review helps a local business like ours more than anything: "
                 + "{{ review.url }}",
             },
+          },
+        ],
+      },
+    };
+  }
+
+  if (key === "missed_call_text_back") {
+    const minutes = numberOf(template.parameters[0]!, values["minutes"]);
+    if (typeof minutes === "string") return { ok: false, reason: minutes };
+    return {
+      ok: true,
+      definition: {
+        name: template.name,
+        description:
+          `Installed from the recommended list. ${minutes} ${minutes === 1 ? "minute" : "minutes"} after a call `
+          + "nobody answered, if nobody has spoken to the caller since: text them, then raise a call back for the office.",
+        triggerKind: "event",
+        triggerEvents: ["call.missed"],
+        steps: [
+          /** No wait at all for nought, rather than a wait the engine reads as missing. */
+          ...(minutes > 0 ? [{ kind: "wait", config: { minutes } }] : []),
+          { kind: "stop_unless", config: { check: "caller_not_reached" } },
+          {
+            kind: "text_caller",
+            config: {
+              body: "Hi, this is {{ organization.name }}. Sorry we missed your call. We will ring you back "
+                + "shortly, or reply here and tell us what you need.",
+            },
+          },
+          {
+            kind: "create_task",
+            config: { title: "Ring back {{ from }}, a missed call", queue: "office", dueInHours: 1, priority: "high" },
           },
         ],
       },

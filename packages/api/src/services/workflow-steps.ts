@@ -1,4 +1,4 @@
-import { and, eq, isNull, desc } from "drizzle-orm";
+import { and, eq, isNull, desc, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import * as phoneNumbers from "./phone-numbers";
 import { renderWithin } from "./message-templates";
@@ -561,7 +561,41 @@ async function holds(
       }
       return { holds: true };
     }
+    case "caller_not_reached":
+      return callerNotReached(tx, event);
   }
+}
+
+/**
+ * Has anybody spoken to the caller since the call nobody answered.
+ *
+ * Two ways somebody has: they rang again and a person picked up, or a person
+ * here rang them. Either is a later call on the same number, matched in E.164
+ * because that is how both writers of calls store the caller.
+ */
+async function callerNotReached(
+  tx: Database,
+  event: typeof schema.domainEvent.$inferSelect,
+): Promise<{ holds: true } | { holds: false; because: string }> {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const from = typeof payload["from"] === "string" ? comms.phoneAddress(payload["from"]) : null;
+  if (!from) return { holds: false, because: "the event names no caller" };
+  const at = typeof payload["startedAt"] === "string" ? new Date(payload["startedAt"]) : event.createdAt;
+  const later = await tx.select({ direction: schema.call.direction, status: schema.call.status })
+    .from(schema.call)
+    .where(and(
+      sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) > ${at.toISOString()}::timestamptz`,
+      sql`(${schema.call.direction} = 'inbound' and ${schema.call.fromE164} = ${from}
+        and ${schema.call.answeredAt} is not null)
+        or (${schema.call.direction} = 'outbound' and ${schema.call.toE164} = ${from})`,
+    )).limit(1);
+  if (later[0]) {
+    return {
+      holds: false,
+      because: later[0].direction === "outbound" ? "somebody here rang them back" : "they rang again and were answered",
+    };
+  }
+  return { holds: true };
 }
 
 const estimateIdOf = (event: typeof schema.domainEvent.$inferSelect): string | undefined =>
@@ -842,4 +876,51 @@ export async function sendReviewRequest(
   }).where(and(eq(schema.reviewRequest.id, request.id), eq(schema.reviewRequest.state, "queued")));
 
   return { ok: true, output: { sent: false, queued: true, messageId } };
+}
+
+/* --------------------------------------------------------- a missed call */
+
+/**
+ * Text back the number that rang.
+ *
+ * The number comes from the event (`from`), never from a customer record,
+ * because the caller is usually nobody yet. The send is `sendTransactional`,
+ * the one gate every conversational text goes through: a suppression or a
+ * revocation stops it, it is queued rather than claimed as sent, and it goes
+ * from the number `senderFor` picks, which is never a tracking number. A
+ * reply to it therefore lands in the ordinary inbox thread rather than being
+ * credited to a campaign as a new lead.
+ *
+ * A refusal is a successful step that did not send, the same as the other
+ * senders: a caller who said STOP must not turn the automation red.
+ */
+export async function textCaller(
+  tx: Database,
+  ctx: ServiceContext,
+  config: Record<string, unknown>,
+  event: typeof schema.domainEvent.$inferSelect,
+  runId: string,
+): Promise<StepResult> {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const from = typeof payload["from"] === "string" ? payload["from"] : null;
+  if (!from) return { ok: false, reason: "the event names no caller to text" };
+
+  const [org] = await tx.select({ name: schema.organization.name }).from(schema.organization)
+    .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
+  const body = render(String(config["body"] ?? ""), {
+    ...payload, organization: { name: org?.name ?? "" },
+  }).trim();
+  if (body === "") return { ok: false, reason: "step has no body" };
+
+  const outcome = await sendTransactional(tx, {
+    organizationId: ctx.actor.organizationId,
+    address: from,
+    body,
+    customerId: typeof payload["customerId"] === "string" ? payload["customerId"] : null,
+  });
+  if (!outcome.sent) return { ok: true, output: { sent: false, refused: outcome.reason } };
+
+  await tx.update(schema.message).set({ automationRef: `run:${runId}` })
+    .where(eq(schema.message.id, outcome.messageId));
+  return { ok: true, output: { sent: false, queued: true, messageId: outcome.messageId } };
 }

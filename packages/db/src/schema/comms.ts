@@ -140,6 +140,13 @@ export const phoneNumberPurpose = pgEnum("phone_number_purpose", [
   /** Outbound only, for a sending pool. */
   "sending",
   "fax",
+  /**
+   * One of the numbers the website snippet swaps onto a page, one per visitor
+   * at a time, so a call on it can be matched back to the visit that showed
+   * it. Never sent from and never credited to a campaign of its own: the
+   * visit it was shown on is its attribution.
+   */
+  "pool",
 ]);
 
 /**
@@ -189,6 +196,29 @@ export const phoneNumber = pgTable("phone_number", {
   attributionSource: text("attribution_source"),
   /** Whether the provider has confirmed it may send. */
   smsRegistered: boolean("sms_registered").notNull().default(false),
+  /**
+   * The carrier's own id for the number, set when it was bought through this
+   * product (Twilio's `PN...`). It is what releasing it at the carrier needs,
+   * and its absence is what says a number was typed in by hand and is the
+   * operator's to hand back.
+   */
+  providerNumberId: text("provider_number_id"),
+  /**
+   * HOW A CALL TO IT IS ANSWERED, for a number whose calls this product
+   * routes. Four plain settings rather than a routing table, because a
+   * tracking number does one thing: ring the office, and say where the call
+   * came from before it connects.
+   *
+   * `whisper` names the channel and campaign to the person answering.
+   * `record_calls` asks the caller whether the call may be recorded, and
+   * nothing is recorded unless the recording check then says yes.
+   * `route_by_hours` sends calls outside the company's business hours to
+   * `after_hours_forwards_to_e164`, or to voicemail when that is empty.
+   */
+  whisper: boolean("whisper").notNull().default(false),
+  recordCalls: boolean("record_calls").notNull().default(false),
+  routeByHours: boolean("route_by_hours").notNull().default(false),
+  afterHoursForwardsToE164: text("after_hours_forwards_to_e164"),
   releasedAt: timestamp("released_at", { withTimezone: true }),
   ...timestamps,
   ...sourceRef,
@@ -506,7 +536,22 @@ export const call = pgTable("call", {
   /** When the recording notice was played. The precondition, not an inference from it. */
   announcementPlayedAt: timestamp("announcement_played_at", { withTimezone: true }),
   recordingDeletedAt: timestamp("recording_deleted_at", { withTimezone: true }),
+  /**
+   * Where the audio is kept, when this product keeps it: the content
+   * addressed key of a stored file. `recording_url` is cleared with it on
+   * deletion, and both are only ever written after the recording check said
+   * yes for this call.
+   */
+  recordingStorageKey: text("recording_storage_key"),
   voicemailUrl: text("voicemail_url"),
+  /** The voicemail's stored file, for a call this product answered. */
+  voicemailStorageKey: text("voicemail_storage_key"),
+  /**
+   * Why the call went where it went, in one sentence, from core's router.
+   * "Why did that customer get voicemail at two in the afternoon" is the
+   * question this is kept to answer.
+   */
+  routedBecause: text("routed_because"),
   /** The readable rendering, already redacted. Never the provider's raw text. */
   transcript: text("transcript"),
   /**

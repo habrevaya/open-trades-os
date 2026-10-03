@@ -1,0 +1,82 @@
+/**
+ * THE VOICE SEAM
+ *
+ * What this product needs from a carrier to run a tracking number itself:
+ * find a number, buy it pointed at our webhooks, hand it back, fetch a
+ * recording the recording check allowed and delete the carrier's copy, and
+ * prove a webhook came from the carrier. Nothing about routing or consent is
+ * the carrier's business; both are decided here and handed over as
+ * instructions.
+ *
+ * Every call returns a result rather than throwing for the carrier saying no,
+ * because "that number was bought by somebody else a second ago" is an answer
+ * the settings screen shows, not a crash.
+ */
+
+export type VoiceResult<T> =
+  | ({ ok: true } & T)
+  | { ok: false; code: string; message: string; retryable: boolean };
+
+export interface AvailableNumber {
+  e164: string;
+  /** As the carrier writes it, for the list somebody picks from. */
+  friendlyName: string;
+  locality: string | null;
+  region: string | null;
+}
+
+export interface WebhookRequest {
+  /** The public URL the carrier was given, including any query string. */
+  url: string;
+  headers: Record<string, string>;
+  /** The raw form body, exactly as received. */
+  body: string;
+}
+
+export interface NumberWebhooks {
+  /** Where the carrier asks what to do with a call. */
+  voiceUrl: string;
+  /** Where it reports how a call ended. */
+  statusUrl: string;
+  /** Where texts to the number go: the ordinary messaging webhook. */
+  smsUrl: string;
+}
+
+export interface VoiceProvider {
+  readonly name: string;
+  /** Whether this request genuinely came from the carrier. Never optional. */
+  verify(request: WebhookRequest): boolean;
+  searchNumbers(query: {
+    areaCode?: string | undefined; locality?: string | undefined; region?: string | undefined; limit: number;
+  }): Promise<VoiceResult<{ numbers: AvailableNumber[] }>>;
+  buyNumber(input: { e164: string; webhooks: NumberWebhooks; label?: string | undefined }):
+    Promise<VoiceResult<{ providerNumberId: string; e164: string }>>;
+  /** Point a number the account already holds at our webhooks. */
+  configureNumber(input: { providerNumberId: string; webhooks: NumberWebhooks }): Promise<VoiceResult<object>>;
+  releaseNumber(providerNumberId: string): Promise<VoiceResult<object>>;
+  fetchRecording(recordingUrl: string): Promise<VoiceResult<{ bytes: Uint8Array }>>;
+  deleteRecording(recordingId: string): Promise<VoiceResult<object>>;
+}
+
+export class VoiceProviderNotConfiguredError extends Error {
+  constructor(provider: string) {
+    super(`No voice provider for "${provider}". Calls are routed only through a connected Twilio account.`);
+    this.name = "VoiceProviderNotConfiguredError";
+  }
+}
+
+type Factory = (settings: Record<string, unknown>, secret: string) => VoiceProvider;
+const registry = new Map<string, Factory>();
+
+/** Registered rather than imported, the same as every other adapter seam here. */
+export function registerVoiceProvider(name: string, factory: Factory): void {
+  registry.set(name, factory);
+}
+
+export function createVoiceProvider(name: string, settings: Record<string, unknown>, secret: string): VoiceProvider {
+  const factory = registry.get(name);
+  if (!factory) throw new VoiceProviderNotConfiguredError(name);
+  return factory(settings, secret);
+}
+
+export const voiceCapableProviders = (): string[] => [...registry.keys()];

@@ -8,6 +8,7 @@ import { SHAPES } from "./workflow-dwell";
 import { checkReportStep } from "./report-delivery";
 import { refusingDuplicate } from "./duplicates";
 import { policyFor, reviewUrlFor } from "./reviews";
+import * as phoneNumbers from "./phone-numbers";
 
 /**
  * AUTOMATIONS, AS SOMETHING A PERSON CAN SEE AND TURN OFF
@@ -668,6 +669,12 @@ const IMPLEMENTED = [
     label: "Send the review request",
     description: "Sends the ask your review rules queued for the job, with the link to your review site.",
   },
+  {
+    kind: "text_caller",
+    label: "Text the caller back",
+    description:
+      "Texts the number that rang, after a missed call. Never from a tracking number, and never to somebody who replied STOP.",
+  },
 ];
 
 /** The things an automation can wait on, as the screen has to name them. */
@@ -732,6 +739,8 @@ export async function recommended(ctx: ServiceContext): Promise<RecommendedAutom
       .map((p) => ({ platform: p.platform, displayName: p.displayName }));
 
     const hasPolicy = await policyFor(tx, ctx.actor.organizationId).then(() => true, () => false);
+    /** The number a text back would come from: never a tracking one, by `senderFor`'s own rule. */
+    const sender = await phoneNumbers.senderFor(tx, ctx.actor.organizationId, { smsRequired: true });
 
     return automation.TEMPLATES.map((template) => {
       const install = installs.find((row) => row.templateKey === template.key);
@@ -742,6 +751,9 @@ export async function recommended(ctx: ServiceContext): Promise<RecommendedAutom
         } else if (platforms.length === 0) {
           blockedBy = "Declare where your customers leave reviews, with its link, under Reviews first.";
         }
+      }
+      if (template.key === "missed_call_text_back" && !sender) {
+        blockedBy = "Add a number that is cleared to text, under Settings. A tracking number never texts, so it does not count.";
       }
       return {
         key: template.key,

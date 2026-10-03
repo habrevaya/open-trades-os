@@ -319,7 +319,7 @@ run("seeing what happened", () => {
     const kinds = workflows.availableSteps(owner()).map((s) => s.kind);
     expect(kinds).toEqual([
       "send_message", "create_task", "wait", "email_report", "branch",
-      "stop_unless", "send_estimate", "request_review", "send_review_request",
+      "stop_unless", "send_estimate", "request_review", "send_review_request", "text_caller",
     ]);
     expect(kinds).not.toContain("record_payment");
   });

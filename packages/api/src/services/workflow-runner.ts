@@ -4,7 +4,7 @@ import { automation, comms, type Actor, type Permission, SYSTEM_USER_ID } from "
 import { inTenant, type ServiceContext } from "./context";
 import { emit } from "./events";
 import {
-  sendMessage, createTask, waitStep, branchStep, emailReport, stopUnless, sendEstimateLink,
+  sendMessage, createTask, waitStep, branchStep, emailReport, stopUnless, sendEstimateLink, textCaller,
   requestReview, sendReviewRequest, type StepResult,
 } from "./workflow-steps";
 
@@ -469,6 +469,8 @@ async function perform(
       return requestReview(tx, ctx, step.config ?? {}, event, now);
     case "send_review_request":
       return sendReviewRequest(tx, ctx, step.config ?? {}, event, runId, now);
+    case "text_caller":
+      return textCaller(tx, ctx, step.config ?? {}, event, runId);
     default:
       return { ok: false, reason: `step kind not implemented: ${step.kind}` };
   }

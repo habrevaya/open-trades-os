@@ -1,4 +1,5 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, date, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, uniqueIndex, date, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, geocodeColumns } from "./_shared";
 import { organization } from "./tenancy";
 import { marketingChannel, acquisitionCampaign } from "./acquisition";
@@ -80,10 +81,33 @@ export const customer = pgTable("customer", {
    * that is actually current.
    */
   mergedIntoId: uuid("merged_into_id"),
+  /**
+   * The customer who sent them, when somebody did.
+   *
+   * Written once, from a referral link they arrived through or by the office,
+   * and never overwritten by a later link: the neighbour who told them about
+   * the company is the referrer, and a second neighbour sharing a link a year
+   * later does not take the first one's reward. Set null when the referrer is
+   * deleted rather than cascading, because the referred customer is still a
+   * customer.
+   */
+  referredByCustomerId: uuid("referred_by_customer_id")
+    .references((): AnyPgColumn => customer.id, { onDelete: "set null" }),
+  /**
+   * The code in this customer's own shareable link. Minted the first time
+   * anybody asks for it rather than at creation, so the thousands of
+   * customers nobody will ever ask to refer anyone carry nothing. Short,
+   * unambiguous to read aloud, and unique within the company: it is typed
+   * into a phone by a neighbour as often as it is clicked.
+   */
+  referralCode: text("referral_code"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("customer_source_ref_idx", t),
+  referralCodeIdx: uniqueIndex("customer_referral_code_idx").on(t.organizationId, t.referralCode)
+    .where(sql`${t.referralCode} is not null`),
+  referredByIdx: index("customer_referred_by_idx").on(t.organizationId, t.referredByCustomerId),
   orgIdx: index("customer_org_idx").on(t.organizationId),
   nameIdx: index("customer_name_idx").on(t.organizationId, t.name),
   emailIdx: index("customer_email_idx").on(t.organizationId, t.email),

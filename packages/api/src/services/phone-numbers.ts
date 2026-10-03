@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { marketing as mk } from "@opentradesos/core";
+import { marketing as mk, voice } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -31,7 +31,7 @@ import * as acquisition from "./acquisition";
  * `senderFor` below is the rule, in one place, used by both senders.
  */
 
-export const PURPOSES = ["main", "tracking", "user", "sending", "fax"] as const;
+export const PURPOSES = ["main", "tracking", "user", "sending", "fax", "pool"] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
 /**
@@ -115,6 +115,17 @@ export interface NumberInput {
   channelId?: string | null | undefined;
   forwardsToE164?: string | null | undefined;
   smsRegistered?: boolean | undefined;
+  /**
+   * How a call to it is answered, for a number whose calls this product
+   * routes (one bought through the company's carrier account). Stored on any
+   * number and read only for those.
+   */
+  whisper?: boolean | undefined;
+  recordCalls?: boolean | undefined;
+  routeByHours?: boolean | undefined;
+  afterHoursForwardsToE164?: string | null | undefined;
+  /** The carrier's id, set by the purchase and nothing else. */
+  providerNumberId?: string | null | undefined;
 }
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -134,6 +145,17 @@ function validate(input: NumberInput) {
   }
 
   const source = input.attributionSource?.trim() || null;
+  if (purpose === "pool" && (source !== null || input.campaignId || input.channelId)) {
+    /**
+     * A pool number's calls are credited to the website visit that was shown
+     * the number, so a campaign of its own would be a second, contradicting
+     * answer to where the call came from.
+     */
+    throw new ConflictError(
+      "A website pool number is credited to the visit it was shown on, not to a campaign. Clear the campaign.",
+    );
+  }
+
   if ((input.campaignId || input.channelId) && purpose !== "tracking") {
     throw new ConflictError(
       "Only a tracking number is credited to a campaign. Set this number's purpose to tracking, or clear the campaign.",
@@ -167,6 +189,21 @@ function validate(input: NumberInput) {
       );
     }
   }
+
+  for (const [label, value] of [
+    ["forwarding number", input.forwardsToE164], ["after hours number", input.afterHoursForwardsToE164],
+  ] as const) {
+    const given = value?.trim();
+    if (given && !E164.test(given)) {
+      throw new ConflictError(`The ${label} "${given}" is not dialable. Write it in full: +15125550123.`);
+    }
+  }
+  const routing = voice.checkNumberRouting({
+    forwardsToE164: input.forwardsToE164?.trim() || null,
+    routeByHours: input.routeByHours ?? false,
+    afterHoursForwardsToE164: input.afterHoursForwardsToE164?.trim() || null,
+  });
+  if (!routing.ok) throw new ConflictError(routing.reason);
 
   if (purpose === "tracking" && source === null && !input.campaignId && !input.channelId) {
     /**
@@ -210,36 +247,52 @@ async function trackingOf(tx: Database, organizationId: string, input: {
 }
 
 export async function add(ctx: ServiceContext, input: NumberInput) {
-  return guardedWrite(ctx, "settings:write", async (tx) => {
-    const { e164, purpose, source } = validate(input);
+  return guardedWrite(ctx, "settings:write", (tx) => addWithin(tx, ctx, input));
+}
 
-    const [existing] = await tx.select({ id: schema.phoneNumber.id })
-      .from(schema.phoneNumber)
-      .where(and(
-        eq(schema.phoneNumber.organizationId, ctx.actor.organizationId),
-        eq(schema.phoneNumber.e164, e164),
-        isNull(schema.phoneNumber.releasedAt),
-      )).limit(1);
-    if (existing) throw new ConflictError("That number is already on file.");
-    const tracking = await trackingOf(tx, ctx.actor.organizationId, {
-      purpose, source, campaignId: input.campaignId, channelId: input.channelId,
-    });
-
-    const [row] = await tx.insert(schema.phoneNumber).values({
-      organizationId: ctx.actor.organizationId,
-      e164,
-      purpose,
-      label: input.label?.trim() || null,
-      attributionSource: tracking.source,
-      channelId: tracking.channelId,
-      acquisitionCampaignId: tracking.campaignId,
-      forwardsToE164: input.forwardsToE164?.trim() || null,
-      smsRegistered: input.smsRegistered ?? false,
-    }).returning();
-
-    await audit(tx, ctx, "phone_number.added", "phone_number", row!.id, null, row!);
-    return shape(row!);
+/** Checked before anything is bought, so a purchase never lands on a refusal. */
+export async function checkNew(tx: Database, ctx: ServiceContext, input: NumberInput) {
+  const { purpose, source } = validate(input);
+  await trackingOf(tx, ctx.actor.organizationId, {
+    purpose, source, campaignId: input.campaignId, channelId: input.channelId,
   });
+}
+
+/** The insert, inside a transaction the caller holds: the settings form and a purchase. */
+export async function addWithin(tx: Database, ctx: ServiceContext, input: NumberInput) {
+  const { e164, purpose, source } = validate(input);
+
+  const [existing] = await tx.select({ id: schema.phoneNumber.id })
+    .from(schema.phoneNumber)
+    .where(and(
+      eq(schema.phoneNumber.organizationId, ctx.actor.organizationId),
+      eq(schema.phoneNumber.e164, e164),
+      isNull(schema.phoneNumber.releasedAt),
+    )).limit(1);
+  if (existing) throw new ConflictError("That number is already on file.");
+  const tracking = await trackingOf(tx, ctx.actor.organizationId, {
+    purpose, source, campaignId: input.campaignId, channelId: input.channelId,
+  });
+
+  const [row] = await tx.insert(schema.phoneNumber).values({
+    organizationId: ctx.actor.organizationId,
+    e164,
+    purpose,
+    label: input.label?.trim() || null,
+    attributionSource: tracking.source,
+    channelId: tracking.channelId,
+    acquisitionCampaignId: tracking.campaignId,
+    forwardsToE164: input.forwardsToE164?.trim() || null,
+    smsRegistered: input.smsRegistered ?? false,
+    whisper: input.whisper ?? false,
+    recordCalls: input.recordCalls ?? false,
+    routeByHours: input.routeByHours ?? false,
+    afterHoursForwardsToE164: input.afterHoursForwardsToE164?.trim() || null,
+    providerNumberId: input.providerNumberId ?? null,
+  }).returning();
+
+  await audit(tx, ctx, "phone_number.added", "phone_number", row!.id, null, row!);
+  return shape(row!);
 }
 
 export async function update(
@@ -281,6 +334,11 @@ export async function update(
       forwardsToE164: input.forwardsToE164 !== undefined
         ? input.forwardsToE164 : before.forwardsToE164,
       smsRegistered: input.smsRegistered ?? before.smsRegistered,
+      whisper: input.whisper ?? before.whisper,
+      recordCalls: input.recordCalls ?? before.recordCalls,
+      routeByHours: input.routeByHours ?? before.routeByHours,
+      afterHoursForwardsToE164: input.afterHoursForwardsToE164 !== undefined
+        ? input.afterHoursForwardsToE164 : before.afterHoursForwardsToE164,
     };
     const { e164, purpose, source } = validate(merged);
     const tracking = await trackingOf(tx, ctx.actor.organizationId, {
@@ -296,6 +354,10 @@ export async function update(
       acquisitionCampaignId: tracking.campaignId,
       forwardsToE164: merged.forwardsToE164?.trim() || null,
       smsRegistered: merged.smsRegistered ?? false,
+      whisper: merged.whisper ?? false,
+      recordCalls: merged.recordCalls ?? false,
+      routeByHours: merged.routeByHours ?? false,
+      afterHoursForwardsToE164: merged.afterHoursForwardsToE164?.trim() || null,
       updatedAt: new Date(),
     }).where(eq(schema.phoneNumber.id, input.id)).returning();
 
@@ -434,6 +496,10 @@ async function load(tx: Database, organizationId: string, id: string) {
   return row;
 }
 
+export function shapeOf(row: typeof schema.phoneNumber.$inferSelect) {
+  return shape(row);
+}
+
 function shape(row: typeof schema.phoneNumber.$inferSelect) {
   return {
     id: row.id,
@@ -445,6 +511,12 @@ function shape(row: typeof schema.phoneNumber.$inferSelect) {
     campaignId: row.acquisitionCampaignId,
     forwardsToE164: row.forwardsToE164,
     smsRegistered: row.smsRegistered,
+    /** Whether this product routes its calls: it was bought through the company's carrier account. */
+    routedHere: row.providerNumberId !== null,
+    whisper: row.whisper,
+    recordCalls: row.recordCalls,
+    routeByHours: row.routeByHours,
+    afterHoursForwardsToE164: row.afterHoursForwardsToE164,
     releasedAt: row.releasedAt?.toISOString() ?? null,
   };
 }

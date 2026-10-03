@@ -532,6 +532,48 @@ revoke all on function app.consume_portal_grant(text, text) from public;
 revoke all on function app.peek_portal_grant(text) from public;
 revoke all on function app.revoke_portal_grant(text) from public;
 
+-- -------------------------------------------------------------------------
+-- COUNTING THE OPEN INTERNET
+--
+-- The public endpoints (a touch from the website snippet, a pool number for
+-- a visitor, a hosted form) count their callers in `public_rate_limit` and
+-- refuse past a ceiling. The count is taken before any tenant is known,
+-- because which company a request is for is part of what is being counted,
+-- so it cannot go through a policy keyed on the current organization.
+--
+-- Row level security is ON with no policy, so the application role can read
+-- and write nothing in the table directly. The only way in is this function,
+-- which adds one hit to a key's current window and returns the total. It
+-- returns a number about a key the caller supplied and nothing else, so it
+-- cannot be used to read anybody's traffic. Old windows are cleared as it
+-- goes, a day behind, so the table holds a day of minutes rather than years.
+alter table public.public_rate_limit enable row level security;
+alter table public.public_rate_limit force row level security;
+
+create or replace function app.count_public_hit(p_key text, p_window_seconds integer)
+  returns integer
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_window timestamptz := to_timestamp(
+      floor(extract(epoch from now()) / greatest(p_window_seconds, 1)) * greatest(p_window_seconds, 1));
+    v_hits integer;
+  begin
+    insert into public.public_rate_limit (key, window_start, hits)
+      values (left(p_key, 300), v_window, 1)
+      on conflict (key, window_start) do update set hits = public.public_rate_limit.hits + 1
+      returning hits into v_hits;
+    -- One in a hundred calls sweeps, which keeps the table small without a job.
+    if random() < 0.01 then
+      delete from public.public_rate_limit where window_start < now() - interval '1 day';
+    end if;
+    return v_hits;
+  end
+  $$;
+
+revoke all on function app.count_public_hit(text, integer) from public;
+grant execute on function app.count_public_hit(text, integer) to authenticated;
+
 -- =========================================================================
 -- COVERAGE ASSERTION
 --

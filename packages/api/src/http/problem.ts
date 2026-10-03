@@ -1,6 +1,7 @@
 import { PermissionError } from "@opentradesos/core";
 import {
   NotFoundError, ConflictError, InvalidGrantError, OrganizationSuspendedError, UnprocessableError,
+  TooManyRequestsError,
 } from "../services/context";
 
 /**
@@ -77,6 +78,11 @@ export function errorResponse(error: unknown): Response {
    * existed.
    */
   if (error instanceof InvalidGrantError) return problem(410, error.message);
+
+  /** 429 with Retry-After, for the public endpoints' per key ceilings. */
+  if (error instanceof TooManyRequestsError) {
+    return problem(429, error.message, {}, { "retry-after": String(error.retryAfterSeconds) });
+  }
 
   console.error("Unhandled error serving a request:", error);
   return problem(500, "Internal error");

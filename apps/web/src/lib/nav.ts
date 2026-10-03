@@ -259,6 +259,13 @@ export const NAV: NavGroup[] = [
            * cannot be mistaken for the tracking campaigns two lines up.
            */
           { href: "/marketing/campaigns", label: "Texts and emails" },
+          /**
+           * The forms the website and the hosted pages collect leads with, and
+           * the customers who send other customers. Beside the calls and the
+           * lead offers, because both are where leads come from.
+           */
+          { href: "/marketing/forms", label: "Lead forms" },
+          { href: "/marketing/referrals", label: "Referrals" },
           { href: "/marketing/connectors", label: "Connectors" },
         ],
       },
@@ -275,6 +282,11 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
+          /**
+           * The snippet a company pastes into its own site and the pool of
+           * numbers it swaps in. Under Settings because it is set up once.
+           */
+          { href: "/settings/website", label: "Website" },
           /**
            * The applications a company has let in, which is a different list from
            * the integrations this product ships: one is somebody else's software

@@ -51,6 +51,11 @@ const ORDER = [
   // Then the things work points at.
   "deficiency", "inspection", "inspection_program",
   "equipment_move", "equipment",
+  /**
+   * A referral reward points at the two customers and the first job, so it
+   * goes before all three.
+   */
+  "referral_reward",
   "customer_property", "contact", "property", "customer",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
@@ -92,6 +97,8 @@ const ORDER = [
   // string, never by id, which is why a party's jurisdiction can name a
   // place the operator has not declared.
   "recording_policy",
+  /** A website visitor's lease on a pool number points at the number. */
+  "dni_session",
   "phone_number", "messaging_campaign", "messaging_brand",
   "portal_event", "portal_grant",
   "booking_request", "bookable_service", "arrival_window",

@@ -50,7 +50,32 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         <Fact label="Channel">{call.channelName}</Fact>
         <Fact label="What it was">{call.outcomeLabel}</Fact>
         <Fact label="Caller">{call.firstTimeCaller === true ? "First time" : call.firstTimeCaller === false ? "Called before" : null}</Fact>
+        {call.routedBecause ? <Fact label="Where it went">{call.routedBecause}</Fact> : null}
       </Facts>
+
+      {/*
+        The audio, when this product keeps it. A recording appears only for a
+        call the recording check allowed and nobody has deleted; when one was
+        asked for and refused, the refusal says so rather than leaving a gap.
+      */}
+      {call.hasRecording || call.hasVoicemail || call.recordingRefusal ? (
+        <section className="mt-6 space-y-3" aria-label="Recording">
+          {call.hasRecording ? (
+            <div>
+              <h2 className="text-sm font-medium">Recording</h2>
+              <audio controls preload="none" src={`/marketing/calls/${call.id}/recording`} className="mt-1 w-full" />
+            </div>
+          ) : call.recordingRefusal ? (
+            <p className="text-sm text-ink-700">Not recorded: {call.recordingRefusal.replace(/_/g, " ")}.</p>
+          ) : null}
+          {call.hasVoicemail ? (
+            <div>
+              <h2 className="text-sm font-medium">Voicemail</h2>
+              <audio controls preload="none" src={`/marketing/calls/${call.id}/voicemail`} className="mt-1 w-full" />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {call.jobId ? (
         <p className="mt-6 text-sm">
