@@ -154,6 +154,11 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     step_key: "Which setup step a row is about, such as payments or tax. A word from the "
       + "product's own list of steps, not a key to anything.",
   },
+  travel_time: {
+    origin_key: "A point on the map rounded to four decimal places, which a cached drive time starts "
+      + "from. A key in the sense of a lookup, not a credential.",
+    destination_key: "The point the same cached drive time ends at, rounded the same way.",
+  },
   property: {
     address_key: "The address itself, lower cased with its spacing tidied, which the geocoder "
       + "compares to decide whether a coordinate still answers for it. A key in the sense of a "

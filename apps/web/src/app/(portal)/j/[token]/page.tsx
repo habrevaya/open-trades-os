@@ -21,12 +21,22 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
   let job: Awaited<ReturnType<typeof portal.viewJob>>;
   let live: Awaited<ReturnType<typeof liveLocation.liveTracking>>;
   try {
-    [job, live] = await Promise.all([
-      portal.viewJob(getDb(), { token }),
-      liveLocation.liveTracking(getDb(), { token }),
-    ]);
+    job = await portal.viewJob(getDb(), { token });
   } catch {
     notFound();
+  }
+  try {
+    live = await liveLocation.liveTracking(getDb(), { token });
+  } catch {
+    /**
+     * The live part failing (a routing service timing out, say) must not
+     * take the customer's whole page with it: the page without the pin is
+     * still the page they came for.
+     */
+    live = {
+      tracking: false, status: "not_on_the_way", etaMinutes: null, etaBasis: null, technician: null,
+      position: null, destination: null, explanation: "",
+    };
   }
   /** The live part takes over once the technician is on the way: their name, the ETA, the pin, and then that they are here. */
   const showLive = live.status === "on_the_way" || live.status === "arrived";

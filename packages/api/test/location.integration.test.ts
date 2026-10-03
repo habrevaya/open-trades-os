@@ -273,6 +273,16 @@ run("the customer's tracking link", () => {
       .rejects.toThrow();
   });
 
+  it("answers for a job with no visit yet rather than failing the page", async () => {
+    const [job] = await raw<{ id: string }[]>`
+      insert into public.job (organization_id, number, customer_id, property_id, status, summary)
+      values (${ORG}, 99001, ${customerId}, ${propertyId}, 'lead', 'Just a question') returning id`;
+    const token = "t".repeat(40) + "lead";
+    await raw`insert into public.portal_grant (organization_id, customer_id, scope, subject_id, token_hash, expires_at)
+      values (${ORG}, ${customerId}, 'job', ${job!.id}, encode(sha256(${token}::bytea), 'hex'), now() + interval '1 day')`;
+    expect(await liveTracking(token)).toMatchObject({ status: "not_on_the_way", tracking: false, position: null });
+  });
+
   it("refuses a token that is not a job's", async () => {
     await expect(liveLocation.liveTracking(db(), { token: "x".repeat(43) })).rejects.toThrow();
   });

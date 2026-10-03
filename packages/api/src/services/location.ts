@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { geo, location as loc, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError,
   type ServiceContext,
 } from "./context";
 import { peek, inGrant, requireScope, pickVisit, InvalidGrantError } from "./portal";
@@ -385,7 +385,8 @@ export async function liveTracking(db: Database, input: { token: string; deps?: 
       .leftJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
       .where(eq(schema.visit.jobId, jobId))
       .orderBy(asc(schema.visit.windowStart));
-    if (visits.length === 0) throw new NotFoundError("Job");
+    /** A job with no visit yet (a lead, an estimate) has nobody coming, which is an answer. */
+    if (visits.length === 0) return null;
 
     const picked = pickVisit(visits.map((v) => ({
       id: v.visit.id, status: v.visit.status, windowStart: v.visit.windowStart,
@@ -442,6 +443,12 @@ export async function liveTracking(db: Database, input: { token: string; deps?: 
     };
   });
 
+  if (!loaded) {
+    return {
+      tracking: false, status: "not_on_the_way", etaMinutes: null, etaBasis: null, technician: null,
+      position: null, destination: null, explanation: "Once your technician is on the way, you will see them here.",
+    };
+  }
   const now = new Date();
   const s = loaded.status;
   const status: LiveTracking["status"] = s === "completed" || s === "completed_after_cancellation" ? "finished"
