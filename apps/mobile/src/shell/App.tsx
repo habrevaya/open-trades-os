@@ -9,6 +9,7 @@ import { VisitScreen } from "../screens/VisitScreen";
 import { SignatureScreen } from "../screens/SignatureScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { color } from "../components/theme";
+import { onNoticeTapped } from "../platform/notifications";
 
 /**
  * Five screens and a stack, held in state rather than in a navigation
@@ -48,6 +49,12 @@ function Screens() {
     const sub = BackHandler.addEventListener("hardwareBackPress", onBack);
     return () => sub.remove();
   }, [onBack]);
+
+  // A tapped notice about a change to the day opens the visit it is about.
+  useEffect(() => {
+    if (field.status !== "ready") return;
+    return onNoticeTapped((visitId) => setStack([{ name: "day" }, { name: "visit", visitId }]));
+  }, [field.status]);
 
   // A fresh sign in starts from the day.
   useEffect(() => {

@@ -89,7 +89,7 @@ run("the worker tick", () => {
     // And a run with no time left at all reaches nothing and moves nothing.
     const spent = await runBounded({
       db: db(), budgetMs: 1, now: (() => { let t = 0; return () => (t += 10); })(),
-      afterDrain: async () => {},
+      afterDrain: async () => {}, push: false,
     });
     expect(spent.stoppedForBudget).toBe(true);
     expect(await cursor()).toBe(1);

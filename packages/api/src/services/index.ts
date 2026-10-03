@@ -10,6 +10,8 @@ export * as portalAccount from "./portal-account";
 export * as deposits from "./deposits";
 export * as fieldOps from "./field";
 export * as fieldDevices from "./field-devices";
+export * as fieldPayments from "./field-payments";
+export * as push from "./push";
 export * as dispatch from "./dispatch";
 export * as booking from "./booking";
 export * as tradePacks from "./trade-pack";

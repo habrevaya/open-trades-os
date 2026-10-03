@@ -87,21 +87,29 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
         ) : null}
       </section>
 
-      {open && writes ? (
+      {/*
+        The person a task is assigned to may mark it done, the same as they
+        may tick it; dismissing it is the office's, so it is offered only
+        with `task:write`. The service holds the same line.
+      */}
+      {open && (writes || mine) ? (
         <section aria-label="Close it" className="mt-8">
           <h2 className="text-base font-semibold">Close it</h2>
           {list.open > 0 ? (
             <p className="mt-1 text-sm text-ink-700">
-              {list.open === 1 ? "One item is" : `${list.open} items are`} not ticked. Say why it is done anyway, or dismiss it.
+              {list.open === 1 ? "One item is" : `${list.open} items are`} not ticked.{" "}
+              {writes ? "Say why it is done anyway, or dismiss it." : "Say why it is done anyway."}
             </p>
           ) : null}
           <ActionForm action={finishTask} submit="Done" hidden={{ id }} className="mt-3 space-y-3">
             <TextField label="What happened" name="outcome" maxLength={2000} />
             {list.open > 0 ? <TextField label="Why it is done with items unticked" name="overrideReason" maxLength={2000} /> : null}
           </ActionForm>
-          <ActionForm action={finishTask} submit="Dismiss" tone="quiet" hidden={{ id, dismissed: "1" }} className="mt-4 space-y-3">
-            <TextField label="Why it is not being done" name="outcome" maxLength={2000} />
-          </ActionForm>
+          {writes ? (
+            <ActionForm action={finishTask} submit="Dismiss" tone="quiet" hidden={{ id, dismissed: "1" }} className="mt-4 space-y-3">
+              <TextField label="Why it is not being done" name="outcome" maxLength={2000} />
+            </ActionForm>
+          ) : null}
         </section>
       ) : null}
 

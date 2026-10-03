@@ -11,6 +11,8 @@ import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
 import { deliverOwed, type Transport } from "./webhooks";
+import { pushPass } from "./push";
+import type { PushProvider } from "../push/provider";
 
 /**
  * THE WORKER
@@ -235,6 +237,13 @@ export interface PassOptions {
    * transport, which is how a test keeps it off the network.
    */
   webhooks?: false | { send?: Transport };
+  /**
+   * Whether this pass also tells technicians' phones about changes to their
+   * day. On by default, through Expo's push service; `false` turns it off,
+   * and an object passes the provider, which is how a test keeps it off the
+   * network.
+   */
+  push?: false | { provider?: PushProvider };
 }
 
 /**
@@ -356,6 +365,23 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       // One organization's carrier being down must not stop the loop for
       // everybody else. The messages stay queued and go on the next pass.
       console.error(`[worker] outbox ${organizationId}:`, (error as Error).message);
+    }
+  }
+
+  /**
+   * Phones, after the drain, so a change the board made a moment ago is in
+   * the log by now and goes out on this pass. Its own try, like everything
+   * else here: a push service that is down must not hold up a webhook, and
+   * the notices it could not send are tried again next pass.
+   */
+  if (options.push !== false) {
+    try {
+      await pushPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.push?.provider ? { provider: options.push.provider } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] push:", (error as Error).message);
     }
   }
 

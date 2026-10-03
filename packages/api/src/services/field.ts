@@ -1,10 +1,11 @@
-import { and, eq, inArray, sql, desc, isNull, max } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { field } from "@opentradesos/core";
+import { field, money as m } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
+import * as billing from "./billing";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
 import { bindToken } from "./field-devices";
@@ -28,6 +29,15 @@ import type {
 export async function register(ctx: ServiceContext, input: z.infer<typeof registerDevice.input>) {
   return guardedWrite(ctx, "field:sync", async (tx) => {
     const technicianId = await technicianFor(tx, ctx);
+
+    /**
+     * A push token is checked before it is kept. Anything that is not one
+     * would be sent to the push service on every change to this person's day
+     * and refused every time.
+     */
+    if (input.pushToken !== undefined && !field.isExpoPushToken(input.pushToken)) {
+      throw new ConflictError("That is not a push token this server can send notices to.");
+    }
 
     /**
      * Keyed on the installation id, so a reinstall that kept it picks up its
@@ -57,6 +67,7 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
       if (ctx.deviceTokenHash) {
         await bindToken(tx, existing.id, existing.sessionTokenHash, ctx.deviceTokenHash);
       }
+      if (input.pushToken) await releasePushToken(tx, existing.id, input.pushToken);
 
       return { deviceId: existing.id, lastSequence: existing.lastSequence };
     }
@@ -81,9 +92,25 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
 
     await audit(tx, ctx, "device.registered", "device", created!.id, null,
       { installationId: input.installationId, platform: input.platform ?? null });
+    if (input.pushToken) await releasePushToken(tx, created!.id, input.pushToken);
 
     return { deviceId: created!.id, lastSequence: 0 };
   });
+}
+
+/**
+ * ONE HANDSET, ONE PERSON'S NOTICES.
+ *
+ * Two technicians sharing a phone each get a device row of their own, and the
+ * push token is the handset's, so it can sit on both rows. Whoever registered
+ * it last is the one signed in there now; the other row lets go of it, or the
+ * first person's changes would keep arriving on a phone in the second
+ * person's pocket.
+ */
+async function releasePushToken(tx: Database, deviceId: string, pushToken: string): Promise<void> {
+  await tx.update(schema.device)
+    .set({ pushToken: null, updatedAt: new Date() })
+    .where(and(eq(schema.device.pushToken, pushToken), ne(schema.device.id, deviceId)));
 }
 
 /**
@@ -390,6 +417,7 @@ async function ensureReport(
   const [visit] = await tx.select({
     id: schema.visit.id,
     jobId: schema.visit.jobId,
+    jobTypeId: schema.job.jobTypeId,
     customerId: schema.job.customerId,
     propertyId: schema.job.propertyId,
   }).from(schema.visit)
@@ -398,6 +426,14 @@ async function ensureReport(
     .limit(1);
   if (!visit) return "That visit is not here.";
 
+  /**
+   * The template the phone filled it in against: the job type's, as the
+   * snapshot offered it. Recorded with its version so the office reads the
+   * report against the fields the technician was actually asked for, not
+   * whatever the template says after somebody edits it next month.
+   */
+  const template = await templateFor(tx, visit.jobTypeId);
+
   await tx.insert(schema.serviceReport).values({
     id: reportId,
     organizationId: org,
@@ -405,6 +441,8 @@ async function ensureReport(
     jobId: visit.jobId,
     customerId: visit.customerId,
     propertyId: visit.propertyId,
+    templateId: template?.id ?? null,
+    templateVersion: template?.version ?? null,
   /**
    * For the race this function cannot see, and NOT for an ordinary replay:
    * the existence check at the top already returns before reaching here on
@@ -418,6 +456,126 @@ async function ensureReport(
   }).onConflictDoNothing();
 
   return null;
+}
+
+/**
+ * The active report template for a job type, newest version first. Exported
+ * because the snapshot offers the same template's fields to the phone, and
+ * the two must name the same one.
+ */
+export async function templateFor(tx: Database, jobTypeId: string | null) {
+  if (!jobTypeId) return null;
+  const [template] = await tx.select({
+    id: schema.serviceReportTemplate.id,
+    version: schema.serviceReportTemplate.version,
+    fields: schema.serviceReportTemplate.fields,
+  }).from(schema.serviceReportTemplate)
+    .where(and(
+      eq(schema.serviceReportTemplate.jobTypeId, jobTypeId),
+      eq(schema.serviceReportTemplate.active, true),
+    ))
+    .orderBy(desc(schema.serviceReportTemplate.version), desc(schema.serviceReportTemplate.createdAt))
+    .limit(1);
+  return template ?? null;
+}
+
+/**
+ * MONEY TAKEN IN A DRIVEWAY
+ *
+ * Cash or a check, recorded on the phone when it is handed over, which may be
+ * in a basement with no signal, and sent with everything else. Through the
+ * same `billing.pay` the office uses, so it lands in the books the same way:
+ * dated by when the money changed hands rather than when the phone found a
+ * signal, posted to the ledger, and refused for the same reasons (a closed
+ * period, a date too far back) in the same words.
+ *
+ * Applied to THIS job's open invoices first, oldest first, because that is
+ * what the customer was paying for, and not to whatever else they owe: the
+ * office decides about an old balance, the technician does not. Whatever is
+ * left, all of it when nothing has been invoiced yet, is held for the
+ * customer, where the office applies it later.
+ *
+ * Idempotent twice over, and both matter: the operation's client id makes a
+ * resent operation a replay that never reaches here, and the payment's own
+ * idempotency key is derived from it, so even a replay that did would find
+ * the payment it already made.
+ */
+/** The billing service's refusals, each already a sentence for a person. */
+const REFUSALS = new Set(["ConflictError", "UnprocessableError", "NotFoundError", "PeriodClosedError"]);
+
+async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<string | null> {
+  if (!op.subjectId) return "That payment names no visit.";
+  const method = op.payload["method"];
+  if (method !== "cash" && method !== "check") {
+    return "Only cash and checks are recorded from the phone. A card goes through the payment link.";
+  }
+
+  const raw = String(op.payload["amount"] ?? "");
+  let amount: m.Money;
+  try {
+    amount = m.money(raw);
+  } catch {
+    return `${raw || "That"} is not an amount of money.`;
+  }
+  if (!m.isPositive(amount)) return "A payment has to be more than nothing.";
+
+  const [visit] = await tx.select({ jobId: schema.visit.jobId, customerId: schema.job.customerId, jobNumber: schema.job.number })
+    .from(schema.visit)
+    .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(eq(schema.visit.id, op.subjectId)).limit(1);
+  if (!visit) return "That visit is not here.";
+
+  const open = await tx.select({ id: schema.invoice.id, balance: schema.invoice.balance, payer: schema.invoice.payerCustomerId })
+    .from(schema.invoice)
+    .where(and(
+      eq(schema.invoice.jobId, visit.jobId),
+      inArray(schema.invoice.status, ["open", "partially_paid"]),
+    ))
+    .orderBy(asc(schema.invoice.issuedOn), asc(schema.invoice.number));
+
+  const allocations: Array<{ invoiceId: string; amount: string }> = [];
+  let remaining = amount;
+  for (const invoice of open) {
+    /** An invoice somebody else pays (a warranty company) is not what the homeowner handed over cash for. */
+    if (invoice.payer && invoice.payer !== visit.customerId) continue;
+    if (!m.isPositive(remaining)) break;
+    const balance = m.money(invoice.balance);
+    if (!m.isPositive(balance)) continue;
+    const applied = m.min(remaining, balance);
+    allocations.push({ invoiceId: invoice.id, amount: m.toString(applied) });
+    remaining = m.subtract(remaining, applied);
+  }
+
+  const checkNumber = typeof op.payload["checkNumber"] === "string" && op.payload["checkNumber"].trim() !== ""
+    ? op.payload["checkNumber"].trim().slice(0, 50)
+    : undefined;
+  if (method === "check" && !checkNumber) return "A check needs its number, so the office can match it to the bank.";
+  const note = typeof op.payload["note"] === "string" ? op.payload["note"].trim().slice(0, 500) : "";
+
+  try {
+    await billing.pay({ ...ctx, db: tx, idempotencyKey: `field-payment:${op.clientId}` }, {
+      customerId: visit.customerId,
+      method,
+      amount: m.toString(amount),
+      tipAmount: "0",
+      receivedAt: op.occurredAt.toISOString(),
+      ...(checkNumber ? { checkNumber } : {}),
+      notes: [`Taken on site, job ${visit.jobNumber}.`, note].filter(Boolean).join(" ").slice(0, 1000),
+      allocations,
+    });
+    return null;
+  } catch (error) {
+    /**
+     * The office's own refusal, said to the technician: a closed period, a
+     * date too far back, a role that may not take payments. Anything else is
+     * a fault, and thrown, so the whole batch is retried rather than the
+     * payment being marked refused for a reason nobody can act on.
+     */
+    const name = error instanceof Error ? error.name : "";
+    if (name === "PermissionError") return "Your account may not take payments. The office will need to record it.";
+    if (REFUSALS.has(name)) return (error as Error).message;
+    throw error;
+  }
 }
 
 async function effect(
@@ -779,6 +937,9 @@ async function effect(
       });
       return null;
     }
+
+    case "payment.collect":
+      return collect(tx, ctx, op);
 
     default:
       /**

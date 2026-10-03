@@ -206,7 +206,7 @@ run("draining the log", () => {
 run("the loop", () => {
   it("stops when it is asked to", async () => {
     const controller = new AbortController();
-    const finished = runWorker({ db: db(), intervalMs: 20, signal: controller.signal });
+    const finished = runWorker({ db: db(), intervalMs: 20, signal: controller.signal, push: false });
     controller.abort();
     // A worker that ignores its abort signal is a deployment that never
     // finishes rolling.

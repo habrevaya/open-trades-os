@@ -43,6 +43,9 @@ export class FakeServer {
         gateCode: null, accessNotes: null, hazardNotes: null, hasDog: false,
       },
       checklist: [],
+      amountDue: null,
+      report: { id: null, submitted: false, fields: [] },
+      parts: [],
       ...over,
     };
     this.visits.set(id, visit);
@@ -162,12 +165,13 @@ export class FakeServer {
     this.calls.snapshot += 1;
     this.gate();
     if (input.sinceRevision === this.revision) {
-      return { revision: this.revision, unchanged: true, visits: [], openTimeEntry: null };
+      return { revision: this.revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null };
     }
     return {
       revision: this.revision,
       unchanged: false,
       visits: [...this.visits.values()].map((v) => structuredClone(v)),
+      priceBook: [],
       openTimeEntry: this.openSince ? { id: "t1", kind: "on_site", startedAt: this.openSince } : null,
     };
   };

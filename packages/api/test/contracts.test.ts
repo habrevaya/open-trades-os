@@ -136,6 +136,17 @@ describe("permissions", () => {
       "POST /v1/portal/card-setup/confirm",
       "POST /v1/portal/cards/{cardId}/pay",
       "POST /v1/portal/cards/{cardId}/remove",
+      /**
+       * The same sign in with a code instead of a password. Asking for a code
+       * answers one sentence whether or not the address belongs to anybody,
+       * so it is not a way to learn who works where; it is limited per
+       * address per minute and per person to three codes in fifteen minutes,
+       * and it sends only to the number or address the company holds, never
+       * one the asker chose. Trying a code is limited per address too, and a
+       * code dies after five wrong guesses, ten minutes, or one use.
+       */
+      "POST /v1/field/sign-in/code",
+      "POST /v1/field/sign-in/verify",
       "POST /v1/portal/estimate/approve",
       "POST /v1/portal/estimate/decline",
       "POST /v1/portal/invoice/pay",
@@ -243,6 +254,15 @@ describe("money routes are idempotent", () => {
       + "replay has nothing to return. A retry leaves a second token, and the "
       + "phone registering with whichever one it received ends the other, so a "
       + "handset never holds more than one that works.",
+    "/v1/field/sign-in/verify":
+      "The same token as the password sign in, for the same reason, and the "
+      + "code it spends is single use: a replay of a request that worked finds "
+      + "the code already spent and is refused, so it cannot mint a second token.",
+    "/v1/field/sign-in/code":
+      "The effect is a text or an email with a fresh code, which replaces the "
+      + "one before it. A replay sends another and the newest is the one that "
+      + "works, which is what a person pressing send again expects; the window "
+      + "allows three in fifteen minutes, so a retry costs one of them.",
   };
 
   it("every POST is idempotent, because clients on bad connections retry", () => {

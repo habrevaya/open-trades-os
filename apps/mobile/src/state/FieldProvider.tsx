@@ -1,15 +1,19 @@
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from "react";
-import { AppState, Platform } from "react-native";
+import { AppState, Platform, Share } from "react-native";
 import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
-import type { Problem, SyncEngine, SyncReport } from "@opentradesos/field-client";
+import { formatAmount, type Problem, type SyncEngine, type SyncReport } from "@opentradesos/field-client";
 import type { Session } from "../lib/session";
-import { sessionExpired } from "../lib/session";
-import { signInPhone, type SignInOutcome } from "../lib/sign-in";
+import { deviceInstallationId, sessionExpired } from "../lib/session";
+import {
+  requestPhoneCode, signInPhone, signInPhoneWithCode, type DeviceFacts, type SignInOutcome,
+} from "../lib/sign-in";
+import type { PushState } from "../lib/push";
+import { pushToken } from "../platform/notifications";
 import { extensionFor, pngFromDataUrl } from "../lib/bytes";
 import { clearSession, installationId, loadSession, saveSession } from "../platform/session";
 import { fieldClientFor, forgetFieldClients, type FieldClient } from "../platform/field";
@@ -41,6 +45,13 @@ interface FieldState {
   /** The token stopped working with work still on the phone. */
   signInEnded: boolean;
   signIn(input: { server: string; email: string; password: string }): Promise<SignInOutcome>;
+  requestCode(input: { server: string; email: string; channel: "sms" | "email" }):
+    Promise<{ ok: true; message: string } | { ok: false; error: string; field?: "server" | "email" }>;
+  signInWithCode(input: { server: string; email: string; code: string }): Promise<SignInOutcome>;
+  /** Whether changes to the day are pushed to this phone, and if not, why. */
+  push: PushState;
+  /** A card payment link for the visit's job, texted to the customer or handed to the share sheet. */
+  paymentLink(visitId: string, how: "text" | "share"): Promise<string>;
   signOut(): Promise<void>;
   sync(): Promise<void>;
   record(kind: RecordKind, visitId?: string, payload?: Record<string, unknown>): Promise<void>;
@@ -66,6 +77,7 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const [syncing, setSyncing] = useState(false);
   const [report, setReport] = useState<SyncReport | null>(null);
   const [signInEnded, setSignInEnded] = useState(false);
+  const [push, setPush] = useState<PushState>("off");
   const clientRef = useRef<FieldClient | null>(null);
   clientRef.current = client;
 
@@ -91,6 +103,30 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshView]);
 
+  /**
+   * The push token, registered on the device row this phone already has, by
+   * the same call that registered it, keyed on the same installation. On
+   * every launch, because a token can change and registering it is cheap;
+   * with no signal it is tried again on the next launch, and the day syncs
+   * either way.
+   */
+  const registerForNotices = useCallback(async (c: FieldClient) => {
+    const result = await pushToken();
+    if (!("token" in result)) {
+      setPush(result.state);
+      return;
+    }
+    try {
+      await c.api.register({
+        installationId: deviceInstallationId(await installationId(), c.session.userId),
+        pushToken: result.token,
+      });
+      setPush("on");
+    } catch {
+      setPush("off");
+    }
+  }, []);
+
   const open = useCallback(async (s: Session, lastSequence?: number) => {
     const c = await fieldClientFor(s);
     if (lastSequence !== undefined) await c.queue.adoptSequence(lastSequence);
@@ -102,7 +138,9 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     await refreshView(c);
     void startBackgroundSync();
     void sync(true);
-  }, [refreshView, sync]);
+    void registerForNotices(c);
+  }, [refreshView, sync, registerForNotices]);
+
 
   // Launch: open whoever was signed in, with no network needed.
   useEffect(() => {
@@ -126,20 +164,33 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     return () => { clearInterval(timer); app.remove(); network.remove(); };
   }, [status, sync]);
 
-  const signIn = useCallback<FieldState["signIn"]>(async (input) => {
-    const outcome = await signInPhone(input, {
-      installation: await installationId(),
-      platform: Platform.OS === "ios" ? "ios" : "android",
-      label: Platform.OS === "ios" ? "iPhone app" : "Android app",
-      appVersion: Constants.expoConfig?.version,
-      osVersion: String(Platform.Version),
-    });
+  const deviceFacts = async (): Promise<DeviceFacts> => ({
+    installation: await installationId(),
+    platform: Platform.OS === "ios" ? "ios" : "android",
+    label: Platform.OS === "ios" ? "iPhone app" : "Android app",
+    appVersion: Constants.expoConfig?.version,
+    osVersion: String(Platform.Version),
+  });
+
+  const signedIn = useCallback(async (outcome: SignInOutcome) => {
     if (outcome.ok) {
       await saveSession(outcome.session);
       await open(outcome.session, outcome.lastSequence);
     }
     return outcome;
   }, [open]);
+
+  const signIn = useCallback<FieldState["signIn"]>(
+    async (input) => signedIn(await signInPhone(input, await deviceFacts())),
+    [signedIn],
+  );
+
+  const requestCode = useCallback<FieldState["requestCode"]>((input) => requestPhoneCode(input), []);
+
+  const signInWithCode = useCallback<FieldState["signInWithCode"]>(
+    async (input) => signedIn(await signInPhoneWithCode(input, await deviceFacts())),
+    [signedIn],
+  );
 
   const signOut = useCallback(async () => {
     const c = clientRef.current;
@@ -240,10 +291,36 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  /**
+   * A card, through the invoice's own link, which needs a signal and the
+   * customer stood there, so it is asked for now or not at all, like the
+   * text that says you are on your way.
+   */
+  const paymentLink = useCallback<FieldState["paymentLink"]>(async (visitId, how) => {
+    const c = clientRef.current;
+    if (!c) return "Not signed in.";
+    try {
+      const link = await c.api.paymentLink(visitId, how === "text", Crypto.randomUUID());
+      if (how === "share" && link.url) {
+        await Share.share({ message: `Pay ${formatAmount(link.amountDue)} by card: ${link.url}` });
+        return `A link to pay ${formatAmount(link.amountDue)} by card. The office sees it paid once the card goes through.`;
+      }
+      if (link.texted) return `Texted them a link to pay ${formatAmount(link.amountDue)} by card.`;
+      return link.reason ?? "The link was made but not texted. Share it instead.";
+    } catch (error) {
+      const offline = typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true;
+      return offline
+        ? "No signal, so no link. Take cash or a check, or try again when you have a signal."
+        : error instanceof Error ? error.message : "The link could not be made.";
+    }
+  }, []);
+
   const value = useMemo<FieldState>(() => ({
-    status, session, view, syncing, report, signInEnded,
-    signIn, signOut, sync: () => sync(true), record, takePhoto, saveSignature, resolve, onMyWay,
-  }), [status, session, view, syncing, report, signInEnded, signIn, signOut, sync, record, takePhoto, saveSignature, resolve, onMyWay]);
+    status, session, view, syncing, report, signInEnded, push,
+    signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
+    resolve, onMyWay, paymentLink,
+  }), [status, session, view, syncing, report, signInEnded, push, signIn, requestCode, signInWithCode, signOut,
+    sync, record, takePhoto, saveSignature, resolve, onMyWay, paymentLink]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

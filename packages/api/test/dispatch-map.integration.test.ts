@@ -219,7 +219,7 @@ run("putting addresses on the map", () => {
      * Through `runPass`, the way the worker process and the serverless tick
      * both reach it, rather than by calling the function directly.
      */
-    await runPass({ db: db(), schedules: false, geocoding: { deps: fake.deps } });
+    await runPass({ db: db(), schedules: false, geocoding: { deps: fake.deps }, push: false });
     expect(fake.asked).toEqual(["200 Congress Ave"]);
     const [row] = await raw<{ latitude: string }[]>`
       select latitude from public.property where organization_id = ${ORG} and address_line1 = '200 Congress Ave'`;

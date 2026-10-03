@@ -335,6 +335,13 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/phone", label: "Phone menus" },
           /**
+           * The phones each technician has signed in on, the number a sign in
+           * code is texted to, and taking a lost phone away. It inherits
+           * `settings:read` to be shown and needs `user:read` to be read,
+           * because a phone is part of who somebody is in the company.
+           */
+          { href: "/settings/phones", label: "Phones" },
+          /**
            * The snippet a company pastes into its own site and the pool of
            * numbers it swaps in. Under Settings because it is set up once.
            */
