@@ -20,6 +20,7 @@ import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { Referral } from "./Referral";
+import { AdData } from "./AdData";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
 import { ActionForm } from "@/components/ActionForm";
@@ -240,6 +241,7 @@ export default async function CustomerPage({
       />
 
       <Referral ctx={ctx} customerId={id} />
+      <AdData ctx={ctx} customerId={id} zone={user.organizationTimezone} />
 
       {(removable || mergeable.length > 0) && (
         <Lifecycle

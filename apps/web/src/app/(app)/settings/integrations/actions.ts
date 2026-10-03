@@ -4,7 +4,8 @@ import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { ai, callTracking, leadIntake } from "@opentradesos/api/services";
+import { redirect } from "next/navigation";
+import { adPlatforms, ai, callTracking, leadIntake } from "@opentradesos/api/services";
 import { FORMS, settingsFrom } from "./fields";
 
 export type ActionState = NonNullable<FormState>;
@@ -95,4 +96,23 @@ export async function disconnect(_previous: ActionState, data: FormData): Promis
   revalidatePath("/settings/integrations");
   revalidatePath("/setup", "layout");
   return { done: true };
+}
+
+/**
+ * Send the person to the platform's consent screen.
+ *
+ * The service checks everything that would make the trip pointless first (no
+ * sealing key, no OAuth client, no saved settings) and the refusal is shown
+ * here, before anybody leaves. On success this is a redirect to Google or
+ * Meta, which comes back to `./oauth`.
+ */
+export async function signIn(_previous: ActionState, data: FormData): Promise<ActionState> {
+  const provider = String(data.get("provider") ?? "");
+  let url: string;
+  try {
+    url = (await adPlatforms.startSignIn(await ctx(), { provider })).url;
+  } catch (error) {
+    return refused(data, message(error));
+  }
+  redirect(url);
 }

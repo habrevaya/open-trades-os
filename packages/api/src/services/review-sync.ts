@@ -231,3 +231,29 @@ export async function replyStates(ctx: ServiceContext) {
     sql`${schema.review.replyState} is not null`,
   )).orderBy(desc(schema.review.updatedAt)).limit(200));
 }
+
+/** The review listings this company has connected, and when each was last read, for the review screen. */
+export async function listings(ctx: ServiceContext) {
+  return guardedRead(ctx, "review:respond", async (tx) => {
+    const rows = await tx.select().from(schema.integrationConnection).where(and(
+      eq(schema.integrationConnection.organizationId, ctx.actor.organizationId),
+      eq(schema.integrationConnection.provider, "google_business_profile"),
+      isNull(schema.integrationConnection.deletedAt),
+      sql`${schema.integrationConnection.status} <> 'disconnected'`,
+    ));
+    const out = [];
+    for (const row of rows) {
+      const [last] = await tx.select().from(schema.syncRun)
+        .where(and(eq(schema.syncRun.connectionId, row.id), eq(schema.syncRun.entityType, "reviews")))
+        .orderBy(desc(schema.syncRun.startedAt)).limit(1);
+      out.push({
+        provider: row.provider,
+        status: row.status,
+        lastError: row.lastError,
+        lastReadAt: last?.finishedAt?.toISOString() ?? null,
+        lastReadError: last?.error ?? null,
+      });
+    }
+    return out;
+  });
+}

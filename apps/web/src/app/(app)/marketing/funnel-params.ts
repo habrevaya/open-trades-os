@@ -9,7 +9,7 @@ import { marketing as mk } from "@opentradesos/core";
  * of these four values, each with its own defaults, is how a click lands on a
  * list that does not add up to the number clicked.
  */
-export type By = "channel" | "campaign" | "number";
+export type By = "channel" | "campaign" | "number" | "platform";
 
 export interface FunnelParams {
   from: string;
@@ -33,7 +33,7 @@ export function funnelQuery(
   back.setUTCDate(back.getUTCDate() - 29);
   const from = one("from") && ISO.test(one("from")!) ? one("from")! : back.toISOString().slice(0, 10);
   const to = one("to") && ISO.test(one("to")!) ? one("to")! : today;
-  const by = (["channel", "campaign", "number"] as const).find((b) => b === one("by")) ?? "channel";
+  const by = (["channel", "campaign", "number", "platform"] as const).find((b) => b === one("by")) ?? "channel";
   const model = mk.ATTRIBUTION_MODEL_KEYS.find((m) => m === one("model"));
   return { from, to, by, ...(model ? { model } : {}) };
 }
