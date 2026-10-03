@@ -154,6 +154,19 @@ describe("permissions", () => {
       "POST /v1/portal/visit-change",
       "POST /v1/public/bookings",
       /**
+       * A third party asking to be installed, and coming back for its
+       * credential. Open because the app has no credential yet, which is the
+       * point of asking. Asking grants nothing: the row is `pending`, which
+       * resolves no token and can be issued none, until somebody at the
+       * company approves the exact list through the same authority check as
+       * an install. Both are counted per network address, a company holds at
+       * most twenty requests waiting, and collecting needs the claim secret
+       * handed to the asker, stored only as a hash; a wrong one is the same
+       * not found as an id that does not exist.
+       */
+      "POST /v1/public/app-requests",
+      "POST /v1/public/app-requests/{id}/claim",
+      /**
        * A lead form on a company's own website, filled in by a homeowner
        * with no account. Public by necessity, like the booking endpoint
        * beside it.
@@ -245,6 +258,16 @@ describe("money routes are idempotent", () => {
       "The response is a new link for one record and only its hash is "
       + "stored, so a replay has nothing to return. A retry leaves a second "
       + "link to the same record, for the same customer, which expires in a day.",
+    "/v1/public/app-requests":
+      "The response carries the claim secret and only its hash is stored, so "
+      + "a replay has nothing to return. A retry leaves a second request "
+      + "waiting, which the company sees beside the first and refuses or lets "
+      + "expire after seven days.",
+    "/v1/public/app-requests/{id}/claim":
+      "The response is the app's token, handed over once and stored only as "
+      + "a hash. A second collection answers that it was already collected "
+      + "and hands nothing over, because a claim that could mint tokens on "
+      + "every call would be a credential of its own.",
     "/v1/apps/{appId}/tokens":
       "The response is a secret and only its hash is stored, so a replay has "
       + "nothing to return. A retry leaves a second token, visible in the list "

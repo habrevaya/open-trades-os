@@ -94,7 +94,7 @@ const DRY_RUN_SCHEMA: JsonSchema = {
   description:
     "Set true to see what this would change without changing anything: it runs and is rolled back, and you get "
     + "what it would have returned, the rows it would have written per table, and the audit lines naming each record. "
-    + "No idempotencyKey is needed for a dry run.",
+    + "Send the idempotencyKey you mean to use for the real call: a dry run keeps nothing, so the key is still unused afterwards.",
 };
 
 /**
@@ -149,16 +149,13 @@ function describe(routeName: string, route: RouteDefinition): McpTool {
       }
     : input;
   /**
-   * On a bulk route the key is not REQUIRED by the schema, because a dry run
-   * needs none; `requestFor` still refuses a real run without one, so the
-   * guarantee is unchanged and only moves from the schema to the call.
+   * The key stays REQUIRED on a bulk route, dry run or not. A dry run keeps
+   * nothing, so the key a model sends with it is still unused for the real
+   * call, and one rule for the key everywhere is easier for a model to follow
+   * than a rule with an exception.
    */
   const inputSchema: JsonSchema = route.dryRun
-    ? {
-        ...withKey,
-        properties: { ...withKey.properties, [DRY_RUN_FIELD]: DRY_RUN_SCHEMA },
-        required: (withKey.required ?? []).filter((name) => name !== IDEMPOTENCY_FIELD),
-      }
+    ? { ...withKey, properties: { ...withKey.properties, [DRY_RUN_FIELD]: DRY_RUN_SCHEMA } }
     : withKey;
 
   const readOnly = route.method === "get";

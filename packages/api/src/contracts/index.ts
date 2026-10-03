@@ -68,6 +68,8 @@ import { customerPortalRoutes } from "./customer-portal";
 import { setupRoutes } from "./setup";
 import { branchRoutes } from "./branches";
 import { phoneMenuRoutes } from "./phone-menus";
+import { safetyRoutes } from "./safety";
+import { retentionRoutes } from "./retention";
 
 export * from "./common";
 export * from "./customers";
@@ -115,6 +117,8 @@ export * from "./company";
 export * from "./readbacks";
 export * from "./service-reports";
 export * from "./reports";
+export * from "./safety";
+export * from "./retention";
 export * from "./apps";
 export * from "./pricing-authority";
 export * from "./field-assets";
@@ -221,6 +225,8 @@ export const routes = {
   ...customerPortalRoutes,
   ...setupRoutes,
   ...branchRoutes,
+  ...safetyRoutes,
+  ...retentionRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

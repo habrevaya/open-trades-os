@@ -1024,6 +1024,15 @@ export async function sweepRecordings(db: Database, organizationId: string, now:
         isNull(schema.call.recordingDeletedAt),
         sql`${schema.call.recordingStorageKey} is not null`,
         lt(sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt})`, cutoff),
+        /**
+         * A recording somebody put a hold on stays, whatever its age: the
+         * same holds the retention purge honours, so a call that is evidence
+         * in a dispute is kept by both.
+         */
+        sql`not exists (
+          select 1 from public.retention_hold h
+          where h.entity_type = 'call_recording' and h.entity_id = ${schema.call.id} and h.released_at is null
+        )`,
       )).limit(500);
     for (const row of due) {
       await telephony.deleteRecordingIn(tx, ctx, row.id, `Past the ${policy.retainMonths} month retention in "${policy.name}".`);

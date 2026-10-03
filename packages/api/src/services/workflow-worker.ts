@@ -10,6 +10,7 @@ import { deliverDue } from "./delivery-schedules";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
+import { purgePass } from "./retention";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import type { PushProvider } from "../push/provider";
@@ -313,6 +314,22 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] tasks:", (error as Error).message);
+    }
+    /**
+     * Records past their retention, for the companies that switched purging
+     * on for a rule, once a day each. Its own try, because a purge that
+     * fails must not hold up anything else, and nothing else may hold it up
+     * either: a hold placed this morning is read by this pass, not cached.
+     */
+    try {
+      for (const result of await purgePass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] retention ${result.organizationId}: ${result.error}`);
+        else if (result.run && result.run.failed > 0) {
+          console.warn(`[worker] retention ${result.organizationId}: ${result.run.failed} records could not be removed; the reasons are on the pass.`);
+        }
+      }
+    } catch (error) {
+      console.error("[worker] retention:", (error as Error).message);
     }
     /**
      * Reports and statements on a clock. Its own try, so a broken workflow
