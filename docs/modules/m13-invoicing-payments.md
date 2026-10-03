@@ -172,13 +172,27 @@ A company syncing its books gets each credit note there too: the credit note its
 each use of it on an invoice on the day it was used, and a void as an invoice
 reversing it on the day of the void. M14 says how each lands in QuickBooks and Xero.
 
+### Invoices and proposals as PDF
+
+**Download PDF** on an invoice's page saves it as a PDF: the company, the
+customer (and who pays, when somebody else does), the address, every line, the
+totals, the payments made on it and the balance due. The customer gets the same
+file from the invoice link in their email and from each invoice on their account
+page, never a draft and never one billed to somebody else. An estimate's page and
+its printable proposal offer the proposal as a PDF, every option with its lines
+and total and the terms, and so does the customer's estimate link. Both are built
+from the same reader as the customer's screens, so no cost or margin is on them.
+The office's download follows the invoice and estimate lists' scope: a technician
+who sees invoices on their own work gets those and a not found for the rest.
+
 ### Statements
 
 **Statement** on a customer's page shows what they owed at the start of a period,
 every invoice, payment, refund and credit in it with a running balance, what they
 owe at the end, and the open invoices aged by how late they are. It prints as a
-document. The customer sees the same statement from their account link, under
-**Your statement**. It is read from the ledger, so it agrees with the receivables
+document, and **Download PDF** beside the print button saves it as one for the
+dates on screen. The customer sees the same statement from their account link, or
+signed in, under **Your statement**, with the same download. It is read from the ledger, so it agrees with the receivables
 report, and moving money already held onto an invoice is not a line because nothing
 the customer owes changed. On commercial work an invoice appears on the statement of
 whoever pays it, not the tenant's.
@@ -186,9 +200,12 @@ whoever pays it, not the tenant's.
 **Email statement**, on the same page, sends the customer a link to that
 statement on their own account page, for the dates on screen, to the address on
 file or one the office types (a commercial customer's accounts mailbox is rarely
-the person who booked the work). The email carries no amounts: the page reads the
-books when the customer opens it, so a cheque that cleared since is already on it,
-and a balance is not sitting in an inbox anybody can read. An address that asked
+the person who booked the work). The text of the email carries no amounts: the page
+reads the books when the customer opens it, so a cheque that cleared since is
+already on it. The statement as it stood that day is attached as a PDF, which says
+on its face that it is a copy as of that date, because a bookkeeper files the file
+and an accounts payable clerk will not follow a link to fetch one. The monthly run
+attaches it the same way. An address that asked
 not to be emailed, a customer with no address, or no email provider connected is
 recorded as not sent, with the reason, under the button, and the link minted for
 it is revoked rather than left alive.
@@ -285,7 +302,7 @@ hold one for.
 A credit note cannot be paid out as money: an unused credit is used on a later
 invoice, or a refund is recorded against a payment. A credit note that has been used
 cannot be voided; the invoice it settled has to be dealt with on its own.
-A statement is emailed as a link; there is no PDF of it attached, and it is not sent
+A statement is emailed as a link with a PDF attached, and it is not sent
 by text. The monthly run covers the calendar month before and nothing else, and it
 emails nothing until an email provider is connected. A tip is taken only from the portal: the office's own card
 and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
@@ -295,3 +312,8 @@ until somebody corrects it by hand. Saved cards are
 Stripe's only. Tax rate determination is deliberately not
 built: the rate is on the line it was charged on, and BUILD.md says why. Automatic
 dunning is a workflow somebody builds in M29.
+
+The PDFs carry the company's name and colour and not its logo, and are set in the
+standard Helvetica faces, so a letter outside Western European alphabets prints as
+its base letter where it has one and as "?" where it does not. An invoice is not
+attached as a PDF to the invoice email, which still sends the link to pay it.
