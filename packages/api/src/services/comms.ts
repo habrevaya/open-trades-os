@@ -399,7 +399,12 @@ async function replyByEmail(
   });
 
   const [last] = await tx.select({ subject: schema.message.subject }).from(schema.message)
-    .where(and(eq(schema.message.conversationId, conversation.id), sql`${schema.message.subject} is not null`))
+    .where(and(
+      eq(schema.message.conversationId, conversation.id),
+      sql`${schema.message.subject} is not null`,
+      /** Not an out of office's subject: the reply answers the customer, not their autoresponder. */
+      sql`coalesce(${schema.message.headers} ->> 'auto-submitted', 'no') = 'no'`,
+    ))
     .orderBy(desc(schema.message.createdAt)).limit(1);
   const was = (last?.subject ?? conversation.subject ?? "").trim() || "Your message";
   const subject = /^re:/i.test(was) ? was : `Re: ${was}`;

@@ -151,6 +151,12 @@ export async function store(
     for (const name of ["message-id", "in-reply-to", "auto-submitted"]) {
       if (arrived.headers[name]) kept[name] = arrived.headers[name]!.slice(0, 500);
     }
+    /**
+     * Written down however it was recognised, so the thread can tell an out
+     * of office from the customer later (its subject is not the one a reply
+     * should answer under).
+     */
+    if (automatic && !kept["auto-submitted"]) kept["auto-submitted"] = "auto-replied";
 
     const [stored] = await tx.insert(schema.message).values({
       organizationId,
