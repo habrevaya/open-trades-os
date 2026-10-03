@@ -84,6 +84,10 @@ export const REDACTED: Record<string, Record<string, string>> = {
       + "thread an incoming email lands in, so whoever holds it can put words into that "
       + "customer's conversation. A new system mints its own reply addresses.",
   },
+  ai_chat_session: {
+    token_hash: "The hash of a website visitor's live chat link. The chat itself is exported with the "
+      + "conversation it belongs to; the link cannot be reconstructed and should not be.",
+  },
   device: {
     push_token:
       "A live push credential for a specific phone. It identifies a device to a notification "
@@ -176,6 +180,9 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   workflow: {
     template_key: "The name of the recommended automation a workflow was installed from, such as "
       + "estimate_follow_up. A label in the product's own catalogue, not a credential.",
+  },
+  ai_agent_proposal: {
+    idempotency_key: "The retry key of the request that asked an agent for a draft. Not a credential.",
   },
   ai_usage: {
     idempotency_key: "A retry key the AI call chose. Not a credential.",

@@ -169,7 +169,15 @@ beforeAll(async () => {
   }
   await ai.connect(owner(), { provider: "anthropic", credentialRef: "TEST_AI_KEY", settings: { defaultModel: "fake-model" } });
 });
-afterAll(async () => { if (raw) await raw.end(); });
+afterAll(async () => {
+  if (!raw) return;
+  /**
+   * Every agent off again, so another file's worker pass does not find this
+   * company's agents on and try a model nobody connected for it.
+   */
+  await raw`delete from public.ai_agent_setting where organization_id = ${ORG}`;
+  await raw.end();
+});
 
 const activity = (kind: string) => raw<{ detail: string; agent: string }[]>`
   select detail, agent from public.ai_agent_activity where organization_id = ${ORG} and kind = ${kind} order by created_at`;
