@@ -1,7 +1,8 @@
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, creditNotes, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, NotFoundError } from "@opentradesos/api/services";
+import { billing, creditNotes, estimates as estimateService, customers, jobs, properties as propertyService, contacts as contactService, consent as consentService, customerLifecycle, comms, customFields, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Phone } from "@opentradesos/ui";
 import { JOB_STATUS, INVOICE_STATUS, INVOICE_TONE, ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
@@ -398,6 +399,13 @@ export default async function CustomerPage({
           )}
         </section>
       )}
+
+      <CustomFieldsPanel
+        entityType="customer" id={id}
+        definitions={await customFields.formFields(ctx, "customer")}
+        values={(customer.customFields ?? {}) as Record<string, unknown>}
+        canWrite={can(user.actor, "customer:write")}
+      />
     </div>
   );
 }

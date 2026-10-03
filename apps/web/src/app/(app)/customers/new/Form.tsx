@@ -2,6 +2,7 @@
 
 import { useKeptAction } from "@/lib/use-kept-action";
 import { createCustomer } from "../actions";
+import { CustomFieldInputs, type CustomFieldDefinitionView } from "@/components/CustomFieldInputs";
 
 /**
  * A plain form that posts to a server action.
@@ -10,7 +11,13 @@ import { createCustomer } from "../actions";
  * live in one schema on the server, and a second copy here would be a second
  * thing to keep in step for the sake of saving one round trip.
  */
-export function NewCustomerForm() {
+export function NewCustomerForm({
+  customerFields, propertyFields,
+}: {
+  /** The fields this company added to customers and to addresses, drawn from their definitions. */
+  customerFields: readonly CustomFieldDefinitionView[];
+  propertyFields: readonly CustomFieldDefinitionView[];
+}) {
   const [state, actionForm, pending] = useKeptAction(createCustomer, null);
 
   return (
@@ -45,7 +52,10 @@ export function NewCustomerForm() {
           <Field label="State" name="state" autoComplete="address-level1" />
           <Field label="ZIP" name="postalCode" autoComplete="postal-code" inputMode="numeric" />
         </div>
+        <CustomFieldInputs definitions={propertyFields} prefix="pcf" legend="About the address" />
       </fieldset>
+
+      <CustomFieldInputs definitions={customerFields} legend="Your fields" />
 
       <div className="flex gap-3">
         <button type="submit" disabled={pending}

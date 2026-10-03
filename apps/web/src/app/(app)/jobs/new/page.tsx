@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customers, jobs, properties, NotFoundError } from "@opentradesos/api/services";
+import { customers, customFields, jobs, properties, NotFoundError } from "@opentradesos/api/services";
 import { assertCan } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import { VisitFields } from "@/components/VisitFields";
+import { CustomFieldInputs } from "@/components/CustomFieldInputs";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { bookJob } from "../actions";
@@ -55,10 +56,11 @@ export default async function BookJobPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   });
-  const [addresses, types, technicians] = await Promise.all([
+  const [addresses, types, technicians, jobFields] = await Promise.all([
     properties.list(ctx, { limit: 50, customerId }),
     jobs.listTypes(ctx, { includeInactive: false }),
     technicianChoices(ctx, user.organizationTimezone),
+    customFields.formFields(ctx, "job"),
   ]);
 
   return (
@@ -94,6 +96,7 @@ export default async function BookJobPage({
                      placeholder="No cooling upstairs" />
           <TextArea label="Customer said" name="customerComplaint" maxLength={5000} />
           <TextArea label="Description" name="description" maxLength={5000} />
+          <CustomFieldInputs definitions={jobFields} legend="Your fields" />
           <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
                        optional legend="First visit" />
         </ActionForm>

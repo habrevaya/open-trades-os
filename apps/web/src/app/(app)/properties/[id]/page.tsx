@@ -1,7 +1,8 @@
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { properties, equipment as equipmentService, NotFoundError } from "@opentradesos/api/services";
+import { properties, equipment as equipmentService, customFields, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -118,6 +119,13 @@ export default async function PropertyPage({
           Somebody who can change roles can turn this on for you.
         </Empty>
       )}
+
+      <CustomFieldsPanel
+        entityType="property" id={id}
+        definitions={await customFields.formFields(ctx, "property")}
+        values={(property.customFields ?? {}) as Record<string, unknown>}
+        canWrite={can(user.actor, "property:write")}
+      />
     </div>
   );
 }

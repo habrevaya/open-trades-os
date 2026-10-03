@@ -1,7 +1,8 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { customFields as rules } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, ConflictError, NotFoundError, type ServiceContext,
+  guardedRead, guardedWrite, audit, ConflictError, NotFoundError, UnprocessableError, type ServiceContext,
 } from "./context";
 
 /**
@@ -32,13 +33,12 @@ import {
  * file is about protecting it: the definition and the data agree because this
  * service refuses to let them disagree, or they do not agree at all.
  *
- * WHAT THIS DOES NOT DO. It does not validate on its own. `validateWithin`
- * below is the check, and it is called by the service doing the write, not
- * from in here. Wiring it into the customer, property and job writes is a
- * separate decision with a real cost: every organization that already stored
- * custom data under no definition would have its next save refused for keys
- * it has been using for a year. That migration is product work. Shipping the
- * validator switched on and discovering it that way is not.
+ * WHERE IT IS ENFORCED. Not in here: `enforceWithin` below is the check,
+ * and the customer, property and job services call it inside their own
+ * create and update, under their own permission. The rule a save is held to
+ * is narrower than the settings screen's on purpose, and `enforceWithin`
+ * says how: only what the write changed is checked, so a record from before
+ * a field existed, or before it became required, keeps saving.
  */
 
 /* --------------------------------------------------------- what can carry one */
@@ -102,10 +102,8 @@ function entityOf(entityType: string): EntityType {
  * field produce two values that are never equal and sort against each other
  * wrongly, and neither one looks wrong on its own.
  */
-export const DATA_TYPES = [
-  "text", "number", "boolean", "date", "select", "multiselect",
-] as const;
-export type DataType = (typeof DATA_TYPES)[number];
+export const DATA_TYPES = rules.DATA_TYPES;
+export type DataType = rules.DataType;
 
 /** The types whose whole meaning is the list of things they may be. */
 const NEEDS_OPTIONS: DataType[] = ["select", "multiselect"];
@@ -131,8 +129,6 @@ const NEEDS_OPTIONS: DataType[] = ["select", "multiselect"];
  * at by string. See `update` for what a rename would cost.
  */
 const KEY = /^[a-z][a-z0-9_]{0,63}$/;
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /* ------------------------------------------------------------ the definition */
 
@@ -245,55 +241,7 @@ function normalise(input: DefinitionInput): Normalised {
  * to say to somebody.
  */
 function valueProblem(definition: Pick<Normalised, "dataType" | "options">, value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-
-  switch (definition.dataType) {
-    case "text":
-      return typeof value === "string" ? null : "has to be text";
-
-    case "number":
-      /**
-       * Finite, because `NaN` and `Infinity` are not representable in JSON:
-       * they serialise to `null` on the way into jsonb, so a value that
-       * passed a `typeof value === "number"` check reads back as empty and
-       * the field looks like nobody filled it in.
-       */
-      return typeof value === "number" && Number.isFinite(value) ? null : "has to be a number";
-
-    case "boolean":
-      return typeof value === "boolean" ? null : "has to be true or false";
-
-    case "date": {
-      if (typeof value !== "string" || !ISO_DATE.test(value)) {
-        return "has to be a date like 2026-03-01";
-      }
-      /**
-       * Parsed as well as matched. `2026-02-31` satisfies the pattern, and a
-       * date nobody can reach is worse than a rejected one: it sorts, it
-       * exports, and it is never the day anybody meant.
-       */
-      const [y, m, d] = value.split("-").map(Number) as [number, number, number];
-      const date = new Date(Date.UTC(y, m - 1, d));
-      const real = date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
-      return real ? null : "is not a real date";
-    }
-
-    case "select":
-      if (typeof value !== "string") return "has to be one of the options";
-      return definition.options.includes(value)
-        ? null
-        : `is not one of the options (${definition.options.join(", ")})`;
-
-    case "multiselect": {
-      if (!Array.isArray(value)) return "has to be a list of options";
-      const bad = value.filter((entry) => typeof entry !== "string" || !definition.options.includes(entry));
-      if (bad.length > 0) {
-        return `holds something that is not an option (${definition.options.join(", ")})`;
-      }
-      if (new Set(value as string[]).size !== value.length) return "lists the same option twice";
-      return null;
-    }
-  }
+  return rules.valueProblem(definition, value);
 }
 
 /* ------------------------------------------------------- what the data holds */
@@ -922,9 +870,17 @@ export async function enforceWithin(
   entityType: string,
   next: Record<string, unknown>,
   previous?: Record<string, unknown> | undefined,
+  /** Where the bag sits in the request, for the refusal's paths. */
+  at = "customFields",
 ): Promise<void> {
   const entity = entityOf(entityType);
 
+  /**
+   * DRIVEN BY THE DEFINITIONS, NEVER BY THE KEYS IN THE RECORD, which is the
+   * whole of why a company that has declared nothing is left exactly where
+   * it was before this file existed: there is nothing to check, so nothing
+   * is refused, and their column stays the free bag it always was.
+   */
   const definitions = await tx.select().from(schema.customFieldDefinition)
     .where(and(
       eq(schema.customFieldDefinition.organizationId, organizationId),
@@ -932,65 +888,43 @@ export async function enforceWithin(
       isNull(schema.customFieldDefinition.deletedAt),
     ));
 
-  const problems: FieldProblem[] = [];
+  const refusals = rules.checkChanged(definitions, next, previous);
+  if (refusals.length === 0) return;
 
   /**
-   * DRIVEN BY THE DEFINITIONS, NEVER BY THE KEYS IN THE RECORD, and that is
-   * the whole of why a company which has declared nothing is left exactly
-   * where it was before this file existed: there is nothing to iterate, so
-   * there is nothing to refuse, and their column stays the free bag it has
-   * been since the first migration.
-   *
-   * There was an `if (definitions.length === 0) return` above this loop
-   * carrying that sentence as a comment. It was removed because it could not
-   * fail: an empty loop already does nothing, so deleting the guard changed
-   * no behaviour and no test. A guard that cannot fail is worse than none,
-   * because it reads as the thing protecting you while the real protection
-   * is somewhere else entirely.
+   * ONE SENTENCE PER FIELD, each at `customFields.<key>`, so an API client
+   * can put each one beside the box it is about and a screen can say all of
+   * them at once. Unprocessable rather than a conflict: nothing about the
+   * record's state is in the way, the values are wrong.
    */
-  for (const definition of definitions) {
-    const value = next[definition.key];
-
-    /**
-     * Unchanged is untouched. Compared by serialisation rather than by
-     * identity because these arrive parsed from JSON: two equal arrays or
-     * objects are never the same reference, and `!==` would treat every
-     * multiselect on every save as a change and check it.
-     */
-    if (previous !== undefined && same(value, previous[definition.key])) continue;
-
-    const missing = value === null || value === undefined
-      || (typeof value === "string" && value.trim() === "")
-      || (Array.isArray(value) && value.length === 0);
-
-    if (missing) {
-      if (definition.required) {
-        problems.push({ key: definition.key, problem: `${definition.label} is required` });
-      }
-      continue;
-    }
-
-    const problem = valueProblem(
-      { dataType: definition.dataType as DataType, options: definition.options },
-      value,
-    );
-    if (problem) problems.push({ key: definition.key, problem: `${definition.label} ${problem}` });
-  }
-
-  if (problems.length === 0) return;
-  throw new ConflictError(
-    problems
-      .sort((a, b) => a.key.localeCompare(b.key))
-      .map((problem) => `"${problem.key}" ${problem.problem}`)
-      .join(". ") + ".",
+  throw new UnprocessableError(
+    refusals.length === 1 ? "A custom field needs changing" : "Some custom fields need changing",
+    refusals.map((refusal) => ({ path: `${at}.${refusal.key}`, message: refusal.message })),
   );
 }
 
-/** Deep equality for values that came out of jsonb. See `enforceWithin`. */
-function same(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === undefined || b === undefined) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
+/**
+ * The fields a form for one kind of record draws, in the order the company
+ * set, under that record's OWN read permission.
+ *
+ * Not `list`, which is the settings surface and needs `settings:read`: an
+ * office manager adding a customer has to see the boxes the company declared
+ * whether or not they may change the declarations, or the first they hear of
+ * a required field is the refusal.
+ */
+export async function formFields(ctx: ServiceContext, entityType: string) {
+  const entity = entityOf(entityType);
+  const permission = ({ customer: "customer:read", property: "property:read", job: "job:read" } as const)[entity];
+  return guardedRead(ctx, permission, async (tx) => {
+    const rows = await tx.select().from(schema.customFieldDefinition)
+      .where(and(
+        eq(schema.customFieldDefinition.organizationId, ctx.actor.organizationId),
+        eq(schema.customFieldDefinition.entityType, entity),
+        isNull(schema.customFieldDefinition.deletedAt),
+      ))
+      .orderBy(asc(schema.customFieldDefinition.sortOrder), asc(schema.customFieldDefinition.key));
+    return rows.map(shape);
+  });
 }
 
 /* ------------------------------------------------------------- the routes */

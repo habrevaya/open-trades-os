@@ -35,3 +35,4 @@ export * as routing from "./routing/index.js";
 export * as qualification from "./qualification/index.js";
 export * as membership from "./membership/index.js";
 export * as webhooks from "./webhooks/index.js";
+export * as customFields from "./custom-fields/index.js";

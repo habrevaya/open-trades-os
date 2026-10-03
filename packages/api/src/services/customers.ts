@@ -179,6 +179,10 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
      * one fails, and somebody discovers them a year later.
      */
     if (input.property) {
+      await enforceWithin(
+        tx, ctx.actor.organizationId, "property", input.property.customFields ?? {}, undefined,
+        "property.customFields",
+      );
       const [property] = await tx.insert(schema.property).values({
         organizationId: ctx.actor.organizationId,
         nickname: input.property.nickname ?? null,
@@ -189,6 +193,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
         postalCode: input.property.address.postalCode,
         country: input.property.address.country,
         accessNotes: input.property.accessNotes ?? null,
+        customFields: input.property.customFields ?? {},
       }).returning({ id: schema.property.id });
 
       await tx.insert(schema.customerProperty).values({
