@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { portal } from "@opentradesos/api/services";
+import { financing, portal } from "@opentradesos/api/services";
 import { PortalBrand } from "../../PortalBrand";
 import { ApproveForm } from "./ApproveForm";
+import { PayOverTime } from "../../Financing";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,9 @@ export default async function EstimatePage({ params }: { params: Promise<{ token
     notFound();
   }
 
+  /** A monthly figure per option, if the company has a lender. Never a reason the page fails. */
+  const loan = await financing.portalEstimate(getDb(), { token }).catch(() => null);
+
   const decided = estimate.status === "approved" || estimate.status === "declined"
     || estimate.status === "converted";
 
@@ -55,6 +59,11 @@ export default async function EstimatePage({ params }: { params: Promise<{ token
       ) : (
         <ApproveForm token={token} estimate={estimate} />
       )}
+
+      {loan && estimate.status !== "declined" ? (
+        <PayOverTime token={token} lender={loan.lender} application={loan.application}
+                     options={loan.options.filter((o) => !estimate.selectedOptionId || o.optionId === estimate.selectedOptionId)} />
+      ) : null}
 
       {/*
         The terms copied onto this estimate when it was written, which the

@@ -10,6 +10,8 @@ import "@opentradesos/api/marketing";
 export const GROUPS: { capability: string; title: string; description: string }[] = [
   { capability: "payments", title: "Card payments",
     description: "Take a card on the invoice link and in the field. The webhook is what marks an invoice paid." },
+  { capability: "financing", title: "Customer financing",
+    description: "Let customers pay over time. The lender decides on each application; the funded loan lands on the invoice with the lender's fee booked as an expense." },
   { capability: "accounting", title: "Accounting",
     description: "Invoices, payments and write-offs into the books your accountant uses. Map your accounts after connecting." },
   { capability: "messaging", title: "Texting",

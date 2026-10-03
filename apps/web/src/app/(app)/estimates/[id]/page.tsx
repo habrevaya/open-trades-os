@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { agreements, customers, deposits, estimates, NotFoundError } from "@opentradesos/api/services";
+import { agreements, customers, deposits, estimates, financing, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -9,6 +9,7 @@ import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { formatDay, formatIn } from "@/lib/dates";
 import { Deliveries, EstimateActions, Options, type EstimateView } from "./Panels";
 import { actOnEstimate } from "../actions";
+import { FinancingPanel } from "@/components/FinancingPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,12 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
   const plans = memberIds.length > 0 && can(user.actor, "customer:read")
     ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
     : new Map<string, string>();
+
+  /** Financing: a monthly figure per option and every application, once the estimate has gone out. */
+  const loan = (estimate as { status: string }).status === "draft" ? null : await financing.forEstimate(ctx, { estimateId: id });
+  const offersFinancing = loan !== null && (loan.connected
+    ? loan.options.some((o) => o.applicable) || loan.applications.length > 0
+    : can(user.actor, "payment:collect"));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -78,6 +85,21 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
           convert: can(user.actor, "estimate:write") && can(user.actor, "job:write"),
         }}
       />
+
+      {loan && offersFinancing ? (
+        <FinancingPanel
+          subject={{ estimateId: id }}
+          connected={loan.connected}
+          lender={loan.lender}
+          offers={loan.options.map((o) => ({
+            optionId: o.optionId, name: o.name, total: o.total,
+            sentence: o.offer?.sentence ?? null, applicable: o.applicable,
+          }))}
+          applications={loan.applications}
+          canSend={can(user.actor, "payment:collect")}
+          timezone={user.organizationTimezone}
+        />
+      ) : null}
     </div>
   );
 }

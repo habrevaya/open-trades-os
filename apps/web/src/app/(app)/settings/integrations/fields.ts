@@ -65,6 +65,21 @@ export const FORMS: Record<string, ProviderForm> = {
         hint: "Without it cards are taken and no payment is ever recorded." },
     ],
   },
+  wisetack: {
+    credential: "API token, as the name of the secret holding it",
+    fields: [
+      { key: "merchantId", label: "Merchant id", kind: "text", hint: "From your Wisetack merchant account." },
+      { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it", kind: "secret_name",
+        hint: "Without it no application's status is ever heard, and a funded loan never reaches the invoice." },
+      { key: "plans", label: "Plans on your Wisetack agreement, as months@APR, comma separated", kind: "list",
+        placeholder: "12@0, 60@17.9",
+        hint: "What \"as low as\" is worked out from. Leave empty and customers can still apply, with no monthly figure shown." },
+      { key: "minAmount", label: "Smallest amount Wisetack finances for you", kind: "text", placeholder: "500" },
+      { key: "maxAmount", label: "Largest amount Wisetack finances for you", kind: "text", placeholder: "25000" },
+      { key: "showMonthly", label: "Show the monthly figure on estimates and invoices", kind: "yesno",
+        hint: "Always shown with \"subject to approval\" beside it. No hides the figure and keeps the apply button." },
+    ],
+  },
   quickbooks: {
     credential: "Name of the secret holding refreshToken, clientId and clientSecret as one JSON value",
     fields: [{ key: "realmId", label: "Company id (realm id)", kind: "text" }],
