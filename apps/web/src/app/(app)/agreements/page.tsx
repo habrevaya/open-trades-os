@@ -56,9 +56,11 @@ export default async function AgreementsPage() {
         title="Agreements"
         count={book.length}
         action={(
-          <a href="/agreements/renewals" className="text-sm text-ink-700 hover:underline">
-            Ending soon
-          </a>
+          <div className="flex gap-4 text-sm text-ink-700">
+            {can(user.actor, "membership:write") ? <a href="/agreements/new" className="hover:underline">Sell one</a> : null}
+            <a href="/agreements/plans" className="hover:underline">Plans</a>
+            <a href="/agreements/renewals" className="hover:underline">Ending soon</a>
+          </div>
         )}
       />
 

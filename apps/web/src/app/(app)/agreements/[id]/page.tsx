@@ -74,10 +74,27 @@ export default async function AgreementPage({
         estimates and invoices for this customer at this address while the
         agreement is running, as a discount on each line naming this plan.
       */}
-      {plan.discountRate && Number(plan.discountRate) > 0 ? (
+      {agreement.discountRate && Number(agreement.discountRate) > 0 ? (
         <p className="mt-2 text-sm text-ink-700">
-          Members get {agreements.percentOf(plan.discountRate)} off eligible work, taken off each line of their estimates and invoices.
+          Members get {agreements.percentOf(agreement.discountRate)} off eligible work, taken off each line of their
+          estimates and invoices. Fixed when this agreement was sold, so a change to the plan does not reach it.
         </p>
+      ) : null}
+      {/*
+        The perks, read from the plan as it stands: they are the company's
+        standing promise to everybody on it, which the plan screen says.
+      */}
+      {plan.priorityDispatch || plan.waivesDiagnosticFee || plan.waivesAfterHoursRate ? (
+        <p className="mt-1 text-sm text-ink-700">
+          Perks: {[
+            plan.priorityDispatch ? "seen first on the board" : null,
+            plan.waivesDiagnosticFee ? "no diagnostic fee" : null,
+            plan.waivesAfterHoursRate ? "no after hours rate" : null,
+          ].filter(Boolean).join(", ")}.
+        </p>
+      ) : null}
+      {writes ? (
+        <p className="mt-1 text-sm"><a href={`/agreements/plans/${plan.id}`} className="underline underline-offset-4">The plan</a></p>
       ) : null}
 
       {agreement.cancellationReason ? (

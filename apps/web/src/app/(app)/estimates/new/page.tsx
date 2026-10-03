@@ -49,7 +49,11 @@ export default async function NewEstimatePage({
       {members.length > 0 ? (
         <p role="note" className="mt-3 rounded border border-steel-200 bg-canvas-raised p-3 text-sm text-ink-700">
           {customer.name} is a member.{" "}
-          {members.map((m) => `${m.pricing.planName} takes ${m.pricing.percent} off each eligible line at ${m.address}.`).join(" ")}
+          {members.map((m) => `${m.pricing.planName} ${[
+            Number(m.pricing.rate ?? "0") > 0 ? `takes ${m.pricing.percent} off each eligible line` : null,
+            m.pricing.waivesDiagnosticFee ? "waives the diagnostic fee" : null,
+            m.pricing.waivesAfterHoursRate ? "waives the after hours rate" : null,
+          ].filter(Boolean).join(" and ")} at ${m.address}.`).join(" ")}
           {" "}It is taken off when the estimate is saved and shown on each line.
         </p>
       ) : null}

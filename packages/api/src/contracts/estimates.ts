@@ -273,6 +273,7 @@ export const Proposal = z.object({
     text: z.string().nullable(),
     hasLogo: z.boolean(),
     version: z.number().int(),
+    timezone: z.string(),
   }),
   id: Uuid,
   number: z.number().int(),

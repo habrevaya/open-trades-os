@@ -73,6 +73,8 @@ export interface ProposalDocument {
     hasLogo: boolean;
     /** Bumped when the logo changes, for the URL that serves it. */
     version: number;
+    /** The company's calendar, for the dates on the page. */
+    timezone: string;
   };
   id: string;
   number: number;
@@ -105,6 +107,7 @@ export async function proposalWithin(
     name: schema.organization.name,
     legalName: schema.organization.legalName,
     color: schema.organization.brandColor,
+    timezone: schema.organization.timezone,
     updatedAt: schema.organization.updatedAt,
   }).from(schema.organization).where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
   const marks = await tx.select({ kind: schema.brandAsset.kind, updatedAt: schema.brandAsset.updatedAt })
@@ -147,6 +150,7 @@ export async function proposalWithin(
       text: color ? brand.textSafe(color) : null,
       hasLogo: marks.some((a) => a.kind === "logo"),
       version: Math.floor(latest.getTime() / 1000),
+      timezone: org?.timezone ?? "America/Chicago",
     },
     id: full.id,
     number: full.number,

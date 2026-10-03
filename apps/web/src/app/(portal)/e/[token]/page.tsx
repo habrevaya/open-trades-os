@@ -41,6 +41,13 @@ export default async function EstimatePage({ params }: { params: Promise<{ token
           {estimate.title ?? `Estimate #${estimate.number}`}
         </h1>
         <p className="mt-1 text-sm text-ink-500">{estimate.propertyAddress}</p>
+        {/*
+          The whole proposal on one page, for printing or for showing the
+          other person who has to agree. Reading it does not use the link up.
+        */}
+        <p className="mt-2 text-sm">
+          <a href={`/e/${token}/proposal`} className="underline underline-offset-4">See the full proposal to print or save</a>
+        </p>
       </header>
 
       {decided ? (
@@ -48,6 +55,19 @@ export default async function EstimatePage({ params }: { params: Promise<{ token
       ) : (
         <ApproveForm token={token} estimate={estimate} />
       )}
+
+      {/*
+        The terms copied onto this estimate when it was written, which the
+        signature's hash covers. On the page they are approving, not behind a
+        link they would have to find.
+      */}
+      {estimate.termsText ? (
+        <section aria-label="Terms" className="rounded-md border border-steel-200 bg-canvas p-4">
+          <h2 className="text-sm font-semibold">Terms</h2>
+          <p className="mt-1 whitespace-pre-line text-sm text-ink-700">{estimate.termsText}</p>
+          {!decided ? <p className="mt-2 text-xs text-ink-500">Approving this estimate accepts these terms.</p> : null}
+        </section>
+      ) : null}
     </PortalBrand>
   );
 }

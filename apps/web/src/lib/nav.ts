@@ -158,7 +158,14 @@ export const NAV: NavGroup[] = [
   {
     label: "Money",
     items: [
-      { href: "/estimates", label: "Estimates", permission: "estimate:read", icon: "estimates" },
+      {
+        href: "/estimates", label: "Estimates", permission: "estimate:read", icon: "estimates",
+        children: [
+          { href: "/estimates", label: "Estimates" },
+          /** The small print copied onto every proposal when it is written. */
+          { href: "/estimates/terms", label: "Proposal terms" },
+        ],
+      },
       {
         href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices",
         children: [
@@ -177,6 +184,10 @@ export const NAV: NavGroup[] = [
         href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements",
         children: [
           { href: "/agreements", label: "The book" },
+          /** Selling one to a customer: pick the plan, the address and the start. */
+          { href: "/agreements/new", label: "Sell one" },
+          /** What is on sale: the price, the visits, the discount and the perks. */
+          { href: "/agreements/plans", label: "Plans" },
           /** The renewal conversation starts here: who ends in the next thirty days. */
           { href: "/agreements/renewals", label: "Ending soon" },
         ],
@@ -192,7 +203,14 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
-      { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
+      {
+        href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing",
+        children: [
+          { href: "/purchasing", label: "Orders" },
+          /** A supplier's spreadsheet, previewed and then applied to the price book and their part numbers. */
+          { href: "/purchasing/catalogue", label: "Supplier catalogue" },
+        ],
+      },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
       {
         href: "/fleet", label: "Fleet", permission: "asset:read", icon: "fleet",
