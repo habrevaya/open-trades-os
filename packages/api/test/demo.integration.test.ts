@@ -76,10 +76,18 @@ afterAll(async () => {
 
 run("setting a company up as the demo", () => {
   it("is idempotent, and deletes nothing in it or anywhere else", async () => {
-    const before = await raw<{ n: number }[]>`select count(*)::int as n from public.membership`;
+    /**
+     * Counted in the two companies this file owns, not across the table:
+     * every other test file seeds members in parallel, so a global count
+     * moves under this test for reasons that have nothing to do with it.
+     */
+    const count = () => raw<{ n: number }[]>`
+      select count(*)::int as n from public.membership
+       where organization_id in (${DEMO_ORG}, ${REAL_ORG})`;
+    const before = await count();
     const again = await setupDemo(db(), DEMO_ORG);
     expect(again.changed).toBe(false);
-    const after = await raw<{ n: number }[]>`select count(*)::int as n from public.membership`;
+    const after = await count();
     expect(after[0]!.n).toBe(before[0]!.n);
     const [membership] = await raw<{ role: string }[]>`
       select m.role::text as role from public.membership m

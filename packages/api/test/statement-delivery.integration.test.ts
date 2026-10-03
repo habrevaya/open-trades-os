@@ -65,7 +65,7 @@ async function invoice(customerId: string, amount: string, issuedOn = days(-3)) 
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
-  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Statement Co", slug: "statement-co" });
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Statement Co", slug: "statement-delivery-co" });
   await raw`update public.organization set timezone = 'America/Chicago' where id = ${ORG}`;
   await raw`
     insert into public.integration_connection (organization_id, capability, provider, status, settings)
