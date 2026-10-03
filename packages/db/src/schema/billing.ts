@@ -391,6 +391,25 @@ export const invoiceLine = pgTable("invoice_line", {
   costCode: text("cost_code"),
   /** Set when the price came from a rate card rather than our own price book. */
   rateCardLineId: uuid("rate_card_line_id"),
+  /**
+   * WHO PRICED THIS LINE, written when the line is priced and never worked
+   * out again. `price_book`, `entered` (a price somebody typed), or a card's
+   * authority: `contract`, `warranty_network`, `manufacturer_allowance`,
+   * `insurance`, `brand`. A commercial client rejecting an invoice asks one
+   * question first, "whose price is that", and the answer has to be on the
+   * line rather than reconstructed from which card was in force that week.
+   */
+  priceAuthority: text("price_authority"),
+  /** The card that priced it, when one did. */
+  rateCardId: uuid("rate_card_id"),
+  /**
+   * HOW the authority priced it: `card_line`, `labour_rate`, `material_markup`,
+   * `trip_charge`, `price_book`, `entered`, `history`, or `share` for a line
+   * that is one payer's part of a line split between payers.
+   */
+  priceBasis: text("price_basis"),
+  /** The working, in a sentence: "After hours rate, 1.50 h at 142.50". */
+  priceNote: text("price_note"),
   ...timestamps,
 }, (t) => ({ invoiceIdx: index("invoice_line_invoice_idx").on(t.invoiceId) }));
 

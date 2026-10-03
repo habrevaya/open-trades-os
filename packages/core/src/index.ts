@@ -45,3 +45,7 @@ export * as tracking from "./tracking/index.js";
 export * as referrals from "./referrals/index.js";
 export * as customerPortal from "./customer-portal/index.js";
 export * as catalogue from "./catalogue/index.js";
+export * as rates from "./rates/index.js";
+export * as splits from "./splits/index.js";
+export * as deadlines from "./deadlines/index.js";
+export * as claims from "./claims/index.js";

@@ -44,6 +44,13 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
    * bare id in a URL with no page behind it.
    */
   "deposit",
+  /**
+   * Every invoice one payer owes: a warranty company, a carrier, a
+   * facilities client's accounts payable. The subject is the payer's own
+   * customer record, and the page lists what is addressed to them or paid by
+   * them and nothing else.
+   */
+  "payer",
 ]);
 
 /**

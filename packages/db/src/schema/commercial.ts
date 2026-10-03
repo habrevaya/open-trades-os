@@ -2,7 +2,8 @@ import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueInde
 import { pk, timestamps, sourceRef, money, rate } from "./_shared";
 import { organization } from "./tenancy";
 import { customer, property, contact } from "./crm";
-import { job } from "./work";
+import { coverageSource } from "./entitlement";
+import { job, jobType } from "./work";
 import { invoice } from "./billing";
 import { message } from "./comms";
 import { portalGrant } from "./portal";
@@ -229,8 +230,30 @@ export const serviceContract = pgTable("service_contract", {
   defaultNotToExceed: money("default_not_to_exceed"),
   /** Their PO covering the term, required on every invoice by many clients. */
   purchaseOrderNumber: text("purchase_order_number"),
+  /**
+   * The clocks the client holds us to, read by `core/deadlines`: `respond`,
+   * `arrive` and `complete`, each in minutes from when the work was received,
+   * optionally for one job priority (`normal`, `high`, `emergency`) so an
+   * emergency can run on four hours while everything else runs on a day.
+   */
   slaTerms: jsonb("sla_terms").$type<Array<{ kind: string; minutes: number; priority?: string }>>().notNull().default([]),
   coveredScope: text("covered_scope"),
+  /**
+   * What happens when the work is priced over the ceiling: `hold` refuses
+   * the invoice until somebody raises the authorisation, `warn` lets it
+   * through and says so. Hold is the default because an invoice over a
+   * client's limit is a dispute the client has already decided to win.
+   */
+  notToExceedAction: text("not_to_exceed_action").notNull().default("hold"),
+  /** Days after the work is finished that the client accepts an invoice. Null is no window. */
+  invoiceWithinDays: integer("invoice_within_days"),
+  /** Days after the work is finished that a warranty or insurance claim can still be filed. */
+  claimWithinDays: integer("claim_within_days"),
+  /**
+   * The file the client's accounts payable takes, when it names one: `csv`
+   * or `xml`. Null means email and the portal link, like anybody else.
+   */
+  invoiceFormat: text("invoice_format"),
   active: boolean("active").notNull().default(true),
   ...sourceRef,
   ...timestamps,
@@ -264,8 +287,62 @@ export const rateCard = pgTable("rate_card", {
   effectiveFrom: date("effective_from"),
   effectiveTo: date("effective_to"),
   active: boolean("active").notNull().default(true),
+  /**
+   * The rules a card states beyond its item list, which is most of what a
+   * commercial schedule actually is: an hourly rate per trade and time of
+   * day, a markup on materials, and a charge for turning up. Read by
+   * `core/rates`, which decides which of them prices a given line.
+   */
+  /** Charged once per visit, when the card has one. */
+  tripCharge: money("trip_charge"),
+  /**
+   * Markup on our cost for materials, by cost band, lowest band first:
+   * `[{ upToCost: "100", percent: "0.5" }, { upToCost: null, percent: "0.25" }]`.
+   * A fraction, like every other rate here.
+   */
+  materialMarkup: jsonb("material_markup").$type<Array<{ upToCost: string | null; percent: string }>>().notNull().default([]),
+  /**
+   * The client's standard hours, which decide the time band labour is
+   * charged in. Theirs rather than ours: a card that pays a premium after
+   * five pays it after THEIR five, whatever hours the office keeps.
+   * Days are 0 for Sunday to 6 for Saturday.
+   */
+  standardDays: jsonb("standard_days").$type<number[]>().notNull().default([1, 2, 3, 4, 5]),
+  standardStartMinute: integer("standard_start_minute").notNull().default(480),
+  standardEndMinute: integer("standard_end_minute").notNull().default(1020),
+  /** The client's holidays, as `YYYY-MM-DD`. */
+  holidays: jsonb("holidays").$type<string[]>().notNull().default([]),
   ...timestamps,
 }, (t) => ({ orgIdx: index("rate_card_org_idx").on(t.organizationId) }));
+
+export const labourBand = pgEnum("labour_band", ["standard", "after_hours", "weekend", "holiday"]);
+
+/**
+ * An hourly rate on a card, for one trade and one time band.
+ *
+ * The trade is the job type the work is booked under, or none for every
+ * kind of work: a schedule that pays an electrician more than a helper is
+ * written as two rows, and the more specific row wins. Replaced as a set
+ * with the rest of the card's terms, so there is no unique index to collide
+ * on: the service refuses a duplicate in words before anything is written.
+ */
+export const rateCardLabourRate = pgTable("rate_card_labour_rate", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  rateCardId: uuid("rate_card_id").notNull().references(() => rateCard.id, { onDelete: "cascade" }),
+  /**
+   * Cascade rather than set null. A rate for a job type that is deleted
+   * becoming a rate for EVERY kind of work would quietly reprice the card.
+   */
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "cascade" }),
+  band: labourBand("band").notNull().default("standard"),
+  hourlyRate: money("hourly_rate").notNull(),
+  /** The least the card pays for a visit's labour, in minutes: "one hour minimum". */
+  minimumMinutes: integer("minimum_minutes"),
+  /** Billed in steps of this many minutes, rounded up: "in quarter hours". */
+  incrementMinutes: integer("increment_minutes"),
+  ...timestamps,
+}, (t) => ({ cardIdx: index("rate_card_labour_rate_card_idx").on(t.rateCardId) }));
 
 export const rateCardLine = pgTable("rate_card_line", {
   id: pk(),
@@ -329,3 +406,55 @@ export const invoiceDelivery = pgTable("invoice_delivery", {
   error: text("error"),
   ...timestamps,
 }, (t) => ({ invoiceIdx: index("invoice_delivery_invoice_idx").on(t.invoiceId) }));
+
+// ---------------------------------------------------------------------------
+// Claims: billing the third party
+// ---------------------------------------------------------------------------
+
+export const claimStatus = pgEnum("claim_status", [
+  "submitted", "approved", "paid", "short_paid", "denied",
+]);
+
+/**
+ * A claim to a home warranty company, a manufacturer or a carrier.
+ *
+ * Its own document rather than a status on the invoice, because the two
+ * answer different questions. The invoice is the receivable: what they owe,
+ * on the ledger, ageing like anything else. The claim is the conversation
+ * about it, which has its own reference, its own approval and its own
+ * outcome, and the outcome is frequently not the invoice: approved for less,
+ * paid short, or denied after the work was done.
+ *
+ * One per invoice. A second claim on the same receivable is two answers to
+ * "what did they agree to pay", which the service refuses in words.
+ */
+export const coverageClaim = pgTable("coverage_claim", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id").notNull().references(() => job.id, { onDelete: "cascade" }),
+  /** The receivable this claim is about: the invoice addressed to the third party. */
+  invoiceId: uuid("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  /** Who is being claimed against. A customer record, so the receivable ages against somebody. */
+  payerCustomerId: uuid("payer_customer_id").notNull().references(() => customer.id),
+  /** Why they are paying, copied from the job's coverage when the claim was filed. */
+  source: coverageSource("source").notNull(),
+  status: claimStatus("status").notNull().default("submitted"),
+  /** What we asked for. The invoice total when it was filed. */
+  claimedAmount: money("claimed_amount").notNull(),
+  /** What they agreed to pay. Null until they decide. */
+  approvedAmount: money("approved_amount"),
+  /** What has arrived from them against it. */
+  paidAmount: money("paid_amount").notNull().default("0"),
+  /** Their claim or authorisation number, which is what anybody quotes on the phone. */
+  externalReference: text("external_reference"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  /** Their reason, in their words, for a denial or a short payment. */
+  decisionNote: text("decision_note"),
+  ...timestamps,
+}, (t) => ({
+  invoiceIdx: uniqueIndex("coverage_claim_invoice_idx").on(t.invoiceId),
+  statusIdx: index("coverage_claim_status_idx").on(t.organizationId, t.status),
+  jobIdx: index("coverage_claim_job_idx").on(t.jobId),
+}));
