@@ -40,13 +40,62 @@ export interface FieldVisit {
     hasDog: boolean;
   };
   checklist: Array<{ id: string; label: string; required: boolean; doneAt: string | null }>;
+  /** Owed on the job's invoices, a decimal string. Null when nothing is invoiced. */
+  amountDue: string | null;
+  report: {
+    /** Null until a report exists; the phone makes its own id then. */
+    id: string | null;
+    submitted: boolean;
+    fields: ReportField[];
+  };
+  parts: Array<{ id: string; name: string; quantity: string }>;
+}
+
+export interface ReportField {
+  key: string;
+  label: string;
+  /** numeric, measurement, text, boolean, select or chemical. */
+  kind: string;
+  unit: string | null;
+  options: string[];
+  required: boolean;
+  min: number | null;
+  max: number | null;
+  /** The newest value recorded, as text. */
+  value: string | null;
+}
+
+export interface PriceBookEntry {
+  id: string;
+  versionId: string;
+  code: string | null;
+  name: string;
+  unitPrice: string;
+  taxable: boolean;
 }
 
 export interface FieldSnapshot {
   revision: number;
   unchanged: boolean;
   visits: FieldVisit[];
+  /** What the technician can pick from when recording a part. */
+  priceBook: PriceBookEntry[];
   openTimeEntry: { id: string; kind: string; startedAt: string } | null;
+}
+
+export interface CodeRequestResult {
+  ok: true;
+  /** What to tell the person. It never says whether the address exists. */
+  message: string;
+}
+
+export interface PaymentLinkResult {
+  url: string;
+  invoiceId: string;
+  invoiceNumber: number;
+  amountDue: string;
+  texted: boolean;
+  reason: string | null;
 }
 
 export interface SignInResult {

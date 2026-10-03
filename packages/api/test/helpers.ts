@@ -68,7 +68,7 @@ const ORDER = [
    * anything.
    */
   "discount_policy",
-  "field_upload", "field_operation", "device_snapshot", "device",
+  "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.

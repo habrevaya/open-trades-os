@@ -1,8 +1,9 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { taskRules } from "@opentradesos/core";
+import { assertCan, taskRules } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, decodeCursor, paginate, NotFoundError, ConflictError, type ServiceContext,
+  audit, guardedRead, guardedWrite, decodeCursor, paginate, NotFoundError, ConflictError,
+  type ServiceContext,
 } from "./context";
 
 /**
@@ -15,17 +16,18 @@ import {
  * queue create work for other people is a different thing, and a queue anybody
  * can add to stops being a queue anybody reads.
  *
- * WHAT A READER MAY DO IS CLAIM, AND ONLY CLAIM. This comment used to say a
- * technician "can be handed a task and complete it", and `close` has always taken
- * `task:write`, which the technician preset does not hold. So the sentence was
- * false in the direction that matters: somebody reading it would build a role on
- * it.
+ * WHAT A READER MAY DO WITH THEIR OWN WORK: CLAIM IT, TICK IT, FINISH IT. A
+ * technician can take an unclaimed task, tick its checklist, and mark a task
+ * assigned to them done, with `task:read`, because each of those is acting on
+ * your own work, the same class of act as clocking yourself in. It used to stop
+ * at claiming, which left a technician who picked work off the queue unable to
+ * say they had done it, and the office finishing it for them from a phone call.
  *
- * The asymmetry that leaves is real and is stated rather than smoothed over. A
- * technician can take an unclaimed task, which sets it in progress, and cannot
- * then close it: finishing is the office's. Whether that is right is a product
- * decision and not one to make by widening a permission here, so it is named in
- * `docs/modules/m34-tasks-and-the-office-queue.md` instead.
+ * The rule is narrow on purpose, and it is in `close` rather than in a wider
+ * grant. Only a task assigned to the caller, and only finishing it: dismissing
+ * one ("we decided not to") is a judgement about whether the work was worth
+ * raising and stays with `task:write`, and so does closing anybody else's. The
+ * product decision behind it is in `docs/modules/m34-tasks-and-the-office-queue.md`.
  */
 
 export type TaskView = "mine" | "unassigned" | "overdue" | "all";
@@ -294,10 +296,20 @@ export async function close(
   ctx: ServiceContext,
   input: { id: string; outcome?: string; dismissed?: boolean; overrideReason?: string },
 ) {
-  return guardedWrite(ctx, "task:write", async (tx) => {
+  return guardedWrite(ctx, "task:read", async (tx) => {
     const [before] = await tx.select().from(schema.task)
       .where(eq(schema.task.id, input.id)).limit(1);
     if (!before) throw new NotFoundError("Task");
+
+    /**
+     * FINISHING YOUR OWN TASK NEEDS ONLY `task:read`; everything else here
+     * needs `task:write`. Checked before anything else is said about the
+     * task, so somebody without the right to close it learns nothing from the
+     * refusal about its state.
+     */
+    const ownFinish = before.assigneeUserId === ctx.actor.userId && input.dismissed !== true;
+    if (!ownFinish) assertCan(ctx.actor, "task:write");
+
     if (before.completedAt) throw new ConflictError("That task is already closed");
 
     if (input.dismissed && !input.outcome?.trim()) {

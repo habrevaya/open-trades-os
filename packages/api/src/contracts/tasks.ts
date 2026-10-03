@@ -168,9 +168,9 @@ export const closeTask = defineRoute({
   path: "/v1/tasks/{id}/close",
   summary: "Finish a task, or decide against it",
   description:
-    "DISMISSED IS A SEPARATE STATE FROM DONE. \"We decided not to\" and \"we did it\" are different facts, and a queue where the second quietly absorbs the first tells an owner nothing about how much of the raised work was worth raising. A dismissal with no reason is indistinguishable from a task somebody could not be bothered with, so it is refused.",
+    "DISMISSED IS A SEPARATE STATE FROM DONE. \"We decided not to\" and \"we did it\" are different facts, and a queue where the second quietly absorbs the first tells an owner nothing about how much of the raised work was worth raising. A dismissal with no reason is indistinguishable from a task somebody could not be bothered with, so it is refused. `task:read` lets the person a task is assigned to mark it done, which is the same class of act as claiming it; dismissing it, or closing anybody else's, needs `task:write`.",
   module: "M34",
-  permissions: ["task:write"],
+  permissions: ["task:read"],
   idempotent: true,
   input: z.object({
     id: Uuid,

@@ -1,6 +1,6 @@
 import type { QueuedOperation } from "./queue";
 import type { UploadRecord } from "./uploads";
-import type { FieldSnapshot, FieldVisit } from "./wire";
+import type { FieldSnapshot, FieldVisit, ReportField } from "./wire";
 
 /**
  * THE DAY AS THE TECHNICIAN SHOULD SEE IT
@@ -107,7 +107,41 @@ export function statusAfter(kind: string, current: string | undefined): string |
   }
 }
 
-export interface DayVisit extends FieldVisit {
+export interface DayChecklistItem {
+  id: string;
+  label: string;
+  required: boolean;
+  doneAt: string | null;
+  /** Ticked or unticked on this phone and not sent yet. */
+  waiting: boolean;
+}
+
+export interface DayReportField extends ReportField {
+  waiting: boolean;
+}
+
+export interface DayPart {
+  /** The server's line id, or the operation's client id for one still on the phone. */
+  id: string;
+  name: string;
+  quantity: string;
+  waiting: boolean;
+}
+
+export interface DayPayment {
+  clientId: string;
+  method: "cash" | "check";
+  amount: string;
+  checkNumber: string | null;
+  waiting: boolean;
+}
+
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts"> {
+  checklist: DayChecklistItem[];
+  report: { id: string | null; submitted: boolean; submitWaiting: boolean; fields: DayReportField[] };
+  parts: DayPart[];
+  /** Cash and checks recorded on this phone since the day was last fetched. */
+  payments: DayPayment[];
   stage: Stage;
   /**
    * Notes written on this phone since the day was last fetched, with whether
@@ -146,6 +180,20 @@ export function projectDay(input: {
   for (const visit of input.snapshot?.visits ?? []) {
     visits.set(visit.id, {
       ...visit,
+      checklist: visit.checklist.map((item) => ({ ...item, waiting: false })),
+      /**
+       * Older servers sent no report, parts or balance. Read as empty rather
+       * than crashing the day on a phone that updated before its server did.
+       */
+      report: {
+        id: visit.report?.id ?? null,
+        submitted: visit.report?.submitted ?? false,
+        submitWaiting: false,
+        fields: (visit.report?.fields ?? []).map((f) => ({ ...f, waiting: false })),
+      },
+      parts: (visit.parts ?? []).map((part) => ({ ...part, waiting: false })),
+      amountDue: visit.amountDue ?? null,
+      payments: [],
       stage: stageOf(visit.status, visit.arrivedAt),
       newNotes: [],
       photos: { waiting: 0, sent: 0, failed: 0 },
@@ -177,7 +225,8 @@ export function projectDay(input: {
       continue;
     }
 
-    const visit = op.subjectId ? visits.get(op.subjectId) : undefined;
+    const visitId = visitOf(op);
+    const visit = visitId ? visits.get(visitId) : undefined;
     if (!visit) continue;
     if (waiting) visit.waiting += 1;
 
@@ -187,6 +236,7 @@ export function projectDay(input: {
     if (op.kind === "visit.note" && typeof op.payload["text"] === "string") {
       visit.newNotes.push({ text: op.payload["text"], waiting });
     }
+    overlay(visit, op, waiting);
     visit.stage = stageOf(visit.status, visit.arrivedAt);
   }
 
@@ -204,6 +254,113 @@ export function projectDay(input: {
     visits: [...visits.values()].sort(byRoute),
     clock,
   };
+}
+
+/**
+ * The visit an operation is about. A report's operations name the report and
+ * carry the visit in their payload, because the report is the record they
+ * change; everything else names the visit itself.
+ */
+export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payload">): string | undefined {
+  if (op.kind === "service_report.set_field" || op.kind === "service_report.submit") {
+    const visitId = op.payload["visitId"];
+    return typeof visitId === "string" ? visitId : undefined;
+  }
+  return op.subjectId;
+}
+
+/** The rest of what a technician records on a visit, laid over the server's last word. */
+function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
+  const p = op.payload;
+  switch (op.kind) {
+    case "visit.checklist_item": {
+      const item = visit.checklist.find((i) => i.id === p["itemId"]);
+      if (!item) return;
+      item.doneAt = p["done"] === false ? null : op.occurredAt;
+      item.waiting = waiting;
+      return;
+    }
+    case "service_report.set_field": {
+      if (op.subjectId && !visit.report.id) visit.report.id = op.subjectId;
+      const key = typeof p["field"] === "string" ? p["field"] : null;
+      if (!key) return;
+      const value = p["value"];
+      const text = value === null || value === undefined ? null
+        : typeof value === "boolean" ? (value ? "yes" : "no")
+        : String(value);
+      const existing = visit.report.fields.find((f) => f.key === key);
+      if (existing) {
+        existing.value = text;
+        existing.waiting = waiting;
+        return;
+      }
+      visit.report.fields.push({
+        key,
+        label: typeof p["label"] === "string" ? p["label"] : key,
+        kind: typeof p["kind"] === "string" ? p["kind"] : "text",
+        unit: typeof p["unit"] === "string" ? p["unit"] : null,
+        options: [], required: false, min: null, max: null,
+        value: text, waiting,
+      });
+      return;
+    }
+    case "service_report.submit":
+      if (op.subjectId && !visit.report.id) visit.report.id = op.subjectId;
+      visit.report.submitted = true;
+      visit.report.submitWaiting = waiting;
+      return;
+    case "visit.add_line":
+      visit.parts.push({
+        id: op.clientId,
+        name: typeof p["name"] === "string" ? p["name"] : "Part",
+        quantity: typeof p["quantity"] === "string" ? p["quantity"] : "1",
+        waiting,
+      });
+      return;
+    case "payment.collect":
+      if (p["method"] !== "cash" && p["method"] !== "check") return;
+      visit.payments.push({
+        clientId: op.clientId,
+        method: p["method"],
+        amount: typeof p["amount"] === "string" ? p["amount"] : "0",
+        checkNumber: typeof p["checkNumber"] === "string" ? p["checkNumber"] : null,
+        waiting,
+      });
+      return;
+    default:
+      return;
+  }
+}
+
+/**
+ * What a reading box holds, made into what the server stores: a number for
+ * a numeric reading, true or false for a yes or no, and the words otherwise.
+ * Null for something that is not a value of that kind, so a letter typed into
+ * a pressure is caught on the phone rather than stored as a pressure of
+ * nothing.
+ */
+export function readingValue(field: Pick<ReportField, "kind" | "options">, typed: string): string | number | boolean | null {
+  const text = typed.trim();
+  if (text === "") return null;
+  switch (field.kind) {
+    case "numeric":
+    case "measurement": {
+      const normalised = text.replace(/,/g, "");
+      return /^-?\d+(\.\d+)?$/.test(normalised) ? Number(normalised) : null;
+    }
+    case "boolean":
+      return /^(y|yes|true)$/i.test(text) ? true : /^(n|no|false)$/i.test(text) ? false : null;
+    case "select":
+      return field.options.includes(text) ? text : null;
+    default:
+      return text.slice(0, 2000);
+  }
+}
+
+/** Whether a numeric reading falls outside the range the template gives, said before it is saved. */
+export function outOfRange(field: Pick<ReportField, "min" | "max">, value: string | number | boolean | null): boolean {
+  if (typeof value !== "number") return false;
+  return (field.min !== null && value < field.min) || (field.max !== null && value > field.max);
 }
 
 /**

@@ -353,7 +353,7 @@ run("the worker", () => {
     });
     await due(created.id, new Date(Date.now() - 60_000));
     const sentFor: string[] = [];
-    await runPass({ db: db(), afterDrain: async (org) => { sentFor.push(org); } });
+    await runPass({ db: db(), afterDrain: async (org) => { sentFor.push(org); }, push: false });
     expect(await deliveriesOf(created.id)).toHaveLength(1);
     // This company had no events on the pass; it is still handed to the outbox.
     expect(sentFor).toContain(ORG);

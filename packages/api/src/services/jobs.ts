@@ -13,6 +13,7 @@ import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter } from "./scope";
 import { emit } from "./events";
+import { announce, NEW_VISIT } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
 import { gate as qualificationGate } from "./qualification";
@@ -439,6 +440,13 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
           })),
         );
       }
+
+      /**
+       * Booked with people on it, so it is on their day. Not for history
+       * brought in from another system: a job from 2022 is not news to
+       * anybody's phone.
+       */
+      if (!imported) await announce(tx, ctx, visit!.id, NEW_VISIT);
     }
 
     /**
@@ -818,6 +826,9 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
         })),
       );
     }
+
+    /** On their day from now, unless it is history brought in from another system. */
+    if (input.externalRef === undefined) await announce(tx, ctx, visit!.id, NEW_VISIT);
 
     /**
      * A LEAD WITH A VISIT ON THE BOARD IS BOOKED.

@@ -1,6 +1,7 @@
 import { OfflineError, type Transport, type SyncResponse } from "./queue";
 import type {
-  ArrivalNoticeResult, FieldSnapshot, OwedUpload, RegisterResult, SignInResult, StoreUploadResult,
+  ArrivalNoticeResult, CodeRequestResult, FieldSnapshot, OwedUpload, PaymentLinkResult, RegisterResult,
+  SignInResult, StoreUploadResult,
 } from "./wire";
 
 /**
@@ -106,14 +107,45 @@ export class FieldApi {
     return this.request("POST", "/v1/field/sign-in", input, { anonymous: true });
   }
 
+  /**
+   * Ask for a one time code by text or email. The answer is the same whether
+   * or not the address belongs to anybody, so it is shown as it comes.
+   */
+  requestCode(input: { email: string; channel: "sms" | "email" }): Promise<CodeRequestResult> {
+    return this.request("POST", "/v1/field/sign-in/code", input, { anonymous: true });
+  }
+
+  /** The code in, the same device token a password gets. */
+  signInWithCode(input: { email: string; code: string }): Promise<SignInResult> {
+    return this.request("POST", "/v1/field/sign-in/verify", input, { anonymous: true });
+  }
+
+  /**
+   * Register this phone, or register it again with something new, which is
+   * how a push token reaches the server: the same call, keyed on the same
+   * installation, with the token added.
+   */
   register(input: {
     installationId: string;
     label?: string | undefined;
     platform?: "ios" | "android" | undefined;
     appVersion?: string | undefined;
     osVersion?: string | undefined;
+    pushToken?: string | undefined;
   }): Promise<RegisterResult> {
     return this.request("POST", "/v1/field/devices", input);
+  }
+
+  /**
+   * The card payment link for the job on a visit, texted to the customer
+   * when asked. Online only, like the text that says you are on your way:
+   * a link is worth something with the customer stood there, not an hour
+   * later from a queue.
+   */
+  paymentLink(visitId: string, text: boolean, idempotencyKey: string): Promise<PaymentLinkResult> {
+    return this.request(
+      "POST", `/v1/visits/${encodeURIComponent(visitId)}/payment-link`, { text }, { idempotencyKey },
+    );
   }
 
   signOut(deviceId: string): Promise<{ ok: true }> {

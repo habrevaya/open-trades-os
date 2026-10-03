@@ -80,6 +80,39 @@ export const EVENTS = {
     emitted: true,
   },
 
+  /**
+   * WHAT CHANGED ON SOMEBODY'S DAY, one event per kind of change.
+   *
+   * Emitted beside the write by every path that moves a visit onto, off or
+   * around a technician's day: the board, booking a job with people on it,
+   * adding a visit, cancelling a job, and the office answering a customer's
+   * request to move or cancel. The worker reads them to push a notice to the
+   * technician's phone, and the payload names the technicians each one is
+   * about (`technicianIds`), because who needs telling is decided at the
+   * moment of the change and not reconstructed later from whoever is on the
+   * visit by then.
+   */
+  "visit.assigned": {
+    summary: "A visit was put on a technician's day",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.unassigned": {
+    summary: "A visit was taken off a technician's day",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.rescheduled": {
+    summary: "A visit moved to a different time",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.cancelled": {
+    summary: "A visit was cancelled",
+    entity: "visit",
+    emitted: true,
+  },
+
   /* ----------------------------------------------------------------- money */
 
   "invoice.issued": { summary: "An invoice was raised", entity: "invoice", emitted: true },

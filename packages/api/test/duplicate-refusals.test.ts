@@ -145,6 +145,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One customer's statement for one month. The monthly run inserts with on conflict do nothing, so a repeat sends nothing.",
   field_operation_client_idx: "The client's own operation id, which makes a retry safe.",
   field_upload_client_idx: "The client's own upload id, which makes a retry safe.",
+  push_delivery_event_device_idx:
+    "One notice per change per phone. The push pass inserts with on conflict do nothing, so reading an event twice buzzes nobody twice.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",
   dni_session_live_idx:
     "One live lease per pool number. Leasing inserts with on conflict do nothing and the loser "

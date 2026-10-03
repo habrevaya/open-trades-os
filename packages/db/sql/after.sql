@@ -155,6 +155,19 @@ create policy setup_token_no_direct_access on public.setup_token
   using (false)
   with check (false);
 
+-- A one time sign in code for the field app sits above the tenant for the same
+-- reason a first-password link does: it exists before anybody is signed in.
+-- Nothing selects it; two functions near the end of this file issue and spend
+-- one, so the limits on how many and how often cannot be skipped by a second
+-- caller that forgot them.
+alter table public.sign_in_code enable row level security;
+alter table public.sign_in_code force row level security;
+drop policy if exists sign_in_code_no_direct_access on public.sign_in_code;
+create policy sign_in_code_no_direct_access on public.sign_in_code
+  to authenticated
+  using (false)
+  with check (false);
+
 -- ---- Ledger is append only ---------------------------------------------
 -- No UPDATE. No DELETE. Ever. A correction is a new reversing entry.
 -- Enforced in the database rather than in application code, because
@@ -1947,3 +1960,139 @@ create or replace function app.operator_set_membership(
 
 revoke all on function app.operator_set_membership(uuid, uuid, text) from public;
 grant execute on function app.operator_set_membership(uuid, uuid, text) to platform_operator;
+
+-- =========================================================================
+-- THE FIELD APP: ONE TIME SIGN IN CODES AND PUSH NOTICES
+-- =========================================================================
+
+-- The functions that issue and spend a code are under "The field app" near
+-- the end of this file.
+
+-- Issue a code for whoever owns this email, replacing any live one they had.
+-- Returns nothing for an address nobody owns, and `issued = false` for one
+-- that has asked too often lately, so the caller can answer both the same
+-- way and the form never says which addresses exist.
+create or replace function app.issue_sign_in_code(
+  p_email text, p_code_hash text, p_channel text, p_expires_at timestamptz,
+  p_per_window int, p_window_minutes int
+) returns table (user_id uuid, email text, name text, issued boolean)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_user public."user"%rowtype;
+    v_recent int;
+  begin
+    select * into v_user from public."user" u where lower(u.email) = lower(p_email) limit 1;
+    if not found then
+      return;
+    end if;
+
+    -- Serialised per person, so two requests at once cannot both read two
+    -- recent codes and both issue a third.
+    perform pg_advisory_xact_lock(hashtext('sign_in_code:' || v_user.id::text));
+
+    select count(*) into v_recent from public.sign_in_code c
+     where c.user_id = v_user.id
+       and c.created_at > now() - make_interval(mins => p_window_minutes);
+    if v_recent >= p_per_window then
+      return query select v_user.id, v_user.email, v_user.name, false;
+      return;
+    end if;
+
+    -- Only the newest code works. A person asking again usually never got
+    -- the first one, and the first one is then in nobody's hands that
+    -- should be using it.
+    update public.sign_in_code c
+       set revoked_at = now(), updated_at = now()
+     where c.user_id = v_user.id and c.used_at is null and c.revoked_at is null;
+
+    insert into public.sign_in_code (user_id, code_hash, channel, expires_at)
+    values (v_user.id, p_code_hash, p_channel, p_expires_at);
+
+    return query select v_user.id, v_user.email, v_user.name, true;
+  end;
+  $$;
+
+-- Try a code. Returns the person on a match and spends the code in the same
+-- statement, so two phones submitting it together cannot both sign in: the
+-- second waits on the row lock and finds it used. A wrong guess is counted
+-- against the live code, and at the limit the code is revoked, so the five
+-- guesses a code allows cannot become fifty by asking again and again.
+-- Returns null for every refusal alike: wrong, expired, spent or never sent.
+create or replace function app.consume_sign_in_code(
+  p_email text, p_code_hash text, p_max_attempts int
+) returns uuid
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_code public.sign_in_code%rowtype;
+  begin
+    select c.* into v_code
+      from public.sign_in_code c
+      join public."user" u on u.id = c.user_id
+     where lower(u.email) = lower(p_email)
+       and c.used_at is null
+       and c.revoked_at is null
+       and c.expires_at > now()
+     order by c.created_at desc
+     limit 1
+     for update of c;
+
+    if not found then
+      return null;
+    end if;
+
+    if v_code.code_hash = p_code_hash then
+      update public.sign_in_code
+         set used_at = now(), updated_at = now()
+       where id = v_code.id;
+      return v_code.user_id;
+    end if;
+
+    update public.sign_in_code
+       set attempts = attempts + 1,
+           revoked_at = case when attempts + 1 >= p_max_attempts then now() else revoked_at end,
+           updated_at = now()
+     where id = v_code.id;
+    return null;
+  end;
+  $$;
+
+revoke all on function app.issue_sign_in_code(text, text, text, timestamptz, int, int) from public;
+revoke all on function app.consume_sign_in_code(text, text, int) from public;
+grant execute on function app.issue_sign_in_code(text, text, text, timestamptz, int, int) to authenticated;
+grant execute on function app.consume_sign_in_code(text, text, int) to authenticated;
+
+-- ---- Companies with a push to send ----------------------------------------
+-- The push pass reads each company's event log from its own position (the
+-- `push` consumer) and sends what it writes. The same shape as the functions
+-- above: which companies have a change it has not read, a notice still
+-- waiting to go, or a receipt still owed, as ids and nothing else. Whether
+-- any of it is due is decided per company by the service.
+create or replace function app.push_work_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select e.organization_id
+        from public.domain_event e
+        left join public.event_cursor c
+          on c.organization_id = e.organization_id and c.consumer = 'push'
+       where e.sequence > coalesce(c.last_sequence, 0)
+       group by e.organization_id
+      union
+      select d.organization_id
+        from public.push_delivery d
+       where d.status in ('queued', 'sending')
+          or (d.status = 'sent' and d.ticket_id is not null and d.receipt_checked_at is null)
+       group by d.organization_id
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.push_work_organizations(int) from public;
+grant execute on function app.push_work_organizations(int) to background;

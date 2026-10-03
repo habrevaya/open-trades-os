@@ -27,7 +27,7 @@ function snapshot(): FieldSnapshot {
   server.addVisit("v2", { routeOrder: 1, customer: { id: "c2", name: "Sam Ortiz", phone: null } });
   server.addVisit("v3", { routeOrder: null, windowStart: "2026-10-02T13:00:00Z" });
   return {
-    revision: 1, unchanged: false, openTimeEntry: null,
+    revision: 1, unchanged: false, openTimeEntry: null, priceBook: [],
     visits: [...server.visits.values()],
   };
 }

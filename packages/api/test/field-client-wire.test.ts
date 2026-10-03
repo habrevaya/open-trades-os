@@ -7,11 +7,12 @@ import type { z } from "zod";
 */
 import type {
   FieldSnapshot, SignInResult, RegisterResult, OwedUpload, StoreUploadResult, ArrivalNoticeResult,
+  CodeRequestResult, PaymentLinkResult,
 } from "@opentradesos/field-client/wire";
 import type { SyncResponse, Transport } from "@opentradesos/field-client/queue";
 import {
   getFieldSnapshot, signInDevice, registerDevice, listPendingUploads, storeUpload,
-  sendArrivalNotice, syncOperations,
+  sendArrivalNotice, syncOperations, requestSignInCode, signInWithCode, visitPaymentLink,
 } from "../src/contracts";
 
 /**
@@ -42,6 +43,9 @@ describe("the field client's wire types", () => {
     const stored = {} as Out<typeof storeUpload>;
     const notice = {} as Out<typeof sendArrivalNotice>;
     const synced = {} as Out<typeof syncOperations>;
+    const codeSent = {} as Out<typeof requestSignInCode>;
+    const codeSignIn = {} as Out<typeof signInWithCode>;
+    const link = {} as Out<typeof visitPaymentLink>;
 
     expect(accepts<FieldSnapshot>(snapshot)).toBe(true);
     expect(accepts<SignInResult>(signIn)).toBe(true);
@@ -50,6 +54,9 @@ describe("the field client's wire types", () => {
     expect(accepts<StoreUploadResult>(stored)).toBe(true);
     expect(accepts<ArrivalNoticeResult>(notice)).toBe(true);
     expect(accepts<SyncResponse>(synced)).toBe(true);
+    expect(accepts<CodeRequestResult>(codeSent)).toBe(true);
+    expect(accepts<SignInResult>(codeSignIn)).toBe(true);
+    expect(accepts<PaymentLinkResult>(link)).toBe(true);
   });
 
   it("send what the server accepts", () => {

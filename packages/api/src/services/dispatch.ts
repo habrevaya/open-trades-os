@@ -5,13 +5,15 @@ import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit
 } from "./context";
+import { announce, sideOf } from "./visit-notices";
 import { inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
-import { time } from "@opentradesos/core";
+import { can, money as m, time } from "@opentradesos/core";
 import { sendTransactional } from "./comms-send";
 import type {
-  getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot,
+  getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot, VisitForField,
 } from "../contracts/field";
+import { templateFor } from "./field";
 import { portalBase } from "../lib/portal-base";
 import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
 
@@ -157,6 +159,9 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       throw new ConflictError(`This visit is ${visit.status} and cannot be reassigned.`);
     }
 
+    /** Who was on it before, so the people added and the people taken off each hear about it. */
+    const before = (await sideOf(tx, input.id))!;
+
     const technicians = await tx.select({ id: schema.technician.id })
       .from(schema.technician)
       .where(and(
@@ -220,6 +225,7 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
 
     await audit(tx, ctx, "visit.assigned", "visit", input.id,
       { status: visit.status }, { status, technicianIds: input.technicianIds });
+    await announce(tx, ctx, input.id, before);
 
     if (qualified.overridden) {
       await audit(tx, ctx, "visit.assigned_unqualified", "visit", input.id,
@@ -550,6 +556,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       visit: schema.visit,
       jobId: schema.job.id,
       jobNumber: schema.job.number,
+      jobTypeId: schema.job.jobTypeId,
       summary: schema.job.summary,
       description: schema.job.description,
       customerComplaint: schema.job.customerComplaint,
@@ -575,7 +582,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
      * asks "is there anything new" far more often than it asks for the data,
      * and comparing one integer beats diffing a day of visits.
      */
-    const revision = await computeRevision(tx, rows.map((r) => r.visit.id));
+    const revision = await computeRevision(tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId));
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
       return { revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null };
@@ -615,6 +622,10 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
         isNull(schema.timeclockEntry.endedAt),
       ))
       .orderBy(asc(schema.timeclockEntry.startedAt)).limit(1);
+
+    const extras = await visitExtras(tx, ctx, rows.map((r) => ({
+      visitId: r.visit.id, jobId: r.jobId, jobTypeId: r.jobTypeId,
+    })));
 
     await tx.insert(schema.deviceSnapshot).values({
       organizationId: ctx.actor.organizationId,
@@ -659,6 +670,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
           hasDog: r.property.hasDog,
         },
         checklist: r.visit.checklist,
+        ...extras.get(r.visit.id)!,
       })),
       priceBook,
       openTimeEntry: open
@@ -671,16 +683,164 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
 /**
  * A number that changes whenever the device's slice does.
  *
- * Derived from the visits' own update times rather than kept as a counter,
- * because a counter has to be bumped by every path that touches a visit and
- * the one that forgets is the one that leaves a technician driving to an
- * address the office moved an hour ago.
+ * Derived from the update times of what the phone shows rather than kept as a
+ * counter, because a counter has to be bumped by every path that touches a
+ * visit and the one that forgets is the one that leaves a technician driving
+ * to an address the office moved an hour ago.
+ *
+ * The visits, and since the phone shows them, the job's invoices (so a card
+ * paid through the link shows as paid), the visit's service report and its
+ * fields, and the parts on it. A part the office added, or a reading taken on
+ * another phone, would otherwise be invisible until something about the visit
+ * itself changed.
  */
-async function computeRevision(tx: Database, visitIds: string[]): Promise<number> {
+async function computeRevision(tx: Database, visitIds: string[], jobIds: string[]): Promise<number> {
   if (visitIds.length === 0) return 0;
+  const visits = sql.raw(`('${visitIds.join("','")}')`);
+  const jobs = sql.raw(`('${[...new Set(jobIds)].join("','")}')`);
   const [row] = await tx.execute(sql`
-    select coalesce(extract(epoch from max(updated_at))::bigint, 0) + count(*) as revision
-    from public.visit where id in ${sql.raw(`('${visitIds.join("','")}')`)}
+    select coalesce(extract(epoch from greatest(
+      (select max(updated_at) from public.visit where id in ${visits}),
+      (select max(updated_at) from public.invoice where job_id in ${jobs}),
+      (select max(updated_at) from public.service_report where visit_id in ${visits}),
+      (select max(f.updated_at) from public.service_report_field f
+         join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}),
+      (select max(updated_at) from public.job_line where visit_id in ${visits})
+    ))::bigint, 0)
+    + (select count(*) from public.visit where id in ${visits})
+    + (select count(*) from public.job_line where visit_id in ${visits})
+    + (select count(*) from public.service_report_field f
+         join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}) as revision
   `);
   return Number((row as { revision: number }).revision);
+}
+
+type VisitExtras = Pick<z.infer<typeof VisitForField>, "amountDue" | "report" | "parts">;
+
+/**
+ * What the phone needs on each visit beyond the visit itself: what is owed,
+ * the service report as it stands, and the parts already on it. One query
+ * each for the whole day rather than one per visit, because the day is the
+ * request and a phone on one bar waits for the slowest part of it.
+ */
+async function visitExtras(
+  tx: Database,
+  ctx: ServiceContext,
+  visits: Array<{ visitId: string; jobId: string; jobTypeId: string | null }>,
+): Promise<Map<string, VisitExtras>> {
+  const out = new Map<string, VisitExtras>();
+  if (visits.length === 0) return out;
+  const visitIds = visits.map((v) => v.visitId);
+  const jobIds = [...new Set(visits.map((v) => v.jobId))];
+
+  /**
+   * What is owed, only for a caller who may read invoices. A company can
+   * take `invoice:read` away from a role, and the phone must not become the
+   * way round that.
+   */
+  const owed = new Map<string, m.Money>();
+  if (can(ctx.actor, "invoice:read")) {
+    const invoices = await tx.select({ jobId: schema.invoice.jobId, balance: schema.invoice.balance })
+      .from(schema.invoice)
+      .where(and(
+        inArray(schema.invoice.jobId, jobIds),
+        inArray(schema.invoice.status, ["open", "partially_paid", "paid"]),
+      ));
+    for (const invoice of invoices) {
+      if (!invoice.jobId) continue;
+      owed.set(invoice.jobId, m.add(owed.get(invoice.jobId) ?? m.zero(), m.money(invoice.balance)));
+    }
+  }
+
+  const reports = await tx.select({
+    id: schema.serviceReport.id,
+    visitId: schema.serviceReport.visitId,
+    submittedAt: schema.serviceReport.submittedAt,
+  }).from(schema.serviceReport)
+    .where(inArray(schema.serviceReport.visitId, visitIds))
+    .orderBy(asc(schema.serviceReport.createdAt));
+  const reportOf = new Map(reports.map((r) => [r.visitId, r]));
+
+  const values = reports.length === 0 ? [] : await tx.select({
+    reportId: schema.serviceReportField.reportId,
+    key: schema.serviceReportField.key,
+    label: schema.serviceReportField.label,
+    kind: schema.serviceReportField.kind,
+    unit: schema.serviceReportField.unit,
+    valueNumeric: schema.serviceReportField.valueNumeric,
+    valueText: schema.serviceReportField.valueText,
+    valueBoolean: schema.serviceReportField.valueBoolean,
+    productName: schema.serviceReportField.productName,
+    recordedAt: schema.serviceReportField.recordedAt,
+  }).from(schema.serviceReportField)
+    .where(inArray(schema.serviceReportField.reportId, reports.map((r) => r.id)))
+    .orderBy(asc(schema.serviceReportField.recordedAt));
+
+  const templates = new Map<string, Awaited<ReturnType<typeof templateFor>>>();
+  for (const jobTypeId of new Set(visits.map((v) => v.jobTypeId).filter((id): id is string => id !== null))) {
+    templates.set(jobTypeId, await templateFor(tx, jobTypeId));
+  }
+
+  const parts = await tx.select({
+    id: schema.jobLine.id,
+    visitId: schema.jobLine.visitId,
+    name: schema.jobLine.name,
+    quantity: schema.jobLine.quantity,
+  }).from(schema.jobLine)
+    .where(and(inArray(schema.jobLine.visitId, visitIds), eq(schema.jobLine.kind, "part")))
+    .orderBy(asc(schema.jobLine.occurredAt));
+
+  for (const visit of visits) {
+    const report = reportOf.get(visit.visitId);
+    const template = visit.jobTypeId ? templates.get(visit.jobTypeId) ?? null : null;
+
+    /** The newest value per key: the rows are oldest first, so the last one written wins. */
+    const latest = new Map<string, (typeof values)[number]>();
+    for (const value of values) if (report && value.reportId === report.id) latest.set(value.key, value);
+
+    /**
+     * Only what a phone can fill in with a keyboard. A photo or a signature
+     * on a template is taken with the camera and the signature pad, which
+     * the visit already has.
+     */
+    const fillable = (template?.fields ?? []).filter((f) => f.kind !== "photo" && f.kind !== "signature");
+    const fields = fillable.map((f) => ({
+      key: f.key,
+      label: f.label,
+      kind: f.kind,
+      unit: f.unit ?? null,
+      options: f.options ?? [],
+      required: f.required ?? false,
+      min: f.min ?? null,
+      max: f.max ?? null,
+      value: valueText(latest.get(f.key)),
+    }));
+    /** And anything recorded that the template does not name, so nothing written is hidden. */
+    for (const [key, value] of latest) {
+      if (fields.some((f) => f.key === key)) continue;
+      fields.push({
+        key, label: value.label, kind: value.kind, unit: value.unit, options: [], required: false,
+        min: null, max: null, value: valueText(value),
+      });
+    }
+
+    const due = owed.get(visit.jobId);
+    out.set(visit.visitId, {
+      amountDue: due ? m.toString(due) : null,
+      report: { id: report?.id ?? null, submitted: report?.submittedAt != null, fields },
+      parts: parts.filter((p) => p.visitId === visit.visitId).map((p) => ({
+        id: p.id, name: p.name, quantity: p.quantity,
+      })),
+    });
+  }
+  return out;
+}
+
+function valueText(row: {
+  valueNumeric: string | null; valueText: string | null; valueBoolean: boolean | null; productName: string | null;
+} | undefined): string | null {
+  if (!row) return null;
+  if (row.valueNumeric !== null) return String(Number(row.valueNumeric));
+  if (row.valueBoolean !== null) return row.valueBoolean ? "yes" : "no";
+  return row.valueText ?? row.productName ?? null;
 }
