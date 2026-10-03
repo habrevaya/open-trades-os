@@ -229,6 +229,18 @@ export const agreement = pgTable("agreement", {
 
   /** Frozen at sale. Raising the plan price must not reprice existing members. */
   price: money("price").notNull(),
+  /**
+   * The member discount, frozen at sale exactly as the price is.
+   *
+   * It was read off the plan every time a line was priced, which was
+   * harmless while a plan could not be edited and stopped being harmless the
+   * day it could: cutting the plan's rate from fifteen per cent to ten would
+   * have cut four hundred existing members' discount on the same afternoon,
+   * mid term, without anybody telling them. A discount is part of what the
+   * member bought. Kept on renewal, like the price, unless a person changes
+   * it. Null is a plan sold with no discount.
+   */
+  discountRate: rate("discount_rate"),
   billingFrequency: billingFrequency("billing_frequency").notNull(),
   autoRenews: boolean("auto_renews").notNull().default(true),
   renewalCount: integer("renewal_count").notNull().default(0),

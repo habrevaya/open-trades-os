@@ -72,11 +72,14 @@ describe("an estimate in the office", () => {
     expect(html).toContain("not in the total");
   });
 
-  it("offers an open estimate's link, a deposit, and a yes or no taken by phone", () => {
+  it("offers to send an open estimate by email, text or link, a deposit, and a yes or no taken by phone", () => {
     const html = renderToStaticMarkup(
-      <EstimateActions action={action} estimate={estimate("draft")} deposits={[]} allowed={all} />,
+      <EstimateActions action={action} estimate={estimate("draft")} deposits={[]} allowed={all}
+                       contact={{ email: "dana@example.test", phone: null }} />,
     );
-    expect(html).toContain("Get the approval link");
+    expect(html).toContain("Send estimate");
+    expect(html).toContain("Email to dana@example.test");
+    expect(html).toContain("Just give me the link");
     expect(html).toContain("Ask for deposit");
     expect(html).toContain("Record approval");
     expect(html).toContain("Record decline");
@@ -90,7 +93,7 @@ describe("an estimate in the office", () => {
     );
     expect(html).toContain("Convert to job");
     expect(html).toContain("asked for");
-    expect(html).not.toContain("Get the approval link");
+    expect(html).not.toContain("Send estimate");
   });
 
   it("links a converted estimate to its job", () => {

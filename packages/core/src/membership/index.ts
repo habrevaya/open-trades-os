@@ -26,13 +26,23 @@ export interface MemberCandidate {
   endsOn: string | null;
   /** The address the agreement was sold against, when it was sold against one. */
   propertyId: string | null;
+  /** The plan's perks, as it stands today. See `memberPricingFor` on why these are not frozen. */
+  waivesDiagnosticFee?: boolean | undefined;
+  waivesAfterHoursRate?: boolean | undefined;
+  priorityDispatch?: boolean | undefined;
 }
 
 export interface MemberPricing {
   agreementId: string;
   planName: string;
+  /** The discount as a fraction. "0" for a plan whose only benefit is a waived fee. */
   rate: string;
+  waivesDiagnosticFee: boolean;
+  waivesAfterHoursRate: boolean;
 }
+
+/** Which fee a price book item is, when it is one a plan can waive. */
+export type FeeRole = "diagnostic" | "after_hours";
 
 /**
  * Whether a rate is a discount anybody can apply.
@@ -72,21 +82,76 @@ export function memberPricingFor(
   candidates: readonly MemberCandidate[],
   at: { on: string; propertyId?: string | null | undefined },
 ): MemberPricing | null {
-  const eligible = candidates.filter((c) =>
-    c.status === "active"
-    && usableRate(c.discountRate)
-    && compareDates(c.startedOn, at.on) <= 0
-    && (c.endsOn === null || compareDates(at.on, c.endsOn) < 0)
-    && (c.propertyId === null || !at.propertyId || c.propertyId === at.propertyId));
+  /**
+   * A plan earns a place here by giving SOMETHING off: a usable rate, or a
+   * waived fee. A plan whose only benefit is "no diagnostic fee for members"
+   * is common, and leaving it out because its rate is nought was the reason
+   * that perk was recorded on every plan and applied by nothing.
+   */
+  const eligible = coveringOn(candidates, at).filter((c) =>
+    usableRate(c.discountRate) || c.waivesDiagnosticFee === true || c.waivesAfterHoursRate === true);
 
   if (eligible.length === 0) return null;
 
+  /**
+   * THE BEST ONE, NEVER TWO. Ranked by the rate first, because on a normal
+   * document the rate is worth more than a waived fee, then by how many fees
+   * it waives. Benefits are not stacked across plans: a customer on two plans
+   * is entitled to the better one's benefits, and mixing the rate of one with
+   * the waiver of another is an offer no plan made.
+   */
+  const rateOf = (c: MemberCandidate) => (usableRate(c.discountRate) ? Number(c.discountRate) : 0);
+  const waivers = (c: MemberCandidate) => Number(c.waivesDiagnosticFee === true) + Number(c.waivesAfterHoursRate === true);
   const best = [...eligible].sort((a, b) =>
-    Number(b.discountRate) - Number(a.discountRate)
+    rateOf(b) - rateOf(a)
+    || waivers(b) - waivers(a)
     || compareDates(a.startedOn, b.startedOn)
     || (a.agreementId < b.agreementId ? -1 : a.agreementId > b.agreementId ? 1 : 0))[0]!;
 
-  return { agreementId: best.agreementId, planName: best.planName, rate: best.discountRate! };
+  return {
+    agreementId: best.agreementId,
+    planName: best.planName,
+    rate: usableRate(best.discountRate) ? best.discountRate : "0",
+    waivesDiagnosticFee: best.waivesDiagnosticFee === true,
+    waivesAfterHoursRate: best.waivesAfterHoursRate === true,
+  };
+}
+
+/**
+ * The agreements that cover work on a day at an address, whatever they give.
+ *
+ * Shared by the discount and by priority dispatch, so "is this customer a
+ * member for this job" has one answer: active, started, not yet ended (the end
+ * is exclusive), and sold against this address or against none.
+ */
+function coveringOn(
+  candidates: readonly MemberCandidate[],
+  at: { on: string; propertyId?: string | null | undefined },
+): MemberCandidate[] {
+  return candidates.filter((c) =>
+    c.status === "active"
+    && compareDates(c.startedOn, at.on) <= 0
+    && (c.endsOn === null || compareDates(at.on, c.endsOn) < 0)
+    && (c.propertyId === null || !at.propertyId || c.propertyId === at.propertyId));
+}
+
+/**
+ * Whether work on a day goes to the front of the queue, and which plan says so.
+ *
+ * The same coverage rule as the discount, so a member whose plan promised
+ * priority is first on the board exactly when they would be priced as a
+ * member, and not for a job at the rental their plan does not cover. Null
+ * when no covering plan promises it.
+ */
+export function priorityFor(
+  candidates: readonly MemberCandidate[],
+  at: { on: string; propertyId?: string | null | undefined },
+): { agreementId: string; planName: string } | null {
+  const found = coveringOn(candidates, at)
+    .filter((c) => c.priorityDispatch === true)
+    .sort((a, b) => compareDates(a.startedOn, b.startedOn)
+      || (a.agreementId < b.agreementId ? -1 : a.agreementId > b.agreementId ? 1 : 0))[0];
+  return found ? { agreementId: found.agreementId, planName: found.planName } : null;
 }
 
 export interface MemberLine {
@@ -95,6 +160,14 @@ export interface MemberLine {
   /** Whatever discount somebody already typed on the line. Comes off first. */
   discountAmount?: Money | undefined;
   eligible: boolean;
+  /** Set when the line is the diagnostic fee or the after hours rate, from the price book item. */
+  feeRole?: FeeRole | null | undefined;
+}
+
+/** The fees a plan waives, as `memberDiscounts` reads them. */
+export interface Waivers {
+  diagnostic?: boolean | undefined;
+  afterHours?: boolean | undefined;
 }
 
 /**
@@ -132,13 +205,25 @@ export function eligibleForMemberPricing(line: {
  * the customer was going to pay, which is what "members save ten per cent"
  * means. Taking it off the gross would discount the hand discount as well.
  */
-export function memberDiscounts(lines: readonly MemberLine[], rate: string): Money[] {
+export function memberDiscounts(lines: readonly MemberLine[], rate: string, waivers: Waivers = {}): Money[] {
   return lines.map((line) => {
     const currency = line.unitPrice.currency;
-    if (!line.eligible || !usableRate(rate)) return zero(currency);
+    if (!line.eligible) return zero(currency);
     const gross = multiply(line.unitPrice, line.quantity);
     const net = subtract(gross, line.discountAmount ?? zero(currency));
     if (!isPositive(net)) return zero(currency);
+    /**
+     * A WAIVED FEE IS THE WHOLE LINE, whatever the rate. The plan said
+     * members do not pay it, not that they pay less of it, and it is still a
+     * line on the document at its full price with the whole of it discounted,
+     * so the customer sees what being a member saved them and the ledger
+     * posts it as a discount rather than as revenue that never existed.
+     */
+    if ((line.feeRole === "diagnostic" && waivers.diagnostic === true)
+      || (line.feeRole === "after_hours" && waivers.afterHours === true)) {
+      return net;
+    }
+    if (!usableRate(rate)) return zero(currency);
     const off = round(multiply(net, rate), 2);
     // Never more than what is left, whatever the rate's rounding does.
     return compare(off, net) > 0 ? net : off;

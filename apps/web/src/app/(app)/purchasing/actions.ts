@@ -58,11 +58,12 @@ export async function placeOrder(_previous: unknown, form: FormData): Promise<Re
       unitPrice: (prices[i] ?? "").trim(),
     }))
     .filter((line) => picked.has(line.index))
-    .filter((line) => line.quantity !== "" && line.unitPrice !== "")
-    .map(({ index: _index, ...line }) => line);
+    .filter((line) => line.quantity !== "")
+    /** An empty price is the vendor's own on record, looked up by the service. */
+    .map(({ index: _index, unitPrice, ...line }) => ({ ...line, ...(unitPrice !== "" ? { unitPrice } : {}) }));
 
   if (lines.length === 0) {
-    return refused(form, "Tick at least one line, and give it a quantity and a price.");
+    return refused(form, "Tick at least one line, and give it a quantity.");
   }
 
   const first = lines[0]!;
@@ -85,5 +86,30 @@ export async function advanceOrder(_previous: unknown, form: FormData): Promise<
   return caught(form, (context) => inventory.setPurchaseOrderStatus(context, {
     id: String(form.get("id") ?? ""),
     status: status as Parameters<typeof inventory.setPurchaseOrderStatus>[1]["status"],
+  }));
+}
+
+/**
+ * An order written line by line from part numbers, each looked up for the
+ * chosen vendor by the service rather than trusted from the screen.
+ */
+export async function orderParts(_previous: unknown, form: FormData): Promise<Result> {
+  const parts = form.getAll("partNumber").map((v) => String(v).trim());
+  const quantities = form.getAll("partQuantity").map((v) => String(v).trim());
+  const prices = form.getAll("partPrice").map((v) => String(v).trim().replace(/[$,\s]/g, ""));
+  const lines = parts
+    .map((partNumber, i) => ({ partNumber, quantity: quantities[i] ?? "", unitPrice: prices[i] ?? "" }))
+    .filter((line) => line.partNumber !== "")
+    .map((line) => ({
+      partNumber: line.partNumber,
+      quantity: line.quantity === "" ? "1" : line.quantity,
+      ...(line.unitPrice !== "" ? { unitPrice: line.unitPrice } : {}),
+    }));
+  if (lines.length === 0) return refused(form, "Give at least one part number.");
+  const locationId = String(form.get("locationId") ?? "");
+  return caught(form, (context) => inventory.createPurchaseOrder(context, {
+    vendorId: String(form.get("vendorId") ?? ""),
+    defaultLocationId: locationId,
+    lines: lines.map((line) => ({ ...line, locationId })),
   }));
 }

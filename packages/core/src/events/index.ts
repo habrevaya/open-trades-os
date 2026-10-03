@@ -173,6 +173,21 @@ export const EVENTS = {
     emitted: true,
   },
   /**
+   * A decision, from the customer's own link or recorded by the office
+   * (`capturedVia` says which and how). Not emitted for an outcome loaded
+   * from another system's history, so a migration starts no automation.
+   */
+  "estimate.approved": {
+    summary: "A customer approved an estimate",
+    entity: "estimate",
+    emitted: true,
+  },
+  "estimate.declined": {
+    summary: "A customer declined an estimate",
+    entity: "estimate",
+    emitted: true,
+  },
+  /**
    * A text, a picture message or a reply to an email. The channel rides on
    * the payload, so a workflow that texts back can leave an email alone. An
    * automatic reply (an out of office) is stored and does not emit this, so
@@ -257,18 +272,6 @@ export const EVENTS = {
     entity: "visit",
     emitted: false,
     owedBy: "M09. Dispatch writes the visit and emits nothing.",
-  },
-  "estimate.approved": {
-    summary: "A customer approved an estimate",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07. The portal records the signature; nothing emits.",
-  },
-  "estimate.declined": {
-    summary: "A customer declined an estimate",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07.",
   },
   "invoice.sent": {
     summary: "An invoice was delivered to the customer",

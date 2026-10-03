@@ -297,6 +297,12 @@ export const getDispatchBoard = defineRoute({
       customerName: z.string(),
       addressLine1: z.string(),
       postalCode: z.string(),
+      /**
+       * The plan that promised this customer priority, when one covers this
+       * job. The pile comes sorted with these first and is otherwise in the
+       * order it always had.
+       */
+      priorityPlan: z.string().nullable(),
     })),
   }),
 });

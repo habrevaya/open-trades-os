@@ -46,7 +46,9 @@ test("an estimate written and sent from the office is approved and signed by the
   await owner.getByLabel("Deposit amount").fill("500.00");
   await owner.getByRole("button", { name: "Ask for deposit" }).click();
   await expect(owner.getByText("asked for")).toBeVisible();
-  await owner.getByRole("button", { name: "Get the approval link" }).click();
+  const send = owner.getByRole("region", { name: "Send" });
+  await send.getByLabel("How").selectOption("link");
+  await send.getByRole("button", { name: "Send estimate" }).click();
   const link = owner.getByRole("link", { name: /\/e\// });
   await expect(link).toBeVisible();
   const approvalUrl = (await link.getAttribute("href"))!;

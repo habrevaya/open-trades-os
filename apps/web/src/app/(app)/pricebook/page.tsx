@@ -20,15 +20,15 @@ export const dynamic = "force-dynamic";
 export default async function PriceBookPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; category?: string }>;
+  searchParams: Promise<{ q?: string; category?: string; retired?: string }>;
 }) {
   const user = await requireSetupUser();
-  const { q, category } = await searchParams;
+  const { q, category, retired } = await searchParams;
   const seesCost = can(user.actor, "pricebook.cost:read");
   const ctx = { actor: user.actor, db: getDb() };
 
   const page = await priceBook.list(ctx, {
-    limit: 100, includeInactive: false, ...(q ? { q } : {}), ...(category ? { categoryId: category } : {}),
+    limit: 100, includeInactive: retired === "1", ...(q ? { q } : {}), ...(category ? { categoryId: category } : {}),
   });
   /** The shelf each item is on, which a technician browses by. */
   const shelves = await priceCategories.list(ctx);
@@ -36,7 +36,13 @@ export default async function PriceBookPage({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
-      <PageHeader title="Price book" count={page.data.length} />
+      <PageHeader
+        title="Price book"
+        count={page.data.length}
+        action={can(user.actor, "pricebook:write")
+          ? <a href="/pricebook/items/new" className="text-sm text-ink-700 hover:underline">New item</a>
+          : undefined}
+      />
 
       <form className="mt-4" action="/pricebook">
         <input
@@ -52,6 +58,9 @@ export default async function PriceBookPage({
             {shelves.map((c) => <option key={c.id} value={c.id}>{`${"\u00a0\u00a0".repeat(c.depth)}${c.name}`}</option>)}
           </select>
         )}
+        <label className="ml-3 inline-flex items-center gap-1.5 text-sm text-ink-700">
+          <input type="checkbox" name="retired" value="1" defaultChecked={retired === "1"} /> Include retired
+        </label>
         <button type="submit" className="ml-2 inline-flex h-10 items-center rounded border border-steel-300 px-3 text-sm hover:bg-steel-100">
           Show
         </button>
@@ -74,7 +83,10 @@ export default async function PriceBookPage({
           {page.data.map((item) => (
             <tr key={item.id} className="hover:bg-steel-100">
               <Td className="font-mono text-ink-700">{item.code}</Td>
-              <Td className="font-medium">{item.name}</Td>
+              <Td className="font-medium">
+                <a href={`/pricebook/items/${item.id}`} className="hover:underline">{item.name}</a>
+                {item.active ? null : <span className="ml-2 text-xs font-normal text-ink-500">retired</span>}
+              </Td>
               <Td className="text-ink-700">{item.categoryId ? shelfName.get(item.categoryId) ?? "" : ""}</Td>
               <Td className="text-ink-700">{label(PRICE_BOOK_KIND, item.kind)}</Td>
               <Td className="text-right"><Money value={item.price} /></Td>

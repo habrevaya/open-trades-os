@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useKeptAction } from "@/lib/use-kept-action";
-import { addVendor, placeOrder, advanceOrder } from "./actions";
+import { addVendor, placeOrder, advanceOrder, orderParts } from "./actions";
 
 function Note({ state }: { state: { done?: boolean; error?: string } }) {
   if (state.error) return <p className="mt-2 text-sm text-red-600" role="alert">{state.error}</p>;
@@ -115,12 +116,14 @@ export function OrderBuilder({ suggestions, vendors }: {
                 </td>
                 <td className="px-4 py-3 text-right">
                   {/*
-                    Typed rather than taken from the price book. What we CHARGE
-                    for a part and what a vendor charges us are different
-                    numbers, and defaulting one to the other is how a purchase
-                    order goes out at retail.
+                    Never taken from the price book. What we CHARGE for a part
+                    and what a vendor charges us are different numbers, and
+                    defaulting one to the other is how a purchase order goes
+                    out at retail. Left empty, the line takes the chosen
+                    vendor's own price on record for the part, and is refused
+                    in words when they have none.
                   */}
-                  <input name="linePrice" inputMode="decimal" placeholder="0.00"
+                  <input name="linePrice" inputMode="decimal" placeholder="Their price"
                          className="h-9 w-24 rounded border border-steel-300 px-2 text-right text-sm" />
                 </td>
                 <input type="hidden" name="lineItem" value={line.itemId} />
@@ -168,6 +171,89 @@ export function Advance({ id, status }: { id: string; status: string }) {
         {pending ? "Saving" : next.label}
       </button>
       {state.error && <span className="ml-2 text-xs text-red-600">{state.error}</span>}
+    </form>
+  );
+}
+
+export interface VendorPart { vendorId: string; partNumber: string; itemCode: string; itemName: string | null; cost: string | null }
+
+const ROWS = [0, 1, 2, 3, 4, 5];
+
+/**
+ * AN ORDER WRITTEN FROM THE VENDOR'S OWN PART NUMBERS.
+ *
+ * Each line is looked up rather than typed: the vendor's number or our item
+ * code, offered from what this vendor is known to sell, resolved to our item
+ * on the server, priced at what they charge unless a price is given, and
+ * sent with THEIR number on it. A part nobody can find is refused in words.
+ */
+export function PartOrder({ vendors, locations, parts }: {
+  vendors: { id: string; name: string }[];
+  locations: { id: string; name: string }[];
+  parts: VendorPart[];
+}) {
+  const [state, actionForm, pending] = useKeptAction(orderParts, {});
+  const [vendorId, setVendorId] = useState(vendors[0]?.id ?? "");
+  const known = parts.filter((p) => p.vendorId === vendorId);
+
+  if (vendors.length === 0 || locations.length === 0) {
+    return <p className="mt-3 text-sm text-ink-500">An order needs a vendor and somewhere for it to arrive.</p>;
+  }
+
+  return (
+    <form {...actionForm} className="mt-3 space-y-3">
+      <div className="flex flex-wrap gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-ink-700">Vendor</span>
+          <select name="vendorId" value={vendorId} onChange={(event) => setVendorId(event.target.value)}
+                  className="h-10 w-64 rounded border border-steel-300 px-2 text-sm">
+            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-ink-700">Deliver to</span>
+          <select name="locationId" className="h-10 w-56 rounded border border-steel-300 px-2 text-sm">
+            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </label>
+      </div>
+      <datalist id="vendor-parts">
+        {known.map((p) => (
+          <option key={p.partNumber} value={p.partNumber}>{`${p.itemCode} ${p.itemName ?? ""}${p.cost ? `, ${Number(p.cost).toFixed(2)}` : ""}`}</option>
+        ))}
+      </datalist>
+      <table className="text-sm">
+        <thead>
+          <tr className="text-left">
+            <th className="pr-3 font-medium text-ink-700">Their part number, or our code</th>
+            <th className="pr-3 font-medium text-ink-700">Quantity</th>
+            <th className="font-medium text-ink-700">Price (empty for theirs)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ROWS.map((row) => (
+            <tr key={row}>
+              <td className="pr-3 pt-2">
+                <input name="partNumber" list="vendor-parts" aria-label={`Part, line ${row + 1}`}
+                       className="h-9 w-64 rounded border border-steel-300 px-2 font-mono text-sm" />
+              </td>
+              <td className="pr-3 pt-2">
+                <input name="partQuantity" inputMode="decimal" aria-label={`Quantity, line ${row + 1}`}
+                       className="h-9 w-20 rounded border border-steel-300 px-2 text-right text-sm" />
+              </td>
+              <td className="pt-2">
+                <input name="partPrice" inputMode="decimal" aria-label={`Price, line ${row + 1}`}
+                       className="h-9 w-24 rounded border border-steel-300 px-2 text-right text-sm" />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="submit" disabled={pending}
+              className="h-10 rounded border border-steel-300 px-4 text-sm font-medium">
+        {pending ? "Saving" : "Create a draft order"}
+      </button>
+      <Note state={state} />
     </form>
   );
 }

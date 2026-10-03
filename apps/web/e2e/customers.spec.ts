@@ -9,8 +9,9 @@ import { test, expect, run, newCustomer } from "./fixtures";
  * without anybody saying so, a member charged the full price, an estimate
  * nobody chased, and a visit they could not move without ringing in. Each is
  * driven here the way a person meets it: on the screens, with the API used
- * only where there is no screen for a step (defining a plan, selling one,
- * booking a job with a time on it).
+ * where a step is not the point of the test (defining a plan and selling one,
+ * which `sales.spec.ts` drives on their own screens, and booking a job with a
+ * time on it).
  */
 
 /** A calendar day, some days from today, as the API takes it. */

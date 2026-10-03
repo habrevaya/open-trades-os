@@ -1,5 +1,5 @@
 import { Money } from "@opentradesos/ui";
-import { ActionForm, Select, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import type { FormState } from "@/lib/actions";
 
 type Action = (previous: FormState, form: FormData) => Promise<FormState>;
@@ -87,12 +87,14 @@ export function Options({
  * are passed in so this renders in a test.
  */
 export function EstimateActions({
-  action, estimate, deposits, allowed,
+  action, estimate, deposits, allowed, contact = { email: null, phone: null },
 }: {
   action: Action;
   estimate: EstimateView;
   deposits: DepositView[];
   allowed: { send: boolean; deposit: boolean; approve: boolean; write: boolean; convert: boolean };
+  /** The customer's address and number on file, so the form can say where it will go. */
+  contact?: { email: string | null; phone: string | null };
 }) {
   const hidden = { estimateId: estimate.id, customerId: estimate.customerId };
   const open = ["draft", "sent", "viewed"].includes(estimate.status);
@@ -115,11 +117,23 @@ export function EstimateActions({
         <section aria-label="Send" className="rounded-md border border-steel-200 p-4">
           <h2 className="text-sm font-semibold">Send it</h2>
           <p className="mt-1 text-sm text-ink-700">
-            The link lets the customer choose an option, tick extras, sign and approve, without an account.
-            Sending it again withdraws the last link.
+            The customer gets a link to the proposal where they choose an option, tick extras, sign and approve,
+            without an account. An email or a text goes into their conversation in the inbox, so a reply lands
+            beside it. Sending again withdraws the last link once the new one has gone.
           </p>
-          <ActionForm action={action} submit="Get the approval link" hidden={{ ...hidden, op: "send" }}
-                      className="mt-3 space-y-3" />
+          <ActionForm action={action} submit="Send estimate" hidden={{ ...hidden, op: "send" }}
+                      className="mt-3 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Select label="How" name="channel" defaultValue={contact.email ? "email" : contact.phone ? "sms" : "link"} options={[
+                { value: "email", label: contact.email ? `Email to ${contact.email}` : "Email" },
+                { value: "sms", label: contact.phone ? `Text to ${contact.phone}` : "Text" },
+                { value: "link", label: "Just give me the link to hand over" },
+              ]} />
+              <TextField label="To a different address or number" name="to" maxLength={320}
+                         placeholder="Leave empty for the one on file" />
+            </div>
+            <TextArea label="A line from you, above the link" name="message" rows={2} maxLength={2000} />
+          </ActionForm>
         </section>
       )}
 
@@ -189,5 +203,41 @@ export function EstimateActions({
         </p>
       )}
     </div>
+  );
+}
+
+export interface DeliveryView {
+  id: string; channel: string; destination: string | null; state: string; error: string | null; createdAt: string;
+}
+
+const DELIVERY_STATE: Record<string, string> = {
+  queued: "waiting to go", sent: "sent", delivered: "delivered", bounced: "bounced",
+  failed: "failed", refused: "not sent", link_issued: "link handed over", interrupted: "did not finish",
+};
+
+/**
+ * EVERY TIME IT WAS SENT, and what became of it, read from the message rather
+ * than stored. A bounce or a refusal is said in red, because an estimate the
+ * customer never received is one nobody should be chasing them about.
+ */
+export function Deliveries({ deliveries, when }: { deliveries: DeliveryView[]; when: (iso: string) => string }) {
+  if (deliveries.length === 0) return null;
+  return (
+    <section aria-label="Sent" className="mt-6">
+      <h2 className="text-sm font-semibold">Sent</h2>
+      <ul className="mt-2 space-y-1 text-sm text-ink-700">
+        {deliveries.map((d) => {
+          const bad = ["bounced", "failed", "refused", "interrupted"].includes(d.state);
+          return (
+            <li key={d.id}>
+              {when(d.createdAt)},{" "}
+              {d.channel === "email" ? `by email to ${d.destination}` : d.channel === "sms" ? `by text to ${d.destination}` : "as a link"}:{" "}
+              <span className={bad ? "text-red-600" : "text-ink-900"}>{DELIVERY_STATE[d.state] ?? d.state}</span>
+              {d.error ? <span className="text-red-600">. {d.error}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { inventory as inv, money as m } from "@opentradesos/core";
 import {
@@ -6,6 +6,9 @@ import {
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { nextNumber } from "./jobs";
+import { inForceAt } from "./pricebook";
+import { resolvePart } from "./vendor-catalogue";
+import * as once from "./once";
 
 /**
  * PURCHASING, VENDORS AND INVENTORY
@@ -844,14 +847,21 @@ export async function createPurchaseOrder(
     expectedAt?: Date;
     notes?: string;
     lines: Array<{
-      itemId: string;
+      /** Our item. Either this or the vendor's part number. */
+      itemId?: string;
+      /** The vendor's own number for the part, or our item code, looked up for this vendor. */
+      partNumber?: string;
       locationId?: string;
       quantity: string;
-      unitPrice: string;
+      /** What the vendor charges for one. Their price on record when left out. */
+      unitPrice?: string;
     }>;
   },
 ) {
   return guardedWrite(ctx, "po:write", async (tx) => {
+    const seen = await once.replayed<{ id: string; number: number; status: string }>(tx, ctx, "purchase_order");
+    if (seen) return seen;
+
     if (input.lines.length === 0) {
       throw new ConflictError("An order with no lines is not an order.");
     }
@@ -866,6 +876,31 @@ export async function createPurchaseOrder(
       if (inv.quantity(line.quantity) <= inv.quantity("0")) {
         throw new ConflictError("Every line needs a positive quantity.");
       }
+    }
+
+    /**
+     * EACH LINE IS LOOKED UP, NOT TYPED.
+     *
+     * A line names our item or the vendor's part number, and either way it is
+     * resolved against what this vendor calls the part, so the order carries
+     * THEIR number (which is what their counter reads) and their price on
+     * record unless somebody gives another. A part nobody can find is refused
+     * in words rather than sent to the vendor as a guess.
+     */
+    const resolved = [];
+    for (const line of input.lines) {
+      const part = await resolvePart(tx, input.vendorId, {
+        ...(line.itemId ? { itemId: line.itemId } : {}),
+        ...(line.partNumber ? { partNumber: line.partNumber } : {}),
+      });
+      const unitPrice = line.unitPrice?.trim() || part.cost;
+      if (!unitPrice) {
+        throw new ConflictError(
+          `There is no price on record from this vendor for ${part.partNumber ?? line.partNumber ?? "that part"}. `
+          + "Give the price they quoted for one.",
+        );
+      }
+      resolved.push({ ...line, itemId: part.itemId, vendorPartNumber: part.partNumber, unitPrice });
     }
 
     /**
@@ -887,10 +922,12 @@ export async function createPurchaseOrder(
     }).returning();
 
     await tx.insert(schema.purchaseOrderLine).values(
-      input.lines.map((line, index) => ({
+      resolved.map((line, index) => ({
         organizationId: ctx.actor.organizationId,
         purchaseOrderId: order!.id,
         itemId: line.itemId,
+        /** As it stands today, copied: the order says what it said when it went out. */
+        vendorPartNumber: line.vendorPartNumber,
         /**
          * Per line, falling back to the order's default. A vendor drops the
          * condensers at the shop and the filters straight onto a van more
@@ -908,8 +945,78 @@ export async function createPurchaseOrder(
     await audit(tx, ctx, "purchase_order.created", "purchase_order", order!.id, null,
       { number, vendorId: input.vendorId, lines: input.lines.length });
 
-    return { id: order!.id, number, status: order!.status };
+    const answer = { id: order!.id, number, status: order!.status };
+    await once.remember(tx, ctx, "purchase_order", order!.id, answer);
+    return answer;
   });
+}
+
+/**
+ * One order, line by line, as it would be read to the vendor: their part
+ * number, our item, how many, at what, where it is going, and how much has
+ * arrived.
+ */
+export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "po:read", async (tx) => {
+    const [order] = await tx.select({
+      order: schema.purchaseOrder,
+      vendorName: schema.vendor.name,
+      vendorAccount: schema.vendor.accountNumber,
+    })
+      .from(schema.purchaseOrder)
+      .innerJoin(schema.vendor, eq(schema.vendor.id, schema.purchaseOrder.vendorId))
+      .where(and(eq(schema.purchaseOrder.id, input.id), isNull(schema.purchaseOrder.deletedAt))).limit(1);
+    if (!order) throw new NotFoundError("Purchase order");
+
+    const lines = await tx.select({
+      line: schema.purchaseOrderLine,
+      itemCode: schema.priceBookItem.code,
+      locationName: schema.location.name,
+    })
+      .from(schema.purchaseOrderLine)
+      .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.purchaseOrderLine.itemId))
+      .innerJoin(schema.location, eq(schema.location.id, schema.purchaseOrderLine.locationId))
+      .where(eq(schema.purchaseOrderLine.purchaseOrderId, input.id))
+      .orderBy(asc(schema.purchaseOrderLine.sortOrder));
+
+    const names = await itemNames(tx, lines.map((l) => l.line.itemId));
+    const total = m.sum(lines.map((l) =>
+      m.multiply(m.money(l.line.unitPrice, "USD"), inv.quantityToString(inv.quantity(l.line.quantityOrdered)))), "USD");
+
+    return {
+      id: order.order.id,
+      number: order.order.number,
+      status: order.order.status,
+      vendorId: order.order.vendorId,
+      vendorName: order.vendorName,
+      vendorAccount: order.vendorAccount,
+      expectedAt: order.order.expectedAt?.toISOString() ?? null,
+      submittedAt: order.order.submittedAt?.toISOString() ?? null,
+      notes: order.order.notes,
+      total: m.toString(m.round(total, 2)),
+      lines: lines.map((l) => ({
+        id: l.line.id,
+        itemId: l.line.itemId,
+        itemCode: l.itemCode,
+        itemName: names.get(l.line.itemId) ?? l.itemCode,
+        vendorPartNumber: l.line.vendorPartNumber,
+        locationId: l.line.locationId,
+        locationName: l.locationName,
+        quantityOrdered: inv.quantityToString(inv.quantity(l.line.quantityOrdered)),
+        quantityReceived: inv.quantityToString(inv.quantity(l.line.quantityReceived)),
+        unitPrice: l.line.unitPrice,
+      })),
+    };
+  });
+}
+
+/** Each item's name as it stands today, from the version in force. */
+async function itemNames(tx: Database, itemIds: string[]): Promise<Map<string, string>> {
+  if (itemIds.length === 0) return new Map();
+  const rows = await tx.select({ itemId: schema.priceBookItemVersion.itemId, name: schema.priceBookItemVersion.name })
+    .from(schema.priceBookItemVersion)
+    .where(and(inArray(schema.priceBookItemVersion.itemId, [...new Set(itemIds)]), inForceAt()));
+  return new Map(rows.map((r) => [r.itemId, r.name] as const));
 }
 
 /**
@@ -1171,19 +1278,25 @@ export const handlers = {
   createPurchaseOrder: (ctx: ServiceContext, input: {
     vendorId: string; defaultLocationId: string;
     expectedAt?: string | undefined; notes?: string | undefined;
-    lines: readonly { itemId: string; locationId?: string | undefined; quantity: string; unitPrice: string }[];
+    lines: readonly {
+      itemId?: string | undefined; partNumber?: string | undefined; locationId?: string | undefined;
+      quantity: string; unitPrice?: string | undefined;
+    }[];
   }) => createPurchaseOrder(ctx, {
     vendorId: input.vendorId,
     defaultLocationId: input.defaultLocationId,
     ...(input.expectedAt ? { expectedAt: new Date(input.expectedAt) } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
     lines: input.lines.map((line) => ({
-      itemId: line.itemId,
+      ...(line.itemId ? { itemId: line.itemId } : {}),
+      ...(line.partNumber ? { partNumber: line.partNumber } : {}),
       ...(line.locationId ? { locationId: line.locationId } : {}),
       quantity: line.quantity,
-      unitPrice: line.unitPrice,
+      ...(line.unitPrice ? { unitPrice: line.unitPrice } : {}),
     })),
   }),
+
+  getPurchaseOrder: (ctx: ServiceContext, input: { id: string }) => purchaseOrder(ctx, input),
 
   /**
    * The status union is written out rather than imported from core, so this

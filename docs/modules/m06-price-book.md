@@ -75,10 +75,27 @@ same list. Cost and margin appear only for a reader holding
 
 ### Add or change an item
 
-`POST /v1/pricebook/items` creates one. `POST /v1/pricebook/items/{id}/revise`
-is how a price changes: it writes a new version rather than editing the old one.
-`POST /v1/pricebook/items/{id}/active` stops an item being sold without
-removing it, because documents point at its versions.
+`/pricebook/items/new` adds one and every row on `/pricebook` opens its own
+screen, `/pricebook/items/{id}`. There, "Change the price or wording" saves a
+new version (the name, the customer's description, the price, the cost for
+whoever may see it, labour minutes, warranty and tax class), in force now or
+from a date ahead; every price the item has ever had is listed with when it
+was in force and whether it is past, in force or scheduled, and a scheduled
+one can be brought forward or called off there by whoever holds
+`pricebook:publish`. "What it is" changes the kind, the code, the category
+and which fee it is (the diagnostic fee or the after hours rate, which a
+membership plan can waive) in place, writing no version, because no document
+points at any of those. The item can be retired or sold again, and the
+vendors who sell it to us are listed with their part numbers (M16).
+`/pricebook` can include retired items.
+
+`POST /v1/pricebook/items` creates one. `GET /v1/pricebook/items/{id}` is the
+item with every version. `POST /v1/pricebook/items/{id}/revise` is how a price
+changes: it writes a new version rather than editing the old one, and carries
+the warranty and tax class forward unless they change.
+`PATCH /v1/pricebook/items/{id}` changes what the item is, refusing a code
+another item already has. `POST /v1/pricebook/items/{id}/active` stops an item
+being sold without removing it, because documents point at its versions.
 
 ### Prepare a price change for next quarter
 
@@ -169,6 +186,8 @@ screen.
 |---|---|
 | `GET /v1/pricebook/items` | `pricebook:read` |
 | `POST /v1/pricebook/items` | `pricebook:write` |
+| `GET /v1/pricebook/items/{id}` | `pricebook:read` |
+| `PATCH /v1/pricebook/items/{id}` | `pricebook:write` |
 | `POST /v1/pricebook/items/{id}/revise` | `pricebook:write` |
 | `POST /v1/pricebook/items/{id}/active` | `pricebook:write` |
 | `GET /v1/pricebook/scheduled` | `pricebook:read` |
@@ -206,8 +225,7 @@ A bulk change takes effect when it is applied; it cannot be dated ahead the way
 a single revision can, so a quarterly change across a category is staged item
 by item or applied on the day. An item with a revision already scheduled is
 left out of a bulk change rather than given a version beside it. A bulk change
-reaches at most two thousand items at a time. The single item editor still has
-no screen: `/pricebook` lists, searches and filters by category, and a
-revision of one item is an API call. There is no supplier catalogue import,
-and no link from a price book item to a vendor's part number, which is where
-M16 would meet this.
+reaches at most two thousand items at a time. The item screen does not edit a
+kit's components, an image or a commission rate; those carry forward through a
+revision unchanged. A revision dated ahead is staged from the start of that day
+in the company's calendar; a time of day is an API call.

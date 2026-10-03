@@ -5,6 +5,13 @@ import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, Externa
 export const ItemKind = z.enum(["service", "material", "equipment", "labor", "fee", "discount"]);
 
 /**
+ * Which fee an item is, when it is one a membership plan can waive: the
+ * diagnostic fee, or the after hours rate. A plan that waives it takes the
+ * whole line off for its members, said on the line. Null for everything else.
+ */
+export const FeeRole = z.enum(["diagnostic", "after_hours"]);
+
+/**
  * A price book item as the API returns it: the stable identity merged with its
  * CURRENT version. Documents reference `versionId`, never `id`, so raising a
  * price never rewrites what an old invoice said.
@@ -19,6 +26,7 @@ export const PriceBookItem = z.object({
   description: z.string().nullable(),
   imageUrl: z.string().nullable(),
   categoryId: Uuid.nullable(),
+  feeRole: FeeRole.nullable(),
   price: MoneyString,
   taxable: z.boolean(),
   taxClass: z.string().nullable(),
@@ -68,6 +76,7 @@ export const createPriceBookItem = defineRoute({
     taxClass: z.string().max(50).optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
     warrantyMonths: z.number().int().min(0).max(600).optional(),
+    feeRole: FeeRole.optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
   }),
@@ -94,10 +103,55 @@ export const revisePriceBookItem = defineRoute({
     price: MoneyString.optional(),
     cost: MoneyString.optional(),
     taxable: z.boolean().optional(),
+    taxClass: z.string().max(50).nullable().optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
+    warrantyMonths: z.number().int().min(0).max(600).nullable().optional(),
     effectiveFrom: z.string().datetime().optional(),
   }),
   output: PriceBookItem,
+});
+
+export const getPriceBookItem = defineRoute({
+  method: "get",
+  path: "/v1/pricebook/items/{id}",
+  summary: "One price book item, with every price it has had",
+  description:
+    "The item as it stands and every version newest first, each with the window it was in force and whether it is in force now, scheduled, or past. A revision called off is left out, because nothing was ever priced from it. `inForce` is false for an item whose only version is dated ahead. Cost appears only for a reader holding pricebook.cost:read.",
+  module: "M06",
+  permissions: ["pricebook:read"],
+  input: z.object({ id: Uuid }),
+  output: PriceBookItem.extend({
+    inForce: z.boolean(),
+    versions: z.array(z.object({
+      id: Uuid,
+      version: z.number().int(),
+      name: z.string(),
+      price: MoneyString,
+      cost: MoneyString.nullable().optional(),
+      effectiveFrom: z.string().datetime(),
+      effectiveTo: z.string().datetime().nullable(),
+      state: z.enum(["in_force", "scheduled", "past"]),
+    })),
+  }),
+});
+
+export const updatePriceBookItem = defineRoute({
+  method: "patch",
+  path: "/v1/pricebook/items/{id}",
+  summary: "Change an item's kind, code, category or fee",
+  description:
+    "What the item IS rather than what it costs or is called, so it changes the item in place and writes no version: no document points at any of these. The name, description, price and cost are a revision. A code another item already has is refused.",
+  module: "M06",
+  permissions: ["pricebook:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    kind: ItemKind.optional(),
+    code: z.string().min(1).max(60).optional(),
+    categoryId: Uuid.nullable().optional(),
+    feeRole: FeeRole.nullable().optional(),
+  }),
+  output: PriceBookItem.nullable(),
 });
 
 export const setPriceBookItemActive = defineRoute({
@@ -118,4 +172,6 @@ export const setPriceBookItemActive = defineRoute({
 });
 
 export const priceBookRoutes = {
-  setPriceBookItemActive, listPriceBook, createPriceBookItem, revisePriceBookItem } as const;
+  setPriceBookItemActive, listPriceBook, createPriceBookItem, revisePriceBookItem,
+  getPriceBookItem, updatePriceBookItem,
+} as const;

@@ -6,8 +6,8 @@ import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
-import { formatDay } from "@/lib/dates";
-import { EstimateActions, Options, type EstimateView } from "./Panels";
+import { formatDay, formatIn } from "@/lib/dates";
+import { Deliveries, EstimateActions, Options, type EstimateView } from "./Panels";
 import { actOnEstimate } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +25,10 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
     number: number; title: string | null; expiresOn: string | null; signerName: string | null;
     selectedOptionId: string | null;
   };
-  const [customer, held] = await Promise.all([
+  const [customer, held, sent] = await Promise.all([
     customers.get(ctx, { id: estimate.customerId }).catch(() => null),
     can(user.actor, "deposit:read") ? deposits.list(ctx, { estimateId: id }).then((r) => r.deposits) : [],
+    estimates.deliveries(ctx, { id }),
   ]);
   const chosen = estimate.options.find((o) => o.id === estimate.selectedOptionId);
   const memberIds = estimate.options.flatMap((o) => o.lines)
@@ -44,7 +45,10 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
           <span className="font-mono tabular-nums text-ink-500">{estimate.number}</span>{" "}
           {estimate.title ?? "Estimate"}
         </h1>
-        <Chip tone={tone(ESTIMATE_TONE, estimate.status)}>{label(ESTIMATE_STATUS, estimate.status)}</Chip>
+        <div className="flex items-center gap-3">
+          <a href={`/estimates/${id}/proposal`} className="text-sm underline underline-offset-4">Proposal to print</a>
+          <Chip tone={tone(ESTIMATE_TONE, estimate.status)}>{label(ESTIMATE_STATUS, estimate.status)}</Chip>
+        </div>
       </div>
       <Facts>
         <Fact label="Customer">
@@ -57,12 +61,15 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
 
       <Options estimate={estimate} plans={plans} />
 
+      <Deliveries deliveries={sent} when={(at) => formatIn(at, user.organizationTimezone)} />
+
       <EstimateActions
         action={actOnEstimate}
         estimate={estimate}
         deposits={held.map((d) => ({
           id: d.id, status: d.status, amountRequested: d.amountRequested, amountReceived: d.amountReceived,
         }))}
+        contact={{ email: customer?.email ?? null, phone: customer?.phone ?? null }}
         allowed={{
           send: can(user.actor, "estimate:send") && can(user.actor, "portal:grant"),
           deposit: can(user.actor, "deposit:collect"),
