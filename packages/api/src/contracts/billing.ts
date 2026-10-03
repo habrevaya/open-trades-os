@@ -181,6 +181,8 @@ export const listInvoices = defineRoute({
     payerCustomerId: Uuid.optional(),
     jobId: Uuid.optional(),
     dueBefore: z.string().date().optional(),
+    /** Invoices on one branch's jobs. An invoice with no job is in no branch. */
+    businessUnitId: Uuid.optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
   }),

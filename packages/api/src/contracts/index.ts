@@ -64,6 +64,8 @@ import { acquisitionRoutes } from "./acquisition";
 import { customerTagRoutes } from "./customer-tags";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
 import { taskRuleRoutes } from "./task-rules";
+import { setupRoutes } from "./setup";
+import { branchRoutes } from "./branches";
 
 export * from "./common";
 export * from "./customers";
@@ -122,6 +124,8 @@ export * from "./visit-changes";
 export * from "./customer-tags";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
+export * from "./setup";
+export * from "./branches";
 export * from "./tasks";
 
 /**
@@ -209,6 +213,8 @@ export const routes = {
   ...customerTagRoutes,
   ...priceBookBulkRoutes,
   ...taskRuleRoutes,
+  ...setupRoutes,
+  ...branchRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

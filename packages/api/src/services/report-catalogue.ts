@@ -303,6 +303,22 @@ export const SETTLEMENT_SQL = `(case when
   then 'Settled' else 'In progress' end)`;
 
 /**
+ * THE BRANCH A RECORD'S JOB IS IN, as a column to group by, so "revenue by
+ * branch" and "jobs by branch" are reports rather than requests. Through the
+ * job, which is the one record that carries a branch: an invoice or a visit
+ * belongs to whichever branch its job does. A record with no job, or on a job
+ * in no branch, groups as "No branch" rather than vanishing.
+ *
+ * Grouping says nothing about who may see what. Scope does that, before any
+ * grouping, so a Houston manager grouping by branch sees one bar.
+ */
+const branchDimension = (jobId: string): reporting.Dimension => ({
+  key: "branch", label: "Branch", type: "text",
+  sql: `coalesce((select bu.name from public.job bj join public.business_unit bu on bu.id = bj.business_unit_id
+    where bj.id = ${jobId}), 'No branch')`,
+});
+
+/**
  * A DATE ON A DRILLED RECORD, IN THE COMPANY'S CALENDAR.
  *
  * A timestamp rendered as a date in the database session's zone is the
@@ -380,6 +396,7 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
       key: "job", label: "Job", type: "text",
       sql: "concat('#', job.number, ' ', job.summary)",
     },
+    branchDimension("job.id"),
     {
       key: "month", label: "Month", type: "date",
       sql: "to_char(date_trunc('month', coalesce(job.completed_at, job.created_at)), 'YYYY-MM')",
@@ -681,6 +698,7 @@ export const CATALOGUE: reporting.Dataset[] = [
         sql: "coalesce((select t.name from public.job_type t where t.id = job.job_type_id), 'None')",
       },
       ...sourceDimensions("job.id"),
+      branchDimension("job.id"),
     ],
     measures: [
       { key: "count", label: "Jobs", kind: "count", type: "number" },
@@ -744,6 +762,7 @@ export const CATALOGUE: reporting.Dataset[] = [
         end`,
       },
       ...sourceDimensions("invoice.job_id"),
+      branchDimension("invoice.job_id"),
     ],
     measures: [
       { key: "count", label: "Invoices", kind: "count", type: "number" },
@@ -774,6 +793,7 @@ export const CATALOGUE: reporting.Dataset[] = [
     },
     dimensions: [
       { key: "status", label: "Status", sql: "estimate.status::text", type: "status" },
+      branchDimension("estimate.job_id"),
       {
         key: "month", label: "Month", type: "date",
         sql: "to_char(date_trunc('month', estimate.created_at), 'YYYY-MM')",
@@ -841,6 +861,7 @@ export const CATALOGUE: reporting.Dataset[] = [
     },
     dimensions: [
       { key: "status", label: "Status", sql: "visit.status::text", type: "status" },
+      branchDimension("visit.job_id"),
       {
         key: "month", label: "Month", type: "date",
         sql: "to_char(date_trunc('month', visit.window_start), 'YYYY-MM')",

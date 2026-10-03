@@ -113,3 +113,6 @@ export * as priceCategories from "./price-categories";
 export * as repricing from "./repricing";
 export * as taskRules from "./task-rules";
 export * as taskChecklist from "./task-checklist";
+export * as setup from "./setup";
+export * as team from "./team";
+export * as branches from "./branches";

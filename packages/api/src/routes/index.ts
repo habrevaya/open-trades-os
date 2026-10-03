@@ -19,6 +19,7 @@ import {
   customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
   laborSettings,
   voice, websiteTracking, referrals,
+  setup, team, branches, tradePacks,
 } from "../services/index";
 
 /**
@@ -560,6 +561,7 @@ export const handlers = {
   getCustomerStatement: statements.handlers.getCustomerStatement,
   emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
   listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
+  sendReportScheduleNow: deliverySchedules.handlers.sendReportScheduleNow,
   getStatementSchedule: deliverySchedules.handlers.getStatementSchedule,
   setStatementSchedule: deliverySchedules.handlers.setStatementSchedule,
   createCreditNote: creditNotes.handlers.createCreditNote,
@@ -759,6 +761,27 @@ export const handlers = {
   viewPortalReferral: referrals.handlers.viewPortalReferral,
   getForm: forms.handlers.getForm,
   getHostedForm: forms.handlers.getHostedForm,
+
+  // Setup, the team and branches (M02, M01)
+  getSetup: setup.handlers.getSetup,
+  markSetupStep: setup.handlers.markSetupStep,
+  finishSetup: setup.handlers.finishSetup,
+  getCompanyDetails: setup.handlers.getCompanyDetails,
+  updateCompanyDetails: setup.handlers.updateCompanyDetails,
+  listItemTax: setup.handlers.listItemTax,
+  setItemTax: setup.handlers.setItemTax,
+  listTradePacks: tradePacks.handlers.listTradePacks,
+  applyTradePack: tradePacks.handlers.applyTradePack,
+  previewTradePackUpgrade: tradePacks.handlers.previewTradePackUpgrade,
+  upgradeTradePack: tradePacks.handlers.upgradeTradePack,
+  listTeam: team.handlers.listTeam,
+  inviteMember: team.handlers.inviteMember,
+  resendInvite: team.handlers.resendInvite,
+  setMemberRole: team.handlers.setMemberRole,
+  listBranchOptions: branches.handlers.listBranchOptions,
+  getBranchOverview: branches.handlers.getBranchOverview,
+  assignJobsToBranch: branches.handlers.assignJobsToBranch,
+  setMemberBranch: branches.handlers.setMemberBranch,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

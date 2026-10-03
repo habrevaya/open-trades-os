@@ -87,6 +87,11 @@ const ORDER = [
   "dashboard", "report",
   // The company's own logo and favicon, which are bytes rather than a key.
   "brand_asset",
+  /**
+   * What the setup wizard remembers: the steps marked done, and each time a
+   * trade pack was applied with what it seeded. Nothing points at either.
+   */
+  "setup_step", "trade_pack_application",
   "task_escalation", "task_checklist_item",
   "task",
   "task_escalation_rule", "task_template",
