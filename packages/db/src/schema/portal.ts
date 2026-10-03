@@ -44,6 +44,12 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
    * bare id in a URL with no page behind it.
    */
   "deposit",
+  /**
+   * View and approve or decline one change order on a project. Its own scope
+   * rather than an estimate's, because approving one changes a contract
+   * that already exists, and the page has to say so in those words.
+   */
+  "change_order",
 ]);
 
 /**
