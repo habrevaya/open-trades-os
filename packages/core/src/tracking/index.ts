@@ -305,7 +305,9 @@ var out=[];for(var j=0;j<order.length;j++){out.push(order[j]+"="+encodeURICompon
  *      and the arrival appended; forms on the page get hidden fields.
  *   5. The number swap: the page's numbers matching the company's main or
  *      tracking numbers are replaced with the visitor's pool number, written
- *      the way the original was, in text and in `tel:` links. The page asks
+ *      the way the original was, in text and in `tel:` links. A number a
+ *      page builder split across several text nodes (React does, with comment
+ *      markers between them) is matched on its element's whole text. The page asks
  *      again every few minutes while it is open, which is what keeps the
  *      lease alive, and stops when it is hidden.
  */
@@ -331,9 +333,11 @@ if(h.indexOf(C.app+"/book/")===0||h.indexOf(C.app+"/f/")===0){if(h.indexOf("otv=
 var fs=document.getElementsByTagName("form");for(var f=0;f<fs.length;f++){var add={ot_visitor_id:vid,ot_landing_query:arrival.q,ot_referrer:arrival.r||""};
 for(var k in add){if(!fs[f].querySelector("input[name='"+k+"']")){var inp=document.createElement("input");inp.type="hidden";inp.name=k;inp.value=add[k];fs[f].appendChild(inp);}}}}
 var targets=[],shown=null;
-function swapText(node){if(!shown)return;var t=node.nodeValue;var re=/\\+?1?[\\s.(-]*\\d{3}[\\s.)-]*\\d{3}[\\s.-]*\\d{4}/g;
-var out=t.replace(re,function(m){return targets.indexOf(otNational(m))!==-1?otFormatLike(m,shown):m;});if(out!==t)node.nodeValue=out;}
+function swapText(node){if(!shown)return;var t=node.nodeValue;var out=swapIn(t);if(out!==t)node.nodeValue=out;}
+function swapIn(t){var re=/\\+?1?[\\s.(-]*\\d{3}[\\s.)-]*\\d{3}[\\s.-]*\\d{4}/g;return t.replace(re,function(m){return targets.indexOf(otNational(m))!==-1?otFormatLike(m,shown):m;});}
 function walk(el){if(!el)return;var w=document.createTreeWalker(el,4,null,false);var n;while((n=w.nextNode())){var p=n.parentNode&&n.parentNode.nodeName;if(p!=="SCRIPT"&&p!=="STYLE")swapText(n);}
+var all=el.getElementsByTagName?el.getElementsByTagName("*"):[];for(var e=0;e<all.length;e++){var kids=all[e].childNodes;if(kids.length<2||all[e].nodeName==="SCRIPT"||all[e].nodeName==="STYLE")continue;var onlyText=true;for(var c=0;c<kids.length;c++){if(kids[c].nodeType!==3&&kids[c].nodeType!==8){onlyText=false;break;}}
+if(onlyText){var whole=all[e].textContent,next=swapIn(whole);if(next!==whole)all[e].textContent=next;}}
 var as=el.getElementsByTagName?el.getElementsByTagName("a"):[];for(var i=0;i<as.length;i++){var h=as[i].getAttribute("href")||"";
 if(h.indexOf("tel:")===0&&targets.indexOf(otNational(h))!==-1){as[i].setAttribute("href","tel:"+shown);}}}
 function ask(){var x=new XMLHttpRequest();x.open("GET",C.api+"/v1/public/dni?companyKey="+encodeURIComponent(C.key)+"&visitorId="+vid+(arrival.q?"&query="+encodeURIComponent(arrival.q):"")+(arrival.r?"&referrer="+encodeURIComponent(arrival.r):"")+"&page="+encodeURIComponent(arrival.p||"/"),true);

@@ -9,10 +9,16 @@ import * as callTracking from "./call-tracking";
 import * as telephony from "./telephony";
 import * as files from "./files";
 import { leaseForCall } from "./website-tracking";
+/**
+ * The barrel rather than the seam, so the Twilio adapter is registered by
+ * whatever reaches this service: the settings screen buying a number has no
+ * route of its own to import it, and an empty registry would read as
+ * "Twilio is not connected" to somebody whose Twilio is connected.
+ */
 import {
   createVoiceProvider, voiceCapableProviders,
   type AvailableNumber, type NumberWebhooks, type VoiceProvider, type WebhookRequest,
-} from "../voice/provider";
+} from "../voice/index";
 
 /**
  * TRACKING NUMBERS THAT THIS PRODUCT ANSWERS

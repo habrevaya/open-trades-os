@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
 import { E2E_CALLRAIL_ENV } from "./e2e/callrail-env";
+import { E2E_TWILIO_ENV } from "./e2e/twilio-env";
 
 /**
  * THE BROWSER SUITE
@@ -96,9 +97,10 @@ export default defineConfig({
      * Stripe connection at a local fake and signs its own webhook with the
      * second (e2e/stripe.ts). The CallRail pair is the same arrangement for
      * call tracking (e2e/callrail-env.ts): names the spec points the
-     * connection at, holding values that are not keys.
+     * connection at, holding values that are not keys. The Twilio token is
+     * the same again for the voice webhooks (e2e/twilio-env.ts).
      */
-    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV },
+    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },

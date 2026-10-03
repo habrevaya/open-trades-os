@@ -41,7 +41,12 @@ export default async function WebsiteTestPage() {
       <p className="mt-6 text-xs text-ink-500">
         This page loads the snippet exactly as your website will. Visiting it counts as a visit.
       </p>
-      <Script src={`/t.js?c=${view.companyKey}`} strategy="afterInteractive" />
+      {/*
+        After the page is idle, as the snippet runs on a website: after the
+        page has drawn. Earlier, it would change the numbers while React was
+        still matching the page it rendered, and React would put them back.
+      */}
+      <Script src={`/t.js?c=${view.companyKey}`} strategy="lazyOnload" />
     </div>
   );
 }
