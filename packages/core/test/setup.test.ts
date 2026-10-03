@@ -66,7 +66,7 @@ const seed = (code: string, over: Partial<SeedFields> = {}): PackSeedItem => ({
   code, kind: "service", category: "Maintenance", ...fields(over),
 });
 
-const item = (code: string, over: Partial<CompanyItem> & { current?: Partial<SeedFields> } = {}): CompanyItem => ({
+const item = (code: string, over: Omit<Partial<CompanyItem>, "current"> & { current?: Partial<SeedFields> } = {}): CompanyItem => ({
   itemId: `id-${code}`,
   code,
   tradePackId: "hvac@1",

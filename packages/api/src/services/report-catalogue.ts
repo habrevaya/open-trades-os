@@ -396,7 +396,6 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
       key: "job", label: "Job", type: "text",
       sql: "concat('#', job.number, ' ', job.summary)",
     },
-    branchDimension("job.id"),
     {
       key: "month", label: "Month", type: "date",
       sql: "to_char(date_trunc('month', coalesce(job.completed_at, job.created_at)), 'YYYY-MM')",
@@ -424,7 +423,11 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
       sql: "(select c.name from public.customer c where c.id = job.customer_id)",
     },
     {
-      key: "business_unit", label: "Business unit", type: "text",
+      /**
+       * The branch, under the key it has always had here, so a saved margin
+       * report grouped by it keeps working. Labelled as the screens say it.
+       */
+      key: "business_unit", label: "Branch", type: "text",
       sql: "coalesce((select b.name from public.business_unit b where b.id = job.business_unit_id), 'None')",
     },
     {
