@@ -242,6 +242,17 @@ export const visit = pgTable("visit", {
   arrivedAt: timestamp("arrived_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   technicianNotes: text("technician_notes"),
+  /**
+   * What the customer reads about this visit, chosen by the office.
+   *
+   * A copy rather than a switch on `technician_notes`, because those notes
+   * keep growing from the phone after the visit and a customer must read
+   * the words somebody in the office approved, not whatever was appended at
+   * the next sync. Null means nothing is shown. Set with
+   * `servicereport:publish`, the same decision as publishing a report.
+   */
+  customerNotes: text("customer_notes"),
+  customerNotesSharedAt: timestamp("customer_notes_shared_at", { withTimezone: true }),
   checklist: jsonb("checklist").$type<Array<{ id: string; label: string; required: boolean; doneAt: string | null }>>().notNull().default([]),
   signatureUrl: text("signature_url"),
   ...sourceRef,

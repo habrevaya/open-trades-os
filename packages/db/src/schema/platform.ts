@@ -25,6 +25,13 @@ export const auditLog = pgTable("audit_log", {
    * this address, at this time" is the whole record of a customer decision.
    */
   actorPortalGrantId: uuid("actor_portal_grant_id"),
+  /**
+   * The contact who held that grant, when it was a contact signed in as the
+   * customer rather than the customer themselves. The grant says which
+   * account was used; this says which person used it, which is the question
+   * a landlord asks when the tenant's partner paid the wrong invoice.
+   */
+  actorContactId: uuid("actor_contact_id"),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: uuid("entity_id"),

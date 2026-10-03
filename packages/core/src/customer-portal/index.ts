@@ -272,6 +272,14 @@ export function photoShown(sharing: PhotoSharing, photo: { kind: string; sharedA
 export interface PortalSettings {
   tipping: TipSettings;
   jobPhotos: PhotoSharing;
+  /**
+   * Whether a signed in customer may save a bank account and pay from it.
+   * Off until the company turns it on, for two reasons a card does not
+   * have: the company has to switch bank debits on with its processor too,
+   * and money from a bank arrives days later and can still fail, which the
+   * company should choose to live with rather than discover.
+   */
+  bankAccounts: boolean;
 }
 
 /** The portal's settings out of the company's settings blob, defaulting to everything off. */
@@ -281,5 +289,11 @@ export function readPortalSettings(stored: unknown): PortalSettings {
   return {
     tipping: readTipSettings(blob["tipping"]),
     jobPhotos: photos === "all" ? "all" : "chosen",
+    bankAccounts: blob["bankAccounts"] === true,
   };
 }
+
+/* ------------------------------------------------- blocks and capacity */
+
+export * from "./blocks.js";
+export * from "./capacity.js";
