@@ -166,6 +166,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         <Fact label="Description">{job.description}</Fact>
         <Fact label="Customer said">{job.customerComplaint}</Fact>
         <Fact label="PO number">{job.purchaseOrderNumber}</Fact>
+        <Fact label="Unit">
+          {job.equipmentId ? <a href={`/equipment/${job.equipmentId}`} className="hover:underline">The unit this job is about</a> : null}
+        </Fact>
       </Facts>
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
@@ -321,7 +324,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         <Table head={<><Th className="w-16">#</Th><Th>Window</Th><Th>Who</Th><Th>Status</Th></>}>
           {job.visits.map((visit) => (
             <tr key={visit.id}>
-              <Td className="font-mono tabular-nums text-ink-700">{visit.sequence}</Td>
+              <Td className="font-mono tabular-nums text-ink-700">
+                <a href={`/visits/${visit.id}`} className="hover:underline" aria-label={`Open visit ${visit.sequence}`}>{visit.sequence}</a>
+              </Td>
               <Td className="text-ink-700">
                 {/*
                   In the company's timezone, always. A dispatcher in Denver

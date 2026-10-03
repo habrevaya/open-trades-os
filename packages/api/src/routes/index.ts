@@ -12,7 +12,7 @@ import {
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
   apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
-  dispatchMap, geocoding,
+  dispatchMap, geocoding, visits,
   reports, deliverySchedules, statementDelivery,
   agreements, visitChanges, vendorCatalogue, proposals,
   acquisition, marketingReport, phoneNumbers,
@@ -707,6 +707,7 @@ export const handlers = {
   getEquipment: equipment.handlers.getEquipment,
   getEquipmentHistory: equipment.handlers.getEquipmentHistory,
   getWarrantyWatch: equipment.handlers.getWarrantyWatch,
+  listEquipmentSerialMatches: equipment.handlers.listEquipmentSerialMatches,
   registerEquipment: equipment.handlers.registerEquipment,
   updateEquipment: equipment.handlers.updateEquipment,
   moveEquipment: equipment.handlers.moveEquipment,
@@ -816,6 +817,10 @@ export const handlers = {
   // KPIs (M21): the numbers the trade packs defined and nothing computed
   getKpiScorecard: kpis.handlers.getKpiScorecard,
   listKpiCatalogue: kpis.handlers.listKpiCatalogue,
+  getKpiRecords: kpis.handlers.getKpiRecords,
+
+  // One visit on its own (M10), the read its screen makes
+  getVisit: (ctx: ServiceContext, input: { id: string }) => visits.get(ctx, input),
 
   // The dispatch map, the route optimiser and the geocoder (M09, M24, M25)
   getDispatchMap: dispatchMap.handlers.getDispatchMap,

@@ -5261,6 +5261,31 @@ export interface GetEquipmentHistoryOutput {
     code: string | null;
     createdAt: string;
   }>;
+  readings: Array<{
+    id: string;
+    key: string;
+    label: string;
+    valueNumeric: string | null;
+    valueText: string | null;
+    valueBoolean: boolean | null;
+    unit: string | null;
+    outOfRange: boolean;
+    recordedAt: string;
+    visitId: string;
+  }>;
+  inspections: Array<{
+    id: string;
+    performedOn: string | null;
+    result: string | null;
+    programme: string | null;
+    visitId: string | null;
+    jobId: string | null;
+  }>;
+  photos: Array<{
+    storageKey: string;
+    contentType: string | null;
+    at: string;
+  }>;
 }
 
 export interface GetEquipmentOutput {
@@ -5294,6 +5319,21 @@ export interface GetEquipmentOutput {
     fromPropertyId: string | null;
     toPropertyId: string | null;
     notes: string | null;
+  }>;
+  address: string;
+  customer: {
+    id: string;
+    name: string;
+  } | null;
+  parent: {
+    id: string;
+    tag: string | null;
+    category: string;
+  } | null;
+  children: Array<{
+    id: string;
+    tag: string | null;
+    category: string;
   }>;
 }
 
@@ -6143,6 +6183,28 @@ export interface GetJournalEntryOutput {
     amount: string;
     memo: string | null;
   }>;
+}
+
+export interface GetKpiRecordsOutput {
+  key: string;
+  label: string;
+  definition: string;
+  format: "percent" | "money" | "number" | "duration";
+  half: "numerator" | "denominator";
+  halfLabel: string;
+  from: string;
+  to: string;
+  records: Array<{
+    kind: string;
+    id: string;
+    label: string;
+    onDay: string | null;
+    value: string;
+    href: string;
+  }>;
+  count: number;
+  total: string;
+  truncated: boolean;
 }
 
 export interface GetKpiScorecardOutput {
@@ -7460,6 +7522,108 @@ export interface GetUploadStatusOutput {
   stored: number;
   pending: number;
   abandoned: number;
+}
+
+export interface GetVisitOutput {
+  id: string;
+  sequence: number;
+  status: string;
+  windowStart: string | null;
+  windowEnd: string | null;
+  estimatedDurationMinutes: number;
+  dispatchedAt: string | null;
+  enRouteAt: string | null;
+  arrivedAt: string | null;
+  completedAt: string | null;
+  technicianNotes: string | null;
+  checklist: Array<{
+    id: string;
+    label: string;
+    required: boolean;
+    doneAt: string | null;
+  }>;
+  signed: boolean;
+  rentalEvent: string | null;
+  job: {
+    id: string;
+    number: number;
+    summary: string;
+    status: string;
+    customerId: string;
+    propertyId: string | null;
+    equipmentId: string | null;
+  };
+  customer: {
+    id: string;
+    name: string;
+  } | null;
+  property: {
+    id: string;
+    address: string;
+    accessNotes: string | null;
+  } | null;
+  team: Array<{
+    technicianId: string;
+    name: string;
+    isLead: boolean;
+  }>;
+  crew: string | null;
+  used: Array<{
+    id: string;
+    kind: string;
+    name: string;
+    quantity: string;
+    unitPrice: string;
+    nonBillableReason: string | null;
+    billed: boolean;
+  }>;
+  time: Array<{
+    id: string;
+    kind: string;
+    technician: string;
+    startedAt: string;
+    endedAt: string | null;
+    minutes: number | null;
+  }> | null;
+  units: Array<{
+    equipmentId: string;
+    outcome: string | null;
+    notes: string | null;
+    completedAt: string | null;
+    category: string;
+    tag: string | null;
+    serialNumber: string | null;
+  }>;
+  reports: Array<{
+    id: string;
+    summary: string | null;
+    skipped: boolean;
+    skipReason: string | null;
+    submittedAt: string | null;
+    publishedAt: string | null;
+  }>;
+  inspections: Array<{
+    id: string;
+    performedOn: string | null;
+    result: string | null;
+    programme: string | null;
+  }>;
+  changes: Array<{
+    id: string;
+    kind: string;
+    status: string;
+    reason: string | null;
+    requestedStart: string | null;
+    createdAt: string;
+    decidedAt: string | null;
+    response: string | null;
+  }>;
+  siblings: Array<{
+    id: string;
+    sequence: number;
+    status: string;
+    windowStart: string | null;
+  }>;
 }
 
 export interface GetVisitUnitsOutput {
@@ -9151,6 +9315,24 @@ export interface ListEquipmentOutput {
       daysUntilSoonest: number | null;
     };
     depth: number;
+  }>;
+}
+
+export interface ListEquipmentSerialMatchesOutput {
+  matches: Array<{
+    id: string;
+    propertyId: string;
+    address: string;
+    category: string;
+    tag: string | null;
+    manufacturer: string | null;
+    model: string | null;
+    serialNumber: string;
+    retired: boolean;
+    customer: {
+      id: string;
+      name: string;
+    } | null;
   }>;
 }
 
@@ -13321,6 +13503,7 @@ export interface RegisterEquipmentInput {
   location?: string | null;
   parentEquipmentId?: string | null;
   attributes?: Record<string, unknown>;
+  serialElsewhereConfirmed?: boolean;
 }
 
 export interface RegisterEquipmentOutput {
@@ -19017,6 +19200,13 @@ export interface GetJournalEntryInput {
   id: string;
 }
 
+export interface GetKpiRecordsInput {
+  key: string;
+  half: "numerator" | "denominator";
+  from: string;
+  to: string;
+}
+
 export interface GetKpiScorecardInput {
   from: string;
   to: string;
@@ -19220,6 +19410,10 @@ export interface GetUploadStatusInput {
   subjectId: string;
 }
 
+export interface GetVisitInput {
+  id: string;
+}
+
 export interface GetVisitUnitsInput {
   visitId: string;
 }
@@ -19235,6 +19429,8 @@ export interface GetVisitorNumberInput {
 export interface GetWarrantyWatchInput {
   withinDays?: number;
   on?: string;
+  from?: string;
+  to?: string;
 }
 
 export interface GetWebhookPositionInput {
@@ -19556,6 +19752,11 @@ export interface ListEmailSuppressionsInput {
 export interface ListEquipmentInput {
   propertyId: string;
   on?: string;
+}
+
+export interface ListEquipmentSerialMatchesInput {
+  serialNumber: string;
+  excludeId?: string;
 }
 
 export interface ListEstimateDeliveriesInput {
@@ -21219,6 +21420,7 @@ export interface OperationTypes {
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
   getJobSkills: { input: GetJobSkillsInput; output: GetJobSkillsOutput };
   getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
+  getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
   getMarketingCall: { input: GetMarketingCallInput; output: GetMarketingCallOutput };
   getMarketingFunnel: { input: GetMarketingFunnelInput; output: GetMarketingFunnelOutput };
@@ -21270,6 +21472,7 @@ export interface OperationTypes {
   getTravelSettings: { input: GetTravelSettingsInput; output: GetTravelSettingsOutput };
   getTrialBalance: { input: GetTrialBalanceInput; output: GetTrialBalanceOutput };
   getUploadStatus: { input: GetUploadStatusInput; output: GetUploadStatusOutput };
+  getVisit: { input: GetVisitInput; output: GetVisitOutput };
   getVisitUnits: { input: GetVisitUnitsInput; output: GetVisitUnitsOutput };
   getVisitorNumber: { input: GetVisitorNumberInput; output: GetVisitorNumberOutput };
   getWarrantyWatch: { input: GetWarrantyWatchInput; output: GetWarrantyWatchOutput };
@@ -21356,6 +21559,7 @@ export interface OperationTypes {
   listEmailMessages: { input: ListEmailMessagesInput; output: ListEmailMessagesOutput };
   listEmailSuppressions: { input: ListEmailSuppressionsInput; output: ListEmailSuppressionsOutput };
   listEquipment: { input: ListEquipmentInput; output: ListEquipmentOutput };
+  listEquipmentSerialMatches: { input: ListEquipmentSerialMatchesInput; output: ListEquipmentSerialMatchesOutput };
   listEstimateDeliveries: { input: ListEstimateDeliveriesInput; output: ListEstimateDeliveriesOutput };
   listEstimateDrafts: { input: ListEstimateDraftsInput; output: ListEstimateDraftsOutput };
   listEstimates: { input: ListEstimatesInput; output: ListEstimatesOutput };
@@ -22049,6 +22253,7 @@ export const OPERATIONS = {
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
+  getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getMarketingCall: { method: "GET", path: "/v1/marketing/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel", pathParams: [], queryParams: ["from","to","by","model"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -22100,9 +22305,10 @@ export const OPERATIONS = {
   getTravelSettings: { method: "GET", path: "/v1/dispatch/travel", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getTrialBalance: { method: "GET", path: "/v1/ledger/trial-balance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getUploadStatus: { method: "GET", path: "/v1/field/uploads/outstanding", pathParams: [], queryParams: ["subjectType","subjectId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
+  getVisit: { method: "GET", path: "/v1/visits/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getVisitUnits: { method: "GET", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getVisitorNumber: { method: "GET", path: "/v1/public/dni", pathParams: [], queryParams: ["companyKey","visitorId","page","query","referrer"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
-  getWarrantyWatch: { method: "GET", path: "/v1/equipment-warranties", pathParams: [], queryParams: ["withinDays","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
+  getWarrantyWatch: { method: "GET", path: "/v1/equipment-warranties", pathParams: [], queryParams: ["withinDays","on","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getWebhookPosition: { method: "GET", path: "/v1/webhooks/endpoints/{id}/position", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getWebsiteTracking: { method: "GET", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getWorkflowRuns: { method: "GET", path: "/v1/workflows/{id}/runs", pathParams: ["id"], queryParams: ["runs"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:read"] },
@@ -22186,6 +22392,7 @@ export const OPERATIONS = {
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listEmailSuppressions: { method: "GET", path: "/v1/email/suppressions", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listEquipment: { method: "GET", path: "/v1/equipment", pathParams: [], queryParams: ["propertyId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
+  listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
@@ -24812,6 +25019,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The records behind one half of one KPI.
+   *
+   * GET /v1/kpi-records. Needs report:read.
+   */
+  getKpiRecords(input: GetKpiRecordsInput, options?: CallOptions): Promise<GetKpiRecordsOutput> {
+    return this.call("getKpiRecords", input, options);
+  }
+
+  /**
    * Your trade's own numbers, and what the rest need.
    *
    * GET /v1/kpis. Needs report:read.
@@ -25268,6 +25484,15 @@ export abstract class GeneratedOperations {
    */
   getUploadStatus(input: GetUploadStatusInput, options?: CallOptions): Promise<GetUploadStatusOutput> {
     return this.call("getUploadStatus", input, options);
+  }
+
+  /**
+   * One visit, with what happened on it.
+   *
+   * GET /v1/visits/{id}. Needs visit:read.
+   */
+  getVisit(input: GetVisitInput, options?: CallOptions): Promise<GetVisitOutput> {
+    return this.call("getVisit", input, options);
   }
 
   /**
@@ -26042,6 +26267,15 @@ export abstract class GeneratedOperations {
    */
   listEquipment(input: ListEquipmentInput, options?: CallOptions): Promise<ListEquipmentOutput> {
     return this.call("listEquipment", input, options);
+  }
+
+  /**
+   * Units already on file with this serial.
+   *
+   * GET /v1/equipment-serial-matches. Needs equipment:read.
+   */
+  listEquipmentSerialMatches(input: ListEquipmentSerialMatchesInput, options?: CallOptions): Promise<ListEquipmentSerialMatchesOutput> {
+    return this.call("listEquipmentSerialMatches", input, options);
   }
 
   /**

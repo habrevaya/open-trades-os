@@ -77,6 +77,9 @@ export default async function InvoicePage({
           {invoice.issuedOn && invoice.dueOn && " · "}
           {invoice.dueOn && <>Due {day(invoice.dueOn)}</>}
         </p>
+        <p className="mt-2 text-sm">
+          <a href={`/i/${token}/pdf`} className="underline underline-offset-4">Download a PDF of this invoice</a>
+        </p>
       </header>
 
       <Summary invoice={invoice} returned={returned} />

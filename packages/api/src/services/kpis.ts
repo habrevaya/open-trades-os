@@ -1,8 +1,9 @@
 import { eq, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { can, effectiveScope, type Permission } from "@opentradesos/core";
 import { packs, packById, type TradePack } from "@opentradesos/trade-packs";
-import { audit, guardedRead, ConflictError, type ServiceContext } from "./context";
-import { CATALOGUE, KEYS, type Entry, type Format } from "./kpi-catalogue";
+import { audit, guardedRead, timezoneOf, ConflictError, NotFoundError, type ServiceContext } from "./context";
+import { CATALOGUE, KEYS, total, type Entry, type Format } from "./kpi-catalogue";
 
 /**
  * THE SCORECARD A TRADE PACK ALREADY SPECIFIED
@@ -128,6 +129,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
     }
 
     const pack = await packOf(tx, ctx.actor.organizationId);
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const result: Scorecard = {
       tradePack: pack?.id ?? null,
       from: input.from,
@@ -184,8 +186,8 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         continue;
       }
 
-      const numerator = await scalar(tx, entry.measure.numerator(input.from, input.to));
-      const denominator = await scalar(tx, entry.measure.denominator(input.from, input.to));
+      const numerator = await scalar(tx, total(entry.measure.numerator.records(input.from, input.to, zone)));
+      const denominator = await scalar(tx, total(entry.measure.denominator.records(input.from, input.to, zone)));
       const value = TOTALS.includes(kpi.key)
         ? numerator.toFixed(4)
         : combine(entry.format, numerator, denominator);
@@ -196,8 +198,8 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         value,
         numerator: entry.format === "money" ? numerator.toFixed(4) : String(numerator),
         denominator: String(denominator),
-        numeratorLabel: entry.measure.numeratorLabel,
-        denominatorLabel: entry.measure.denominatorLabel,
+        numeratorLabel: entry.measure.numerator.label,
+        denominatorLabel: entry.measure.denominator.label,
         needs: null,
         endpoint: null,
       });
@@ -263,8 +265,177 @@ export function catalogue(ctx: ServiceContext, _input: Record<string, never>) {
   });
 }
 
+/* -------------------------------------------------------------- the drill */
+
+export type KpiHalf = "numerator" | "denominator";
+
+export interface KpiRecord {
+  kind: string;
+  id: string;
+  label: string;
+  onDay: string | null;
+  /** What this record adds to the half: one, its revenue, its minutes. */
+  value: string;
+  href: string;
+}
+
+export interface KpiDrill {
+  key: string;
+  label: string;
+  definition: string;
+  format: Format;
+  half: KpiHalf;
+  /** The half's own words: "completed jobs", "minutes driving between stops". */
+  halfLabel: string;
+  from: string;
+  to: string;
+  records: KpiRecord[];
+  /** How many records there are, whether or not all are listed. */
+  count: number;
+  /** The sum of every record's value, which is the half the scorecard shows. */
+  total: string;
+  /** True when more records exist than are listed. The total still covers all of them. */
+  truncated: boolean;
+}
+
+/** A thousand, as the report drill lists. Nobody reads more on a screen. */
+const DRILL_LIMIT = 1000;
+
+/**
+ * What reading each kind of record needs. A KPI is one number for the whole
+ * company; the records behind it are jobs, agreements and timesheets, and
+ * listing them is reading them.
+ */
+const KIND_NEEDS: Record<string, Permission> = {
+  job: "job:read",
+  estimate: "estimate:read",
+  agreement: "membership:read",
+  visit: "visit:read",
+  customer: "customer:read",
+  technician_day: "timesheet:read",
+  time: "timesheet:read",
+  deficiency: "equipment:read",
+  equipment: "equipment:read",
+};
+
+const KIND_WORDS: Record<string, string> = {
+  job: "jobs", estimate: "estimates", agreement: "agreements", visit: "visits", customer: "customers",
+  technician_day: "timesheets", time: "timesheets", deficiency: "the equipment register", equipment: "the equipment register",
+};
+
+/**
+ * THE RECORDS BEHIND ONE HALF OF ONE KPI.
+ *
+ * The same records query the scorecard summed, listed. So the total at the
+ * bottom is the half that was clicked, and the rows are what each record added
+ * to it: a completed job and its revenue, a technician day, the minutes of a
+ * drive between two stops.
+ *
+ * REFUSED RATHER THAN TRIMMED, in words, in three cases. The figure is the
+ * company's, so a reader whose scope is narrower than the company (a
+ * technician who sees their own jobs) is refused: listing the company's
+ * records would be the report builder's scope hole one click down, and
+ * listing only their own would be a list that does not add up to the number
+ * above it. A record kind the reader may not read is refused, naming it. A
+ * money half is refused without the financial reports permission, because a
+ * list of revenue per job is a financial report.
+ */
+export function drill(
+  ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string },
+) {
+  return guardedRead(ctx, "report:read", async (tx): Promise<KpiDrill> => {
+    if (input.to < input.from) {
+      throw new ConflictError("The end of the window is before its start.");
+    }
+    const entry = CATALOGUE[input.key];
+    if (!entry || entry.state !== "computed") {
+      throw new NotFoundError("KPI");
+    }
+    const pack = await packOf(tx, ctx.actor.organizationId);
+    const declared = pack?.kpis.find((k) => k.key === input.key);
+    if (!declared) {
+      /**
+       * Only the company's own trade's numbers. A drill into a KPI the
+       * scorecard never showed is a list of records under a heading nobody
+       * clicked.
+       */
+      throw new NotFoundError("KPI");
+    }
+
+    if (effectiveScope(ctx.actor, "job") !== "all") {
+      throw new ConflictError(
+        "This figure is the whole company's, and your access covers only part of the company's work, "
+        + "so the records behind it are not listed for you. Somebody who sees all of the work can open them.",
+      );
+    }
+    const half = entry.measure[input.half];
+    const moneyHalf = entry.format === "money" && input.half === "numerator";
+    if (moneyHalf && !can(ctx.actor, "report.financial:read")) {
+      throw new ConflictError(
+        "The records behind this figure are revenue per job, which is a financial report. "
+        + "Seeing them needs report.financial:read.",
+      );
+    }
+
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const records = half.records(input.from, input.to, zone);
+    const rows = await tx.execute<{
+      kind: string; id: string; label: string | null; on_day: string | null; value: string; href: string;
+    }>(sql`
+      select r.kind, r.id, r.label, r.on_day, r.value::text as value, r.href,
+             count(*) over () as count, coalesce(sum(r.value) over (), 0)::text as total
+      from (${records}) as r
+      order by r.on_day desc nulls last, r.label
+      limit ${DRILL_LIMIT + 1}
+    `);
+
+    const kinds = [...new Set(rows.map((row) => row.kind))];
+    for (const kind of kinds) {
+      const needs = KIND_NEEDS[kind];
+      if (!needs || !can(ctx.actor, needs)) {
+        throw new ConflictError(
+          `The records behind this figure are ${KIND_WORDS[kind] ?? kind}, and reading them needs `
+          + `${needs ?? "a permission this product has not named"}.`,
+        );
+      }
+    }
+
+    const first = rows[0] as (typeof rows)[number] & { count?: string; total?: string } | undefined;
+    const count = Number(first?.count ?? 0);
+    const sum = first?.total ?? "0";
+
+    await audit(tx, ctx, "kpi.drill", "organization", ctx.actor.organizationId, null, {
+      key: input.key, half: input.half, from: input.from, to: input.to, count,
+    });
+
+    return {
+      key: input.key,
+      label: declared.label,
+      definition: declared.definition,
+      format: entry.format,
+      half: input.half,
+      halfLabel: half.label,
+      from: input.from,
+      to: input.to,
+      records: rows.slice(0, DRILL_LIMIT).map((row) => ({
+        kind: row.kind,
+        id: row.id,
+        label: row.label ?? "Not named",
+        onDay: row.on_day,
+        value: row.value,
+        href: row.href,
+      })),
+      count,
+      total: sum,
+      truncated: count > DRILL_LIMIT,
+    };
+  });
+}
+
 export const handlers = {
   getKpiScorecard: (ctx: ServiceContext, input: { from: string; to: string }) =>
     scorecard(ctx, input),
   listKpiCatalogue: (ctx: ServiceContext, input: Record<string, never>) => catalogue(ctx, input),
+  getKpiRecords: (ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string }) =>
+    drill(ctx, input),
 } as const;

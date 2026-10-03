@@ -681,6 +681,8 @@ const IMPLEMENTED = [
 export function dwellShapes() {
   return SHAPES.map((shape) => ({
     key: shape.key, label: shape.label, question: shape.question,
+    /** Whether the days count after the record entered its state, or before a date on it. */
+    counts: shape.counts ?? "since",
   }));
 }
 
@@ -692,7 +694,8 @@ export function describeDwell(
   const shape = SHAPES.find((s) => s.key === dwell.shape);
   if (!shape) return `Waiting on something this build does not have: ${dwell.shape}`;
   const days = dwell.afterDays;
-  return `${shape.label}, after ${days} ${days === 1 ? "day" : "days"}`;
+  const span = `${days} ${days === 1 ? "day" : "days"}`;
+  return shape.counts === "until" ? `${shape.label}, ${span} before` : `${shape.label}, after ${span}`;
 }
 
 /* ---------------------------------------------------- recommended automations */

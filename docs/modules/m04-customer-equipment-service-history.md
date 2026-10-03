@@ -73,6 +73,18 @@ The same screen, with `equipment:write`. A category is required because the
 register is read by category; everything else is optional, because a technician
 standing in a crawl space often has a model number and no serial.
 
+A serial is matched against the WHOLE company before the unit is added, on its
+letters and digits alone ("ab-1234 x" and "AB1234X" are one plate), retired
+units included. At the same address a live match is refused outright. Anywhere
+else the add stops and the form lists each unit already carrying that serial,
+where it is and whether it is still on a register, each linking to its page,
+because the usual right answer is a move on the existing unit rather than a
+second record that splits its history. Ticking "It is a different unit with the
+same serial" adds it anyway, for the makers whose short serials repeat.
+`GET /v1/equipment-serial-matches` is the same match, for an integration that
+wants to ask before it adds; `POST /v1/equipment` refuses a match elsewhere
+until `serialElsewhereConfirmed` is sent.
+
 ### Move a unit
 
 A move records where it went and why. Retiring a unit is a soft delete, so the
@@ -80,16 +92,31 @@ jobs that named it still resolve.
 
 ### Find out what happened to it
 
-The history read gathers the jobs that named the unit, the visits that
-inspected it and the deficiencies raised against it, newest first.
+`/equipment/{id}` is the unit's own page: what it is, its serial, where it is
+and who to ring, when it was installed and how old it is, what it is part of
+and what is inside it, its warranty with parts and labour apart (and the
+follow up button), its service history, the inspections that named it, the
+faults found on it, the readings service reports took on it (newest first, out
+of range ones marked), its photographs, and where it has been. Every link to a
+unit (the register, the warranty list, a visit's units, a job about it, a
+follow up task, a KPI's records) opens here rather than on its address.
+
+The history read behind it gathers the jobs that named the unit, the visits
+that recorded an outcome on it, the deficiencies raised against it, the
+readings taken on it, the inspections whose answers named it, and the
+photographs of it: the ones taken while answering a checkpoint about it, the
+ones kept with a fault found on it, and anything filed against the unit. A
+photograph of the whole visit is not a photograph of this unit and stays on
+the visit.
 
 ### Watch warranties running out
 
 `/customers/warranties` is the warranty watch on a screen: units whose parts or
 labour cover ends in the next 30, 60 or 90 days, and units whose cover ended
-in the last 90, grouped by customer and then by address. Each unit says when
-each kind of cover ends or ended, links to the address its register is on and
-to the customer, and offers the two follow ups the list exists for: "Raise a
+in the last 90, grouped by customer and then by address, or any window by its
+two dates ("Cover ending from ... to ..."; the API takes `from` and `to`). Each
+unit says when each kind of cover ends or ended, links to the unit's page, its
+address and the customer, and offers the two follow ups the list exists for: "Raise a
 follow up task", which puts a task about the unit in the office queue (and is
 not offered again while one is open), and "Estimate a replacement", which opens
 a new estimate for that customer at that address.
@@ -100,6 +127,17 @@ before tenants, and `GET /v1/equipment-warranties` returns it on every unit
 `equipment:read`; it sits under Customers, so somebody who can see customers
 and not equipment is told which permission the page needs rather than shown an
 empty list.
+
+### Raise the follow up automatically
+
+"A unit's warranty about to run out" is something an automation can wait on
+(Automations, wait on, how many days). It fires that many days BEFORE the
+unit's next cover ends, parts or labour, whichever comes first and has not
+passed, counted in the company's calendar, once per unit per end date: an
+extended warranty is a new date and a new call. Retired units are left out.
+The event carries the unit, the customer linked to its address and the date
+(`{{ until }}` in a task's title), and the task a "Create a task" step raises is
+about the unit, so it opens the unit's page.
 
 ## Permissions
 
@@ -122,6 +160,7 @@ wrong within a month.
 | `GET /v1/equipment/{id}` | `equipment:read` |
 | `GET /v1/equipment/{id}/history` | `equipment:read` |
 | `GET /v1/equipment-warranties` | `equipment:read` |
+| `GET /v1/equipment-serial-matches` | `equipment:read` |
 | `POST /v1/equipment` | `equipment:write` |
 | `PATCH /v1/equipment/{id}` | `equipment:write` |
 | `POST /v1/equipment/{id}/move` | `equipment:write` |
@@ -163,13 +202,14 @@ everything naming it still resolves.
 ## What is not built
 
 Resolving coverage from an equipment warranty record is not wired to M32: the
-dates are here and that module does not read them. Nothing matches an incoming
-unit against the register by serial number on the office side, so a duplicate
-row for one furnace is still possible when somebody types rather than scans.
+dates are here and that module does not read them. The serial match is the
+office's and the API's; the field app's own sync still matches only at the
+address it is standing in. A serial with no letters or digits in it matches
+nothing, and two units with no serial at all are never matched, which is the
+cost of a register without serials.
 
-The warranty screen's windows are fixed at 30, 60 and 90 days ahead and 90
-behind; the API takes any window up to two years. A unit has no page of its
-own, so its links go to the address its register is on. Nothing raises a
-warranty follow up on its own: the task is a button, and an automation that
-raised one per lapsing unit would need a trigger the workflow engine does not
-have.
+The warranty automation is a trigger to build on rather than one that ships
+turned on: there is no recommended automation for it, so a company that wants
+the call raised by itself builds the two step automation on the canvas. A
+unit's page reads; editing a unit and moving it are still done from its
+address's register and the API.

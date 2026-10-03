@@ -161,3 +161,5 @@ export * as purchaseApprovals from "./purchase-approvals";
 export * as purchaseOrderEmail from "./purchase-order-email";
 export * as rentalBilling from "./rental-billing";
 export * as peopleRecords from "./people-records";
+export * as documents from "./documents";
+export * as visits from "./visits";

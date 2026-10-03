@@ -9,6 +9,7 @@ import {
 import * as email from "./email";
 import { mintGrant } from "./portal";
 import { buildStatement } from "./statements";
+import { statementFileWithin } from "./documents";
 
 /**
  * A STATEMENT, EMAILED
@@ -18,13 +19,17 @@ import { buildStatement } from "./statements";
  * office's statement page, and once a month to every customer who owes more
  * than the company says is worth chasing.
  *
- * A LINK, NOT THE NUMBERS. The email says there is a statement and opens it on
- * the customer's account page, which reads the ledger when they open it. The
- * numbers in an email are frozen at the moment it was sent and wrong the
- * moment a cheque clears, and a balance in the body of an email is a balance
- * anybody who sees the inbox can read. The link is a portal grant for that
- * customer, minted through the portal's own token mechanism, so it expires and
- * can be revoked like every other link this product hands out.
+ * A LINK, AND A DATED COPY. The email says there is a statement and opens it
+ * on the customer's account page, which reads the ledger when they open it.
+ * The body still carries no amounts: a balance in the text of an email is the
+ * first thing a preview pane shows anybody standing behind the customer. The
+ * statement as it was on the day it went is attached as a PDF, because that is
+ * what a bookkeeper files and what an accounts payable clerk will not click a
+ * link to fetch; it says on its face that it is a copy as of that day, so a
+ * cheque that clears tomorrow makes it out of date rather than wrong. The link
+ * is a portal grant for that customer, minted through the portal's own token
+ * mechanism, so it expires and can be revoked like every other link this
+ * product hands out.
  *
  * THE AUTHORITY IS `invoice:send`, the permission for putting a bill in front
  * of a customer, and the transport's `message:send` is passed down beneath it
@@ -93,6 +98,7 @@ export function composeStatementEmail(input: {
     "",
     `Your statement from ${input.organizationName} for ${period} is ready.`,
     "It lists every invoice, payment and credit in that time, and what is still open.",
+    "A copy as of today is attached as a PDF; the link always shows it as it is now.",
     "",
     `Open your statement: ${input.url}`,
     "",
@@ -107,6 +113,7 @@ export function composeStatementEmail(input: {
     `<p>Hello ${escapeHtml(input.customerName)},</p>`,
     `<p>Your statement from ${escapeHtml(input.organizationName)} for ${escapeHtml(period)} is ready. `
     + `It lists every invoice, payment and credit in that time, and what is still open.</p>`,
+    `<p>A copy as of today is attached as a PDF; the link always shows it as it is now.</p>`,
     `<p><a href="${escapeHtml(input.url)}" style="display:inline-block;padding:10px 16px;`
     + `background:${escapeHtml(fill)};color:${escapeHtml(onFill)};text-decoration:none;border-radius:6px">`
     + `Open your statement</a></p>`,
@@ -183,6 +190,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
     color: identity.color, on: identity.on,
   });
 
+  const printed = await statementFileWithin(tx, organizationId, statement);
   const outcome = await email.queue(transportContext(ctx, tx), {
     to: destination,
     subject: composed.subject,
@@ -190,6 +198,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
     html: composed.html,
     purpose: "transactional",
     customerId: input.customerId,
+    attachments: [{ filename: printed.filename, contentType: "application/pdf", content: Buffer.from(printed.bytes) }],
   });
 
   await tx.update(schema.statementDelivery).set({ portalGrantId: grant.row.id })

@@ -927,16 +927,15 @@ export const CATALOGUE: reporting.Dataset[] = [
     scope: "visit",
     dateColumn: "visit.window_start",
     /**
-     * A visit has no screen of its own: it is a line on its job, so the link
-     * opens the job. The label still names the visit, because two visits on one
-     * job are two rows here and they have to be told apart.
+     * A visit opens on its own screen, which says what happened on that trip
+     * and links its job. It used to open the job, which left somebody to work
+     * out which of a three day install's visits the row was.
      */
     records: {
       noun: "visit", plural: "visits",
       id: "visit.id",
-      linkId: "visit.job_id",
       label: `concat('#', (select j.number from public.job j where j.id = visit.job_id), ' visit ', visit.sequence)`,
-      href: "/jobs/{id}",
+      href: "/visits/{id}",
       orderBy: "visit.window_start",
       columns: [
         { key: "status", label: "Status", type: "status", sql: "visit.status::text" },
@@ -983,16 +982,12 @@ export const CATALOGUE: reporting.Dataset[] = [
     // Reads of the queue itself are already gated on `task:read`.
     scope: "job",
     dateColumn: "task.created_at",
-    /**
-     * A task has no screen of its own either, and the queue is where one is
-     * worked, so every task opens the queue. Said here rather than pretended:
-     * the link is to the list, not to the task.
-     */
+    /** A task opens on its own page, with its checklist and what escalation did to it. */
     records: {
       noun: "task", plural: "tasks",
       id: "task.id",
       label: "task.title",
-      href: "/tasks",
+      href: "/tasks/{id}",
       orderBy: "task.created_at",
       columns: [
         { key: "status", label: "Status", type: "status", sql: "task.status::text" },

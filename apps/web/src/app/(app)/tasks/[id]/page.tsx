@@ -8,6 +8,7 @@ import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { TASK_PRIORITY, label } from "@/lib/labels";
 import { formatIn } from "@/lib/dates";
+import { LINKS, RECORD_NOUN } from "@/lib/record-links";
 import { tickItem, addItem, removeItem, finishTask } from "../rule-actions";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,8 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   const ticks = writes || mine;
   const open = task.completedAt === null;
   const tz = user.organizationTimezone;
+  /** The record the task is about, so following it up opens the thing rather than a description of it. */
+  const about = task.entityType && task.entityId ? LINKS[task.entityType]?.(task.entityId) : undefined;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -52,6 +55,11 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
         <Fact label="Due">{task.dueAt ? formatIn(task.dueAt, tz) : null}</Fact>
         <Fact label="With">{task.assigneeName ?? (task.queue ? `The ${task.queue} queue` : "Nobody yet")}</Fact>
         <Fact label="Priority">{label(TASK_PRIORITY, task.priority)}</Fact>
+        <Fact label="About">
+          {about ? (
+            <a href={about} className="hover:underline">Open the {RECORD_NOUN[task.entityType ?? ""] ?? task.entityType}</a>
+          ) : null}
+        </Fact>
         <Fact label="Outcome">{task.outcome}</Fact>
         <Fact label="Closed with items unticked because">{task.checklistOverrideReason}</Fact>
       </Facts>

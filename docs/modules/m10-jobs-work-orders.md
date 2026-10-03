@@ -107,6 +107,19 @@ visit permission because it is a message.
 `POST /v1/visits/{id}/complete` records what was done, the notes, the checklist
 and the signature. `/jobs/{id}` does the same from the office.
 
+### Look at one visit
+
+`/visits/{id}` is one trip on its own: its window and when the van was sent,
+left, arrived and finished, who was on it, the technician's notes and the
+checklist, what it used by name and quantity (the cost stays on the job's
+statement), the time on the clock against it for whoever may read timesheets,
+the units it worked, its service report and any inspection filed from it, what
+the customer asked to change, its photographs, and the other visits on the
+same job. Each visit number on a job's page opens it, and so does every link
+that is about one visit rather than the job: a report's records, a deadline, a
+customer's request to move it. `GET /v1/visits/{id}` is the same read. It is
+scoped by the job, so a visit on work somebody was never sent to is not found.
+
 ### See what it cost
 
 `GET /v1/jobs/{id}/lines` is what was used. `GET /v1/jobs/{jobId}/material-cost`
@@ -142,6 +155,7 @@ because a technician may finish work and may not re-describe it.
 | `POST /v1/jobs/{id}/visits` | `visit:write` |
 | `POST /v1/visits/{id}/assign` | `visit:dispatch` |
 | `POST /v1/visits/{id}/complete` | `job:complete` |
+| `GET /v1/visits/{id}` | `visit:read` |
 | `GET /v1/job-types` | `job:read` |
 | `GET /v1/dispatch/board` | `visit:read` |
 | `POST /v1/dispatch/route` | `visit:reschedule` |

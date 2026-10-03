@@ -11,10 +11,21 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
 const text = (form: FormData, name: string): string | null =>
   String(form.get(name) ?? "").trim() || null;
 
+/**
+ * Add a unit, or say where its serial is already on file.
+ *
+ * The service refuses a serial on file anywhere else in the company until the
+ * person adding it says it is a different unit; the refusal comes back with
+ * the units it matched, so the form can show each one with a link to it and
+ * the box to tick. Moving the existing unit is the usual right answer and is
+ * one click away on its page.
+ */
 export async function registerUnit(_previous: unknown, form: FormData) {
   const propertyId = String(form.get("propertyId") ?? "");
+  const serial = text(form, "serialNumber");
   try {
     await equipment.register(await ctx(), {
+      serialElsewhereConfirmed: form.get("serialElsewhereConfirmed") === "on",
       propertyId,
       category: String(form.get("category") ?? ""),
       tag: text(form, "tag"),
@@ -28,7 +39,12 @@ export async function registerUnit(_previous: unknown, form: FormData) {
     });
   } catch (error) {
     if (error instanceof ConflictError || error instanceof NotFoundError) {
-      return refused(form, error.message);
+      const matches = serial && error instanceof ConflictError
+        ? (await equipment.matchSerial(await ctx(), { serialNumber: serial }))
+            .map((m) => ({ id: m.id, propertyId: m.propertyId, address: m.address, retired: m.retired,
+              what: [m.tag, m.manufacturer, m.model].filter(Boolean).join(" ") || m.category }))
+        : [];
+      return { ...refused(form, error.message), matches };
     }
     throw error;
   }

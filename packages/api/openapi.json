@@ -33179,6 +33179,125 @@
         ]
       }
     },
+    "/v1/equipment-serial-matches": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listEquipmentSerialMatches",
+        "summary": "Units already on file with this serial",
+        "description": "Every unit in the company whose serial has the same letters and digits, ignoring case, spaces and dashes, at any address and including ones taken off a register, with the customer linked to each address. Asked before adding a unit, so a furnace that moved with a landlord or came back from a warranty swap is moved rather than added a second time with half its history.\n\nRequires a session holding: equipment:read.",
+        "tags": [
+          "M04"
+        ],
+        "parameters": [
+          {
+            "name": "serialNumber",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "excludeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Units already on file with this serial",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEquipmentSerialMatchesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "equipment:read"
+        ]
+      }
+    },
     "/v1/equipment-warranties": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -33204,6 +33323,24 @@
           },
           {
             "name": "on",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
             "in": "query",
             "required": false,
             "schema": {
@@ -45331,6 +45468,146 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListKpiCatalogueOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
+        ]
+      }
+    },
+    "/v1/kpi-records": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getKpiRecords",
+        "summary": "The records behind one half of one KPI",
+        "description": "The same records the scorecard summed, listed, each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money numerator without report.financial:read.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "half",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "numerator",
+                "denominator"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The records behind one half of one KPI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetKpiRecordsOutput"
                 }
               }
             }
@@ -98676,6 +98953,115 @@
         ]
       }
     },
+    "/v1/visits/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getVisit",
+        "summary": "One visit, with what happened on it",
+        "description": "Its window and its times (dispatched, on the way, arrived, finished), who was on it, its notes and checklist, what it used by name and quantity, the units it worked and their outcomes, the service report and any inspection filed from it, what the customer asked to change, and the other visits on the same job. Time on the clock is included for a reader who may read timesheets and is null otherwise. Cost is not here: it is the job costing permission's, on the job's statement. Scoped by the visit's job, and a visit outside the reader's scope is not found.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One visit, with what happened on it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetVisitOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
     "/v1/visits/{id}/assign": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -128597,6 +128983,80 @@
                 "notes"
               ]
             }
+          },
+          "address": {
+            "type": "string"
+          },
+          "customer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "parent": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "tag": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "tag",
+              "category"
+            ]
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "tag",
+                "category"
+              ]
+            }
           }
         },
         "required": [
@@ -128616,7 +129076,11 @@
           "retired",
           "ageYears",
           "warranty",
-          "moves"
+          "moves",
+          "address",
+          "customer",
+          "parent",
+          "children"
         ]
       },
       "GetEquipmentHistoryOutput": {
@@ -128734,12 +129198,156 @@
                 "createdAt"
               ]
             }
+          },
+          "readings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "valueNumeric": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "valueText": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "valueBoolean": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outOfRange": {
+                  "type": "boolean"
+                },
+                "recordedAt": {
+                  "type": "string"
+                },
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "id",
+                "key",
+                "label",
+                "valueNumeric",
+                "valueText",
+                "valueBoolean",
+                "unit",
+                "outOfRange",
+                "recordedAt",
+                "visitId"
+              ]
+            }
+          },
+          "inspections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "performedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "result": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "programme": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "visitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "id",
+                "performedOn",
+                "result",
+                "programme",
+                "visitId",
+                "jobId"
+              ]
+            }
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "storageKey": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "storageKey",
+                "contentType",
+                "at"
+              ]
+            }
           }
         },
         "required": [
           "jobs",
           "inspected",
-          "deficiencies"
+          "deficiencies",
+          "readings",
+          "inspections",
+          "photos"
         ]
       },
       "GetEstimateOutput": {
@@ -133361,6 +133969,105 @@
           "createdByUserId",
           "createdAt",
           "lines"
+        ]
+      },
+      "GetKpiRecordsOutput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "money",
+              "number",
+              "duration"
+            ]
+          },
+          "half": {
+            "type": "string",
+            "enum": [
+              "numerator",
+              "denominator"
+            ]
+          },
+          "halfLabel": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "onDay": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "value": {
+                  "type": "string"
+                },
+                "href": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id",
+                "label",
+                "onDay",
+                "value",
+                "href"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "definition",
+          "format",
+          "half",
+          "halfLabel",
+          "from",
+          "to",
+          "records",
+          "count",
+          "total",
+          "truncated"
         ]
       },
       "GetKpiScorecardOutput": {
@@ -140427,6 +141134,559 @@
           "stored",
           "pending",
           "abandoned"
+        ]
+      },
+      "GetVisitOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "windowStart": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "windowEnd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estimatedDurationMinutes": {
+            "type": "integer"
+          },
+          "dispatchedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enRouteAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "arrivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "technicianNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "checklist": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "doneAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "required",
+                "doneAt"
+              ]
+            }
+          },
+          "signed": {
+            "type": "boolean"
+          },
+          "rentalEvent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "number": {
+                "type": "integer"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "customerId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "propertyId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "equipmentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "summary",
+              "status",
+              "customerId",
+              "propertyId",
+              "equipmentId"
+            ]
+          },
+          "customer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "property": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "address": {
+                "type": "string"
+              },
+              "accessNotes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "address",
+              "accessNotes"
+            ]
+          },
+          "team": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "isLead": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "technicianId",
+                "name",
+                "isLead"
+              ]
+            }
+          },
+          "crew": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "used": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string"
+                },
+                "unitPrice": {
+                  "type": "string"
+                },
+                "nonBillableReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "billed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "name",
+                "quantity",
+                "unitPrice",
+                "nonBillableReason",
+                "billed"
+              ]
+            }
+          },
+          "time": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "technician": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "minutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "technician",
+                "startedAt",
+                "endedAt",
+                "minutes"
+              ]
+            }
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "equipmentId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "outcome": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "completedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": "string"
+                },
+                "tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serialNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "equipmentId",
+                "outcome",
+                "notes",
+                "completedAt",
+                "category",
+                "tag",
+                "serialNumber"
+              ]
+            }
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "summary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "skipped": {
+                  "type": "boolean"
+                },
+                "skipReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "submittedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "publishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "summary",
+                "skipped",
+                "skipReason",
+                "submittedAt",
+                "publishedAt"
+              ]
+            }
+          },
+          "inspections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "performedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "result": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "programme": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "performedOn",
+                "result",
+                "programme"
+              ]
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "requestedStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "decidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "response": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "status",
+                "reason",
+                "requestedStart",
+                "createdAt",
+                "decidedAt",
+                "response"
+              ]
+            }
+          },
+          "siblings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "sequence": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "windowStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "status",
+                "windowStart"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "status",
+          "windowStart",
+          "windowEnd",
+          "estimatedDurationMinutes",
+          "dispatchedAt",
+          "enRouteAt",
+          "arrivedAt",
+          "completedAt",
+          "technicianNotes",
+          "checklist",
+          "signed",
+          "rentalEvent",
+          "job",
+          "customer",
+          "property",
+          "team",
+          "crew",
+          "used",
+          "time",
+          "units",
+          "reports",
+          "inspections",
+          "changes",
+          "siblings"
         ]
       },
       "GetVisitUnitsOutput": {
@@ -149171,6 +150431,91 @@
         },
         "required": [
           "equipment"
+        ]
+      },
+      "ListEquipmentSerialMatchesOutput": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "propertyId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "manufacturer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serialNumber": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "customer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "propertyId",
+                "address",
+                "category",
+                "tag",
+                "manufacturer",
+                "model",
+                "serialNumber",
+                "retired",
+                "customer"
+              ]
+            }
+          }
+        },
+        "required": [
+          "matches"
         ]
       },
       "ListEstimateDeliveriesOutput": {
@@ -170623,6 +171968,9 @@
           "attributes": {
             "type": "object",
             "additionalProperties": {}
+          },
+          "serialElsewhereConfirmed": {
+            "type": "boolean"
           }
         },
         "required": [

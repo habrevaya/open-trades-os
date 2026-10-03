@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { events, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
-import { inTenant, type ServiceContext } from "./context";
+import { events, time, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { inTenant, timezoneOf, type ServiceContext } from "./context";
 import { emit } from "./events";
 import { fire, type RunSummary } from "./workflow-runner";
 
@@ -36,8 +36,19 @@ export interface DwellShape {
   /** The question, in the words somebody would ask it. */
   question: string;
   entityType: string;
-  /** Written here, never assembled from input. Takes one parameter: the cutoff. */
+  /**
+   * Written here, never assembled from input. A shape that counts SINCE takes
+   * one parameter, `$cutoff`; a shape that counts UNTIL takes `$today` and
+   * `$horizon`, the company's dates today and that many days ahead.
+   */
   sql: string;
+  /**
+   * Which way the days are counted. `since` (the default) fires once a record
+   * has sat in a state that long. `until` fires that many days BEFORE a date
+   * on the record, which is the shape of everything that is about to happen
+   * rather than everything that did not: a warranty running out.
+   */
+  counts?: "since" | "until" | undefined;
   /**
    * The event this raises, which is what a workflow's conditions see.
    *
@@ -109,6 +120,41 @@ export const SHAPES: DwellShape[] = [
             and j.completed_at < $cutoff
             and j.deleted_at is null`,
   },
+  {
+    key: "warranty_lapsing",
+    label: "A unit's warranty about to run out",
+    question: "Whose cover ends soon, while there is still time to offer a plan or a replacement?",
+    entityType: "equipment",
+    eventName: "equipment.warranty_lapsing",
+    counts: "until",
+    /**
+     * The NEXT expiry, parts or labour, that has not passed yet: a furnace
+     * whose labour ended in 2019 and whose parts run to 2028 is lapsing in
+     * 2028, not overdue since 2019, which is the same rule the register's
+     * warranty column follows. The customer is the one linked to the address
+     * now, primary first and owners before tenants, so a task the automation
+     * raises names who to ring. Retired units are not on a register and are
+     * not anybody's call to make.
+     */
+    sql: `select e.id,
+                 (select cp.customer_id from public.customer_property cp
+                    join public.customer c on c.id = cp.customer_id
+                   where cp.property_id = e.property_id and cp.ended_on is null and c.deleted_at is null
+                   order by cp.is_primary desc, (cp.role = 'owner') desc, cp.created_at
+                   limit 1) as customer_id,
+                 null::int as number,
+                 least(
+                   case when e.warranty_parts_expires_on >= $today then e.warranty_parts_expires_on end,
+                   case when e.warranty_labor_expires_on >= $today then e.warranty_labor_expires_on end
+                 )::timestamptz as since
+          from public.equipment e
+          where e.deleted_at is null
+            and e.active
+            and least(
+                  case when e.warranty_parts_expires_on >= $today then e.warranty_parts_expires_on end,
+                  case when e.warranty_labor_expires_on >= $today then e.warranty_labor_expires_on end
+                ) <= $horizon`,
+  },
 ];
 
 const byKey = new Map(SHAPES.map((shape) => [shape.key, shape]));
@@ -172,11 +218,22 @@ export async function sweepOne(
 
   const ctx: ServiceContext = { actor: dwellActor(row.organization_id), db };
   const cutoff = new Date(now.getTime() - days * 86_400_000);
+  const until = shape.counts === "until";
 
   return inTenant(ctx, async (tx) => {
+    /**
+     * Dates for an `until` shape are the COMPANY's: a warranty ending on the
+     * 30th ends on the 30th in Austin, and a server clock in UTC would fire a
+     * day early every evening after seven.
+     */
+    const today = until ? time.dateIn(now, await timezoneOf(tx, row.organization_id)) : "";
+    const horizon = until ? time.addDays(today, days) : "";
+    const text = until
+      ? shape.sql.replaceAll("$today", `'${today}'::date`).replaceAll("$horizon", `'${horizon}'::date`)
+      : shape.sql.replace("$cutoff", `'${cutoff.toISOString()}'::timestamptz`);
     const records = await tx.execute<{
       id: string; customer_id: string | null; number: number | null; since: Date;
-    }>(sql.raw(shape.sql.replace("$cutoff", `'${cutoff.toISOString()}'::timestamptz`)));
+    }>(sql.raw(text));
 
     const runs: RunSummary[] = [];
     for (const record of records) {
@@ -190,7 +247,16 @@ export async function sweepOne(
        * index on (organization, key) does the work and a second worker
        * sweeping at the same moment inserts nothing.
        */
-      const key = `dwell:${row.workflow_id}:${shape.key}:${record.id}`;
+      /**
+       * An `until` record is keyed on its date as well: the parts cover
+       * lapsing in May and the labour cover lapsing in November are two calls
+       * to make, and a warranty somebody extended is a new date to warn about.
+       */
+      const sinceDay = record.since instanceof Date
+        ? record.since.toISOString().slice(0, 10) : String(record.since).slice(0, 10);
+      const key = until
+        ? `dwell:${row.workflow_id}:${shape.key}:${record.id}:${sinceDay}`
+        : `dwell:${row.workflow_id}:${shape.key}:${record.id}`;
       const [seen] = await tx.select({ id: schema.workflowRun.id })
         .from(schema.workflowRun)
         .where(sql`${schema.workflowRun.idempotencyKey} = ${key}`)
@@ -203,7 +269,7 @@ export async function sweepOne(
         entityId: record.id,
         payload: {
           shape: shape.key,
-          afterDays: days,
+          ...(until ? { daysBefore: days, until: sinceDay } : { afterDays: days }),
           [shape.entityType]: {
             id: record.id,
             ...(record.customer_id ? { customerId: record.customer_id } : {}),
