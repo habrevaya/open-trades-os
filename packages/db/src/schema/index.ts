@@ -32,3 +32,4 @@ export * from "./customer-portal";
 export * from "./tips";
 export * from "./setup";
 export * from "./proposals";
+export * from "./ads";
