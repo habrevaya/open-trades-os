@@ -1,4 +1,8 @@
-import { location } from "@opentradesos/core";
+/**
+ * The rules from core's own file, imported by path: the phone app's bundler
+ * builds this one file and not the rest of core. See its header.
+ */
+import * as location from "@opentradesos/core/location";
 import { isOffline, type PositionFix, type SyncResponse, type Transport } from "./queue";
 import type { Storage } from "./storage";
 import type { DayView } from "./day";

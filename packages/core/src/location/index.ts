@@ -22,7 +22,31 @@
  * worker deletes the rest.
  */
 
-import { parseLatLng, haversineKm, type LatLng } from "../geo/index.js";
+/**
+ * IMPORTS NOTHING, ON PURPOSE. The phone app bundles this file on its own
+ * (`@opentradesos/core/location`), because the field client decides with
+ * these same rules offline, and the bundler that builds the phone app does
+ * not follow the rest of core's imports. So the two small pieces of geometry
+ * it needs are written out here rather than taken from `geo`, and a test
+ * holds them to `geo`'s answers.
+ */
+interface LatLng { lat: number; lng: number }
+
+/** The same refusal `geo.parseLatLng` makes: not a place on Earth, or 0, 0. */
+export function isPlace(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng)
+    && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+    && !(lat === 0 && lng === 0);
+}
+
+/** Great circle distance in kilometres, as `geo.haversineKm` works it out. */
+export function distanceKm(a: LatLng, b: LatLng): number {
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 
 export interface SharingSettings {
   /** Whether this company shares technician locations at all. Off until somebody turns it on. */
@@ -181,7 +205,7 @@ export const FUTURE_TOLERANCE_MS = 2 * 60_000;
  * is usable. A refused fix is dropped and counted, never stored.
  */
 export function refuseFix(fix: Fix, input: { now: Date; retentionDays: number }): string | null {
-  if (parseLatLng(fix.latitude, fix.longitude) === null) return "not_a_place";
+  if (!isPlace(fix.latitude, fix.longitude)) return "not_a_place";
   if (Number.isNaN(fix.recordedAt.getTime())) return "no_time";
   if (fix.recordedAt.getTime() > input.now.getTime() + FUTURE_TOLERANCE_MS) return "in_the_future";
   if (fix.recordedAt.getTime() < retentionCutoff(input.now, input.retentionDays).getTime()) return "too_old";
@@ -278,7 +302,7 @@ export function thin<T extends Fix>(fixes: readonly T[], options: { minSeconds: 
     const seconds = (fix.recordedAt.getTime() - last.recordedAt.getTime()) / 1000;
     const a: LatLng = { lat: last.latitude, lng: last.longitude };
     const b: LatLng = { lat: fix.latitude, lng: fix.longitude };
-    const meters = haversineKm(a, b) * 1000;
+    const meters = distanceKm(a, b) * 1000;
     if (seconds >= options.minSeconds || meters >= options.minMeters) kept.push(fix);
   }
   return kept;

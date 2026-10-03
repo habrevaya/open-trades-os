@@ -130,6 +130,17 @@ describe("fewer fixes from a parked van", () => {
   });
 });
 
+describe("the geometry the phone bundles on its own", () => {
+  it("agrees with geo about what is a place and how far apart two places are", () => {
+    const a = { lat: 30.27, lng: -97.74 };
+    const b = { lat: 30.31, lng: -97.69 };
+    expect(location.distanceKm(a, b)).toBeCloseTo(geo.haversineKm(a, b), 9);
+    for (const [lat, lng] of [[0, 0], [91, 0], [30, 181], [30.27, -97.74], [Number.NaN, 1]] as const) {
+      expect(location.isPlace(lat, lng)).toBe(geo.parseLatLng(lat, lng) !== null);
+    }
+  });
+});
+
 describe("the key a drive time is cached under", () => {
   it("rounds to about eleven metres and treats minus zero as zero", () => {
     expect(geo.coordinateKey({ lat: 30.267153, lng: -97.743061 })).toBe("30.2672,-97.7431");
