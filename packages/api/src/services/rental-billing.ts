@@ -272,6 +272,24 @@ export function recordCharge(ctx: ServiceContext, input: {
   });
 }
 
+/**
+ * The fees a charge can be priced from: the company's active fee items, with
+ * today's price. The dumpster pack seeds the contamination, overfill,
+ * overweight and prohibited item fees as these.
+ */
+export function chargeFees(ctx: ServiceContext) {
+  return guardedRead(ctx, "asset:write", async (tx) => {
+    const rows = await tx.select({
+      id: schema.priceBookItem.id, code: schema.priceBookItem.code,
+      name: schema.priceBookItemVersion.name, price: schema.priceBookItemVersion.price,
+    }).from(schema.priceBookItem)
+      .innerJoin(schema.priceBookItemVersion, and(eq(schema.priceBookItemVersion.itemId, schema.priceBookItem.id), inForceAt()))
+      .where(and(eq(schema.priceBookItem.kind, "fee"), eq(schema.priceBookItem.active, true), isNull(schema.priceBookItem.deletedAt)))
+      .orderBy(asc(schema.priceBookItem.code));
+    return rows;
+  });
+}
+
 /** Take back a charge recorded in error. Refused once it is on an invoice, where a credit note undoes it. */
 export function removeCharge(ctx: ServiceContext, input: { id: string }) {
   return guardedWrite(ctx, "asset:write", async (tx) => {

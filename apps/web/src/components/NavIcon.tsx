@@ -21,9 +21,21 @@ export type IconName =
   | "invoices" | "estimates" | "agreements" | "pricebook"
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
-  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance";
+  | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance" | "people";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /**
+   * People: a hard hat, for the crew. Not a head and shoulders, because
+   * Customers is already two of those and the pair has to survive the rail
+   * collapsing to icons.
+   */
+  people: (
+    <>
+      <path d="M5 16.5a7 7 0 0 1 14 0" />
+      <path d="M3.5 16.5h17v2h-17z" />
+      <path d="M10 10V7h4v3" />
+    </>
+  ),
   /** Compliance: a shield, for what keeps the company allowed to work. */
   compliance: (
     <>

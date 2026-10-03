@@ -43,6 +43,41 @@ export function stockLocations(ctx: ServiceContext) {
   });
 }
 
+/**
+ * The parts a screen can move: active materials and equipment, with how each
+ * is tracked, so a form knows to ask for serial numbers. Services, labour and
+ * fees are never on a shelf.
+ */
+export function stockItems(ctx: ServiceContext) {
+  return guardedRead(ctx, "inventory:read", async (tx) => {
+    const rows = await tx.select({ id: schema.priceBookItem.id, code: schema.priceBookItem.code, mode: schema.stockTracking.mode })
+      .from(schema.priceBookItem)
+      .leftJoin(schema.stockTracking, eq(schema.stockTracking.itemId, schema.priceBookItem.id))
+      .where(and(
+        eq(schema.priceBookItem.active, true),
+        isNull(schema.priceBookItem.deletedAt),
+        inArray(schema.priceBookItem.kind, ["material", "equipment"]),
+      ));
+    const names = await namesFor(tx, rows.map((r) => r.id));
+    return rows.map((r) => ({ id: r.id, code: r.code, name: names.get(r.id) ?? r.code, tracking: r.mode }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+}
+
+/**
+ * A job by the number people say out loud. A technician knows "job 1042",
+ * never its id.
+ */
+export function jobByNumber(ctx: ServiceContext, input: { number: number }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [row] = await tx.select({ id: schema.job.id, number: schema.job.number, summary: schema.job.summary })
+      .from(schema.job)
+      .where(and(eq(schema.job.number, input.number), isNull(schema.job.deletedAt))).limit(1);
+    if (!row) throw new NotFoundError(`Job ${input.number}`);
+    return row;
+  });
+}
+
 /* ------------------------------------------------------- tracking an item */
 
 /**

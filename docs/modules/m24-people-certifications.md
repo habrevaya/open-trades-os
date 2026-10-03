@@ -146,6 +146,53 @@ suggestions at `GET /v1/dispatch/suggestions`).
 certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`.
 `GET /v1/technicians` lists them.
 
+### Onboarding
+
+`/people/onboarding` keeps a checklist per role: documents to collect,
+training to give, equipment to hand over (`POST /v1/onboarding-checklist`).
+`POST /v1/people/{membershipId}/onboarding` copies the checklist for the
+person's role onto them, once per line, so running it again after the
+checklist grows adds only the new lines and editing the checklist never
+rewrites what somebody already part way through was asked. Each line is
+ticked with who and when, and a note of what was collected or handed over
+(`POST /v1/onboarding-lines/{id}`). A person is onboarded when every required
+line is done, not when a percentage gets close.
+
+### Who to ring, and the facts of their employment
+
+`POST /v1/people/{membershipId}/emergency-contacts` keeps who to ring, in the
+order to ring them, each with a number. `PUT /v1/people/{membershipId}/employment`
+keeps the start and end date, the employment type, how they are paid (hourly,
+salary, piece rate, commission only) and the id payroll knows them by. Never
+what they are paid: that is payroll's, behind `payroll:read`. All of it is the
+roster's, `user:read` to read and `user:write` to change, and it is on
+`/people`, where somebody with nobody on file to ring is said in words.
+
+### Skills with dates and evidence
+
+`POST /v1/technicians/{technicianId}/skills` records a skill with since when
+and what showed it (who signed it off, the course, the test), and puts it on
+the list the assignment check reads. `POST /v1/technician-skills/{id}/end`
+takes it off with the day and the reason and keeps the record, so "could Sam
+braze in March" still has an answer. Evidence is required. A skill on the
+list with no record says so on the person's page.
+
+### Continuing education
+
+`POST /v1/technicians/{technicianId}/continuing-education` logs hours of a
+course toward a certification type, and a type can say how many hours a
+renewal needs. `GET /v1/technicians/{technicianId}/continuing-education`
+counts the hours since the current holding was issued against that, so the
+hours behind the last renewal do not count twice. It is a compliance record,
+`compliance:read` and `compliance:write`, beside the register.
+
+### A job that needs more than its type
+
+`PUT /v1/jobs/{id}/required-skills` gives one job skills beyond its type's: a
+lift ticket for a rooftop unit, a confined space entry for a crawlspace. They
+are checked wherever the type's are, for a technician sent alone and for a
+crew, at booking and in the suggestions. The job's page takes them.
+
 ## Permissions
 
 | Role | Access |
@@ -154,6 +201,11 @@ certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`.
 | Office manager | The roster. Not the certifications, under the presets as they stand |
 | Dispatcher, CSR, technician | Neither |
 | Accountant | Neither |
+
+Onboarding, emergency contacts, the employment record and skills are read
+with `user:read` and changed with `user:write`, which the office manager
+preset does not hold, because it is also what assigns roles. A company that
+wants its office manager keeping these records grants it by name.
 
 ## API
 
@@ -170,6 +222,14 @@ certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`.
 | `POST /v1/people/skill-standing` | `compliance:read` |
 | `GET /v1/technicians` | `visit:read` |
 | `PATCH /v1/technicians/{id}` | `user:write` |
+| `GET /v1/roster` | `user:read` |
+| `GET /v1/people/{membershipId}` | `user:read` |
+| `POST /v1/people/{membershipId}/onboarding` | `user:write` |
+| `POST /v1/people/{membershipId}/emergency-contacts` | `user:write` |
+| `PUT /v1/people/{membershipId}/employment` | `user:write` |
+| `POST /v1/technicians/{technicianId}/skills` | `user:write` |
+| `POST /v1/technicians/{technicianId}/continuing-education` | `compliance:write` |
+| `PUT /v1/jobs/{id}/required-skills` | `job:write` |
 
 ## Common questions
 
@@ -189,8 +249,13 @@ log keeps beside the refusal.
 
 ## What is not built
 
-A job's skill requirement comes only from its job type, so one unusual job cannot
-ask for a skill of its own. Recorded skills on a technician are strings with no
-date and no evidence; only a certification can say until when. Continuing education hours are not tracked, only the resulting certification. There
-is no onboarding checklist, no emergency contact and no employment record: this is a
-qualification register beside a roster, not an HR system.
+This is a qualification register and the office's record of each person, not
+an HR system. There is no document storage of its own: a signed form or a
+certificate attaches through the ordinary attachment path. Onboarding is a
+checklist ticked by the office; the person cannot tick their own lines, sign
+anything, or see their own record. A skill's record has no expiry of its own:
+only a certification can say until when. Continuing education counts hours
+toward a renewal and does not check that a course is one the authority
+accepts. Editing the list of skills on the technicians screen does not end
+their records here; a skill taken off that way is called out on the person's
+page until its record is ended.
