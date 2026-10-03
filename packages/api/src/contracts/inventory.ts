@@ -534,6 +534,7 @@ export const applyVendorCatalogue = defineRoute({
   module: "M16",
   permissions: ["vendor:write", "pricebook:write"],
   idempotent: true,
+  dryRun: true,
   input: z.object({
     ...CatalogueOptions,
     /** Lines of the file to leave out, as the preview numbered them. */

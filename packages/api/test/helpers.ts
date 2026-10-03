@@ -47,6 +47,12 @@ const ORDER = [
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
+  /**
+   * Safety records point at a job, an address and the technicians on them,
+   * so they go before all three; a person on a report and a line on a sign in
+   * sheet go before the report and the talk they belong to.
+   */
+  "incident_person", "incident_report", "safety_meeting_attendee", "safety_meeting",
   // Then work.
   /**
    * What each ad platform was told about a job, and each customer's answer
@@ -151,6 +157,7 @@ const ORDER = [
    * exactly the leftover this list exists to prevent.
    */
   "compliance_document",
+  "retention_hold", "retention_purge_run",
   "retention_policy", "regulatory_submission",
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
   "rental", "rentable_asset", "territory", "business_hours",
@@ -197,6 +204,7 @@ const ORDER = [
   "integration_connection",
   // An app's tokens, then the app. Both cascade from the organization, but a
   // scoped reset deletes rows rather than the tenant, so they need naming.
+  "oauth_refresh_token", "oauth_code",
   "app_token", "connected_app",
   /**
    * Attachments before the files they point at. The key is a string rather

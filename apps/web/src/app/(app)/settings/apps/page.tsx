@@ -47,6 +47,7 @@ export default async function AppsPage() {
   }
 
   const list = await appService.list(ctx);
+  const waiting = list.filter((app) => app.status === "pending" && !app.request?.expired);
   const writes = can(user.actor, "integration:write");
 
   const sensitive = new Set<string>(SENSITIVE_PERMISSIONS);
@@ -67,13 +68,29 @@ export default async function AppsPage() {
         next call.
       </p>
 
+      {waiting.length > 0 ? (
+        <section className="mt-6 rounded-md border border-amber-700 bg-amber-tint p-4" aria-labelledby="waiting-heading">
+          <h2 id="waiting-heading" className="text-sm font-medium text-ink-900">
+            {waiting.length === 1 ? "One application is" : `${waiting.length} applications are`} waiting for an answer
+          </h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {waiting.map((app) => (
+              <li key={app.id}>
+                <a href={`/settings/apps/requests/${app.id}`} className="text-blue-600 underline underline-offset-4">{app.name}</a>
+                <span className="text-ink-500"> asks for {app.permissions.length} {app.permissions.length === 1 ? "permission" : "permissions"}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <Apps
         apps={list}
         {...(writes
           ? {
-              control: (app) => (app.status === "revoked"
-                ? null
-                : <RevokeApp id={app.id} name={app.name} />),
+              control: (app) => (app.status === "active"
+                ? <RevokeApp id={app.id} name={app.name} />
+                : null),
               tokenControl: (app, token) => (token.revokedAt !== null
                 ? null
                 : <RevokeToken tokenId={token.id} label={token.label ?? app.name} />),
@@ -84,7 +101,7 @@ export default async function AppsPage() {
       {writes
         ? (
           <>
-            {list.filter((app) => app.status !== "revoked").map((app) => (
+            {list.filter((app) => app.status === "active").map((app) => (
               <section key={app.id} className="mt-6">
                 <h2 className="text-sm font-medium text-ink-700">
                   A new credential for {app.name}

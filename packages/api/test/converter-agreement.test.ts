@@ -110,6 +110,9 @@ describe("the document and the tool list describe the same API", () => {
       // The idempotency key is an argument the tool adds, because a tool call
       // has no headers. The document carries it as a header. Not a drift.
       inTool.delete("idempotencyKey");
+      // The dry run likewise: a header over HTTP (`x-otos-dry-run`, on the
+      // operations the document marks `x-dry-run`), an argument on the tool.
+      if (tool.route.dryRun) inTool.delete("dryRun");
 
       for (const name of documented.keys()) {
         compared += 1;

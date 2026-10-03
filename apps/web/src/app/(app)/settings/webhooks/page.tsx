@@ -121,6 +121,11 @@ export default async function WebhooksPage({
                   {position && position.pending > 0 ? (
                     <p className="mt-1 text-xs text-ink-500">{position.pending} waiting to go</p>
                   ) : null}
+                  {endpoint.previousSecretExpiresAt ? (
+                    <p className="mt-1 text-xs text-amber-700">
+                      The old secret also signs until {formatIn(endpoint.previousSecretExpiresAt, zone)}
+                    </p>
+                  ) : null}
                 </Td>
                 <Td>
                   {writes ? (
@@ -208,6 +213,34 @@ export default async function WebhooksPage({
               <a href={linkTo(chosen.id, { status, cursor: history.nextCursor })}
                  className="text-blue-600 underline underline-offset-4">Older attempts</a>
             </p>
+          ) : null}
+
+          {writes ? (
+            <div className="mt-8">
+              <h3 className="text-sm font-medium text-ink-700">Give this endpoint a new signing secret</h3>
+              <p className="mt-1 max-w-2xl text-sm text-ink-500">
+                For a while after, every delivery is signed with both the new secret and the old one,
+                so the receiver keeps working until whoever runs it puts the new one in. During that
+                time the signature header carries two signatures separated by a comma, and the receiver
+                must accept the delivery when either matches. If the old secret leaked, choose no
+                overlap and it stops working at once.
+                {chosen.secretRotatedAt ? ` The current secret was made ${formatIn(chosen.secretRotatedAt, zone)}.` : ""}
+              </p>
+              <ActionForm action={act} submit="Make a new secret" className="mt-3 flex flex-wrap items-end gap-3"
+                          hidden={{ op: "rotate", id: chosen.id }}>
+                <label className="block text-sm">
+                  <span className="font-medium text-ink-700">The old secret keeps signing for</span>
+                  <select name="overlapHours" defaultValue="24" aria-label="How long the old secret keeps signing"
+                          className="mt-1 block h-9 rounded border border-steel-300 bg-canvas px-2 text-sm">
+                    <option value="0">No time at all: it leaked</option>
+                    <option value="1">An hour</option>
+                    <option value="24">A day</option>
+                    <option value="72">Three days</option>
+                    <option value="168">A week</option>
+                  </select>
+                </label>
+              </ActionForm>
+            </div>
           ) : null}
 
           {writes && chosen.active ? (

@@ -74,6 +74,33 @@ export const REDACTED: Record<string, Record<string, string>> = {
     state_hash: "The hash of a sign in's single use state. Dead within a quarter of an hour, and a "
       + "cracking target for nothing.",
   },
+  /**
+   * THESE WERE EXPORTED, on the strength of a comment calling `secret_ref` the
+   * NAME of a secret. It is not: the delivery code has to reproduce a signature
+   * on every delivery, so the column holds the signing secret itself (see the
+   * top of `services/webhooks.ts`), and an export carried every receiver's
+   * secret in a file. Found when rotation added a second one beside it.
+   */
+  webhook_endpoint: {
+    secret_ref: "A LIVE SECRET: the key every delivery to this endpoint is signed with. Whoever "
+      + "holds it can forge deliveries the receiver will trust. The endpoint's address and events "
+      + "are exported; give the receiver a new secret from the new system.",
+    previous_secret_ref: "The secret before the last rotation, which still signs until the overlap "
+      + "ends. A live secret for the same reason.",
+  },
+  connected_app: {
+    claim_hash: "The hash of the secret an app was given when it asked to be installed, which "
+      + "collects its credential once. A hash is a cracking target and is useless to you; who "
+      + "asked, for what, and what was decided is exported.",
+  },
+  oauth_code: {
+    code_hash: "The hash of a one time authorization code that lived ten minutes. Which client "
+      + "was approved, by whom and for what is exported.",
+  },
+  oauth_refresh_token: {
+    token_hash: "The hash of a live refresh token for a connected AI assistant. It connects again "
+      + "to the new system; a hash is a cracking target and is useless to you.",
+  },
   calendar_feed: {
     token_hash: "The hash of a live calendar subscription URL. Reissue it; a technician's phone "
       + "will need the new one either way.",
@@ -145,9 +172,15 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
       + "company moving away needs it to know which secrets to go and find.",
   },
   webhook_endpoint: {
-    secret_ref: "A name in the deployment's secret store, as above, never the signing secret "
-      + "itself. A company rebuilding its webhooks elsewhere needs to know which secret each "
-      + "endpoint was signed with.",
+    previous_secret_expires_at: "A time: when the old secret stops signing. Not a credential.",
+    secret_rotated_at: "A time: when the current secret was made. Not a credential.",
+  },
+  oauth_code: {
+    issued_token_id: "The id of the app token an authorization produced, so a replayed code can "
+      + "revoke it. An id, not the token.",
+  },
+  oauth_refresh_token: {
+    access_token_id: "The id of the app token issued beside a refresh token. An id, not the token.",
   },
   portal_sign_in: {
     request_key: "The key a customer's browser sent with a press of Send me a code, so a double "
@@ -290,6 +323,12 @@ const OUTSIDE: { table: string; reason: string }[] = [
     table: "public_rate_limit",
     reason: "A count of requests to the public endpoints per key and minute, kept for a day. It "
       + "names no customer, holds nothing but a number, and is counted before any company is known.",
+  },
+  {
+    table: "oauth_client",
+    reason: "Remote AI assistants that registered themselves with this deployment before any "
+      + "company was chosen. A registration names no company and grants nothing; what this "
+      + "company approved is the connected app, which is exported.",
   },
   {
     table: "network",

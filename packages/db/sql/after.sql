@@ -587,6 +587,93 @@ create or replace function app.count_public_hit(p_key text, p_window_seconds int
 revoke all on function app.count_public_hit(text, integer) from public;
 grant execute on function app.count_public_hit(text, integer) to authenticated;
 
+-- ---- OAuth clients, above the tenant -------------------------------------
+-- A remote MCP client registers before anybody has told it which company it
+-- will be pointed at, so `oauth_client` has no organization_id and the
+-- catalog driven loop above does not reach it. Row level security is on with
+-- no policy, so the application role can neither read nor write it directly:
+-- the two functions below are the only way in, and they hand back a
+-- registration and nothing about any company. A registration grants nothing.
+alter table public.oauth_client enable row level security;
+alter table public.oauth_client force row level security;
+
+create or replace function app.oauth_register_client(
+  p_client_id text, p_name text, p_redirect_uris jsonb, p_from text
+) returns void
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    insert into public.oauth_client (client_id, name, redirect_uris, registered_from)
+    values (p_client_id, left(p_name, 200), p_redirect_uris, left(p_from, 100))
+  $$;
+
+revoke all on function app.oauth_register_client(text, text, jsonb, text) from public;
+grant execute on function app.oauth_register_client(text, text, jsonb, text) to authenticated;
+
+create or replace function app.oauth_client(p_client_id text)
+  returns table (client_id text, name text, redirect_uris jsonb)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.client_id, c.name, c.redirect_uris
+    from public.oauth_client c
+    where c.client_id = p_client_id
+    limit 1
+  $$;
+
+revoke all on function app.oauth_client(text) from public;
+grant execute on function app.oauth_client(text) to authenticated;
+
+-- The token endpoint is called by a client holding a code or a refresh token
+-- and nothing else: no cookie, no tenant. These answer WHICH company a code
+-- or a refresh token belongs to, from its 256 bit hash, and nothing more; the
+-- exchange itself then runs inside that company like any other write, where
+-- every check on the code is made. A suspended company answers nothing.
+create or replace function app.oauth_code_organization(p_code_hash text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id
+    from public.oauth_code c
+    join public.organization o on o.id = c.organization_id
+    where c.code_hash = p_code_hash and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.oauth_code_organization(text) from public;
+grant execute on function app.oauth_code_organization(text) to authenticated;
+
+create or replace function app.oauth_refresh_organization(p_token_hash text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select r.organization_id
+    from public.oauth_refresh_token r
+    join public.organization o on o.id = r.organization_id
+    where r.token_hash = p_token_hash and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.oauth_refresh_organization(text) from public;
+grant execute on function app.oauth_refresh_organization(text) to authenticated;
+
+-- An app that asked to be installed comes back for its credential holding
+-- the request id and the secret it was given, and no tenant. This answers
+-- which company the request is with, for a request and only a request: an
+-- app an operator installed by hand has no claim to collect, and naming its
+-- company to anybody holding its id would be a small leak for no purpose.
+create or replace function app.app_request_organization(p_app_id uuid)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select a.organization_id
+    from public.connected_app a
+    join public.organization o on o.id = a.organization_id
+    where a.id = p_app_id and a.source = 'request' and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.app_request_organization(uuid) from public;
+grant execute on function app.app_request_organization(uuid) to authenticated;
+
 -- =========================================================================
 -- COVERAGE ASSERTION
 --
@@ -2376,3 +2463,33 @@ returns table (organization_id uuid)
 
 revoke all on function app.ai_agent_organizations(int) from public;
 grant execute on function app.ai_agent_organizations(int) to background;
+-- ---- Companies whose records may be due for purging --------------------
+-- The retention purge removes records past a declared period, once a day per
+-- company, and only under a policy the company itself switched purging on
+-- for: the trade packs seed every policy with purging off. This answers WHICH
+-- companies have such a policy and have not had a pass in the last twenty
+-- hours, as ids and nothing else. What is due, what is held and what goes is
+-- decided per company by the service, which writes an audit line per record.
+create or replace function app.retention_purge_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select p.organization_id
+    from public.retention_policy p
+    where p.active and p.purge_allowed
+      and not exists (
+        select 1 from public.organization o
+         where o.id = p.organization_id and o.suspended_at is not null
+      )
+      and not exists (
+        select 1 from public.retention_purge_run r
+         where r.organization_id = p.organization_id
+           and r.trigger = 'worker'
+           and r.started_at > now() - interval '20 hours'
+      )
+    group by p.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.retention_purge_organizations(int) from public;
+grant execute on function app.retention_purge_organizations(int) to background;

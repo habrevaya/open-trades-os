@@ -30,6 +30,16 @@ export interface AppRow {
   approvedAt: string | null;
   revokedAt: string | null;
   revokedReason: string | null;
+  source?: "operator" | "request" | "oauth";
+  request?: {
+    expiresAt: string | null;
+    expired: boolean;
+    returnsTo: string | null;
+    requestedFrom: string | null;
+    refusedAt: string | null;
+    refusedReason: string | null;
+    claimedAt: string | null;
+  } | null;
   tokens: TokenRow[];
   live: boolean;
 }
@@ -45,6 +55,14 @@ export interface AppRow {
  * somebody's nightly sync has already stopped.
  */
 export function standing(app: AppRow): { label: string; tone: "success" | "warning" | "neutral"; why: string | null } {
+  if (app.status === "pending") {
+    return app.request?.expired
+      ? { label: "Expired", tone: "neutral", why: "Nobody answered in time. The app has to ask again." }
+      : { label: "Waiting for an answer", tone: "warning", why: "It asked to be let in and nothing is granted until somebody approves it." };
+  }
+  if (app.status === "refused") {
+    return { label: "Refused", tone: "neutral", why: app.request?.refusedReason ?? "Asked, and was told no. It holds nothing." };
+  }
   if (app.status === "revoked") {
     return {
       label: "Revoked",
@@ -54,7 +72,12 @@ export function standing(app: AppRow): { label: string; tone: "success" | "warni
   }
   if (app.live) return { label: "Connected", tone: "success", why: null };
   if (app.tokens.length === 0) {
-    return { label: "No credential", tone: "warning", why: "Approved, and nothing can call us as it yet." };
+    return {
+      label: "No credential", tone: "warning",
+      why: app.source === "request" && !app.request?.claimedAt
+        ? "Approved. It collects its credential itself, with the secret it was given when it asked."
+        : "Approved, and nothing can call us as it yet.",
+    };
   }
   const anyLapsed = app.tokens.some((token) => token.revokedAt === null && token.expired);
   return {
@@ -98,7 +121,13 @@ export function Apps({
                 <p className="mt-0.5 text-sm text-ink-500">
                   {app.publisher ?? "No publisher named"}
                   {app.approvedAt ? ` · Approved ${app.approvedAt.slice(0, 10)}` : ""}
+                  {app.source === "request" ? " · Asked to be let in" : app.source === "oauth" ? " · Connected as an AI assistant" : ""}
                 </p>
+                {app.status === "pending" && !app.request?.expired ? (
+                  <a href={`/settings/apps/requests/${app.id}`} className="mt-1 inline-block text-sm text-blue-600 underline underline-offset-4">
+                    See what it asks for and decide
+                  </a>
+                ) : null}
                 {state.why ? <p className="mt-1 text-sm text-ink-700">{state.why}</p> : null}
               </div>
               {control ? <div className="flex flex-wrap items-center gap-2">{control(app)}</div> : null}

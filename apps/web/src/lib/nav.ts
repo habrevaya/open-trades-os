@@ -318,7 +318,25 @@ export const NAV: NavGroup[] = [
       },
       { href: "/reviews", label: "Reviews", permission: "review:respond", icon: "reviews" },
       /** The company's own licences, insurance and filings. Business, because it is about the company rather than a job. */
-      { href: "/compliance", label: "Compliance", permission: "document:read", icon: "compliance" },
+      {
+        href: "/compliance", label: "Compliance", permission: "document:read", icon: "compliance",
+        children: [
+          { href: "/compliance", label: "Documents and filings" },
+          /**
+           * The two safety records. They inherit `document:read` to be SHOWN and
+           * each page reads `safety:read`, except that anybody who can report
+           * sees their own incident reports and the form to make one.
+           */
+          { href: "/compliance/safety", label: "Toolbox talks" },
+          { href: "/compliance/incidents", label: "Incidents" },
+          /**
+           * The retention rules, what a purge would remove, and holds. It needs
+           * `compliance:read`, the owner's and the administrator's, because it is
+           * the one screen from which records are destroyed.
+           */
+          { href: "/compliance/retention", label: "Keeping records" },
+        ],
+      },
       {
         href: "/marketing", label: "Marketing", permission: "adspend:read", icon: "marketing",
         children: [

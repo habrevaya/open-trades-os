@@ -15,6 +15,12 @@ import { NextResponse, type NextRequest } from "next/server";
 export function middleware(request: NextRequest) {
   const headers = new Headers(request.headers);
   headers.set("x-pathname", request.nextUrl.pathname);
+  /**
+   * The query too, for the sign in redirect: an OAuth authorization page is
+   * nothing without its query string, and sending somebody back to it with
+   * the query dropped is sending them to an error.
+   */
+  headers.set("x-search", request.nextUrl.search);
   return NextResponse.next({ request: { headers } });
 }
 

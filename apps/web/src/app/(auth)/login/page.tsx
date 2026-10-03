@@ -1,41 +1,17 @@
-"use client";
+import { LoginForm } from "./LoginForm";
+import { safeNext } from "@/lib/safe-next";
 
-import { useKeptAction } from "@/lib/use-kept-action";
-import { Button, Field, Input } from "@opentradesos/ui";
-import { signIn, type ActionState } from "../actions";
-
-export default function LoginPage() {
-  const [state, actionForm, pending] = useKeptAction<ActionState>(signIn, {});
-
-  return (
-    <>
-      <h1 className="text-xl font-semibold">Sign in</h1>
-
-      <form {...actionForm} className="mt-7 flex flex-col gap-5">
-        <Field label="Work email" htmlFor="email" required>
-          <Input id="email" name="email" type="email" autoComplete="email" required autoFocus
-                 defaultValue={state.values?.email} />
-        </Field>
-
-        <Field label="Password" htmlFor="password" required>
-          <Input id="password" name="password" type="password" autoComplete="current-password" required />
-        </Field>
-
-        {state.error && (
-          <p className="rounded border border-red-600/20 bg-red-tint px-3 py-2 text-sm text-red-600" role="alert">
-            {state.error}
-          </p>
-        )}
-
-        <Button type="submit" variant="solid" size="lg" loading={pending} className="w-full">
-          Sign in
-        </Button>
-      </form>
-
-      <p className="mt-6 text-sm text-ink-700">
-        New here?{" "}
-        <a href="/signup" className="text-blue-600 hover:underline">Start your company</a>
-      </p>
-    </>
-  );
+/**
+ * Signing in, and going back to where you were.
+ *
+ * `requireUser` sends a signed out visitor here with `next` naming the screen
+ * they asked for, and signing in used to drop it and land everybody on the
+ * dashboard. For most screens that is an annoyance. For the two pages a third
+ * party sends somebody to (an app's install request, and an MCP client's
+ * authorization page) it broke the flow outright: the person signed in and
+ * never saw what they had been sent to decide.
+ */
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const { next } = await searchParams;
+  return <LoginForm next={safeNext(next)} />;
 }

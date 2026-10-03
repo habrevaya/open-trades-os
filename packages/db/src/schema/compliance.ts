@@ -1,6 +1,6 @@
 import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps } from "./_shared";
-import { organization } from "./tenancy";
+import { organization, user } from "./tenancy";
 
 /**
  * REGULATORY SUBMISSION AND RETENTION
@@ -108,6 +108,58 @@ export const retentionPolicy = pgTable("retention_policy", {
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({ orgIdx: index("retention_policy_org_idx").on(t.organizationId, t.entityType) }));
+
+/**
+ * A RECORD THAT MUST NOT BE PURGED, WHATEVER ITS AGE.
+ *
+ * A dispute, a claim, an inspector's letter: once somebody may ask for a
+ * record, deleting it on schedule is destroying evidence, and the schedule
+ * does not know about the letter. A hold is the operator telling it.
+ *
+ * Released rather than deleted, so "this was held from March to June because
+ * of the Smith claim" survives the claim settling.
+ */
+export const retentionHold = pgTable("retention_hold", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The same names a retention policy uses: `incident_report`, `service_report`, ... */
+  entityType: text("entity_type").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  reason: text("reason").notNull(),
+  placedByUserId: uuid("placed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  placedAt: timestamp("placed_at", { withTimezone: true }).notNull().defaultNow(),
+  releasedAt: timestamp("released_at", { withTimezone: true }),
+  releasedByUserId: uuid("released_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  releaseNote: text("release_note"),
+}, (t) => ({
+  entityIdx: index("retention_hold_entity_idx").on(t.organizationId, t.entityType, t.entityId),
+}));
+
+/**
+ * ONE PASS OF THE PURGE, AND WHAT IT DID.
+ *
+ * Each record it removed has its own audit line; this is the pass those lines
+ * belong to, and it is also how the worker paces itself to once a day per
+ * company without a clock of its own.
+ */
+export const retentionPurgeRun = pgTable("retention_purge_run", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** `worker` on the daily pass, `person` when somebody pressed the button. */
+  trigger: text("trigger").notNull(),
+  requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  purged: integer("purged").notNull().default(0),
+  /** Past their date and kept because a hold is on them. */
+  held: integer("held").notNull().default(0),
+  /** Past their date and kept because removing them failed. The reasons are in `failures`. */
+  failed: integer("failed").notNull().default(0),
+  failures: jsonb("failures").$type<Array<{ entityType: string; entityId: string; reason: string }>>()
+    .notNull().default([]),
+}, (t) => ({
+  orgIdx: index("retention_purge_run_org_idx").on(t.organizationId, t.startedAt),
+}));
 
 /**
  * Tax and regulatory constants that CHANGE ON A DATE.

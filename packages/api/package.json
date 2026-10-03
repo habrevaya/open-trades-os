@@ -25,7 +25,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "openapi": "tsx src/lib/generate-openapi.ts",
+    "openapi": "tsx src/lib/generate-openapi.ts && pnpm --filter @opentradesos/sdk run generate",
     "worker": "tsx src/bin/worker.ts",
     "seed": "tsx src/seed/index.ts",
     "mcp": "tsx src/bin/mcp-stdio.ts"

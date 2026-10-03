@@ -218,20 +218,25 @@ integer key would still sort correctly.
 | `unsubscribe_link` | `token_hash` | The address and whether it was used are exported; the link is not. |
 | `device` | `push_token` | A live push credential, reissued by the app on first run. |
 | `device` | `session_token_hash` | The hash of the phone app's live sign in. Phones sign in again. |
+| `webhook_endpoint` | `secret_ref`, `previous_secret_ref` | The signing secrets themselves. Give the receiver a new one from the new system. |
+| `connected_app` | `claim_hash` | The hash of the secret an app collects its credential with. |
+| `oauth_code` | `code_hash` | A one time code that lived ten minutes. |
+| `oauth_refresh_token` | `token_hash` | A connected assistant connects again. |
 
 An export carrying live tokens is a breach in a file. An export that silently
 drops them is a claim of completeness that is false. So each one is named, with
 the reason, in the manifest and on every page.
 
-What is NOT redacted, deliberately: `integration_connection.credential_ref` and
-`webhook_endpoint.secret_ref` are the NAMES of secrets in the deployment's own
-store, by design, and a company moving away needs them to know which secrets to
-go and find. `storage_key` on a file is the pointer to the bytes, without which
+What is NOT redacted, deliberately: `integration_connection.credential_ref` is
+the NAME of a secret in the deployment's own store, by design, and a company
+moving away needs it to know which secrets to go and find. A webhook's signing
+secret is not a name: the delivery code has to sign with it, so the column holds
+the secret itself, and it stays out of the file. `storage_key` on a file is the pointer to the bytes, without which
 an export cannot be matched to the attachments.
 
 ### What is outside the tenant
 
-`user`, `credential`, `session`, `setup_token`, `organization` and `network`
+`user`, `credential`, `session`, `setup_token`, `organization`, `network` and `oauth_client`
 carry no `organization_id`, so row level security does not scope them and this
 export cannot reach them.
 

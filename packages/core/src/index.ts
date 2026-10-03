@@ -52,3 +52,6 @@ export * as rates from "./rates/index.js";
 export * as splits from "./splits/index.js";
 export * as deadlines from "./deadlines/index.js";
 export * as claims from "./claims/index.js";
+export * as oauth from "./oauth/index.js";
+export * as retention from "./retention/index.js";
+export * as safety from "./safety/index.js";

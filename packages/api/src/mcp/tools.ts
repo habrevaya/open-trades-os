@@ -78,6 +78,26 @@ const IDEMPOTENCY_SCHEMA: JsonSchema = {
 };
 
 /**
+ * The argument that asks a bulk tool what it WOULD change, and the reason it
+ * is not required.
+ *
+ * A model about to rename a tag across a whole customer book, or move five
+ * hundred jobs, should look first, and the honest way to let it is to run the
+ * route and roll it back: see `http/dry-run.ts`. Optional, because a person
+ * who asked for the change and confirmed it should not have to be asked
+ * twice; and offered only on routes that write nothing outside the database.
+ */
+export const DRY_RUN_FIELD = "dryRun";
+
+const DRY_RUN_SCHEMA: JsonSchema = {
+  type: "boolean",
+  description:
+    "Set true to see what this would change without changing anything: it runs and is rolled back, and you get "
+    + "what it would have returned, the rows it would have written per table, and the audit lines naming each record. "
+    + "Send the idempotencyKey you mean to use for the real call: a dry run keeps nothing, so the key is still unused afterwards.",
+};
+
+/**
  * A tool name from a route name.
  *
  * The route names are already unique keys in the registry, so uniqueness is
@@ -121,13 +141,22 @@ function describe(routeName: string, route: RouteDefinition): McpTool {
    * carries it as an argument and the server lifts it back into a header
    * before dispatching. The contract stays the one description of the route.
    */
-  const inputSchema: JsonSchema = route.idempotent
+  const withKey: JsonSchema = route.idempotent
     ? {
         ...input,
         properties: { ...input.properties, [IDEMPOTENCY_FIELD]: IDEMPOTENCY_SCHEMA },
         required: [...(input.required ?? []), IDEMPOTENCY_FIELD],
       }
     : input;
+  /**
+   * The key stays REQUIRED on a bulk route, dry run or not. A dry run keeps
+   * nothing, so the key a model sends with it is still unused for the real
+   * call, and one rule for the key everywhere is easier for a model to follow
+   * than a rule with an exception.
+   */
+  const inputSchema: JsonSchema = route.dryRun
+    ? { ...withKey, properties: { ...withKey.properties, [DRY_RUN_FIELD]: DRY_RUN_SCHEMA } }
+    : withKey;
 
   const readOnly = route.method === "get";
 
@@ -145,11 +174,14 @@ function describe(routeName: string, route: RouteDefinition): McpTool {
   const retryLine = route.idempotent
     ? `\n\nThis call changes money or creates a record. Send ${IDEMPOTENCY_FIELD}, and send the same value again if you retry.`
     : "";
+  const dryRunLine = route.dryRun
+    ? `\n\nThis is a bulk change. Send ${DRY_RUN_FIELD}: true first to see exactly what it would change, without changing anything.`
+    : "";
 
   return {
     name: toolNameFor(routeName),
     title: route.summary,
-    description: `${route.summary}.${route.description ? ` ${route.description}` : ""}${permissionLine}${retryLine}`,
+    description: `${route.summary}.${route.description ? ` ${route.description}` : ""}${permissionLine}${retryLine}${dryRunLine}`,
     inputSchema,
     annotations: {
       readOnlyHint: readOnly,

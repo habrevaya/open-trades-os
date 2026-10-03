@@ -11,12 +11,12 @@ import { PageRequest, Uuid, pageOf } from "./common";
  * about, and their own system hears about a job being completed without
  * anybody polling for it.
  *
- * THE SECRET IS RETURNED ONCE, by `registerWebhookEndpoint` and nowhere
- * else. There is no route below that reads it back, and that is deliberate
- * rather than an omission: a secret a list endpoint will hand over on
- * request is a secret that leaks through every screen, log and support
- * transcript that ever shows an endpoint. An operator who loses it registers
- * a new endpoint, which is the same thing they would do if it leaked.
+ * A SECRET IS RETURNED ONCE, when it is made: by `registerWebhookEndpoint`
+ * and by `rotateWebhookSecret`, and nowhere else. There is no route below that
+ * reads one back, and that is deliberate rather than an omission: a secret a
+ * list endpoint will hand over on request is a secret that leaks through every
+ * screen, log and support transcript that ever shows an endpoint. An operator
+ * who loses it rotates, which is the same thing they would do if it leaked.
  *
  * THE EVENT NAMES ARE NOT FREE TEXT. `listWebhookEvents` is the list, and
  * registering a name outside it is refused rather than stored. A
@@ -40,6 +40,14 @@ export const WebhookEndpoint = z.object({
    * cannot tell you.
    */
   lastDeliveryAt: z.string().nullable(),
+  /** When the current signing secret was made, by registration or by rotation. */
+  secretRotatedAt: z.string().nullable(),
+  /**
+   * Until when the secret before the last rotation also signs, or null when
+   * only the current one does. During that time the signature header carries
+   * two signatures separated by a comma.
+   */
+  previousSecretExpiresAt: z.string().nullable(),
   createdAt: z.string(),
 });
 
@@ -88,7 +96,7 @@ export const updateWebhookEndpoint = defineRoute({
   path: "/v1/webhooks/endpoints/{id}",
   summary: "Change the URL, the events, or whether it is on",
   description:
-    "The signing secret is not changeable here. Rotating it breaks every receiver still holding the old one, and an operator fixing a typo in a URL should not find that out from their own error log.",
+    "The signing secret is not changeable here: that is `POST /v1/webhooks/endpoints/{id}/secret`, with an overlap. Changing it here would break every receiver still holding the old one, and an operator fixing a typo in a URL should not find that out from their own error log.",
   module: "M26",
   permissions: ["integration:write"],
   idempotent: true,
@@ -99,6 +107,25 @@ export const updateWebhookEndpoint = defineRoute({
     active: z.boolean().optional(),
   }),
   output: WebhookEndpoint,
+});
+
+export const rotateWebhookSecret = defineRoute({
+  method: "post",
+  path: "/v1/webhooks/endpoints/{id}/secret",
+  summary: "Give an endpoint a new signing secret",
+  description:
+    "Returns the new secret, once. For `overlapHours` (24 unless you say, 0 to 168) every delivery is signed with BOTH the new and the old secret, the `x-otos-signature` header carrying two signatures separated by a comma, newest first, so the receiver keeps accepting deliveries whichever secret it holds and can switch on its owner's own day. A receiver must accept a delivery when any one signature matches. Send 0 when the old secret leaked: it then stops signing at once. Rotating again during an overlap retires the oldest secret immediately, so at most two ever sign. A retry with the same idempotency key returns the same secret rather than rotating twice.",
+  module: "M26",
+  permissions: ["integration:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    overlapHours: z.number().int().min(0).max(168).optional(),
+  }),
+  output: WebhookEndpoint.extend({
+    /** Shown once. Deliveries are signed with it from now on. */
+    secret: z.string(),
+  }),
 });
 
 export const deleteWebhookEndpoint = defineRoute({
@@ -253,7 +280,7 @@ export const listWebhookReplays = defineRoute({
 });
 
 export const webhookRoutes = {
-  registerWebhookEndpoint, listWebhookEndpoints, updateWebhookEndpoint,
+  registerWebhookEndpoint, listWebhookEndpoints, updateWebhookEndpoint, rotateWebhookSecret,
   deleteWebhookEndpoint, getWebhookPosition, listWebhookEvents,
   listWebhookDeliveries, listWebhookEventDeliveries, replayWebhookDeliveries, listWebhookReplays,
 } as const;

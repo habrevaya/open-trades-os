@@ -62,6 +62,8 @@ const LINKS: Record<string, (id: string) => string> = {
   agreement: (id) => `/agreements/${id}`,
   /** An escalation's notice is about the late task, and opens it. */
   task: (id) => `/tasks/${id}`,
+  /** Raised when somebody reports an incident, and by every follow up added to one. */
+  incident_report: (id) => `/compliance/incidents/${id}`,
 };
 
 export default async function TasksPage({
@@ -276,6 +278,7 @@ export default async function TasksPage({
                       {change ? "Open the job"
                         : task.entityType === "equipment" ? "Open the address"
                         : task.entityType === "task" ? "Open the late task"
+                        : task.entityType === "incident_report" ? "Open the incident report"
                         : `Open the ${task.entityType}`}
                     </a>
                   )}

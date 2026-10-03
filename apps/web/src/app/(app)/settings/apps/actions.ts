@@ -70,12 +70,34 @@ export async function act(_previous: AppsState, form: FormData): Promise<AppsSta
         });
         return { message: "Turned off, and its credentials with it." };
 
+      case "approve": {
+        const { app, returnTo } = await apps.approve(ctx, { id: String(form.get("id") ?? "") });
+        return {
+          message: `${app.name} is approved. It collects its credential itself, once.`,
+          ...(returnTo ? { link: returnTo } : {}),
+        };
+      }
+
+      case "refuse": {
+        const { app, returnTo } = await apps.refuse(ctx, {
+          id: String(form.get("id") ?? ""),
+          ...(field(form, "reason") ? { reason: field(form, "reason")! } : {}),
+        });
+        return {
+          message: `${app.name} was refused and holds nothing.`,
+          ...(returnTo ? { link: returnTo } : {}),
+        };
+      }
+
       default:
         throw new Error(`Unknown op: ${op}`);
     }
   });
 
-  if (state?.done) revalidatePath("/settings/apps");
+  if (state?.done) {
+    revalidatePath("/settings/apps");
+    if (op === "approve" || op === "refuse") revalidatePath(`/settings/apps/requests/${String(form.get("id") ?? "")}`);
+  }
   return state;
 }
 

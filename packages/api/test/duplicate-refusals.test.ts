@@ -78,6 +78,10 @@ const REFUSED: Record<string, Refused> = {
   /** A vendor's part number typed onto a second item, or a catalogue naming it twice. */
   vendor_item_part_number_idx: { file: "vendor-catalogue.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
+  /** A technician added twice to one toolbox talk's sign in sheet. */
+  safety_meeting_attendee_person_idx: {
+    file: "safety.ts", how: "check", says: "is already on the list for this talk",
+  },
   /** Two shelves with one name under one parent, typed into the category manager. */
   price_book_category_name_idx: { file: "price-categories.ts", how: "catch" },
   marketing_campaign_utm_idx: { file: "campaigns.ts", how: "catch" },
@@ -202,6 +206,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "The hash of a token made from 256 random bits. A collision is not a typo.",
   portal_grant_token_idx:
     "The hash of a customer link made from 256 random bits, never chosen by anybody.",
+  oauth_code_hash_idx:
+    "The hash of an OAuth authorization code made from 256 random bits and handed through a browser once.",
+  oauth_refresh_token_hash_idx:
+    "The hash of an OAuth refresh token made from 256 random bits, rotated on every use.",
   calendar_feed_token_idx:
     "The hash of a feed URL made from 256 random bits, handed to a phone rather than typed.",
   lead_source_connector_token_idx:

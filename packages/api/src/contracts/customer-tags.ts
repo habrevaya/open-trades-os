@@ -64,6 +64,7 @@ export const renameCustomerTag = defineRoute({
   module: "M03",
   permissions: ["customer:write"],
   idempotent: true,
+  dryRun: true,
   input: z.object({ from: Tag, to: Tag }),
   output: Rewrite,
 });
@@ -77,6 +78,7 @@ export const mergeCustomerTags = defineRoute({
   module: "M03",
   permissions: ["customer:write"],
   idempotent: true,
+  dryRun: true,
   input: z.object({ from: z.array(Tag).min(1).max(20), into: Tag }),
   output: Rewrite,
 });
