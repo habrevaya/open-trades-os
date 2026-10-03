@@ -140,7 +140,16 @@ export const BUILT_IN: BuiltInReport[] = [
     definition: {
       dataset: "profitability",
       dimensions: ["job"],
-      measures: ["revenue", "material_cost", "labour_cost", "processing_fees", "gross_margin"],
+      /**
+       * The fully loaded margin beside the gross one, never instead of it:
+       * with no burden or overhead rates set they are the same number, and
+       * once a company has set them the gap is what the rates say the work
+       * really carries.
+       */
+      measures: [
+        "revenue", "material_cost", "labour_cost", "processing_fees", "gross_margin",
+        "labour_burden", "overhead", "fully_loaded_margin",
+      ],
       filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
       /**
        * By revenue, so the jobs that matter most are at the top with their
@@ -158,7 +167,7 @@ export const BUILT_IN: BuiltInReport[] = [
     definition: {
       dataset: "profitability",
       dimensions: ["job_type"],
-      measures: ["revenue", "material_cost", "labour_cost", "gross_margin", "count"],
+      measures: ["revenue", "material_cost", "labour_cost", "gross_margin", "fully_loaded_margin", "count"],
       filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
       orderBy: "gross_margin",
       limit: 25,

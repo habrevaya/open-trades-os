@@ -37,6 +37,14 @@ const ORDER = [
   "project_lien_record", "project_application_line", "project_application",
   "project_change_order_line", "project_change_order",
   "project_draw", "project_job", "project_phase", "project",
+  /**
+   * A loan application points at the payment its funding became, the invoice
+   * or estimate it was for, the customer and the lender's connection, so it
+   * goes before all of them. The costing rates, the budget and the journal
+   * headers point only at the company, and sit here with the money they are
+   * about.
+   */
+  "financing_application", "costing_rate", "budget_line", "budget", "journal_entry",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "credit_note_application", "credit_note_line", "credit_note",

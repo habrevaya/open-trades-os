@@ -2401,6 +2401,39 @@ export interface CreateJobOutput {
   updatedAt: string;
 }
 
+export interface CreateJournalEntryInput {
+  occurredOn?: string;
+  memo: string;
+  lines: Array<{
+    accountCode: string;
+    debit?: string;
+    credit?: string;
+    memo?: string;
+  }>;
+}
+
+export interface CreateJournalEntryOutput {
+  id: string;
+  number: number;
+  occurredOn: string;
+  memo: string;
+  total: string;
+  currency: string;
+  reversesJournalId: string | null;
+  reversesNumber: number | null;
+  reversedByJournalId: string | null;
+  reversedByNumber: number | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  lines: Array<{
+    entryId: string;
+    accountCode: string;
+    direction: "debit" | "credit";
+    amount: string;
+    memo: string | null;
+  }>;
+}
+
 export interface CreateLeadConnectorInput {
   source: string;
   channelId?: string;
@@ -4454,6 +4487,37 @@ export interface GetBranchOverviewOutput {
   peopleWithoutBranch: number;
 }
 
+export interface GetBudgetReportOutput {
+  year: number;
+  through: number;
+  lines: Array<{
+    line: string;
+    label: string;
+    months: Array<{
+      month: number;
+      budget: string | null;
+      actual: string;
+      variance: string | null;
+      favourable: boolean | null;
+    }>;
+    toDate: {
+      budget: string;
+      actual: string;
+      variance: string;
+      percent: number | null;
+      favourable: boolean | null;
+    };
+    year: {
+      budget: string;
+    };
+  }>;
+  net: {
+    budget: string;
+    actual: string;
+  } | null;
+  caveat: string;
+}
+
 export interface GetCallOutput {
   id: string;
   direction: "inbound" | "outbound";
@@ -5068,6 +5132,55 @@ export interface GetEquipmentOutput {
   }>;
 }
 
+export interface GetEstimateFinancingOutput {
+  connected: boolean;
+  lender: string | null;
+  options: Array<{
+    optionId: string;
+    name: string;
+    total: string;
+    offer: {
+      lender: string;
+      monthly: string;
+      months: number;
+      aprPercent: string;
+      sentence: string;
+      short: string;
+    } | null;
+    applicable: boolean;
+  }>;
+  applications: Array<{
+    id: string;
+    provider: string;
+    status: "sent" | "applied" | "approved" | "declined" | "expired" | "funded" | "cancelled";
+    statusLabel: string;
+    customerId: string;
+    customerName: string | null;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    estimateId: string | null;
+    estimateNumber: number | null;
+    amount: string;
+    approvedAmount: string | null;
+    chosenOffer: {
+      months: number;
+      aprPercent: string;
+      monthlyPayment: string | null;
+    } | null;
+    fundedAmount: string | null;
+    feeAmount: string | null;
+    fundedAt: string | null;
+    paymentId: string | null;
+    applicationUrl: string;
+    sentVia: string;
+    sentTo: string | null;
+    attention: string | null;
+    expiresAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+
 export interface GetEstimateOutput {
   id: string;
   number: number;
@@ -5322,6 +5435,29 @@ export interface GetFieldSnapshotOutput {
   }>;
 }
 
+export interface GetFinancingReportOutput {
+  from: string | null;
+  to: string | null;
+  applications: number;
+  byStatus: {
+    sent?: number;
+    applied?: number;
+    approved?: number;
+    declined?: number;
+    expired?: number;
+    funded?: number;
+    cancelled?: number;
+  };
+  approvalRate: number | null;
+  decided: number;
+  fundedCount: number;
+  fundedVolume: string;
+  fees: string;
+  feesUnknown: number;
+  feePercent: number | null;
+  pendingVolume: string;
+}
+
 export interface GetFleetReportOutput {
   from: string;
   to: string;
@@ -5548,6 +5684,50 @@ export interface GetInspectionReportOutput {
   checkpointsKept: boolean;
 }
 
+export interface GetInvoiceFinancingOutput {
+  connected: boolean;
+  lender: string | null;
+  offer: {
+    lender: string;
+    monthly: string;
+    months: number;
+    aprPercent: string;
+    sentence: string;
+    short: string;
+  } | null;
+  applicable: boolean;
+  applications: Array<{
+    id: string;
+    provider: string;
+    status: "sent" | "applied" | "approved" | "declined" | "expired" | "funded" | "cancelled";
+    statusLabel: string;
+    customerId: string;
+    customerName: string | null;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    estimateId: string | null;
+    estimateNumber: number | null;
+    amount: string;
+    approvedAmount: string | null;
+    chosenOffer: {
+      months: number;
+      aprPercent: string;
+      monthlyPayment: string | null;
+    } | null;
+    fundedAmount: string | null;
+    feeAmount: string | null;
+    fundedAt: string | null;
+    paymentId: string | null;
+    applicationUrl: string;
+    sentVia: string;
+    sentTo: string | null;
+    attention: string | null;
+    expiresAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+
 export interface GetInvoiceOutput {
   id: string;
   number: number;
@@ -5712,6 +5892,10 @@ export interface GetJobProfitabilityOutput {
   processingFees: string;
   grossMargin: string;
   grossMarginPercent: number | null;
+  labourBurden: string;
+  overhead: string;
+  fullyLoadedMargin: string;
+  fullyLoadedMarginPercent: number | null;
   scheduledHours: string;
   actualHours: string;
   hoursOverPlan: string;
@@ -5765,6 +5949,28 @@ export interface GetJobProfitabilityOutput {
     hours: string;
     cost: string;
     unpricedHours: string;
+  }>;
+}
+
+export interface GetJournalEntryOutput {
+  id: string;
+  number: number;
+  occurredOn: string;
+  memo: string;
+  total: string;
+  currency: string;
+  reversesJournalId: string | null;
+  reversesNumber: number | null;
+  reversedByJournalId: string | null;
+  reversedByNumber: number | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  lines: Array<{
+    entryId: string;
+    accountCode: string;
+    direction: "debit" | "credit";
+    amount: string;
+    memo: string | null;
   }>;
 }
 
@@ -7098,6 +7304,16 @@ export interface HandOverOnCallOutput {
   };
 }
 
+export interface ImportBudgetInput {
+  csv: string;
+}
+
+export interface ImportBudgetOutput {
+  year: number;
+  lines: number;
+  cells: number;
+}
+
 export interface ImportSpendFileInput {
   provider?: string;
   source?: string;
@@ -8193,6 +8409,22 @@ export interface ListConversionSendsOutput {
   }>;
 }
 
+export interface ListCostingRatesOutput {
+  today: string;
+  rates: Array<{
+    id: string;
+    component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
+    componentLabel: string;
+    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+    basisLabel: string;
+    rate: string;
+    effectiveFrom: string;
+    note: string | null;
+    current: boolean;
+    createdAt: string;
+  }>;
+}
+
 export interface ListCreditNotesOutput {
   data: Array<{
     id: string;
@@ -8712,6 +8944,39 @@ export interface ListFieldPeopleOutput {
   }>;
 }
 
+export interface ListFinancingApplicationsOutput {
+  applications: Array<{
+    id: string;
+    provider: string;
+    status: "sent" | "applied" | "approved" | "declined" | "expired" | "funded" | "cancelled";
+    statusLabel: string;
+    customerId: string;
+    customerName: string | null;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    estimateId: string | null;
+    estimateNumber: number | null;
+    amount: string;
+    approvedAmount: string | null;
+    chosenOffer: {
+      months: number;
+      aprPercent: string;
+      monthlyPayment: string | null;
+    } | null;
+    fundedAmount: string | null;
+    feeAmount: string | null;
+    fundedAt: string | null;
+    paymentId: string | null;
+    applicationUrl: string;
+    sentVia: string;
+    sentTo: string | null;
+    attention: string | null;
+    expiresAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+
 export interface ListFormsOutput {
   forms: Array<{
     id: string;
@@ -8958,6 +9223,30 @@ export interface ListJobsOutput {
   }>;
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+export interface ListJournalEntriesOutput {
+  journals: Array<{
+    id: string;
+    number: number;
+    occurredOn: string;
+    memo: string;
+    total: string;
+    currency: string;
+    reversesJournalId: string | null;
+    reversesNumber: number | null;
+    reversedByJournalId: string | null;
+    reversedByNumber: number | null;
+    createdByUserId: string | null;
+    createdAt: string;
+    lines: Array<{
+      entryId: string;
+      accountCode: string;
+      direction: "debit" | "credit";
+      amount: string;
+      memo: string | null;
+    }>;
+  }>;
 }
 
 export interface ListJournalOutput {
@@ -12164,6 +12453,39 @@ export interface RecordUnitOutcomeOutput {
   deficiencyCount: number;
 }
 
+export type RefreshFinancingApplicationInput = Record<string, unknown>;
+
+export interface RefreshFinancingApplicationOutput {
+  id: string;
+  provider: string;
+  status: "sent" | "applied" | "approved" | "declined" | "expired" | "funded" | "cancelled";
+  statusLabel: string;
+  customerId: string;
+  customerName: string | null;
+  invoiceId: string | null;
+  invoiceNumber: number | null;
+  estimateId: string | null;
+  estimateNumber: number | null;
+  amount: string;
+  approvedAmount: string | null;
+  chosenOffer: {
+    months: number;
+    aprPercent: string;
+    monthlyPayment: string | null;
+  } | null;
+  fundedAmount: string | null;
+  feeAmount: string | null;
+  fundedAt: string | null;
+  paymentId: string | null;
+  applicationUrl: string;
+  sentVia: string;
+  sentTo: string | null;
+  attention: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RefundDepositInput {
   disposition: "refund" | "forfeit";
   amount?: string;
@@ -12363,6 +12685,14 @@ export interface ReleaseStockOutput {
   }>;
 }
 
+export type RemoveBudgetLineInput = Record<string, unknown>;
+
+export interface RemoveBudgetLineOutput {
+  year: number;
+  line: string;
+  removed: true;
+}
+
 export type RemoveChangeOrderLineInput = Record<string, unknown>;
 
 export interface RemoveChangeOrderLineOutput {
@@ -12399,6 +12729,13 @@ export interface RemoveChangeOrderLineOutput {
     priceBookItemId: string | null;
     unitCost: string | null;
   }>;
+}
+
+export type RemoveCostingRateInput = Record<string, unknown>;
+
+export interface RemoveCostingRateOutput {
+  id: string;
+  removed: true;
 }
 
 export interface RemoveCustomerInput {
@@ -13011,6 +13348,33 @@ export interface ReverseCommissionOutput {
     technicianId: string;
     amount: string;
     explanation: string;
+  }>;
+}
+
+export interface ReverseJournalEntryInput {
+  occurredOn?: string;
+  memo?: string;
+}
+
+export interface ReverseJournalEntryOutput {
+  id: string;
+  number: number;
+  occurredOn: string;
+  memo: string;
+  total: string;
+  currency: string;
+  reversesJournalId: string | null;
+  reversesNumber: number | null;
+  reversedByJournalId: string | null;
+  reversedByNumber: number | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  lines: Array<{
+    entryId: string;
+    accountCode: string;
+    direction: "debit" | "credit";
+    amount: string;
+    memo: string | null;
   }>;
 }
 
@@ -13689,6 +14053,56 @@ export interface SendEstimateOutput {
   };
 }
 
+export interface SendFinancingLinkInput {
+  invoiceId?: string;
+  estimateId?: string;
+  optionId?: string;
+  channel: "sms" | "email" | "link";
+  to?: string;
+}
+
+export interface SendFinancingLinkOutput {
+  application: {
+    id: string;
+    provider: string;
+    status: "sent" | "applied" | "approved" | "declined" | "expired" | "funded" | "cancelled";
+    statusLabel: string;
+    customerId: string;
+    customerName: string | null;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    estimateId: string | null;
+    estimateNumber: number | null;
+    amount: string;
+    approvedAmount: string | null;
+    chosenOffer: {
+      months: number;
+      aprPercent: string;
+      monthlyPayment: string | null;
+    } | null;
+    fundedAmount: string | null;
+    feeAmount: string | null;
+    fundedAt: string | null;
+    paymentId: string | null;
+    applicationUrl: string;
+    sentVia: string;
+    sentTo: string | null;
+    attention: string | null;
+    expiresAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  reused: boolean;
+  delivery: {
+    sent: true;
+    channel: string;
+  } | {
+    sent: false;
+    channel: string;
+    reason: string;
+  } | null;
+}
+
 export interface SendInvoiceInput {
   to?: string;
   channel?: "email" | "portal_link";
@@ -13822,6 +14236,17 @@ export interface SetAssetObligationOutput {
   expiresOn: string;
 }
 
+export interface SetBudgetLineInput {
+  line: string;
+  amounts: Array<string | null>;
+}
+
+export interface SetBudgetLineOutput {
+  year: number;
+  line: string;
+  months: number;
+}
+
 export interface SetBusinessHoursInput {
   days: Array<{
     dayOfWeek: number;
@@ -13844,6 +14269,27 @@ export interface SetCertificationStatusOutput {
   id: string;
   status: "active" | "suspended" | "revoked";
   statusReason: string | null;
+}
+
+export interface SetCostingRateInput {
+  component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
+  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+  rate: string;
+  effectiveFrom: string;
+  note?: string;
+}
+
+export interface SetCostingRateOutput {
+  id: string;
+  component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
+  componentLabel: string;
+  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+  basisLabel: string;
+  rate: string;
+  effectiveFrom: string;
+  note: string | null;
+  current: boolean;
+  createdAt: string;
 }
 
 export interface SetCrewMembersInput {
@@ -17345,6 +17791,10 @@ export interface GetAvailabilityInput {
 
 export type GetBranchOverviewInput = Record<string, never>;
 
+export interface GetBudgetReportInput {
+  year: number;
+}
+
 export interface GetCallInput {
   id: string;
 }
@@ -17461,6 +17911,10 @@ export interface GetEstimateInput {
   id: string;
 }
 
+export interface GetEstimateFinancingInput {
+  estimateId: string;
+}
+
 export interface GetEstimateProposalInput {
   id: string;
 }
@@ -17482,6 +17936,11 @@ export interface GetFieldSnapshotInput {
   from: string;
   days?: number;
   sinceRevision?: number;
+}
+
+export interface GetFinancingReportInput {
+  from?: string;
+  to?: string;
 }
 
 export interface GetFleetReportInput {
@@ -17515,6 +17974,10 @@ export interface GetInvoiceInput {
   id: string;
 }
 
+export interface GetInvoiceFinancingInput {
+  invoiceId: string;
+}
+
 export interface GetJobInput {
   id: string;
 }
@@ -17529,6 +17992,10 @@ export interface GetJobMaterialCostInput {
 }
 
 export interface GetJobProfitabilityInput {
+  id: string;
+}
+
+export interface GetJournalEntryInput {
   id: string;
 }
 
@@ -17759,6 +18226,10 @@ export interface HandOverAssetParams {
   assetId: string;
 }
 
+export interface ImportBudgetParams {
+  year: number;
+}
+
 export interface InstallWorkflowTemplateParams {
   key: string;
 }
@@ -17956,6 +18427,8 @@ export interface ListConversionSendsInput {
   limit?: number;
 }
 
+export type ListCostingRatesInput = Record<string, never>;
+
 export interface ListCreditNotesInput {
   cursor?: string;
   limit?: number;
@@ -18087,6 +18560,11 @@ export type ListExternalWorkSourcesInput = Record<string, never>;
 
 export type ListFieldPeopleInput = Record<string, never>;
 
+export interface ListFinancingApplicationsInput {
+  status?: "sent" | "applied" | "approved" | "declined" | "expired" | "funded" | "cancelled";
+  limit?: number;
+}
+
 export type ListFormsInput = Record<string, never>;
 
 export interface ListIncidentsInput {
@@ -18164,6 +18642,10 @@ export interface ListJournalInput {
   jobId?: string;
   customerId?: string;
   accountCode?: string;
+  limit?: number;
+}
+
+export interface ListJournalEntriesInput {
   limit?: number;
 }
 
@@ -18709,6 +19191,10 @@ export interface RecordUnitOutcomeParams {
   equipmentId: string;
 }
 
+export interface RefreshFinancingApplicationParams {
+  id: string;
+}
+
 export interface RefundDepositParams {
   id: string;
 }
@@ -18729,9 +19215,18 @@ export interface ReleaseRetentionHoldParams {
   id: string;
 }
 
+export interface RemoveBudgetLineParams {
+  year: number;
+  line: string;
+}
+
 export interface RemoveChangeOrderLineParams {
   changeOrderId: string;
   lineId: string;
+}
+
+export interface RemoveCostingRateParams {
+  id: string;
 }
 
 export interface RemoveCustomerParams {
@@ -18850,6 +19345,10 @@ export interface ReturnAssetToServiceParams {
   id: string;
 }
 
+export interface ReverseJournalEntryParams {
+  id: string;
+}
+
 export interface ReversePriceChangeParams {
   id: string;
 }
@@ -18955,6 +19454,10 @@ export interface SetAssetMaintenancePlanParams {
 export interface SetAssetObligationParams {
   assetId: string;
   kind: "registration" | "inspection" | "insurance" | "calibration";
+}
+
+export interface SetBudgetLineParams {
+  year: number;
 }
 
 export interface SetCertificationStatusParams {
@@ -19446,6 +19949,7 @@ export interface OperationTypes {
   createIntakeDraft: { input: CreateIntakeDraftInput; output: CreateIntakeDraftOutput };
   createInvoice: { input: CreateInvoiceInput; output: CreateInvoiceOutput };
   createJob: { input: CreateJobInput; output: CreateJobOutput };
+  createJournalEntry: { input: CreateJournalEntryInput; output: CreateJournalEntryOutput };
   createLeadConnector: { input: CreateLeadConnectorInput; output: CreateLeadConnectorOutput };
   createLocation: { input: CreateLocationInput; output: CreateLocationOutput };
   createPaymentIntent: { input: CreatePaymentIntentInput; output: CreatePaymentIntentOutput };
@@ -19536,6 +20040,7 @@ export interface OperationTypes {
   getAssignmentSuggestions: { input: GetAssignmentSuggestionsInput; output: GetAssignmentSuggestionsOutput };
   getAvailability: { input: GetAvailabilityInput; output: GetAvailabilityOutput };
   getBranchOverview: { input: GetBranchOverviewInput; output: GetBranchOverviewOutput };
+  getBudgetReport: { input: GetBudgetReportInput; output: GetBudgetReportOutput };
   getCall: { input: GetCallInput; output: GetCallOutput };
   getCallTrackingConnection: { input: GetCallTrackingConnectionInput; output: GetCallTrackingConnectionOutput };
   getCampaign: { input: GetCampaignInput; output: GetCampaignOutput };
@@ -19564,11 +20069,13 @@ export interface OperationTypes {
   getEquipment: { input: GetEquipmentInput; output: GetEquipmentOutput };
   getEquipmentHistory: { input: GetEquipmentHistoryInput; output: GetEquipmentHistoryOutput };
   getEstimate: { input: GetEstimateInput; output: GetEstimateOutput };
+  getEstimateFinancing: { input: GetEstimateFinancingInput; output: GetEstimateFinancingOutput };
   getEstimateProposal: { input: GetEstimateProposalInput; output: GetEstimateProposalOutput };
   getExportManifest: { input: GetExportManifestInput; output: GetExportManifestOutput };
   getExportPage: { input: GetExportPageInput; output: GetExportPageOutput };
   getExternalWorkOrder: { input: GetExternalWorkOrderInput; output: GetExternalWorkOrderOutput };
   getFieldSnapshot: { input: GetFieldSnapshotInput; output: GetFieldSnapshotOutput };
+  getFinancingReport: { input: GetFinancingReportInput; output: GetFinancingReportOutput };
   getFleetReport: { input: GetFleetReportInput; output: GetFleetReportOutput };
   getForm: { input: GetFormInput; output: GetFormOutput };
   getFormRefusals: { input: GetFormRefusalsInput; output: GetFormRefusalsOutput };
@@ -19577,10 +20084,12 @@ export interface OperationTypes {
   getIncident: { input: GetIncidentInput; output: GetIncidentOutput };
   getInspectionReport: { input: GetInspectionReportInput; output: GetInspectionReportOutput };
   getInvoice: { input: GetInvoiceInput; output: GetInvoiceOutput };
+  getInvoiceFinancing: { input: GetInvoiceFinancingInput; output: GetInvoiceFinancingOutput };
   getJob: { input: GetJobInput; output: GetJobOutput };
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
   getJobMaterialCost: { input: GetJobMaterialCostInput; output: GetJobMaterialCostOutput };
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
+  getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
   getMarketingCall: { input: GetMarketingCallInput; output: GetMarketingCallOutput };
   getMarketingFunnel: { input: GetMarketingFunnelInput; output: GetMarketingFunnelOutput };
@@ -19639,6 +20148,7 @@ export interface OperationTypes {
   grantConsent: { input: GrantConsentInput; output: GrantConsentOutput };
   handOverAsset: { input: HandOverAssetParams & HandOverAssetInput; output: HandOverAssetOutput };
   handOverOnCall: { input: HandOverOnCallInput; output: HandOverOnCallOutput };
+  importBudget: { input: ImportBudgetParams & ImportBudgetInput; output: ImportBudgetOutput };
   importSpend: { input: ImportSpendInput; output: ImportSpendOutput };
   importSpendFile: { input: ImportSpendFileInput; output: ImportSpendFileOutput };
   installApp: { input: InstallAppInput; output: InstallAppOutput };
@@ -19694,6 +20204,7 @@ export interface OperationTypes {
   listContracts: { input: ListContractsInput; output: ListContractsOutput };
   listConversations: { input: ListConversationsInput; output: ListConversationsOutput };
   listConversionSends: { input: ListConversionSendsInput; output: ListConversionSendsOutput };
+  listCostingRates: { input: ListCostingRatesInput; output: ListCostingRatesOutput };
   listCreditNotes: { input: ListCreditNotesInput; output: ListCreditNotesOutput };
   listCrewRates: { input: ListCrewRatesInput; output: ListCrewRatesOutput };
   listCrews: { input: ListCrewsInput; output: ListCrewsOutput };
@@ -19719,6 +20230,7 @@ export interface OperationTypes {
   listExternalWorkOrders: { input: ListExternalWorkOrdersInput; output: ListExternalWorkOrdersOutput };
   listExternalWorkSources: { input: ListExternalWorkSourcesInput; output: ListExternalWorkSourcesOutput };
   listFieldPeople: { input: ListFieldPeopleInput; output: ListFieldPeopleOutput };
+  listFinancingApplications: { input: ListFinancingApplicationsInput; output: ListFinancingApplicationsOutput };
   listForms: { input: ListFormsInput; output: ListFormsOutput };
   listIncidents: { input: ListIncidentsInput; output: ListIncidentsOutput };
   listInspectionPrograms: { input: ListInspectionProgramsInput; output: ListInspectionProgramsOutput };
@@ -19733,6 +20245,7 @@ export interface OperationTypes {
   listJobTypes: { input: ListJobTypesInput; output: ListJobTypesOutput };
   listJobs: { input: ListJobsInput; output: ListJobsOutput };
   listJournal: { input: ListJournalInput; output: ListJournalOutput };
+  listJournalEntries: { input: ListJournalEntriesInput; output: ListJournalEntriesOutput };
   listKpiCatalogue: { input: ListKpiCatalogueInput; output: ListKpiCatalogueOutput };
   listLeadConnectors: { input: ListLeadConnectorsInput; output: ListLeadConnectorsOutput };
   listLeadFieldTargets: { input: ListLeadFieldTargetsInput; output: ListLeadFieldTargetsOutput };
@@ -19896,6 +20409,7 @@ export interface OperationTypes {
   recordServiceRouteStopServiced: { input: RecordServiceRouteStopServicedParams & RecordServiceRouteStopServicedInput; output: RecordServiceRouteStopServicedOutput };
   recordSpend: { input: RecordSpendInput; output: RecordSpendOutput };
   recordUnitOutcome: { input: RecordUnitOutcomeParams & RecordUnitOutcomeInput; output: RecordUnitOutcomeOutput };
+  refreshFinancingApplication: { input: RefreshFinancingApplicationParams & RefreshFinancingApplicationInput; output: RefreshFinancingApplicationOutput };
   refundDeposit: { input: RefundDepositParams & RefundDepositInput; output: RefundDepositOutput };
   refundPayment: { input: RefundPaymentParams & RefundPaymentInput; output: RefundPaymentOutput };
   refuseAppRequest: { input: RefuseAppRequestParams & RefuseAppRequestInput; output: RefuseAppRequestOutput };
@@ -19907,7 +20421,9 @@ export interface OperationTypes {
   releasePhoneNumber: { input: ReleasePhoneNumberParams & ReleasePhoneNumberInput; output: ReleasePhoneNumberOutput };
   releaseRetentionHold: { input: ReleaseRetentionHoldParams & ReleaseRetentionHoldInput; output: ReleaseRetentionHoldOutput };
   releaseStock: { input: ReleaseStockInput; output: ReleaseStockOutput };
+  removeBudgetLine: { input: RemoveBudgetLineParams & RemoveBudgetLineInput; output: RemoveBudgetLineOutput };
   removeChangeOrderLine: { input: RemoveChangeOrderLineParams & RemoveChangeOrderLineInput; output: RemoveChangeOrderLineOutput };
+  removeCostingRate: { input: RemoveCostingRateParams & RemoveCostingRateInput; output: RemoveCostingRateOutput };
   removeCustomer: { input: RemoveCustomerParams & RemoveCustomerInput; output: RemoveCustomerOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
@@ -19949,6 +20465,7 @@ export interface OperationTypes {
   retryConversionSend: { input: RetryConversionSendParams & RetryConversionSendInput; output: RetryConversionSendOutput };
   returnAssetToService: { input: ReturnAssetToServiceParams & ReturnAssetToServiceInput; output: ReturnAssetToServiceOutput };
   reverseCommission: { input: ReverseCommissionInput; output: ReverseCommissionOutput };
+  reverseJournalEntry: { input: ReverseJournalEntryParams & ReverseJournalEntryInput; output: ReverseJournalEntryOutput };
   reversePriceChange: { input: ReversePriceChangeParams & ReversePriceChangeInput; output: ReversePriceChangeOutput };
   reviewAppRequest: { input: ReviewAppRequestInput; output: ReviewAppRequestOutput };
   revisePriceBookItem: { input: RevisePriceBookItemParams & RevisePriceBookItemInput; output: RevisePriceBookItemOutput };
@@ -19978,6 +20495,7 @@ export interface OperationTypes {
   sendChangeOrder: { input: SendChangeOrderParams & SendChangeOrderInput; output: SendChangeOrderOutput };
   sendCollectionReminder: { input: SendCollectionReminderParams & SendCollectionReminderInput; output: SendCollectionReminderOutput };
   sendEstimate: { input: SendEstimateParams & SendEstimateInput; output: SendEstimateOutput };
+  sendFinancingLink: { input: SendFinancingLinkInput; output: SendFinancingLinkOutput };
   sendInvoice: { input: SendInvoiceParams & SendInvoiceInput; output: SendInvoiceOutput };
   sendQueuedEmail: { input: SendQueuedEmailInput; output: SendQueuedEmailOutput };
   sendReportScheduleNow: { input: SendReportScheduleNowParams & SendReportScheduleNowInput; output: SendReportScheduleNowOutput };
@@ -19987,8 +20505,10 @@ export interface OperationTypes {
   setArrivalWindows: { input: SetArrivalWindowsInput; output: SetArrivalWindowsOutput };
   setAssetMaintenancePlan: { input: SetAssetMaintenancePlanParams & SetAssetMaintenancePlanInput; output: SetAssetMaintenancePlanOutput };
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
+  setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
+  setCostingRate: { input: SetCostingRateInput; output: SetCostingRateOutput };
   setCrewMembers: { input: SetCrewMembersParams & SetCrewMembersInput; output: SetCrewMembersOutput };
   setCustomerAdData: { input: SetCustomerAdDataParams & SetCustomerAdDataInput; output: SetCustomerAdDataOutput };
   setCustomerReferrer: { input: SetCustomerReferrerParams & SetCustomerReferrerInput; output: SetCustomerReferrerOutput };
@@ -20216,6 +20736,7 @@ export const OPERATIONS = {
   createIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   createInvoice: { method: "POST", path: "/v1/invoices", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   createJob: { method: "POST", path: "/v1/jobs", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  createJournalEntry: { method: "POST", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post"] },
   createLeadConnector: { method: "POST", path: "/v1/lead-connectors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   createLocation: { method: "POST", path: "/v1/locations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createPaymentIntent: { method: "POST", path: "/v1/payments/intents", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
@@ -20306,6 +20827,7 @@ export const OPERATIONS = {
   getAssignmentSuggestions: { method: "GET", path: "/v1/dispatch/suggestions", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getAvailability: { method: "GET", path: "/v1/public/availability", pathParams: [], queryParams: ["organizationSlug","bookableServiceId","from","days","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getCall: { method: "GET", path: "/v1/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getCampaign: { method: "GET", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
@@ -20334,11 +20856,13 @@ export const OPERATIONS = {
   getEquipment: { method: "GET", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: ["on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEquipmentHistory: { method: "GET", path: "/v1/equipment/{id}/history", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEstimate: { method: "GET", path: "/v1/estimates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
+  getEstimateFinancing: { method: "GET", path: "/v1/estimates/{estimateId}/financing", pathParams: ["estimateId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getEstimateProposal: { method: "GET", path: "/v1/estimates/{id}/proposal", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getExportManifest: { method: "GET", path: "/v1/export", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getExportPage: { method: "GET", path: "/v1/export/{table}", pathParams: ["table"], queryParams: ["after","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getExternalWorkOrder: { method: "GET", path: "/v1/external-work-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   getFieldSnapshot: { method: "GET", path: "/v1/field/snapshot", pathParams: [], queryParams: ["deviceId","from","days","sinceRevision"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
+  getFinancingReport: { method: "GET", path: "/v1/financing/report", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getFleetReport: { method: "GET", path: "/v1/fleet-report", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getForm: { method: "GET", path: "/v1/marketing/forms/{slug}/definition", pathParams: ["slug"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getFormRefusals: { method: "GET", path: "/v1/marketing/forms/{formId}/refusals", pathParams: ["formId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -20347,10 +20871,12 @@ export const OPERATIONS = {
   getIncident: { method: "GET", path: "/v1/safety/incidents/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   getInspectionReport: { method: "GET", path: "/v1/inspections/{id}/report", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getInvoice: { method: "GET", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  getInvoiceFinancing: { method: "GET", path: "/v1/invoices/{invoiceId}/financing", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getJob: { method: "GET", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
+  getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getMarketingCall: { method: "GET", path: "/v1/marketing/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel", pathParams: [], queryParams: ["from","to","by","model"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -20409,6 +20935,7 @@ export const OPERATIONS = {
   grantConsent: { method: "POST", path: "/v1/consent", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   handOverAsset: { method: "POST", path: "/v1/assets/{assetId}/hand-over", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   handOverOnCall: { method: "POST", path: "/v1/on-call/handover", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
+  importBudget: { method: "POST", path: "/v1/budgets/{year}/import", pathParams: ["year"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   importSpend: { method: "POST", path: "/v1/marketing/spend/import", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   importSpendFile: { method: "POST", path: "/v1/marketing/spend/file", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   installApp: { method: "POST", path: "/v1/apps", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -20464,6 +20991,7 @@ export const OPERATIONS = {
   listContracts: { method: "GET", path: "/v1/contracts", pathParams: [], queryParams: ["customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listConversations: { method: "GET", path: "/v1/conversations", pathParams: [], queryParams: ["limit","cursor","status","customerId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["message:read"] },
   listConversionSends: { method: "GET", path: "/v1/marketing/conversion-sends", pathParams: [], queryParams: ["state","provider","jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  listCostingRates: { method: "GET", path: "/v1/costing/rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
   listCreditNotes: { method: "GET", path: "/v1/credit-notes", pathParams: [], queryParams: ["cursor","limit","customerId","invoiceId","status"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
   listCrewRates: { method: "GET", path: "/v1/payroll/crew-rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   listCrews: { method: "GET", path: "/v1/crews", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -20489,6 +21017,7 @@ export const OPERATIONS = {
   listExternalWorkOrders: { method: "GET", path: "/v1/external-work-orders", pathParams: [], queryParams: ["state","sourceSystem","pendingPush","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listExternalWorkSources: { method: "GET", path: "/v1/external-work-sources", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listFieldPeople: { method: "GET", path: "/v1/field/technicians", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listFinancingApplications: { method: "GET", path: "/v1/financing/applications", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listForms: { method: "GET", path: "/v1/marketing/forms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listIncidents: { method: "GET", path: "/v1/safety/incidents", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   listInspectionPrograms: { method: "GET", path: "/v1/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -20503,6 +21032,7 @@ export const OPERATIONS = {
   listJobTypes: { method: "GET", path: "/v1/job-types", pathParams: [], queryParams: ["includeInactive"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
   listJournal: { method: "GET", path: "/v1/ledger/journal", pathParams: [], queryParams: ["from","to","jobId","customerId","accountCode","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
+  listJournalEntries: { method: "GET", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listKpiCatalogue: { method: "GET", path: "/v1/kpi-catalogue", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listLeadConnectors: { method: "GET", path: "/v1/lead-connectors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   listLeadFieldTargets: { method: "GET", path: "/v1/lead-connectors/fields", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -20666,6 +21196,7 @@ export const OPERATIONS = {
   recordServiceRouteStopServiced: { method: "POST", path: "/v1/service-routes/stops/{id}/serviced", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordSpend: { method: "POST", path: "/v1/marketing/spend", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   recordUnitOutcome: { method: "POST", path: "/v1/visits/{visitId}/units/{equipmentId}/outcome", pathParams: ["visitId","equipmentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
+  refreshFinancingApplication: { method: "POST", path: "/v1/financing/applications/{id}/refresh", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   refundDeposit: { method: "POST", path: "/v1/deposits/{id}/refund", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:refund"] },
   refundPayment: { method: "POST", path: "/v1/payments/{paymentId}/refund", pathParams: ["paymentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   refuseAppRequest: { method: "POST", path: "/v1/apps/{id}/refuse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -20677,7 +21208,9 @@ export const OPERATIONS = {
   releasePhoneNumber: { method: "POST", path: "/v1/marketing/tracking-numbers/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   releaseRetentionHold: { method: "POST", path: "/v1/compliance/retention/holds/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   releaseStock: { method: "POST", path: "/v1/stock/releases", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  removeBudgetLine: { method: "DELETE", path: "/v1/budgets/{year}/lines/{line}", pathParams: ["year","line"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeChangeOrderLine: { method: "DELETE", path: "/v1/project-change-orders/{changeOrderId}/lines/{lineId}", pathParams: ["changeOrderId","lineId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  removeCostingRate: { method: "DELETE", path: "/v1/costing/rates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeCustomer: { method: "POST", path: "/v1/customers/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:delete"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -20719,6 +21252,7 @@ export const OPERATIONS = {
   retryConversionSend: { method: "POST", path: "/v1/marketing/conversion-sends/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   returnAssetToService: { method: "POST", path: "/v1/rentable-assets/{id}/in-service", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   reverseCommission: { method: "POST", path: "/v1/commissions/reversals", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
+  reverseJournalEntry: { method: "POST", path: "/v1/ledger/journal-entries/{id}/reverse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post"] },
   reversePriceChange: { method: "POST", path: "/v1/pricebook/price-changes/{id}/reverse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   reviewAppRequest: { method: "GET", path: "/v1/apps/{id}/request", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   revisePriceBookItem: { method: "POST", path: "/v1/pricebook/items/{id}/revise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -20748,6 +21282,7 @@ export const OPERATIONS = {
   sendChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:send","portal:grant"] },
   sendCollectionReminder: { method: "POST", path: "/v1/ai/collections/reminders/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   sendEstimate: { method: "POST", path: "/v1/estimates/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:send","portal:grant"] },
+  sendFinancingLink: { method: "POST", path: "/v1/financing/applications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   sendInvoice: { method: "POST", path: "/v1/invoices/{invoiceId}/send", pathParams: ["invoiceId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   sendQueuedEmail: { method: "POST", path: "/v1/email/send-queued", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   sendReportScheduleNow: { method: "POST", path: "/v1/report-schedules/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
@@ -20757,8 +21292,10 @@ export const OPERATIONS = {
   setArrivalWindows: { method: "PUT", path: "/v1/booking/arrival-windows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setAssetMaintenancePlan: { method: "POST", path: "/v1/assets/{assetId}/maintenance-plans", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  setCostingRate: { method: "POST", path: "/v1/costing/rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setCrewMembers: { method: "PUT", path: "/v1/crews/{id}/members", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   setCustomerAdData: { method: "PUT", path: "/v1/customers/{id}/ad-data", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setCustomerReferrer: { method: "PUT", path: "/v1/customers/{id}/referrer", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
@@ -21719,6 +22256,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Post a manual journal entry.
+   *
+   * POST /v1/ledger/journal-entries. Needs ledger:post.
+   */
+  createJournalEntry(input: CreateJournalEntryInput, options?: CallOptions): Promise<CreateJournalEntryOutput> {
+    return this.call("createJournalEntry", input, options);
+  }
+
+  /**
    * Set up a lead source and get its URL and signing secret.
    *
    * POST /v1/lead-connectors. Needs integration:write.
@@ -22529,6 +23075,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The year's budget against the ledger, by line and month, with variance.
+   *
+   * GET /v1/budgets/{year}. Needs report.financial:read.
+   */
+  getBudgetReport(input: GetBudgetReportInput, options?: CallOptions): Promise<GetBudgetReportOutput> {
+    return this.call("getBudgetReport", input, options);
+  }
+
+  /**
    * Get a call.
    *
    * GET /v1/calls/{id}. Needs message:read.
@@ -22781,6 +23336,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Financing on one estimate: a monthly figure per option and the applications.
+   *
+   * GET /v1/estimates/{estimateId}/financing. Needs estimate:read.
+   */
+  getEstimateFinancing(input: GetEstimateFinancingInput, options?: CallOptions): Promise<GetEstimateFinancingOutput> {
+    return this.call("getEstimateFinancing", input, options);
+  }
+
+  /**
    * An estimate as the customer's proposal.
    *
    * GET /v1/estimates/{id}/proposal. Needs estimate:read.
@@ -22823,6 +23387,15 @@ export abstract class GeneratedOperations {
    */
   getFieldSnapshot(input: GetFieldSnapshotInput, options?: CallOptions): Promise<GetFieldSnapshotOutput> {
     return this.call("getFieldSnapshot", input, options);
+  }
+
+  /**
+   * Applications, approval rate, funded volume and fees.
+   *
+   * GET /v1/financing/report. Needs report.financial:read.
+   */
+  getFinancingReport(input: GetFinancingReportInput = {} as GetFinancingReportInput, options?: CallOptions): Promise<GetFinancingReportOutput> {
+    return this.call("getFinancingReport", input, options);
   }
 
   /**
@@ -22898,6 +23471,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Financing on one invoice: the monthly figure and the applications.
+   *
+   * GET /v1/invoices/{invoiceId}/financing. Needs invoice:read.
+   */
+  getInvoiceFinancing(input: GetInvoiceFinancingInput, options?: CallOptions): Promise<GetInvoiceFinancingOutput> {
+    return this.call("getInvoiceFinancing", input, options);
+  }
+
+  /**
    * Get a job.
    *
    * GET /v1/jobs/{id}. Needs job:read.
@@ -22931,6 +23513,15 @@ export abstract class GeneratedOperations {
    */
   getJobProfitability(input: GetJobProfitabilityInput, options?: CallOptions): Promise<GetJobProfitabilityOutput> {
     return this.call("getJobProfitability", input, options);
+  }
+
+  /**
+   * One manual journal entry and its lines.
+   *
+   * GET /v1/ledger/journal-entries/{id}. Needs ledger:read.
+   */
+  getJournalEntry(input: GetJournalEntryInput, options?: CallOptions): Promise<GetJournalEntryOutput> {
+    return this.call("getJournalEntry", input, options);
   }
 
   /**
@@ -23456,6 +24047,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Load a year's budget from a spreadsheet.
+   *
+   * POST /v1/budgets/{year}/import. Needs finance:configure.
+   */
+  importBudget(input: ImportBudgetParams & ImportBudgetInput, options?: CallOptions): Promise<ImportBudgetOutput> {
+    return this.call("importBudget", input, options);
+  }
+
+  /**
    * Bring a whole export in at once.
    *
    * POST /v1/marketing/spend/import. Needs adspend:write.
@@ -23951,6 +24551,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Labour burden and overhead rates, with the dates they took effect.
+   *
+   * GET /v1/costing/rates. Needs job.cost:read.
+   */
+  listCostingRates(input: ListCostingRatesInput = {} as ListCostingRatesInput, options?: CallOptions): Promise<ListCostingRatesOutput> {
+    return this.call("listCostingRates", input, options);
+  }
+
+  /**
    * Credit notes.
    *
    * GET /v1/credit-notes. Needs invoice:read.
@@ -24176,6 +24785,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Loan applications customers were sent, and where each stands.
+   *
+   * GET /v1/financing/applications. Needs payment:read.
+   */
+  listFinancingApplications(input: ListFinancingApplicationsInput = {} as ListFinancingApplicationsInput, options?: CallOptions): Promise<ListFinancingApplicationsOutput> {
+    return this.call("listFinancingApplications", input, options);
+  }
+
+  /**
    * The lead forms on the website.
    *
    * GET /v1/marketing/forms. Needs adspend:read.
@@ -24299,6 +24917,15 @@ export abstract class GeneratedOperations {
    */
   listJournal(input: ListJournalInput = {} as ListJournalInput, options?: CallOptions): Promise<ListJournalOutput> {
     return this.call("listJournal", input, options);
+  }
+
+  /**
+   * Manual journal entries, newest first.
+   *
+   * GET /v1/ledger/journal-entries. Needs ledger:read.
+   */
+  listJournalEntries(input: ListJournalEntriesInput = {} as ListJournalEntriesInput, options?: CallOptions): Promise<ListJournalEntriesOutput> {
+    return this.call("listJournalEntries", input, options);
   }
 
   /**
@@ -25769,6 +26396,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Ask the lender where an application stands now.
+   *
+   * POST /v1/financing/applications/{id}/refresh. Needs payment:collect.
+   */
+  refreshFinancingApplication(input: RefreshFinancingApplicationParams & RefreshFinancingApplicationInput, options?: CallOptions): Promise<RefreshFinancingApplicationOutput> {
+    return this.call("refreshFinancingApplication", input, options);
+  }
+
+  /**
    * Return or forfeit a deposit.
    *
    * POST /v1/deposits/{id}/refund. Needs deposit:refund.
@@ -25868,12 +26504,30 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a line out of the year's budget.
+   *
+   * DELETE /v1/budgets/{year}/lines/{line}. Needs finance:configure.
+   */
+  removeBudgetLine(input: RemoveBudgetLineParams & RemoveBudgetLineInput, options?: CallOptions): Promise<RemoveBudgetLineOutput> {
+    return this.call("removeBudgetLine", input, options);
+  }
+
+  /**
    * Take a line off a change order.
    *
    * DELETE /v1/project-change-orders/{changeOrderId}/lines/{lineId}. Needs estimate:write.
    */
   removeChangeOrderLine(input: RemoveChangeOrderLineParams & RemoveChangeOrderLineInput, options?: CallOptions): Promise<RemoveChangeOrderLineOutput> {
     return this.call("removeChangeOrderLine", input, options);
+  }
+
+  /**
+   * Remove a rate entered by mistake.
+   *
+   * DELETE /v1/costing/rates/{id}. Needs finance:configure.
+   */
+  removeCostingRate(input: RemoveCostingRateParams & RemoveCostingRateInput, options?: CallOptions): Promise<RemoveCostingRateOutput> {
+    return this.call("removeCostingRate", input, options);
   }
 
   /**
@@ -26246,6 +26900,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Reverse a manual journal entry.
+   *
+   * POST /v1/ledger/journal-entries/{id}/reverse. Needs ledger:post.
+   */
+  reverseJournalEntry(input: ReverseJournalEntryParams & ReverseJournalEntryInput, options?: CallOptions): Promise<ReverseJournalEntryOutput> {
+    return this.call("reverseJournalEntry", input, options);
+  }
+
+  /**
    * Undo a bulk change.
    *
    * POST /v1/pricebook/price-changes/{id}/reverse. Needs pricebook:write.
@@ -26507,6 +27170,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Open a loan application for an invoice or an estimate, and text or email the customer its link.
+   *
+   * POST /v1/financing/applications. Needs payment:collect.
+   */
+  sendFinancingLink(input: SendFinancingLinkInput, options?: CallOptions): Promise<SendFinancingLinkOutput> {
+    return this.call("sendFinancingLink", input, options);
+  }
+
+  /**
    * Send an invoice to the customer.
    *
    * POST /v1/invoices/{invoiceId}/send. Needs invoice:send.
@@ -26588,6 +27260,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set one budget line's twelve months.
+   *
+   * PUT /v1/budgets/{year}/lines. Needs finance:configure.
+   */
+  setBudgetLine(input: SetBudgetLineParams & SetBudgetLineInput, options?: CallOptions): Promise<SetBudgetLineOutput> {
+    return this.call("setBudgetLine", input, options);
+  }
+
+  /**
    * Set which days the company is open.
    *
    * PUT /v1/booking/hours. Needs booking:configure.
@@ -26603,6 +27284,15 @@ export abstract class GeneratedOperations {
    */
   setCertificationStatus(input: SetCertificationStatusParams & SetCertificationStatusInput, options?: CallOptions): Promise<SetCertificationStatusOutput> {
     return this.call("setCertificationStatus", input, options);
+  }
+
+  /**
+   * Set a burden or overhead rate from a date.
+   *
+   * POST /v1/costing/rates. Needs finance:configure.
+   */
+  setCostingRate(input: SetCostingRateInput, options?: CallOptions): Promise<SetCostingRateOutput> {
+    return this.call("setCostingRate", input, options);
   }
 
   /**

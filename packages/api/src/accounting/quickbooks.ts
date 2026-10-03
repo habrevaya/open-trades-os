@@ -3,7 +3,7 @@ import {
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
   type ExternalCreditApplication, type ExternalCreditNote, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
-  type ExternalPayment, type ExternalRef, type HttpTransport,
+  type ExternalJournal, type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
 
@@ -118,6 +118,8 @@ const KEY_FIELD: Record<AccountingEntityKind, { entity: string; field: string }>
   credit_note_application: { entity: "Payment", field: "PaymentRefNum" },
   /** The invoice that reverses a voided credit note. See `pushOutbound` in the sync. */
   credit_note_void: { entity: "Invoice", field: "DocNumber" },
+  /** A manual journal, as a JournalEntry numbered with its key. */
+  journal: { entity: "JournalEntry", field: "DocNumber" },
 };
 
 /**
@@ -672,6 +674,32 @@ export function createQuickBooksProvider(
             CustomerRef: { value: refund.customerExternalId },
           },
         }],
+      });
+    },
+
+    /**
+     * A manual journal as a JournalEntry, one line per side, numbered with its
+     * key so a lost response is found again by `findPushed`. QuickBooks wants
+     * a customer or vendor on a line to Accounts Receivable or Payable; the
+     * ledger refuses a journal to the receivable before it gets here, and a
+     * line to a payable account mapped over there is refused by QuickBooks
+     * with its own reason, which lands on the problems list.
+     */
+    async pushJournal(journal: ExternalJournal): Promise<PushResult> {
+      return create("JournalEntry", {
+        DocNumber: journal.idempotencyKey,
+        TxnDate: journal.postedOn,
+        CurrencyRef: { value: journal.currency },
+        PrivateNote: `Journal ${journal.number}: ${journal.memo}`.slice(0, 4000),
+        Line: journal.lines.map((line) => ({
+          Amount: amountOf(line.amount),
+          DetailType: "JournalEntryLineDetail",
+          Description: (line.description ?? journal.memo).slice(0, 4000),
+          JournalEntryLineDetail: {
+            PostingType: line.direction === "debit" ? "Debit" : "Credit",
+            AccountRef: { value: line.accountExternalId },
+          },
+        })),
       });
     },
 

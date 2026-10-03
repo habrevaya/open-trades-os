@@ -489,6 +489,8 @@ export const customerKey = (name: string): string => name.trim();
  * sequences overlap: credit note 12 and invoice 12 are different documents.
  */
 export const creditNoteKey = (number: number): string => `CN${number}`;
+/** A manual journal: its number behind OTJ, which no number a bookkeeper types begins with. */
+export const journalKey = (number: number): string => `OTJ${number}`;
 /** The invoice that reverses a voided credit note, numbered from it. */
 export const creditNoteVoidKey = (number: number): string => `CNV${number}`;
 /**
@@ -1406,6 +1408,95 @@ async function pushOutbound(
   }
 
   await pushCreditNotes(ctx, deps, connection, state, closedOn, limit, meteredRead, customerRef);
+  await pushJournals(ctx, deps, connection, state, closedOn, limit, meteredRead);
+}
+
+/**
+ * MANUAL JOURNALS, each as a journal in the books, oldest first.
+ *
+ * Read from the ledger, so what is sent is exactly what was posted here,
+ * line for line. Every account on the journal has to be mapped, and one that
+ * is not stops the journal and names the code, as it does for any document.
+ * A book whose adapter cannot take a journal records each one as a problem
+ * saying so, rather than leaving the books and this ledger to disagree in
+ * silence.
+ */
+async function pushJournals(
+  ctx: ServiceContext,
+  deps: SyncDeps,
+  connection: AccountingConnection,
+  state: PassState,
+  closedOn: string | null,
+  limit: number,
+  meteredRead: MeteredRead,
+): Promise<void> {
+  const link = alias(schema.accountingEntityLink, "journal_link");
+  const journals = await guardedRead(ctx, "accounting:sync", (tx) => tx.select({
+    id: schema.journalEntry.id,
+    number: schema.journalEntry.number,
+    occurredOn: schema.journalEntry.occurredOn,
+    memo: schema.journalEntry.memo,
+    currency: schema.journalEntry.currency,
+  }).from(schema.journalEntry)
+    .leftJoin(link, and(
+      eq(link.connectionId, connection.id),
+      eq(link.kind, "journal"),
+      eq(link.entityId, schema.journalEntry.id),
+    ))
+    .where(and(
+      eq(schema.journalEntry.organizationId, ctx.actor.organizationId),
+      offerable(link.id, link.state),
+      afterClose(schema.journalEntry.occurredOn, closedOn),
+    ))
+    .orderBy(asc(schema.journalEntry.number))
+    .limit(limit));
+
+  for (const journal of journals) {
+    const key = journalKey(journal.number);
+    const push = deps.provider.pushJournal?.bind(deps.provider);
+    if (!push) {
+      await recordRefusal(ctx, connection.id, "journal", journal.id, key,
+        `${deps.provider.name} cannot be sent a manual journal from here. Enter journal ${journal.number} there by hand.`);
+      state.failed += 1;
+      continue;
+    }
+    const resolved = await guardedRead(ctx, "accounting:sync", async (tx) => {
+      const lines = await tx.select({
+        accountCode: schema.ledgerEntry.accountCode,
+        direction: schema.ledgerEntry.direction,
+        amount: schema.ledgerEntry.amount,
+        memo: schema.ledgerEntry.memo,
+      }).from(schema.ledgerEntry)
+        .where(and(eq(schema.ledgerEntry.sourceType, "journal"), eq(schema.ledgerEntry.sourceId, journal.id)))
+        .orderBy(asc(schema.ledgerEntry.createdAt));
+      return { lines, accounts: await mappingsFor(tx, connection.id, [...new Set(lines.map((l) => l.accountCode))]) };
+    });
+    if (!resolved.accounts.ok) {
+      await recordRefusal(ctx, connection.id, "journal", journal.id, key, resolved.accounts.message);
+      state.failed += 1;
+      continue;
+    }
+    const accounts = resolved.accounts.value;
+    await pushOne(ctx, connection.id, state, meteredRead, {
+      kind: "journal",
+      entityId: journal.id,
+      idempotencyKey: key,
+      send: () => push({
+        idempotencyKey: key,
+        number: journal.number,
+        postedOn: journal.occurredOn,
+        currency: journal.currency,
+        memo: journal.memo,
+        lines: resolved.lines.map((line) => ({
+          accountExternalId: accounts[line.accountCode]!.externalId,
+          direction: line.direction,
+          amount: { amount: line.amount, currency: journal.currency },
+          description: line.memo,
+        })),
+      }),
+      find: (k) => deps.provider.findPushed("journal", k),
+    });
+  }
 }
 
 /**

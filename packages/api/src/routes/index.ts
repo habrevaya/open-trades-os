@@ -27,6 +27,7 @@ import {
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
   safety, retention,
+  financing, costing, budgets, journals,
 } from "../services/index";
 
 /**
@@ -452,6 +453,11 @@ export const handlers = {
 
   getJobProfitability: profitability.handlers.getJobProfitability,
   getProfitabilitySummary: profitability.handlers.getProfitabilitySummary,
+  /** Consumer financing (M13), the costing rates and the budget (M15), manual journals (M14). */
+  ...financing.handlers,
+  ...costing.handlers,
+  ...budgets.handlers,
+  ...journals.handlers,
 
   listCrews: crews.handlers.listCrews,
   createCrew: crews.handlers.createCrew,

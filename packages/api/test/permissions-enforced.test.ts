@@ -57,17 +57,8 @@ const SRC = [
  * file somebody reads to find out what is missing.
  */
 const OWED_BY_UNBUILT_MODULES = new Map<string, string>([
-  /**
-   * `ledger:post` stays, and not because nobody got to it. A posting in this
-   * product is a consequence of a guarded business action: invoicing, taking
-   * a payment, writing one off. There is no bare journal entry surface and
-   * there should not be one, because an operator who can post freely can make
-   * the books say anything with no document behind it. The permission exists
-   * for the day a manual journal is genuinely needed.
-   */
   ["billing:manage", "The company's own subscription to this product. Not a module here."],
   ["job:delete", "M10 cancels rather than deletes, deliberately."],
-  ["ledger:post", "M14. Postings are a consequence of a guarded business action, never a bare entry. A manual journal has no surface."],
 ]);
 
 function sources(dir: string): string[] {

@@ -63,6 +63,10 @@ type Refused =
   | { file: string; how: "check"; says: string };
 
 const REFUSED: Record<string, Refused> = {
+  /** A second burden or overhead rate for one component on one day: "which rate applied" would have two answers. */
+  costing_rate_day_idx: { file: "costing.ts", how: "check", says: "already has a rate from" },
+  /** A journal reversed twice, which would take the same money back twice. */
+  journal_entry_reverses_idx: { file: "journals.ts", how: "check", says: "was already reversed by journal" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
@@ -130,6 +134,10 @@ const REFUSED: Record<string, Refused> = {
  * the symptom of something much worse than a typo.
  */
 const LEFT_TO_THE_DATABASE: Record<string, string> = {
+  journal_entry_number_idx: "Allocated by the numbering service, in its own sequence.",
+  financing_application_external_idx: "The lender's own id for an application, written once when the lender opens it. Nobody types it.",
+  budget_year_idx: "Made on the first write to a year with on conflict do nothing, so a second write finds it rather than colliding.",
+  budget_line_cell_idx: "Written with on conflict do update: setting a month again replaces the figure, which is what the screen means.",
   /* --- numbers and sequences this product generates --- */
   invoice_number_idx: "The invoice number is allocated by the numbering service under a lock.",
   estimate_number_idx: "Allocated by the numbering service.",

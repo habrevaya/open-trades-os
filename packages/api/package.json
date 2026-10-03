@@ -14,6 +14,7 @@
     "./marketing": "./src/marketing/index.ts",
     "./mcp": "./src/mcp/index.ts",
     "./payments": "./src/payments/index.ts",
+    "./financing": "./src/financing/index.ts",
     "./ai": "./src/ai/index.ts",
     "./calendar": "./src/calendar/index.ts",
     "./call-tracking": "./src/call-tracking/index.ts",

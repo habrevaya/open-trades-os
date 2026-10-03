@@ -35,6 +35,9 @@ import { work, type reporting } from "@opentradesos/core";
  * so rather than implying a trial balance behind it. When something posts
  * COGS, these two fragments are where the reads move.
  */
+/** The company's own zone, for a day in its calendar, with the fallback the session resolver uses. */
+const COMPANY_ZONE = "coalesce((select o.timezone from public.organization o where o.id = job.organization_id), 'America/Chicago')";
+
 export const JOB_COSTING_SQL = {
   /**
    * REVENUE RECOGNISED ON THE JOB, net of discount and excluding tax.
@@ -236,6 +239,68 @@ export const JOB_COSTING_SQL = {
    * reads as the most profitable work in the company. Counting those jobs is
    * what stops a league table being topped by the work nobody recorded.
    */
+  /**
+   * LABOUR BURDEN AT THE COMPANY'S OWN RATES, each punch at the rates in
+   * effect on the day it started in the company's calendar.
+   *
+   * The employer's payroll taxes, benefits and workers' compensation, which
+   * the loaded rate above does not hold unless a wage scale's fringe was set
+   * to include them. A percentage is of the BASE wage on the punch, because
+   * those costs are charged on wages and the fringe is a benefit already
+   * counted; a per hour figure is per paid hour. A punch with no base rate
+   * carries only the per hour part, and is named as unpriced already.
+   *
+   * Zero for a company that set no rates, which is every company until it
+   * does: nothing here is a default somebody did not choose. The same rules in
+   * TypeScript are `costing.labourBurden` in core, and an integration test
+   * holds the two to each other.
+   */
+  labourBurden: `(
+    select coalesce(sum((tc.minutes::numeric / 60) * (
+      select coalesce(sum(case cr.basis
+        when 'per_hour' then cr.rate
+        when 'percent_of_wages' then coalesce(tc.applied_base_rate, 0) * cr.rate / 100
+        else 0 end), 0)
+      from public.costing_rate cr
+      where cr.organization_id = job.organization_id
+        and cr.component in ('payroll_taxes', 'benefits', 'workers_comp')
+        and cr.effective_from = (
+          select max(c2.effective_from) from public.costing_rate c2
+          where c2.organization_id = cr.organization_id and c2.component = cr.component
+            and c2.effective_from <= (tc.started_at at time zone ${COMPANY_ZONE})::date
+        )
+    )), 0)
+    from public.timeclock_entry tc
+    where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
+  )`,
+
+  /**
+   * OVERHEAD CHARGED TO THE JOB, at the overhead rate in effect on the job's
+   * day (finished, or started while it runs), by whichever basis the company
+   * chose: per paid hour on it, a flat amount per job, or a share of its
+   * revenue. None on a cancelled job. Zero with no rate set.
+   */
+  overhead: `(case when job.status = 'cancelled' then 0 else coalesce((
+    select case cr.basis
+      when 'per_job' then cr.rate
+      when 'per_hour' then cr.rate * (
+        select coalesce(sum(tc.minutes), 0)::numeric / 60
+        from public.timeclock_entry tc
+        where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
+      )
+      when 'percent_of_revenue' then cr.rate / 100 * (
+        select coalesce(sum(case when le.direction = 'credit' then le.amount else -le.amount end), 0)
+        from public.ledger_entry le
+        where le.job_id = job.id and le.account_code in ('4000', '4100', '4900')
+      )
+      else 0 end
+    from public.costing_rate cr
+    where cr.organization_id = job.organization_id and cr.component = 'overhead'
+      and cr.effective_from <= (coalesce(job.completed_at, job.created_at) at time zone ${COMPANY_ZONE})::date
+    order by cr.effective_from desc
+    limit 1
+  ), 0) end)`,
+
   labourNotRecorded: `(case when not exists (
     select 1 from public.timeclock_entry tc
     where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
@@ -261,6 +326,19 @@ export const JOB_COSTING_SQL = {
 export const GROSS_MARGIN_SQL =
   `(${JOB_COSTING_SQL.revenue} - ${JOB_COSTING_SQL.materialCost}`
   + ` - ${JOB_COSTING_SQL.labourCost} - ${JOB_COSTING_SQL.processingFees})`;
+
+/**
+ * FULLY LOADED MARGIN: the gross margin above, less labour burden and
+ * overhead at the rates the company set on its costing settings.
+ *
+ * Beside the gross margin and never instead of it. Everything the comment
+ * above says about overhead is still true of a DEFAULT, which is why there is
+ * none: with no rates set the two margins are equal. What changes is that an
+ * owner who has decided what an hour and a job carry can see the margin that
+ * decision implies, and the statement says which rates did it.
+ */
+export const FULLY_LOADED_MARGIN_SQL =
+  `(${GROSS_MARGIN_SQL} - ${JOB_COSTING_SQL.labourBurden} - ${JOB_COSTING_SQL.overhead})`;
 
 /**
  * WHETHER THIS JOB'S MARGIN IS FINISHED BEING WRONG.
@@ -495,6 +573,18 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
     {
       key: "gross_margin", label: "Gross margin (no overhead)", kind: "sum", type: "money",
       permission: "job.cost:read", sql: GROSS_MARGIN_SQL,
+    },
+    {
+      key: "labour_burden", label: "Labour burden", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.labourBurden,
+    },
+    {
+      key: "overhead", label: "Overhead", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overhead,
+    },
+    {
+      key: "fully_loaded_margin", label: "Fully loaded margin", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: FULLY_LOADED_MARGIN_SQL,
     },
     {
       key: "unbilled_cost", label: "Unbilled cost", kind: "sum", type: "money",
