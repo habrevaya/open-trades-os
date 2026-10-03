@@ -784,7 +784,9 @@ export async function getCall(ctx: ServiceContext, input: { id: string }) {
       transcriptStatus: row.call.transcriptStatus,
       transcriptError: row.call.transcriptError,
       transcriptSource: row.call.transcriptSource,
-      transcriptRedactions: row.call.transcriptRedactionCounts ?? {},
+      /** Only what was actually removed: "0 card numbers" is a sentence nobody needs. */
+      transcriptRedactions: Object.fromEntries(Object.entries(row.call.transcriptRedactionCounts ?? {})
+        .filter(([, n]) => n > 0)),
       transcriptReliable: row.call.transcriptSegments && row.call.transcriptSegments.length > 0
         ? tr.assessQuality(row.call.transcriptSegments).actOnAutomatically
         : null,

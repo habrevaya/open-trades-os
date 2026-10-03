@@ -12,6 +12,15 @@ import { transcribeNow } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+/** What a removed thing is called, in the singular, for "Removed before it was stored". */
+const REDACTED: Record<string, string> = {
+  card_number: "card number",
+  card_security_code: "card security code",
+  ssn: "social security number",
+  bank_routing_number: "bank routing number",
+  bank_account_number: "bank account number",
+};
+
 /**
  * A CALL, INTO A CUSTOMER AND A JOB
  *
@@ -104,7 +113,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               {Object.keys(call.transcriptRedactions).length > 0 ? (
                 <p className="mt-1 text-sm text-ink-500">
                   Removed before it was stored: {Object.entries(call.transcriptRedactions)
-                    .map(([kind, n]) => `${n} ${kind.replace(/_/g, " ")}${n === 1 ? "" : "s"}`).join(", ")}.
+                    .map(([kind, n]) => `${n} ${REDACTED[kind] ?? kind.replace(/_/g, " ")}${n === 1 ? "" : "s"}`).join(", ")}.
                 </p>
               ) : null}
               <ol className="mt-2 space-y-1.5 text-sm">

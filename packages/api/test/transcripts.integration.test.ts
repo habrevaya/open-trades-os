@@ -152,7 +152,7 @@ run("a kept recording, written out", () => {
   it("shows the transcript on the call, with its times and what was taken out", async () => {
     const call = await marketingReport.getCall(owner(), { id: callId });
     expect(call.transcript[0]).toMatchObject({ at: "00:00", text: "My water heater is leaking in the garage." });
-    expect(call.transcriptRedactions).toMatchObject({ card_number: 1 });
+    expect(call.transcriptRedactions).toEqual({ card_number: 1 });
     expect(call.transcriptReliable).toBe(true);
   });
 

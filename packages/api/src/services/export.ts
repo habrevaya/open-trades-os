@@ -73,6 +73,12 @@ export const REDACTED: Record<string, Record<string, string>> = {
       + "were the partner. Exported connectors keep their name, URL and field map so the "
       + "connection can be rebuilt, and the token has to be reissued on both sides.",
   },
+  conversation: {
+    reply_token:
+      "A LIVE SECRET. It is the part of an email thread's reply address that decides which "
+      + "thread an incoming email lands in, so whoever holds it can put words into that "
+      + "customer's conversation. A new system mints its own reply addresses.",
+  },
   device: {
     push_token:
       "A live push credential for a specific phone. It identifies a device to a notification "
