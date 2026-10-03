@@ -27,6 +27,14 @@ export default async function PriceChangePage({ params }: { params: Promise<{ id
         {change.reversesId ? <> It undid <a href={`/pricebook/changes/${change.reversesId}`} className="underline underline-offset-4">an earlier change</a>.</> : null}
         {change.reversedById ? <> It was <a href={`/pricebook/changes/${change.reversedById}`} className="underline underline-offset-4">undone</a> later.</> : null}
       </p>
+      {change.skipped.length > 0 ? (
+        <section aria-label="Left alone" className="mt-4 rounded-md border border-amber-700 bg-amber-tint p-3 text-sm">
+          <p className="font-medium text-ink-900">Left alone, because they were changed again since:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {change.skipped.map((s) => <li key={s.itemId}><span className="font-mono">{s.code}</span>: {s.reason}</li>)}
+          </ul>
+        </section>
+      ) : null}
       <Table label="Prices" head={<><Th>Code</Th><Th>Name</Th><Th className="text-right">Before</Th><Th className="text-right">After</Th></>}>
         {change.lines.map((line) => (
           <tr key={line.itemId}>

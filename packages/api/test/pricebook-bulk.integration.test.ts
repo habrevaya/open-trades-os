@@ -282,5 +282,9 @@ run("undoing a change", () => {
     expect(undone.skipped).toEqual([expect.objectContaining({ code: "A-2", reason: expect.stringMatching(/changed again/) })]);
     expect((await versions(a)).at(-1)?.price).toBe("100.0000");
     expect((await versions(b)).at(-1)?.price).toBe("130.0000");
+    // Kept on the undo, so the answer outlives the button press.
+    expect((await repricing.lines(owner(), { id: undone.id })).skipped).toEqual([
+      expect.objectContaining({ code: "A-2" }),
+    ]);
   });
 });

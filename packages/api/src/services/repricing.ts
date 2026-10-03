@@ -318,7 +318,7 @@ export async function reverse(ctx: ServiceContext, input: { id: string }): Promi
     const description = `Undid "${batch.description}"`;
     const { batchId, changed } = back.length > 0
       ? await writeBatch(tx, ctx, {
-        kind: "reversal", description, rule: { reverses: batch.id }, selection: {}, reversesBatchId: batch.id, lines: back,
+        kind: "reversal", description, rule: { reverses: batch.id, skipped }, selection: {}, reversesBatchId: batch.id, lines: back,
       })
       : { batchId: null as string | null, changed: 0 };
     if (!batchId) {
@@ -392,6 +392,12 @@ export async function lines(ctx: ServiceContext, input: { id: string }) {
       appliedAt: batch.createdAt.toISOString(),
       reversesId: batch.reversesBatchId,
       reversedById: batch.reversedByBatchId,
+      /**
+       * The items an undo left alone because they had been changed again
+       * since, kept on the undo itself, so the answer to "why is this one
+       * still at the new price" outlives the moment the button was pressed.
+       */
+      skipped: Array.isArray(batch.rule["skipped"]) ? batch.rule["skipped"] as AppliedChange["skipped"] : [],
       lines: rows.map(({ line, code, name }) => ({
         itemId: line.itemId, code, name, priceBefore: line.priceBefore, priceAfter: line.priceAfter,
       })),

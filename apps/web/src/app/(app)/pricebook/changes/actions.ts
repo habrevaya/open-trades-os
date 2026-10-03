@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { repricing } from "@opentradesos/api/services";
@@ -41,18 +42,18 @@ export async function applyChange(_previous: FormState, form: FormData): Promise
   return state;
 }
 
-/** Put every price a change set back as it was, as new versions. */
+/**
+ * Put every price a change set back as it was, as new versions, and open the
+ * undo itself: it lists what it put back and what it left alone, which a
+ * message under a button that has just disappeared could not.
+ */
 export async function undoChange(_previous: FormState, form: FormData): Promise<FormState> {
+  let undone: string | null = null;
   const state = await attempt(form, async () => {
-    const done = await repricing.reverse(await ctx(), { id: String(form.get("id") ?? "") });
-    return {
-      message: `${done.changed === 1 ? "1 price" : `${done.changed} prices`} put back`
-        + (done.skipped.length > 0
-          ? `. Left alone, because they were changed again since: ${done.skipped.map((s) => s.code).join(", ")}.`
-          : "."),
-    };
+    undone = (await repricing.reverse(await ctx(), { id: String(form.get("id") ?? "") })).id;
   });
   revalidatePath("/pricebook/changes");
   revalidatePath("/pricebook");
+  if (undone) redirect(`/pricebook/changes/${undone}`);
   return state;
 }

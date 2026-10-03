@@ -219,6 +219,8 @@ export const getPriceChange = defineRoute({
     appliedAt: z.string(),
     reversesId: Uuid.nullable(),
     reversedById: Uuid.nullable(),
+    /** For an undo: the items it left alone because they had changed again since. */
+    skipped: z.array(z.object({ itemId: Uuid, code: z.string(), reason: z.string() })),
     lines: z.array(z.object({
       itemId: Uuid, code: z.string(), name: z.string(), priceBefore: MoneyString, priceAfter: MoneyString,
     })),
