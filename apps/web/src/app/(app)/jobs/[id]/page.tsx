@@ -4,11 +4,12 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
-  NotFoundError, acquisition, marketing, portalSettings, branches,
+  NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Authorize, Coverage } from "./Commercial";
+import { BillingPlanView, ContractAndDeadlines, CoverageFromUnit } from "./CommercialBilling";
 import { Priority } from "./Priority";
 import { Branch } from "./Branch";
 import { Parties } from "./Parties";
@@ -61,6 +62,23 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     acquisition.channelOptions(ctx),
     branches.options(ctx),
   ]);
+  /**
+   * WHO PAYS FOR OTHER PEOPLE'S WORK: customers with a contract, offered by
+   * name on the parties form, and the contracts the job could run under,
+   * which are the ones held by somebody on the job.
+   */
+  const allContracts = can(user.actor, "contract:read") ? await contracts.listContracts(ctx) : [];
+  const accounts = [...new Map([
+    ...allContracts.map((c) => [c.customerId, c.customerName] as const),
+    ...parties.filter((row) => row.party.customerId && row.party.customerId !== job.customerId)
+      .map((row) => [row.party.customerId!, row.customerName ?? ""] as const),
+  ]).entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  const involved = new Set([job.customerId, ...parties.map((row) => row.party.customerId).filter(Boolean)]);
+  const contractOptions = allContracts.filter((c) => involved.has(c.customerId))
+    .map((c) => ({ id: c.id, label: `${c.name}, ${c.customerName}` }));
+  const clocks = await jobBilling.clocks(ctx, { jobId: id });
+  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id }) : null;
+
   /** The evidence behind the source, for whoever reads the marketing figures. */
   const attribution = can(user.actor, "adspend:read")
     ? await marketing.handlers.getJobAttribution(ctx, { jobId: id })
@@ -192,6 +210,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           jobId={id}
           customerId={job.customerId}
           customerName={customer.name}
+          accounts={accounts}
           roles={roles.PARTY_ROLES.map((role) => {
             const held = parties.find((row) => row.party.role === role.key);
             return {
@@ -203,6 +222,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                     isCustomer: held.party.customerId !== null,
                     name: held.customerName ?? held.party.externalName ?? "",
                     reference: held.party.externalReference ?? "",
+                    accountId: held.party.customerId && held.party.customerId !== job.customerId ? held.party.customerId : null,
+                    share: held.party.sharePercent
+                      ? `${Number(held.party.sharePercent) * 100}%`
+                      : held.party.shareAmount ? money.edit(money.money(held.party.shareAmount, "USD")) : "",
                   }
                 : null,
             };
@@ -228,10 +251,16 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             key, label: cov.COVERAGE[key].label, description: cov.COVERAGE[key].description,
           }))}
           current={entitlement
-            ? { source: entitlement.source, externalReference: entitlement.externalReference }
+            ? {
+                source: entitlement.source,
+                externalReference: entitlement.externalReference,
+                customerResponsibility: entitlement.customerResponsibility
+                  ? money.edit(money.money(entitlement.customerResponsibility, "USD")) : null,
+              }
             : null}
         />
       ) : null}
+      {writes && job.equipmentId ? <CoverageFromUnit jobId={id} /> : null}
 
       <h2 className="mt-10 text-base font-semibold">Authorised</h2>
       {authorization ? (
@@ -274,6 +303,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             externalReference: authorization.externalReference,
           }
         : null} /> : null}
+
+      <ContractAndDeadlines jobId={id} clocks={clocks} options={contractOptions} writes={writes}
+                            timezone={user.organizationTimezone} />
 
       {costing && <Costing data={costing} />}
 
@@ -353,6 +385,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       )}
 
       <UsedOnJob lines={used} />
+
+      {plan && (plan.lines.length > 0 || plan.existing.length === 0) && job.status !== "cancelled" && (
+        <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} />
+      )}
 
       {(invoices.length > 0 || canInvoice) && (
         <section aria-label="Invoices">

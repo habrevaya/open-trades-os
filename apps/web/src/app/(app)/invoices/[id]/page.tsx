@@ -3,8 +3,9 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
+  claims as claimService, entitlements,
 } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, claims, rates } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
@@ -14,7 +15,8 @@ import { InvoiceActions } from "./Panels";
 import { actOnInvoice } from "../actions";
 import { startCardPayment } from "../../payments/actions";
 import { PayNow } from "../../../(portal)/PayNow";
-import { ActionForm, Select, TextArea } from "@/components/ActionForm";
+import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
+import { fileClaim } from "../claims/actions";
 import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../credit-notes/labels";
 import { creditInvoice } from "../credit-notes/actions";
 
@@ -65,6 +67,15 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     ? (await payments.status(ctx)).connected
     : true);
   const zero = (v: string) => Number(v) === 0;
+  /** A claim on this invoice, or whether one could be filed: a third party's invoice on a covered job. */
+  const [claim] = can(user.actor, "invoice:read") && invoice.jobId
+    ? (await claimService.list(ctx, { jobId: invoice.jobId })).filter((c) => c.invoiceId === invoice.id)
+    : [];
+  const coveredBy = invoice.jobId && can(user.actor, "job:read")
+    ? await entitlements.forJob(ctx, { jobId: invoice.jobId })
+    : null;
+  const claimable = !claim && can(user.actor, "invoice:write") && job !== null && coveredBy?.profile.billsAThirdParty === true
+    && invoice.customerId !== job.customerId && invoice.status !== "draft" && invoice.status !== "void";
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -116,6 +127,17 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                   : <Money value={line.memberDiscountAmount!} />
                 </p>
               ) : null}
+              {/*
+                Whose price it is, on every line that recorded one. The first
+                question a commercial client asks of a rejected invoice, and the
+                answer has to be on the document rather than in somebody's head.
+              */}
+              {line.priceAuthority ? (
+                <p className="mt-0.5 text-xs text-ink-500">
+                  Priced by {rates.authorityLabel(line.priceAuthority)}
+                  {line.priceNote ? `: ${line.priceNote}` : ""}
+                </p>
+              ) : null}
             </Td>
             <Td className="text-right font-mono tabular-nums">{Number(line.quantity)}</Td>
             <Td className="text-right"><Money value={line.unitPrice} /></Td>
@@ -133,6 +155,31 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <dt className="text-ink-500">Tax</dt><dd className="text-right"><Money value={invoice.taxTotal} /></dd>
         <dt className="font-medium">Total</dt><dd className="text-right font-medium"><Money value={invoice.total} /></dd>
       </dl>
+
+      {/*
+        THE CLAIM, for an invoice to a third party on a covered job. Filed
+        here because this invoice is the receivable the claim is about; once
+        filed, the claim is its own document with its own page.
+      */}
+      {claim ? (
+        <p className="mt-6 text-sm text-ink-700">
+          Claimed from {claim.payerName}
+          {claim.externalReference ? ` (${claim.externalReference})` : ""}:{" "}
+          <a href={`/invoices/claims/${claim.id}`} className="underline">{claims.CLAIM_STATUS_LABEL[claim.status].toLowerCase()}</a>.
+        </p>
+      ) : claimable ? (
+        <section aria-label="Claim" className="mt-6 rounded-md border border-steel-200 p-4">
+          <h2 className="text-base font-semibold">File the claim</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            This invoice is to whoever covers the work. Filing the claim records
+            their reference and meets the contract&rsquo;s claim deadline.
+          </p>
+          <ActionForm action={fileClaim} submit="File the claim" hidden={{ invoiceId: invoice.id }}
+                      className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Their claim or authorisation number" name="externalReference" />
+          </ActionForm>
+        </section>
+      ) : null}
 
       {collects && (
         <section aria-label="Take payment" className="mt-8 rounded-md border border-steel-200 p-4">

@@ -71,7 +71,7 @@ export function Coverage({
 }: {
   jobId: string;
   sources: { key: string; label: string; description: string }[];
-  current: { source: string; externalReference: string | null } | null;
+  current: { source: string; externalReference: string | null; customerResponsibility: string | null } | null;
 }) {
   const [state, submitForm, pending] = useKeptAction(setCoverage, null);
 
@@ -103,6 +103,14 @@ export function Coverage({
           name="coverageReference" placeholder="44812"
           defaultValue={current?.externalReference ?? ""}
           className="mt-1 h-9 w-40 rounded border border-steel-300 px-2"
+        />
+      </label>
+      <label className="text-sm">
+        <span className="block text-ink-700">Deductible or call fee</span>
+        <input
+          name="customerResponsibility" inputMode="decimal" placeholder="100.00"
+          defaultValue={current?.customerResponsibility ?? ""}
+          className="mt-1 h-9 w-32 rounded border border-steel-300 px-2 font-mono"
         />
       </label>
       <button type="submit" disabled={pending}
