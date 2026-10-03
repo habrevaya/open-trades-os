@@ -216,7 +216,7 @@ export function collectionsPrompt(input: {
       "- State the amount owed exactly as given, with a dollar sign. Mention no other amount.",
       "- Do not write a link: the payment link is added after your words.",
       "- Do not threaten anything the company has not said it will do. Do not mention fees or interest.",
-      input.facts.channel === "text" ? "- This goes by text: two or three short sentences." : "- This goes by email: a short subject and a few short sentences.",
+      input.facts.channel === "text" ? "- This goes by text: two or three short sentences." : "- This goes by email, above the invoice and its payment button: a few short sentences.",
     ].join("\n"),
     user: block("The invoice", {
       ...input.facts,

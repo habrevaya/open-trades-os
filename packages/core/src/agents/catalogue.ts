@@ -300,17 +300,16 @@ export const AGENTS: Readonly<Record<AgentKind, AgentDefinition>> = {
       {
         name: "draft_reminder",
         description:
-          "Write the reminder. Use the amount owed exactly as given and no other amount. The payment link is added "
-          + "for you; do not write one.",
+          "Write the reminder. Use the amount owed exactly as given and no other amount. The payment link, and by "
+          + "email the invoice itself, are added for you; do not write a link.",
         permissions: ["invoice:send"],
         consequential: true,
         inputSchema: {
           type: "object",
           properties: {
-            subject: text(150, "An email subject line."),
-            body: text(1200, "The message, in plain words, without a link."),
+            body: text(500, "The message, in plain words, without a link."),
           },
-          required: ["subject", "body"],
+          required: ["body"],
         },
       },
     ],
