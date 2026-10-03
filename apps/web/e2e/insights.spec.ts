@@ -87,7 +87,7 @@ test("a unit opens on its own page from the records behind a report, through the
   const visitId = job.visits[0]!.id;
   expect((await owner.request.put(`/api/v1/visits/${visitId}/units`, { data: { equipmentIds: [unitId] } })).ok()).toBe(true);
   expect((await owner.request.post(`/api/v1/visits/${visitId}/units/${unitId}/outcome`, {
-    data: { outcome: "pass", notes: "Coil clean, pressures good" },
+    data: { outcome: "serviced", notes: "Coil clean, pressures good" },
   })).ok()).toBe(true);
 
   // The report, and the number for unassigned visits: the records behind it.

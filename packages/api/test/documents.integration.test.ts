@@ -59,13 +59,15 @@ beforeAll(async () => {
   const issued = await billing.create(owner(), {
     customerId, issuedOn: today(),
     lines: [
-      { name: "Capacitor replacement", quantity: "1", unitPrice: "189.00", unitCost: "24.00", discountAmount: "0", taxable: false },
+      { name: "Capacitor replacement", quantity: "1", unitPrice: "189.00", discountAmount: "0", taxable: false },
       { name: "Service call", quantity: "1", unitPrice: "99.00", discountAmount: "0", taxable: false },
     ],
   });
   issuedId = issued.id as string;
   // The work's address, which an invoice takes from its job; this one has none, so it is set here.
   await raw`update public.invoice set property_id = ${propertyId} where id = ${issuedId}`;
+  // And what the part cost the company, which is on the line and never on the customer's paper.
+  await raw`update public.invoice_line set unit_cost = '24.0000' where invoice_id = ${issuedId} and name = 'Capacitor replacement'`;
   await billing.pay({ ...owner(), idempotencyKey: `docs-pay-${Date.now()}` }, {
     customerId, method: "cash", amount: "100.00", tipAmount: "0",
     allocations: [{ invoiceId: issuedId, amount: "100.00" }],
@@ -136,7 +138,7 @@ run("an invoice as a PDF", () => {
   it("refuses an invoice link used for an estimate, and somebody who may not read invoices", async () => {
     const token = await grant("estimate", estimateId);
     await expect(documents.invoicePdfForToken(db(), { token })).rejects.toThrow();
-    await expect(documents.invoicePdf(as(["marketing"] as Actor["roles"]), { id: issuedId }))
+    await expect(documents.invoicePdf(as([]), { id: issuedId }))
       .rejects.toBeInstanceOf(PermissionError);
   });
 

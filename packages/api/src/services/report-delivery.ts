@@ -292,7 +292,11 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
   const dataset = CATALOGUE.find((d) => d.key === definition.dataset);
   const kinds = new Map((dataset?.measures ?? []).map((measure) => [measure.key, measure.kind]));
   const additive = (key: string) => kinds.get(key) === "count" || kinds.get(key) === "sum";
-  const ownerName = input.ownerUserId ? people.get(input.ownerUserId)?.name ?? null : null;
+  /** A person by name, or by their address when they have not set one. */
+  const nameOf = (userId: string | null | undefined) => {
+    const person = userId ? people.get(userId) : undefined;
+    return person ? person.name ?? person.email : null;
+  };
   const base = publicBaseUrl();
   const query = new URLSearchParams();
   if (definition.from) query.set("from", definition.from);
@@ -321,7 +325,7 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
       name: named.name,
       question: named.question,
       period: range.label,
-      ranAs: recipient.userId ? people.get(recipient.userId)?.name ?? null : ownerName,
+      ranAs: nameOf(recipient.userId ?? input.ownerUserId),
       result: theirs,
       additive,
       filename: pdfName,
