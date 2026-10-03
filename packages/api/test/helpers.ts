@@ -173,11 +173,14 @@ const ORDER = [
    */
   "accounting_entity_link", "account_mapping", "accounting_period",
   /**
-   * Model spend, before the connection every row of it cascades from. The
+   * The agents' log, drafts, chats and settings first, because a draft points
+   * at the usage row it came from. Then model spend, before the connection
+   * every row of it cascades from. The
    * budget points at no connection at all, which is deliberate: a company's
    * monthly ceiling outlives whichever vendor's key it was holding when the
    * ceiling was set.
    */
+  "ai_agent_activity", "ai_agent_proposal", "ai_chat_session", "ai_agent_setting",
   "ai_usage", "ai_budget",
   /**
    * A sign in in flight, the sealed grant it left and the platform's

@@ -27,6 +27,7 @@ import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJob
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
 import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
+import { EstimateDrafts } from "./EstimateDrafts";
 
 export const dynamic = "force-dynamic";
 
@@ -353,6 +354,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       )}
 
       <UsedOnJob lines={used} />
+
+      <EstimateDrafts ctx={ctx} jobId={id} />
 
       {(invoices.length > 0 || canInvoice) && (
         <section aria-label="Invoices">

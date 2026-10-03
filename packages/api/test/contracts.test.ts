@@ -199,6 +199,21 @@ describe("permissions", () => {
        */
       "GET /v1/public/unsubscribe/{token}",
       "POST /v1/public/unsubscribe/{token}",
+      /**
+       * The website chat, which a visitor with no account opens on the
+       * company's own site. Whether it is on takes the company's public key
+       * and says nothing about anybody. A chat is reached only with the token
+       * its opening returned, of which only the hash is kept, sent in the body
+       * rather than an address a proxy logs; one chat's token reads that chat
+       * and no other. All four are counted per address, the chat's messages
+       * per chat as well, and the answers come from the facts the company
+       * chose to publish. The assistant acts as the person the company chose,
+       * and what it can make is a booking REQUEST the office confirms.
+       */
+      "GET /v1/public/chat",
+      "POST /v1/public/chat/messages",
+      "POST /v1/public/chat/sessions",
+      "POST /v1/public/chat/transcript",
     ].sort());
   });
 });
@@ -258,6 +273,11 @@ describe("money routes are idempotent", () => {
       "The same token as the password sign in, for the same reason, and the "
       + "code it spends is single use: a replay of a request that worked finds "
       + "the code already spent and is refused, so it cannot mint a second token.",
+    "/v1/public/chat/sessions":
+      "The response is the website chat's token and only its hash is stored, "
+      + "so a replay has nothing to return. A retry opens a second, empty chat "
+      + "that nobody writes in; it is counted against the visitor's address like "
+      + "the first, and the widget keeps whichever token it received.",
     "/v1/field/sign-in/code":
       "The effect is a text or an email with a fresh code, which replaces the "
       + "one before it. A replay sends another and the newest is the one that "

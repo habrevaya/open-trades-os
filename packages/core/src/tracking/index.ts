@@ -315,6 +315,9 @@ var out=[];for(var j=0;j<order.length;j++){out.push(order[j]+"="+encodeURICompon
  *      markers between them) is matched on its element's whole text. The page asks
  *      again every few minutes while it is open, which is what keeps the
  *      lease alive, and stops when it is hidden.
+ *   6. The website chat, when the company has turned its chat agent on: the
+ *      snippet asks whether it is on and only then loads `chat.js`, so a
+ *      company without it costs every visitor one small read and nothing else.
  */
 export function snippetSource(input: { apiBase: string; appBase: string; companyKey: string }): string {
   const config = JSON.stringify({ api: input.apiBase, app: input.appBase, key: input.companyKey });
@@ -353,7 +356,10 @@ function ask(){var x=new XMLHttpRequest();x.open("GET",C.api+"/v1/public/dni?com
 x.onload=function(){if(x.status!==200)return;var d;try{d=JSON.parse(x.responseText);}catch(e){return;}
 targets=[];for(var i=0;i<(d.targets||[]).length;i++){targets.push(otNational(d.targets[i]));}
 if(d.number){var was=shown;if(was){targets.push(otNational(was));}shown=d.number;if(was!==shown)walk(document.body);}};x.send();}
-function start(){links();identify();ask();setInterval(function(){if(!document.hidden)ask();},180000);}
+function chat(){if(document.getElementById("ot-chat-loader"))return;var x=new XMLHttpRequest();x.open("GET",C.api+"/v1/public/chat?companyKey="+encodeURIComponent(C.key),true);
+x.onload=function(){if(x.status!==200)return;var d;try{d=JSON.parse(x.responseText);}catch(e){return;}if(!d.enabled)return;
+var s=document.createElement("script");s.id="ot-chat-loader";s.async=true;s.src=C.app+"/chat.js?c="+encodeURIComponent(C.key);document.body.appendChild(s);};x.send();}
+function start(){links();identify();ask();chat();setInterval(function(){if(!document.hidden)ask();},180000);}
 function later(){var go=function(){if(window.requestIdleCallback){window.requestIdleCallback(start,{timeout:2000});}else{setTimeout(start,1);}};if(document.readyState==="complete"){go();}else{window.addEventListener("load",go);}}
 later();
 })();

@@ -2321,3 +2321,31 @@ returns table (organization_id uuid)
 
 revoke all on function app.ad_work_organizations(int) from public;
 grant execute on function app.ad_work_organizations(int) to background;
+-- COMPANIES WITH AN AI AGENT THAT RUNS ON ITS OWN
+--
+-- Intake, text chat and collections run on the worker's clock as the person
+-- each company chose, and only for companies that turned one on and chose
+-- that person. Ids and nothing else, in the same shape as the functions
+-- above; what each agent then reads, it reads inside the company's own
+-- tenant boundary as that person.
+-- =========================================================================
+
+create or replace function app.ai_agent_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select s.organization_id
+      from public.ai_agent_setting s
+     where s.agent in ('intake', 'chat', 'collections')
+       and s.run_as_user_id is not null
+       and (s.settings ->> 'enabled') = 'true'
+       and not exists (
+         select 1 from public.organization o
+          where o.id = s.organization_id and o.suspended_at is not null
+       )
+     group by s.organization_id
+     limit p_limit
+  $$;
+
+revoke all on function app.ai_agent_organizations(int) from public;
+grant execute on function app.ai_agent_organizations(int) to background;

@@ -221,6 +221,13 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
 
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",
+  ai_agent_setting_agent_idx: "One settings row per agent per company, upserted.",
+  ai_agent_proposal_open_idx:
+    "One open draft per agent per source. Inserted with on conflict do nothing, and the open draft is returned instead.",
+  ai_agent_proposal_idempotency_idx: "An idempotency key: a repeat is meant to collide and return the first draft.",
+  ai_chat_session_token_idx: "A random token's hash, generated here. A collision is a bug, not a duplicate somebody typed.",
+  ai_chat_session_conversation_idx:
+    "One chat per conversation. A text conversation's is inserted with on conflict do nothing, and a website chat makes its own conversation.",
   discount_policy_org_idx: "One policy per company, upserted.",
   setup_step_key_idx: "One row per setup step per company, upserted when a step is marked done or reopened.",
   asset_compliance_kind_idx: "One expiry per asset per kind, upserted by `setAssetObligation`.",

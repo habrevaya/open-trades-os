@@ -38,6 +38,11 @@ export default async function WebsitePage() {
       <pre className="mt-3 overflow-x-auto rounded-md border border-steel-200 bg-steel-100 p-3 text-xs">
         <code aria-label="The snippet to paste">{tag}</code>
       </pre>
+      <p className="mt-2 max-w-2xl text-sm text-ink-700">
+        With the website chat turned on under{" "}
+        <a href="/settings/agents" className="underline underline-offset-4">AI agents</a>, the same snippet also
+        shows a chat button. Nothing else to paste.
+      </p>
       <p className="mt-2 text-sm">
         <a href="/settings/website/test" className="underline underline-offset-4">Try it on a test page</a>
       </p>

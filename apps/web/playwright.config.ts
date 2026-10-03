@@ -5,6 +5,7 @@ import { E2E_STRIPE_ENV } from "./e2e/stripe-env";
 import { E2E_CALLRAIL_ENV } from "./e2e/callrail-env";
 import { E2E_TWILIO_ENV } from "./e2e/twilio-env";
 import { E2E_ADS_ENV } from "./e2e/ads-env";
+import { E2E_AI_ENV } from "./e2e/ai-env";
 
 /**
  * THE BROWSER SUITE
@@ -101,9 +102,10 @@ export default defineConfig({
      * connection at, holding values that are not keys. The Twilio token is
      * the same again for the voice webhooks (e2e/twilio-env.ts). The ad
      * platforms' sealing key and secret names are the same arrangement again
-     * (e2e/ads-env.ts), for a local fake of Google.
+     * (e2e/ads-env.ts), for a local fake of Google, and so is the model key
+     * for the AI agents (e2e/ai-env.ts).
      */
-    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...E2E_ADS_ENV },
+    env: { PUBLIC_URL: BASE, ...E2E_STRIPE_ENV, ...E2E_CALLRAIL_ENV, ...E2E_TWILIO_ENV, ...E2E_ADS_ENV, ...E2E_AI_ENV },
     stdout: "pipe",
     stderr: "pipe",
   },
