@@ -154,8 +154,11 @@ settings screen shows it. Stripe, QuickBooks Online, Xero, Twilio, JustCall, Res
 SMTP, CallRail, the AI model providers, the OpenStreetMap and Mapbox geocoders,
 Google Ads, Google Local Services, Meta Ads, Google Analytics and Google Business
 Profile are the ones a company can set up and see data arrive from. The last
-five need each platform's own developer approval and are tested against fakes of
-each, not live accounts.
+five are tested against fakes of each, not live accounts, and four of them need
+the platform's own developer approval first: Google Ads (a developer token),
+Local Services and Business Profile (Google's API access), and Meta (app review
+for some permissions). Google Analytics needs only a Measurement Protocol secret
+from the company's own data stream, which nobody has to approve.
 
 **Where do the map's pictures come from?** Raster tiles from `MAP_TILE_URL`,
 OpenStreetMap's own servers by default with their attribution on the map. That
