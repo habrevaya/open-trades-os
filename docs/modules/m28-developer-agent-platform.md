@@ -64,20 +64,67 @@ it can tell you what to ask an administrator for. Sent as a transport failure
 it becomes "the OpenTradesOS server is down", which is both wrong and
 unactionable.
 
+**A bulk change can be tried first.** The tools that change many records at
+once (renaming or merging a customer tag, moving jobs between branches, setting
+tax on many items, a price change, a supplier catalogue) take `dryRun`. Sent as
+true, the route runs exactly as it would, inside a transaction that is then
+rolled back, and the answer is what it would have returned, the rows it would
+have written per table, and the audit lines naming each record. It is the route
+itself rather than a prediction of it, so the preview cannot drift from what the
+real call does. Only routes that write nothing outside the database offer it: a
+rollback cannot take back a text or a card charge, and asking any other route
+for a dry run is refused rather than run for real.
+
 ## Setup
 
-1. Install a connected application (Settings, then Connected apps) and grant it
-   the permissions it needs. You cannot grant a permission you do not hold
-   yourself; the check is the same one that governs defining a role.
-2. Issue a token. It is shown once and stored only as a hash, so a support
-   engineer cannot read it back out of a table. `expires_at` is required: a
-   partner holding a permanent credential is a permanent liability on both
-   sides, and an expiry that has to be opted into is one nobody sets.
-3. Point the client at `https://your-instance/api/mcp` with
-   `Authorization: Bearer ots_...`.
+There are three ways to connect, and all three end at the same endpoint with
+the same permission checks.
 
-A signed-in browser session works too, which is what makes the endpoint usable
-from a client running on the same machine as the app.
+**A hosted assistant, with OAuth.** Point the client at
+`https://your-instance/api/mcp` and nothing else. It is answered with a 401 whose
+`WWW-Authenticate` header names `/.well-known/oauth-protected-resource`; from
+there the client finds `/.well-known/oauth-authorization-server`, registers
+itself at `/api/oauth/register`, and sends you to `/oauth/authorize`. That page
+says who is asking and what it could do, every permission in plain words, and
+you approve or refuse. Approving makes it a connected app under Settings,
+Applications, which is also where you turn it off.
+
+**A desktop client, with an app token.** Install a connected application under
+Settings, Applications, grant it what it needs, and issue a token (shown once,
+stored only as a hash, always with an expiry). Then give the client a command:
+
+    OPENTRADESOS_URL=https://your-instance OPENTRADESOS_TOKEN=ots_... \
+      node packages/sdk/bin/opentradesos-mcp.mjs
+
+or, from a checkout, `npx ./packages/sdk` or `pnpm mcp:bridge` with the same two
+variables. That is a stdio server with no dependencies that carries each message
+to `/api/mcp` with the token; every protocol rule stays on the server.
+
+**On the server itself, with an app token.** `pnpm --filter @opentradesos/api mcp`
+with `OPENTRADESOS_TOKEN` and `DATABASE_URL` runs the same server over stdio
+against the database directly, for a client on the machine the database is on.
+
+A signed-in browser session works on the HTTP endpoint too, which is what makes
+it usable from a client running on the same machine as the app.
+
+### OAuth, in detail
+
+Clients register themselves (RFC 7591) and are public: no client secret is ever
+issued, and PKCE with S256 is required on every authorization, `plain` refused.
+A code lives ten minutes, works once and is bound to the client, its redirect
+address and the PKCE challenge. Presenting a code twice revokes everything the
+first exchange produced. Access tokens are ordinary app tokens an hour long;
+refresh tokens last thirty days unused and rotate on every use, and a refresh
+token used twice revokes its whole family, because it means two parties hold it.
+
+Scopes are permissions from the catalogue, or bundles of them with names a
+person can read: `read` (everything you can see, nothing you can change),
+`customers`, `jobs`, `dispatch`, `estimates`, `invoices`, `messages`, `tasks`
+and `reports`. A client that names none asks for `read`. A bundle is cut down to
+what the approver holds, and the consent page lists what was left out; an
+unknown scope is refused rather than dropped. The assistant reaches the same
+records the approver can, on every resource. Authorizing the same client again
+replaces its grant rather than adding a second app.
 
 ## Using it
 
@@ -133,6 +180,14 @@ set held by whoever approved it.
 The MCP endpoint is `POST /api/mcp`, speaking JSON-RPC. A `GET` answers 405
 with an `Allow` header rather than 404, because this server has no
 server-initiated event stream and a 404 would send somebody checking their URL.
+A request with no usable credential answers 401 with the OAuth challenge, and
+an expired or revoked token says `invalid_token` so the client refreshes.
+
+OAuth lives beside it: `/.well-known/oauth-authorization-server`,
+`/.well-known/oauth-protected-resource`, `POST /api/oauth/register`,
+`/oauth/authorize` and `POST /api/oauth/token`. Over HTTP a dry run is the
+`x-otos-dry-run: true` header on a route the OpenAPI document marks
+`x-dry-run`.
 
 The underlying routes are the same ones in the OpenAPI document at
 `packages/api/openapi.json`, generated from the contracts.
@@ -146,10 +201,15 @@ requests do.
 **Why is a tool missing from my list?** You do not hold its permissions. Call
 it anyway and the refusal will name what to ask for.
 
-**Can I connect over stdio?** Not yet. HTTP only.
+**Can I connect over stdio?** Yes, two ways: the bridge in `packages/sdk` to a
+hosted instance, or the server in `packages/api` beside the database. Both take
+an app token.
 
-**Does it support OAuth?** Not yet. Bearer tokens from a connected application,
-or a browser session.
+**Does it support OAuth?** Yes, the authorization code flow with PKCE that the
+MCP specification describes, for public clients. See Setup.
+
+**Can an agent see what a bulk change would do first?** Yes, on the bulk tools:
+send `dryRun: true`.
 
 **Can an agent add a custom field or edit a workflow rule?** Not yet. Those
 routes exist in the product but the tools for them are part of the unfinished
@@ -157,7 +217,15 @@ half of this module.
 
 ## What is not built
 
-Stdio transport. OAuth for remote clients. Tools for defining custom fields and
-objects. Tools for editing workflow rules. A dry-run mode on bulk operations. A
+Tools for defining custom fields and objects. Tools for editing workflow rules. A
 sandbox tenant. The plugin APIs for custom job workflows, pricing rules and
 report types.
+
+OAuth has no token revocation or introspection endpoint (RFC 7009, RFC 7662):
+turning the app off under Settings, Applications is how a connection ends. There
+are no confidential clients and no client secrets, and a registration is never
+cleaned up, though it grants nothing. The consent page approves the scopes as
+asked, cut to what the approver holds; it cannot narrow them further. The stdio
+transports read their token once at start and check it on every message, so a
+new token means restarting the client. A dry run is offered on six bulk routes
+and no others.

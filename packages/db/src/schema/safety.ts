@@ -71,12 +71,12 @@ export const safetyMeetingAttendee = pgTable("safety_meeting_attendee", {
   name: text("name").notNull(),
   signedAt: timestamp("signed_at", { withTimezone: true }),
   /**
-   * The drawn signature, as a stored file. Null until signed, and null for a
-   * signature on the paper sheet, which is photographed onto the meeting
-   * instead.
+   * `field` when the person signed on their own phone, `office` when somebody
+   * recorded it for them from the paper sheet. A field signature's drawing is
+   * an attachment on this row, kind `signature`, rather than a storage key
+   * here: the module writes no storage key of its own, which is what keeps a
+   * stored file's reference count honest.
    */
-  signatureStorageKey: text("signature_storage_key"),
-  /** `field` when the person signed on their own phone, `office` when somebody recorded it for them. */
   signedVia: text("signed_via"),
   signedByUserId: uuid("signed_by_user_id").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

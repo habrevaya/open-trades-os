@@ -240,7 +240,8 @@ function meetingView(
       name: a.name,
       signedAt: a.signedAt?.toISOString() ?? null,
       signedVia: a.signedVia,
-      hasSignature: a.signatureStorageKey !== null,
+      /** A field signature is always drawn, and kept as an attachment on the line. */
+      hasSignature: a.signedVia === "field",
     })),
     signed: attendees.filter((a) => a.signedAt !== null).length,
   };
@@ -347,7 +348,7 @@ export async function sign(ctx: ServiceContext, input: { id: string; signature: 
     });
     const now = new Date();
     await tx.update(schema.safetyMeetingAttendee).set({
-      signedAt: now, signatureStorageKey: file.storageKey, signedVia: "field", signedByUserId: uploader(ctx.actor),
+      signedAt: now, signedVia: "field", signedByUserId: uploader(ctx.actor),
     }).where(eq(schema.safetyMeetingAttendee.id, attendee!.id));
     await audit(tx, ctx, "safety.signed", "safety_meeting", input.id, null, {
       attendeeId: attendee!.id, name: attendee!.name, via: "field",

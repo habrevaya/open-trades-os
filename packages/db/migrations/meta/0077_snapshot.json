@@ -1,5 +1,5 @@
 {
-  "id": "30ec8c5c-1f67-4190-b0ee-b7163a029712",
+  "id": "287e361d-3fd4-4ee5-bc8c-f22c29cbb8ec",
   "prevId": "3aa6ecaf-b09f-44f5-9612-6ff84f40c3ae",
   "version": "7",
   "dialect": "postgresql",
@@ -12874,12 +12874,6 @@
         "signed_at": {
           "name": "signed_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "signature_storage_key": {
-          "name": "signature_storage_key",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

@@ -84,7 +84,6 @@ CREATE TABLE IF NOT EXISTS "safety_meeting_attendee" (
 	"technician_id" uuid,
 	"name" text NOT NULL,
 	"signed_at" timestamp with time zone,
-	"signature_storage_key" text,
 	"signed_via" text,
 	"signed_by_user_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
