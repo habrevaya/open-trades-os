@@ -30,10 +30,10 @@ export default async function WebsiteTestPage() {
       <h1 className="mt-1 text-xl font-semibold">Test page</h1>
       {national ? (
         <div className="mt-4 space-y-2 text-sm" data-testid="swap-sample">
-          <p>Call us: <span data-number="plain">({national.slice(0, 3)}) {national.slice(3, 6)}-{national.slice(6)}</span></p>
-          <p>Or: <span data-number="dots">{national.slice(0, 3)}.{national.slice(3, 6)}.{national.slice(6)}</span></p>
-          <p><a href={`tel:${main}`} data-number="link">Tap to call</a></p>
-          <p><a href={`${(process.env["PUBLIC_URL"] ?? "").replace(/\/$/, "")}/book/${view.companyKey}`} data-link="book">Book online</a></p>
+          <p>Call us: <span data-number="plain" suppressHydrationWarning>{`(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`}</span></p>
+          <p>Or: <span data-number="dots" suppressHydrationWarning>{`${national.slice(0, 3)}.${national.slice(3, 6)}.${national.slice(6)}`}</span></p>
+          <p><a href={`tel:${main}`} data-number="link" suppressHydrationWarning>Tap to call</a></p>
+          <p><a href={`${(process.env["PUBLIC_URL"] ?? "").replace(/\/$/, "")}/book/${view.companyKey}`} data-link="book" suppressHydrationWarning>Book online</a></p>
         </div>
       ) : (
         <p className="mt-4 text-sm text-ink-700">Add your main number under Settings first, so there is something to swap.</p>

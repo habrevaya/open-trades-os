@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
+import { HeldSubmits } from "@/components/HeldSubmits";
+import { HELD_SUBMITS_SCRIPT } from "@/lib/held-submits";
 
 /**
  * Plex rather than Inter. Squared terminals read as instrument panel rather
@@ -19,7 +22,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`}>
-      <body>{children}</body>
+      <body>
+        {/* Before anything can be pressed; see lib/held-submits.ts. */}
+        <Script id="held-submits" strategy="beforeInteractive">{HELD_SUBMITS_SCRIPT}</Script>
+        {children}
+        <HeldSubmits />
+      </body>
     </html>
   );
 }

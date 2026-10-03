@@ -345,7 +345,8 @@ x.onload=function(){if(x.status!==200)return;var d;try{d=JSON.parse(x.responseTe
 targets=[];for(var i=0;i<(d.targets||[]).length;i++){targets.push(otNational(d.targets[i]));}
 if(d.number){var was=shown;if(was){targets.push(otNational(was));}shown=d.number;if(was!==shown)walk(document.body);}};x.send();}
 function start(){links();ask();setInterval(function(){if(!document.hidden)ask();},180000);}
-if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",start);}else{start();}
+function later(){var go=function(){if(window.requestIdleCallback){window.requestIdleCallback(start,{timeout:2000});}else{setTimeout(start,1);}};if(document.readyState==="complete"){go();}else{window.addEventListener("load",go);}}
+later();
 })();
 `;
 }
