@@ -96,7 +96,15 @@ beforeAll(async () => {
   await raw`insert into public.membership (organization_id, user_id, role) values (${ORG}, ${OTHER}, 'owner')`;
 });
 
-afterAll(async () => { if (raw) await raw.end(); });
+/**
+ * Its connections are switched off at the end, so a worker pass in another
+ * test file does not visit this company's fake hosts over the real network.
+ */
+afterAll(async () => {
+  if (!raw) return;
+  await raw`update public.integration_connection set status = 'disconnected' where organization_id = ${ORG}`;
+  await raw.end();
+});
 
 const connectGoogleAds = (settings: Record<string, unknown> = {}) => leadIntake.connect(ctx(), {
   provider: "google_ads",
@@ -188,11 +196,11 @@ run("signing in with Google", () => {
     const token = fake.callsTo(/oauth\.fake\/token/).at(-1)!;
     expect(token.body).toContain("redirect_uri=https%3A%2F%2Fots.test%2Fsettings%2Fintegrations%2Foauth");
 
-    const [grant] = await raw<{ sealed: string; connection_id: string; scopes: string[] }[]>`
-      select sealed, connection_id, scopes from public.sealed_credential where organization_id = ${ORG}`;
-    expect(grant!.sealed).not.toContain(oauth.refreshToken);
+    const [grant] = await raw<{ sealed_token: string; connection_id: string; scopes: string[] }[]>`
+      select sealed_token, connection_id, scopes from public.sealed_credential where organization_id = ${ORG}`;
+    expect(grant!.sealed_token).not.toContain(oauth.refreshToken);
     expect(grant!.scopes).toEqual(["https://www.googleapis.com/auth/adwords"]);
-    expect(unseal(grant!.sealed, grant!.connection_id, Buffer.from(SEALING_KEY, "base64"))).toBe(oauth.refreshToken);
+    expect(unseal(grant!.sealed_token, grant!.connection_id, Buffer.from(SEALING_KEY, "base64"))).toBe(oauth.refreshToken);
   });
 
   it("answers the same return twice without trading the code again", async () => {

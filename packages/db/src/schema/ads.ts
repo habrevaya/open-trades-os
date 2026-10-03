@@ -76,7 +76,7 @@ export const sealedCredential = pgTable("sealed_credential", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   connectionId: uuid("connection_id").notNull().references(() => integrationConnection.id, { onDelete: "cascade" }),
   /** `v1:<key fingerprint>:<iv>:<tag>:<ciphertext>`, all base64url. Never the token. */
-  sealed: text("sealed").notNull(),
+  sealedToken: text("sealed_token").notNull(),
   /** Which key sealed it, so a rotated key is a sentence rather than a decryption error. */
   keyFingerprint: text("key_fingerprint").notNull(),
   /** What the person actually granted, which is not always what was asked for. */

@@ -95,7 +95,15 @@ beforeAll(async () => {
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Ads Meta Co", slug: SLUG });
 });
-afterAll(async () => { if (raw) await raw.end(); });
+/**
+ * Its connections are switched off at the end, so a worker pass in another
+ * test file does not visit this company's fake hosts over the real network.
+ */
+afterAll(async () => {
+  if (!raw) return;
+  await raw`update public.integration_connection set status = 'disconnected' where organization_id = ${ORG}`;
+  await raw.end();
+});
 
 /** A visitor who clicked a Facebook ad, became a customer and booked a job. */
 async function aJobFromAMetaClick(input: { visitor: string; fbclid: string; ga?: string; name: string; email: string; phone: string }) {

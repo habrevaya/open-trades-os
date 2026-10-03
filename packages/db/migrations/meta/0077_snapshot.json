@@ -39590,8 +39590,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "sealed": {
-          "name": "sealed",
+        "sealed_token": {
+          "name": "sealed_token",
           "type": "text",
           "primaryKey": false,
           "notNull": true

@@ -312,7 +312,7 @@ export async function finishSignIn(
     await tx.insert(schema.sealedCredential).values({
       organizationId: ctx.actor.organizationId,
       connectionId: connection.id,
-      sealed: sealed.sealed,
+      sealedToken: sealed.sealed,
       keyFingerprint: sealed.fingerprint,
       scopes: grant.scopes,
       grantedAt: now,
@@ -321,7 +321,7 @@ export async function finishSignIn(
     }).onConflictDoUpdate({
       target: [schema.sealedCredential.connectionId],
       set: {
-        sealed: sealed.sealed, keyFingerprint: sealed.fingerprint, scopes: grant.scopes,
+        sealedToken: sealed.sealed, keyFingerprint: sealed.fingerprint, scopes: grant.scopes,
         grantedAt: now, grantedByUserId: ctx.actor.userId, expiresAt: grant.expiresAt,
         rotatedAt: null, updatedAt: now,
       },
@@ -380,7 +380,7 @@ export async function adapterFor(db: Database, row: Connection, deps: AdsDeps = 
       const key = sealingKey(env);
       if (!key) throw new AuthorizationLostError(new SealingKeyMissingError().message);
       try {
-        credential = unseal(grant.sealed, row.id, key);
+        credential = unseal(grant.sealedToken, row.id, key);
       } catch (error) {
         if (error instanceof SealedUnderAnotherKeyError) throw new AuthorizationLostError(error.message);
         throw error;
@@ -405,7 +405,7 @@ export async function adapterFor(db: Database, row: Connection, deps: AdsDeps = 
         const resealed = seal(next, row.id, key);
         await inTenant(systemCtx(db, row.organizationId), (tx) =>
           tx.update(schema.sealedCredential).set({
-            sealed: resealed.sealed, keyFingerprint: resealed.fingerprint, rotatedAt: new Date(), updatedAt: new Date(),
+            sealedToken: resealed.sealed, keyFingerprint: resealed.fingerprint, rotatedAt: new Date(), updatedAt: new Date(),
           }).where(eq(schema.sealedCredential.connectionId, row.id)));
       },
     });

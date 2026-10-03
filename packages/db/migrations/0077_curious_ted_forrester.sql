@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS "sealed_credential" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
 	"connection_id" uuid NOT NULL,
-	"sealed" text NOT NULL,
+	"sealed_token" text NOT NULL,
 	"key_fingerprint" text NOT NULL,
 	"scopes" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"granted_at" timestamp with time zone NOT NULL,
