@@ -62,7 +62,12 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
         const match = /^metadata\[(.+)\]$/.exec(key);
         if (match) metadata[match[1]!] = value;
       }
-      const n = intents.length + 1;
+      /*
+        Unique across runs, not just within one: the database outlives the
+        fake, and a second run handing out pi_e2e_1 again would have its
+        webhook taken for the first run's, already settled, and ignored.
+      */
+      const n = `${Date.now().toString(36)}${intents.length + 1}`;
       const intent: FakeIntent = {
         id: `pi_e2e_${n}`,
         clientSecret: `pi_e2e_${n}_secret_fake`,
