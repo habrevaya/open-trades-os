@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Sixteen operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Seventeen operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, and the seventeenth, `inspection.record`, is an inspection filed whole): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -193,6 +193,18 @@ sheet; the payment lands when the card processor's webhook says it did. Only
 the technician on the visit, or somebody who may send invoices, can ask.
 
 `/my-day` takes cash, checks and the card link the same way.
+
+### Inspections
+
+A technician the company lets file inspections (`compliance:write`, which the
+technician preset does not hold) is sent the inspection programmes with the day,
+and runs one against a visit: pass or fail, readings with the range beside them,
+not applicable with a reason, a photo per checkpoint and a signature. The whole
+inspection is one `inspection.record` operation, an append that always applies,
+with an id the phone made so a retry files it once. The server files it through
+the same service the office uses, against the visit's own customer and address,
+and draws the verdict itself; the phone never sends one. `/my-day` runs the same
+inspection with a typed signature.
 
 ### Notices about the day
 

@@ -116,7 +116,7 @@ export default async function ChangeOrderPage({ params }: { params: Promise<{ id
 
       {editable && prices && (
         <section className="mt-6 grid gap-6 md:grid-cols-2" aria-label="Price a line">
-          <div className="rounded-md border border-steel-200 bg-canvas p-4">
+          <div role="group" aria-label="From the price book" className="rounded-md border border-steel-200 bg-canvas p-4">
             <h3 className="text-sm font-semibold">From the price book</h3>
             <p className="mt-1 text-xs text-ink-500">Takes the customer&apos;s rate card price where their contract has one. A negative quantity takes work out.</p>
             <ChangeOrderForm submit="Add line" hidden={{ ...hidden, op: "line" }}>
@@ -130,7 +130,7 @@ export default async function ChangeOrderPage({ params }: { params: Promise<{ id
               <TextField label="Quantity" name="quantity" inputMode="decimal" defaultValue="1" />
             </ChangeOrderForm>
           </div>
-          <div className="rounded-md border border-steel-200 bg-canvas p-4">
+          <div role="group" aria-label="Typed by hand" className="rounded-md border border-steel-200 bg-canvas p-4">
             <h3 className="text-sm font-semibold">Typed by hand</h3>
             <p className="mt-1 text-xs text-ink-500">For work the price book does not have, at the price agreed.</p>
             <ChangeOrderForm submit="Add line" hidden={{ ...hidden, op: "line" }}>
