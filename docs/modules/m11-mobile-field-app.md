@@ -237,6 +237,56 @@ channels the server sends to, and registers its token with
 phone away both clear the token. A company can require an access token for its
 Expo project and set `EXPO_ACCESS_TOKEN` for the worker.
 
+### Location while working, and the privacy choices behind it
+
+The phone app shares where its person is with the office, and with the
+customer they are on the way to, and every choice about it is made for the
+person being located:
+
+- **Off until the company turns it on.** An owner turns it on at
+  `/schedule/technicians` (`PUT /v1/dispatch/location-sharing`,
+  `settings:write`), where the rule is written out in the words below. The
+  office can turn it off for any one person (`PATCH /v1/technicians/{id}`,
+  `user:write`).
+- **Only while working.** Clocked in, on the way to a visit, or working one.
+  The phone decides from the day it holds, offline (`sharingFor` in
+  `packages/field-client`), and starts the operating system's location only
+  then; the moment it says otherwise the updates stop and any position not
+  yet sent is thrown away rather than sent after the fact.
+- **The server checks every position again.** Positions ride along with the
+  sync (`positions` on `POST /v1/field/sync`), after the operations in the
+  same send, and each one is judged against the server's own record of the
+  punches and the visits. One taken outside working time is dropped and
+  counted in the answer, never stored, so a phone that is wrong cannot put an
+  evening at home on the map. A visit marked on the way and never finished
+  counts for twelve hours at most.
+- **The person always knows.** A line at the top of their day says when it is
+  on and who can see them ("Nina Patel can see you on their tracking link
+  until you arrive"), and says when it is off. Android shows its own notice
+  for as long as it runs and iOS its blue location indicator. The snapshot
+  tells the phone the company's setting and the person's
+  (`locationSharing`), so they can see which applies to them.
+- **Few people see it.** Live positions are shown to people who dispatch
+  (`visit:dispatch`), not to a CSR and not to other technicians. A customer
+  sees one pin, only on the way to their own visit, only after the text, and
+  nothing once the technician arrives.
+- **Kept briefly.** Three days unless the company sets one to thirty, then
+  deleted by the worker. Turning sharing off for the company or a person
+  deletes what was kept at once; shortening the retention deletes what is now
+  past it.
+- **Not precise beyond need.** A fix less accurate than a kilometre, one from
+  the future, one at 0, 0 and one from a phone faking its GPS are refused.
+  The phone thins what it keeps: a parked van sends one every few minutes.
+
+The phone asks for location permission only when sharing first becomes due,
+not at sign in. With "while using the app" only, it shares while the app is
+open and says so.
+
+Telling the customer you are on the way also moves the visit on the way on
+the phone, into the queue like every other tap, so the tracking link has a
+van to show and the office sees the visit move whether or not the text got
+through.
+
 ### Offline, and sending
 
 Every write goes into the queue in `packages/field-client` first, the same
@@ -363,7 +413,10 @@ device, and so an Expo app and the web page share one implementation.
 
 ## What is not built
 
-The phone app has not been run on a device or a simulator. It is typechecked,
+The phone app has not been run on a device or a simulator, so live location
+has been tested against its logic and a fake server, not against a real
+phone's GPS, battery or background limits; iOS in particular decides how often
+a backgrounded app is woken. It is typechecked,
 its logic is unit tested and it bundles for Android and iOS, and that is all,
 so no push notice has been seen on a real phone: the server side is tested
 against a fake of the push service, and a build needs an Expo project id

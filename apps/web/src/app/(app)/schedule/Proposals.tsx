@@ -11,8 +11,9 @@ export type Suggested = Extract<Awaited<ReturnType<typeof suggestAssignments>>, 
  * Before and after drive time, the windows it still cannot keep, what it left
  * where it was and why, and the order itself. "Use this order" sends the
  * whole day to the same reorder a drag uses; closing it changes nothing.
- * Every figure is called an estimate, because it is a straight line at an
- * average speed and the van is on roads.
+ * Every figure says what it was worked out from: by road when the company
+ * has a routing service, otherwise a straight line at an average speed,
+ * which is an estimate and is called one.
  */
 export function RoutePreview({
   proposal, technicianName, customerOf, canApply, onApply, onClose,
@@ -69,9 +70,15 @@ export function RoutePreview({
         ))}
       </ol>
       <p className="mt-2 text-xs text-ink-500">
-        Estimated from the straight line at {proposal.travel.averageKmh} km/h with a road factor of{" "}
-        {proposal.travel.roadFactor}
+        {proposal.driveSource === "road" ? proposal.driveNote : (
+          <>
+            {proposal.driveSource === "mixed" ? `${proposal.driveNote} ` : ""}
+            Estimates use the straight line at {proposal.travel.averageKmh} km/h with a road factor of{" "}
+            {proposal.travel.roadFactor}
+          </>
+        )}
         {proposal.declaredLegs > 0 ? `, and the route's own drive time for ${proposal.declaredLegs} legs` : ""}.
+        {proposal.pinned.length > 0 ? ` ${proposal.pinned.length} locked ${proposal.pinned.length === 1 ? "visit keeps its" : "visits keep their"} place.` : ""}
       </p>
       <div className="mt-3 flex gap-2">
         {canApply && proposal.improved && (

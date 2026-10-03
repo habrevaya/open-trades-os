@@ -61,6 +61,19 @@ customer record, which is what a one person household has.
 **The ETA is omitted rather than guessed.** "About null minutes" has shipped in
 this industry more than once.
 
+**The text names who is coming and links to them coming.** "Ridgeline Air:
+your technician, Ray, is about 15 minutes away. See where they are:" and the
+job's link, `/j/{token}`. While Ray is on the way, that page shows his first
+name, his photo if the office set one, an ETA, and a pin that moves as his
+phone shares where he is, read every twenty seconds through
+`GET /v1/portal/job/live`. Only positions taken for that visit after the text
+went are shown, never the drive before it, and once he arrives the page shows
+no location at all. The ETA is by road when the company has a routing
+service, a straight line otherwise, or what Ray said when he set off, counted
+down, and the page says which. The photo is on the page, not in the text: a
+text with a picture is a different, costlier message, and not every phone
+shows one.
+
 **A route is materialised once per stop per date, not per route per date.** The
 unit a customer notices being double booked is their own house. The idempotency
 key is the one `services/recurring.ts` already uses, deliberately: two different
@@ -93,10 +106,11 @@ mode of a whiteboard and a group text.
 fine.
 
 **The map is the board's day, drawn where it happens.** Every visit as a pin in
-its technician's colour, numbered in the order they will drive it; unassigned
-work as an outline, so it cannot be mistaken for anybody's; a late visit ringed
-in red; each technician's day as a line from where it starts, through the stops
-and back. A visit whose address is not on the map yet is listed beside it with
+its technician's colour, numbered in the order they will drive it; a crew's
+visits as squares in the crew's colour; unassigned work as an outline, so it
+cannot be mistaken for anybody's; a late visit ringed in red; each technician's
+and each crew's day as a line from where it starts, through the stops and
+back; and, for somebody who dispatches, where each technician is now. A visit whose address is not on the map yet is listed beside it with
 a link to place the pin, never dropped: a map missing three addresses shows a
 lighter day than the one the technicians are going to have.
 
@@ -122,12 +136,70 @@ names it, says by how much, and says whether any order at all could have kept
 it, because "nobody can get there by ten" and "this order gets there at ten
 forty" are different calls to the customer.
 
-**Drive time is an estimate, and says so.** A straight line between two
-addresses, stretched by a road factor, at an average speed the company sets,
-except between two stops on the same route that declares its own drive time,
-where the operator's number is used. Nearest neighbour construction and 2-opt
-and or-opt improvement, deterministic: the same day in gives the same order
-out.
+**Drive time is by road when the company has a road network to ask, and
+says which it used.** A company connects a routing service under Settings,
+Integrations (capability `routing`): OSRM it runs itself on OpenStreetMap
+roads, Mapbox's Matrix API, or OpenRouteService hosted or self hosted. Drive
+times are asked as a matrix, kept in `travel_time` for as long as the provider
+allows (thirty days for a company's own OSRM, a week for OpenRouteService, a
+day for Mapbox), and asked outside any database transaction. Without one, or
+when it does not answer, a straight line between two addresses, stretched by a
+road factor, at an average speed the company sets. Every proposal says which
+in a sentence (`driveSource` and `driveNote`), and a routing service that has
+stopped answering is named on the integrations screen. Between two stops on
+the same route that declares its own drive time, the operator's number beats
+both. Nearest neighbour construction and 2-opt and or-opt improvement,
+deterministic: the same day in gives the same order out.
+
+**The whole day can be rebalanced, and a person applies it.** "Rebalance the
+day" on the board proposes who takes what across every technician at once:
+it places the unassigned pile and moves assigned work between people, keeping,
+hardest first, who may do the work (skills and time off), arrival windows, the
+overtime limit, lunch inside its window, then less overtime, then less
+driving. It is shown as each day before and after, with the driving saved, and
+nothing moves until somebody presses "Apply these changes", which goes through
+the same assignment and reorder a drag uses, in one transaction, and is
+refused when the board has changed since the proposal was made. A visit is
+moved between people only when that keeps a promise or a limit, cuts
+overtime, or saves at least five minutes of driving: two phones buzzing for
+three minutes saved is not a trade. A run of up to three visits moves
+together, so two calls on the far side of town are not each left where they
+are because the other keeps the van there.
+
+**The working day is declared, not assumed.** When the day ends, a break of so
+many minutes that must start inside a window, and how much overtime a plan may
+use, company wide on the technicians screen; a technician with their own hours
+has those instead. The break goes in a wait outside a customer's window when
+it fits there, at the first gap once its window opens otherwise, and is waited
+for rather than skipped when the next job would run past its latest start.
+
+**A locked visit stays put.** The office locks a visit to whoever has it when a
+customer was promised a particular person first thing, which no window can
+say. The rebalance never moves it to anybody else and keeps its order among
+that person's locked visits; "Optimise route" keeps it at its place in the day
+and orders the rest around it. Crew work, a visit with several people on it
+and work under way are left where they are too.
+
+**Where people are is shown to people who dispatch, and only while people
+work.** With live location on (it is off until an owner turns it on), the
+phone app shares a technician's position only while they are clocked in, on
+the way to a visit or working one, never off the clock, and the server checks
+every position against its own record of the clock and the visits and drops
+any outside them. The map draws each technician's latest position today, with
+how long ago it was taken, faded once it is half an hour old, for somebody
+holding `visit:dispatch`: a CSR or a technician reads the board and not where
+their colleagues are. Positions are kept three days unless the company says
+otherwise (one to thirty) and deleted by the worker; turning sharing off
+deletes every position already kept. The privacy choices are set out in M11.
+
+**Crew work is not unassigned.** A visit sent to a crew is on the crew, not on
+anybody's assignment list, and the board used to put it in the unassigned pile
+where a dispatcher would give it to somebody else. Each crew with work today
+has a lane of its own beside the people, with its lead, and its day is a line
+on the map in its own colour from where it is based. The routes running today
+are listed above the board with how many stops are done and who runs each,
+and so is the rota: who is on call today, or "Nobody is on call today" in
+words.
 
 **Who should take the unassigned work is a suggestion too.** Each unassigned
 visit goes to the technician it adds the least driving to without breaking a
@@ -156,6 +228,36 @@ visit, `POST /v1/dispatch/route` sets the order, and
 board. `GET /v1/dispatch/map` is the same data. Click a pin to open the visit
 and put it on somebody's day.
 
+### See where people are
+
+With live location on, `/schedule?view=map` shows each technician's latest
+position today beside the day, read again every half minute, with how long
+ago it was taken. `GET /v1/dispatch/positions` is the same, for
+`visit:dispatch`. `GET /v1/dispatch/location-sharing` reads the company's
+setting (anybody who reads the schedule may, technicians included) and
+`PUT /v1/dispatch/location-sharing` sets it (`settings:write`): on or off, how
+many days positions are kept, and how often a phone takes one. Both are on
+`/schedule/technicians`, with each person's own switch, set by the office with
+`PATCH /v1/technicians/{id}` (`user:write`).
+
+### Rebalance the day
+
+"Rebalance the day" on the board opens `/schedule/rebalance`, the proposal for
+the whole day: who would take what, each technician's day as it is and as it
+would be, the driving before and after, and what could not be placed with why
+in a sentence. "Apply these changes" applies it. `GET /v1/dispatch/rebalance`
+is the proposal (`visit:read`) and `POST /v1/dispatch/rebalance/apply` applies
+it with its `basis` (`visit:dispatch` and `visit:reschedule`). The Lock button
+on a card is `POST /v1/visits/{id}/lock` (`visit:dispatch`). The working day it
+plans inside is `GET /v1/dispatch/workday` and `PUT /v1/dispatch/workday`
+(`settings:write`), on `/schedule/technicians` with each person's own hours.
+
+### Drive times by road
+
+Connect OSRM, Mapbox or OpenRouteService under `/settings/integrations`, Drive
+times by road. The optimiser, the suggestions, the rebalance and a customer's
+ETA use it from then on, and say so.
+
 ### Put a technician's day in order
 
 "Optimise route" on a technician's column previews the proposed order with the
@@ -171,8 +273,10 @@ goes to `POST /v1/dispatch/route`.
 
 ### Say what people do and where their day starts
 
-`/schedule/technicians` records each technician's skills, start location and
-colour (`PATCH /v1/technicians/{id}`, which needs `user:write`), places the
+`/schedule/technicians` records each technician's skills, start location,
+colour, their own hours and whether their location is shared
+(`PATCH /v1/technicians/{id}`, which needs `user:write`), the photo a customer
+sees on their tracking link (`POST /v1/technicians/{id}/photo`), places the
 company's locations on the map (`POST /v1/locations/{id}/pin`), and sets how
 drive time is estimated (`PUT /v1/dispatch/travel`, which needs
 `settings:write`). `GET /v1/technicians` lists them.
@@ -223,8 +327,8 @@ on the board and is checked when a visit is booked, for work still to come only.
 |---|---|
 | Owner, administrator | Everything |
 | Office manager | Reads the board, dispatches, reschedules, overrides a skill refusal with a reason, runs routes and recurring work |
-| Dispatcher | The board, the map, assignment, sequencing, crews and the rota. Cannot override a skill refusal unless given `visit:assign_unqualified`. No money |
-| CSR | Books work. Cannot dispatch |
+| Dispatcher | The board, the map with where people are, assignment, sequencing, the rebalance and locks, crews and the rota. Cannot override a skill refusal unless given `visit:assign_unqualified`. No money |
+| CSR | Books work. Cannot dispatch, and does not see where people are |
 | Technician | Their own day. Requests their own time off |
 | Crew lead | The crew's day |
 | Accountant | Neither |
@@ -238,17 +342,30 @@ and `POST /v1/calendar-feeds/{id}/revoke` handle a leaked URL. All four are
 
 ## Common questions
 
-**Is there route optimisation?** Yes, as a proposal per technician that a
-person accepts or ignores. It never reorders a day on its own. Route templates
-at `/schedule/routes` are still ordered by a person and checked for density.
+**Is there route optimisation?** Yes, as a proposal per technician, and for
+the whole day across everybody, that a person accepts or ignores. Neither
+changes the day on its own. Route templates at `/schedule/routes` are still
+ordered by a person and checked for density.
+
+**Does it track technicians at home?** No. A phone shares only while its
+person is clocked in or on a visit, the server drops anything else it is sent,
+and the company and each person can turn it off, which deletes what was kept.
+
+**Why did the rebalance not move a visit to the nearer technician?** Because
+it saves less than five minutes of driving, or it is locked, or that person may
+not do it, or it would make a visit late, run past the overtime allowed, or
+push lunch past its window. The proposal says which for anything it could not
+place.
 
 **Is there a map?** Yes, beside or instead of the board. It needs addresses on
 the map: connect a geocoder under Settings, Integrations (M25) or place pins by
 hand on each property's page.
 
-**Why is the drive time different from my phone's?** Because it is a straight
-line at an average speed, not a road network. Tune the speed and road factor on
-the technicians screen, or declare a drive time on a route.
+**Why is the drive time different from my phone's?** With no routing service
+connected, it is a straight line at an average speed, not a road network:
+connect one, or tune the speed and road factor on the technicians screen, or
+declare a drive time on a route. With one, it is the road without traffic,
+where a phone's map app counts the traffic now.
 
 **Who may override a skill refusal?** The owner, an administrator and the
 office manager preset hold `visit:assign_unqualified`. A dispatcher is given it
@@ -260,15 +377,17 @@ manager.
 
 ## What is not built
 
-No drive time matrix from a road network: the optimiser estimates from the
-straight line and the company's own declared route times, and a route
+No live traffic: drive times by road are the roads as the provider knows them,
+and a routing answer is kept for the provider's whole cache period. A route
 template's density check still uses only declared travel, which is why a
 density total with no declared drive time reports a floor rather than a
-figure. The optimiser orders one technician's day and suggests a technician for
-each unassigned visit; it does not rebalance work between technicians, move a
-visit to another day, or account for lunch, overtime or the end of the working
-day beyond arrival windows. Crew visits are not on the map's lines, which follow
-individual assignments. The map is raster tiles only, with no traffic and no
-live technician positions. Crews, routes and the rota are not on the dispatch
-board yet, so a route business plans at `/schedule/routes` and then watches the
-day at `/schedule`.
+figure. The rebalance plans one day; it does not move a visit to another day.
+It leaves crew work, visits with several people on them and work under way
+where they are, counts a visit with several people only on its lead's day, and
+plans lunch and overtime from company settings and each person's own hours,
+not from the overtime policy's thresholds. A technician whose day has no start
+on the map is left out of it, with their work where it is. Crew visits are on
+the board and the map, but crews are not rebalanced and a crew card cannot be
+dragged onto a person. Live positions come only from the phone app; `/my-day`
+in a browser shares none. The map shows each person's latest position, not
+the path they took. The map is raster tiles only.

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
 import { geo, time, type Actor } from "@opentradesos/core";
 import * as dispatchMap from "../src/services/dispatch-map";
+import * as dispatch from "../src/services/dispatch";
 import { travelMatrix } from "../src/services/travel-times";
 import { registerRouter, type MatrixRequest } from "../src/routing/provider";
 import type { ServiceContext } from "../src/services/context";
@@ -112,7 +113,7 @@ async function visit(lat: number, lng: number, options: {
 const ownerOf = async (visitId: string) => (await raw<{ technician_id: string }[]>`
   select technician_id from public.visit_assignment where visit_id = ${visitId}`).map((r) => r.technician_id);
 
-let w1 = ""; let e1 = ""; let e2 = ""; let gas = ""; let open = "";
+let w1 = ""; let e1 = ""; let gas = ""; let open = "";
 
 beforeAll(async () => {
   if (!url) return;
@@ -134,7 +135,8 @@ beforeAll(async () => {
   w1 = await visit(30.30, -97.88, { technicianId: ray, order: 1 });
   e1 = await visit(30.30, -97.52, { technicianId: ray, order: 2 });
   gas = await visit(30.30, -97.86, { technicianId: ray, order: 3, jobTypeId: gasType });
-  e2 = await visit(30.30, -97.51, { technicianId: dana, order: 1 });
+  /** Dana is already out east, which is what makes the east side call hers. */
+  await visit(30.30, -97.51, { technicianId: dana, order: 1 });
   open = await visit(30.31, -97.52, { from: 9, to: 12 });
 });
 afterAll(async () => { if (raw) await raw.end(); });
@@ -301,5 +303,50 @@ run("drive times by road", () => {
     const [cleared] = await raw<{ last_error: string | null }[]>`
       select last_error from public.integration_connection where organization_id = ${ORG} and capability = 'routing'`;
     expect(cleared!.last_error).toBeNull();
+  });
+});
+
+run("crews, routes and the rota on the board", () => {
+  it("puts crew work in the crew's lane and on its own line, not in the unassigned pile", async () => {
+    const [crew] = await raw<{ id: string }[]>`
+      insert into public.crew (organization_id, name, color) values (${ORG}, 'Install crew', '#7C3AED') returning id`;
+    await raw`insert into public.crew_member (organization_id, crew_id, technician_id, is_lead)
+              values (${ORG}, ${crew!.id}, ${dana}, true), (${ORG}, ${crew!.id}, ${ray}, false)`;
+    const crewVisit = await visit(30.32, -97.6);
+    await raw`update public.visit set crew_id = ${crew!.id}, status = 'dispatched' where id = ${crewVisit}`;
+
+    const board = await dispatch.board(dispatcher(), { date: DAY });
+    expect(board.unassigned.map((v) => v.id)).not.toContain(crewVisit);
+    const lane = board.crews.find((c) => c.id === crew!.id)!;
+    expect(lane).toMatchObject({ name: "Install crew", leadName: "Dana Lee" });
+    expect(lane.memberNames).toEqual(["Dana Lee", "Ray Ortiz"]);
+    expect(lane.visits.map((v) => v.id)).toEqual([crewVisit]);
+
+    const map = await dispatchMap.map(dispatcher(), { date: DAY });
+    expect(map.crews.find((c) => c.id === crew!.id)?.route).toEqual([crewVisit]);
+    expect(map.visits.find((v) => v.id === crewVisit)?.crewId).toBe(crew!.id);
+
+    /** And the rebalance leaves it to the crew. */
+    const proposal = await dispatchMap.rebalance(dispatcher(), { date: DAY });
+    expect(proposal.moves.map((m) => m.visitId)).not.toContain(crewVisit);
+    expect(proposal.untouched).toContain(crewVisit);
+  });
+
+  it("says who is on call, and says so when nobody is", async () => {
+    expect((await dispatch.board(dispatcher(), { date: DAY })).onCall).toEqual([]);
+    await raw`insert into public.on_call_rotation (organization_id, technician_id, starts_at, ends_at)
+              values (${ORG}, ${ray}, ${at(17)}, ${new Date(at(17).getTime() + 15 * 3_600_000)})`;
+    const board = await dispatch.board(dispatcher(), { date: DAY });
+    expect(board.onCall).toEqual([expect.objectContaining({ technicianName: "Ray Ortiz" })]);
+  });
+
+  it("lists the routes running today with how far through them the day is", async () => {
+    const [route] = await raw<{ id: string }[]>`
+      insert into public.route (organization_id, name, technician_id) values (${ORG}, 'Tuesday pools', ${ray}) returning id`;
+    await raw`update public.visit set route_id = ${route!.id} where id = ${w1}`;
+    const board = await dispatch.board(dispatcher(), { date: DAY });
+    expect(board.routes).toEqual([{ id: route!.id, name: "Tuesday pools", stops: 1, done: 0, runBy: "Ray Ortiz" }]);
+    const card = board.technicians.flatMap((t) => t.visits).find((v) => v.id === w1);
+    expect(card?.routeName).toBe("Tuesday pools");
   });
 });

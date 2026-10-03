@@ -129,7 +129,7 @@ Sending an estimate issues the grant as part of sending, so the normal path is
 | Link | What it is |
 |---|---|
 | `/e/{token}` | One estimate, to read, approve or decline |
-| `/j/{token}` | One job: status, arrival window, who is coming |
+| `/j/{token}` | One job: status, arrival window, who is coming, and while they are on the way their ETA and a moving pin |
 | `/i/{token}` | One invoice, with a card if the company has connected Stripe |
 | `/pay/{token}` | One deposit, asked for by an approved estimate |
 | `/b/{token}` | One booking request, before anybody has confirmed it |
@@ -177,6 +177,14 @@ suggested percentages of the balance and a box for any amount, for the
 technicians named by first name. M13 says what a tip is on the books.
 
 ### See the job's photographs
+
+While the technician is on the way, after they texted that they are, the job
+link shows their first name, their photo when the office set one (served
+through the link at `/j/{token}/technician-photo`), how long until they
+arrive, and a pin where they are, read every twenty seconds from
+`/j/{token}/live` (`GET /v1/portal/job/live`). Only positions taken for this
+visit since the text, and none at all once they have arrived. See M09 and the
+location section of M11.
 
 The job link (`/j/{token}`) shows the job's photographs the company chose to
 show, or every one when it shows them all, served through the same link at

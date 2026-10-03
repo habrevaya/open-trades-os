@@ -32,6 +32,8 @@ export const GROUPS: { capability: string; title: string; description: string }[
     description: "Reviews read into the review work list every hour, and replies written here posted back." },
   { capability: "maps", title: "Maps and addresses",
     description: "Puts customers' addresses on the dispatch map in the background, so the route optimiser has something to measure. A pin placed by hand on a property always wins." },
+  { capability: "routing", title: "Drive times by road",
+    description: "How long the drive really is, for the route optimiser, the day rebalance and the arrival time on a customer's tracking link. Without one, drive times are straight line estimates and every screen says so." },
 ];
 
 /**

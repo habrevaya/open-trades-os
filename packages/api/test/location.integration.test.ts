@@ -46,6 +46,7 @@ let customerId = "";
 let propertyId = "";
 let device = "";
 let sequence = 0;
+let trackingToken = "";
 /** One fix's time, sent twice, so the second arrival is recognised as the same fix. */
 const onTheClockAt = new Date(Date.now() - 30 * 60_000);
 
@@ -224,6 +225,7 @@ run("the customer's tracking link", () => {
     const told = await dispatch.onMyWay(tech(), { id: visit, channel: "sms", etaMinutes: 20, includeTracking: true });
     expect(told.sent).toBe(true);
     const token = told.trackingUrl!.split("/j/")[1]!;
+    trackingToken = token;
 
     const message = await raw<{ body: string }[]>`
       select body from public.message where organization_id = ${ORG} order by created_at desc limit 1`;
@@ -248,6 +250,27 @@ run("the customer's tracking link", () => {
     const arrived = await liveTracking(token);
     expect(arrived).toMatchObject({ status: "arrived", tracking: false, position: null, destination: null, etaMinutes: null });
     expect(arrived.explanation).toMatch(/no longer shown/);
+  });
+
+  it("shows the technician's photo through the link once the office sets one, and not after it is taken down", async () => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    await expect(dispatchMap.setTechnicianPhoto(as(["technician"]), { id: technicianId, bytes: png }))
+      .rejects.toMatchObject({ name: "PermissionError" });
+    const set = await dispatchMap.setTechnicianPhoto(owner(), { id: technicianId, bytes: png });
+    expect(set.hasPhoto).toBe(true);
+    const live = await liveTracking(trackingToken);
+    expect(live.technician?.photoUrl).toMatch(new RegExp(`/j/${trackingToken}/technician-photo$`));
+    const photo = await liveLocation.trackingPhoto(db(), trackingToken);
+    expect(photo?.contentType).toBe("image/png");
+
+    await dispatchMap.setTechnicianPhoto(owner(), { id: technicianId, bytes: null });
+    expect(await liveLocation.trackingPhoto(db(), trackingToken)).toBeNull();
+    expect((await liveTracking(trackingToken)).technician?.photoUrl).toBeNull();
+  });
+
+  it("refuses a photo that is not a picture", async () => {
+    await expect(dispatchMap.setTechnicianPhoto(owner(), { id: technicianId, bytes: Buffer.from("%PDF-1.4 not a photo").toString("base64") }))
+      .rejects.toThrow();
   });
 
   it("refuses a token that is not a job's", async () => {

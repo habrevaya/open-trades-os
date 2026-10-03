@@ -299,6 +299,14 @@ export const getRebalance = defineRoute({
     overtimeAfterMinutes: z.number().int(),
     /** Visits that had nobody and would have somebody. */
     newlyAssigned: z.number().int(),
+    /** Every visit the rebalance planned, so a screen can name the stops in each day. */
+    visits: z.array(z.object({
+      visitId: Uuid,
+      customerName: z.string(),
+      locked: z.boolean(),
+      windowStart: z.string().datetime().nullable(),
+      windowEnd: z.string().datetime().nullable(),
+    })),
     /** Ready for the apply call. */
     moveAssignments: z.array(z.object({ visitId: Uuid, technicianId: Uuid })),
     apply: z.array(z.object({ technicianId: Uuid, visitIds: z.array(Uuid) })),

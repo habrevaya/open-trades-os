@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { portal } from "@opentradesos/api/services";
+import { liveLocation, portal } from "@opentradesos/api/services";
+import { tileSource } from "@/lib/map-tiles";
 import { PortalBrand } from "../../PortalBrand";
+import { LiveTracker } from "./LiveTracker";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +19,25 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
   const { token } = await params;
 
   let job: Awaited<ReturnType<typeof portal.viewJob>>;
+  let live: Awaited<ReturnType<typeof liveLocation.liveTracking>>;
   try {
-    job = await portal.viewJob(getDb(), { token });
+    [job, live] = await Promise.all([
+      portal.viewJob(getDb(), { token }),
+      liveLocation.liveTracking(getDb(), { token }),
+    ]);
   } catch {
     notFound();
   }
+  /** The live part takes over once the technician is on the way: their name, the ETA, the pin, and then that they are here. */
+  const showLive = live.status === "on_the_way" || live.status === "arrived";
+  /**
+   * Arriving does not move a visit out of on the way (work starting does), so
+   * the job's own status would still say "On the way" with the van in the
+   * drive. The live read knows they arrived.
+   */
+  const status = live.status === "arrived" && job.status === "On the way" ? "Arrived" : job.status;
+  /** The live read carries the photo when one is set; the job's own read never has. */
+  const technician = live.technician ?? job.technician;
 
   return (
     <PortalBrand token={token}>
@@ -37,7 +53,7 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
           Rendered as the service worded it. Capitalizing here title-cased
           every word, so "On the way" read "On The Way".
         */}
-        <p className="mt-2 text-lg font-medium">{job.status}</p>
+        <p className="mt-2 text-lg font-medium">{status}</p>
         {job.scheduledDate && (
           <p className="mt-2 text-sm text-ink-700">
             {new Date(`${job.scheduledDate}T12:00:00Z`).toLocaleDateString("en-US", {
@@ -51,37 +67,34 @@ export default async function TrackPage({ params }: { params: Promise<{ token: s
           pressed. Offered whenever there is a booked time to change; whether
           this one still can be is the service's answer on that page.
         */}
-        {job.scheduledDate && job.etaMinutes === null && (
+        {job.scheduledDate && !showLive && (
           <p className="mt-3 text-sm">
             <a href={`/j/${token}/change`} className="text-ink-700 underline underline-offset-4">
               Need to change or cancel this visit?
             </a>
           </p>
         )}
-        {job.etaMinutes !== null && (
-          <p className="mt-3 text-sm font-medium">
-            About {job.etaMinutes} minutes away.
-          </p>
-        )}
-        {job.technician && (
+        {!showLive && technician && (
           <div className="mt-5 flex items-center justify-center gap-3">
-            {job.technician.photoUrl && (
+            {technician.photoUrl && (
               /* A plain img, not next/image. The photo is at whatever URL the
                  self hoster's storage gave it, and next/image needs those
                  hosts declared at build time, which nobody deploying this can
                  know in advance. */
               <img
-                src={job.technician.photoUrl}
+                src={technician.photoUrl}
                 alt=""
                 className="h-10 w-10 rounded-full object-cover"
               />
             )}
             {/* First name only. A last name and a phone number are not the
                 customer's to have, and a technician cannot opt out of this page. */}
-            <span className="text-sm">{job.technician.firstName} is on this one.</span>
+            <span className="text-sm">{technician.firstName} is on this one.</span>
           </div>
         )}
       </div>
+
+      {showLive && <LiveTracker token={token} initial={live} tiles={tileSource()} />}
 
       {job.timeline.length > 0 && (
         <ol className="space-y-0 rounded-md border border-steel-200 bg-canvas p-6">

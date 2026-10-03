@@ -130450,6 +130450,45 @@
           "newlyAssigned": {
             "type": "integer"
           },
+          "visits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "windowStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "windowEnd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "visitId",
+                "customerName",
+                "locked",
+                "windowStart",
+                "windowEnd"
+              ]
+            }
+          },
           "moveAssignments": {
             "type": "array",
             "items": {
@@ -130547,6 +130586,7 @@
           "overtimeBeforeMinutes",
           "overtimeAfterMinutes",
           "newlyAssigned",
+          "visits",
           "moveAssignments",
           "apply",
           "workday",

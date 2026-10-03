@@ -6745,6 +6745,13 @@ export interface GetRebalanceOutput {
   overtimeBeforeMinutes: number;
   overtimeAfterMinutes: number;
   newlyAssigned: number;
+  visits: Array<{
+    visitId: string;
+    customerName: string;
+    locked: boolean;
+    windowStart: string | null;
+    windowEnd: string | null;
+  }>;
   moveAssignments: Array<{
     visitId: string;
     technicianId: string;

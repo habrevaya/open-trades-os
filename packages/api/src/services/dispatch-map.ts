@@ -927,6 +927,10 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
     overtimeAfterMinutes: result.overtimeAfter,
     newlyAssigned: result.moves.filter((m) => m.from === null).length,
     moveAssignments: result.moves.map((m) => ({ visitId: m.visitId, technicianId: m.to })),
+    visits: candidates.map((v) => ({
+      visitId: v.id, customerName: v.customerName, locked: v.locked,
+      windowStart: iso(v.windowStart), windowEnd: iso(v.windowEnd),
+    })),
     apply,
     workday: day.workday,
     ...sourceOf(matrix),

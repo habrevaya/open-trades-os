@@ -4,7 +4,7 @@ import { attempt, field, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { dispatchMap, geocoding } from "@opentradesos/api/services";
+import { dispatchMap, geocoding, liveLocation } from "@opentradesos/api/services";
 import { geo } from "@opentradesos/core";
 
 /**
@@ -31,6 +31,42 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           skills: String(form.get("skills") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
           homeLocationId: start ?? null,
           ...(field(form, "color") ? { color: field(form, "color")! } : {}),
+          /** Both times or neither: a day with a start and no end is not a day. */
+          workday: field(form, "startsAt") && field(form, "endsAt")
+            ? { startsAt: field(form, "startsAt")!, endsAt: field(form, "endsAt")! }
+            : null,
+          ...(field(form, "shareLocation") ? { shareLocation: field(form, "shareLocation") === "on" } : {}),
+        });
+        return;
+      }
+      case "photo": {
+        const file = form.get("photo");
+        const clearing = field(form, "clear") === "yes";
+        if (!clearing && !(file instanceof File && file.size > 0)) throw new Error("Choose a photo first.");
+        await dispatchMap.setTechnicianPhoto(ctx, {
+          id,
+          bytes: clearing ? null : Buffer.from(await (file as File).arrayBuffer()).toString("base64"),
+        });
+        return;
+      }
+      case "workday": {
+        const minutes = (key: string) => (field(form, key) ? Number(field(form, key)) : undefined);
+        await dispatchMap.setWorkdaySettings(ctx, {
+          ...(field(form, "dayEndsAt") ? { dayEndsAt: field(form, "dayEndsAt")! } : {}),
+          ...(minutes("lunchMinutes") !== undefined ? { lunchMinutes: minutes("lunchMinutes")! } : {}),
+          ...(field(form, "lunchEarliest") ? { lunchEarliest: field(form, "lunchEarliest")! } : {}),
+          ...(field(form, "lunchLatest") ? { lunchLatest: field(form, "lunchLatest")! } : {}),
+          ...(minutes("maxOvertimeMinutes") !== undefined ? { maxOvertimeMinutes: minutes("maxOvertimeMinutes")! } : {}),
+        });
+        return;
+      }
+      case "sharing": {
+        const days = field(form, "retentionDays");
+        const seconds = field(form, "intervalSeconds");
+        await liveLocation.setSharing(ctx, {
+          ...(field(form, "enabled") ? { enabled: field(form, "enabled") === "on" } : {}),
+          ...(days ? { retentionDays: Number(days) } : {}),
+          ...(seconds ? { intervalSeconds: Number(seconds) } : {}),
         });
         return;
       }

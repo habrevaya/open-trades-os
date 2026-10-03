@@ -143,7 +143,10 @@ suggestions at `GET /v1/dispatch/suggestions`).
 ### Record what each technician does
 
 `/schedule/technicians` records a technician's skills, beside any
-certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`.
+certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`,
+along with their own working hours and whether their location is shared while
+they work (see M09 and M11). `POST /v1/technicians/{id}/photo` sets or clears
+the photograph a customer sees beside their first name on a tracking link.
 `GET /v1/technicians` lists them.
 
 ## Permissions
@@ -170,6 +173,7 @@ certification, with `PATCH /v1/technicians/{id}`, which needs `user:write`.
 | `POST /v1/people/skill-standing` | `compliance:read` |
 | `GET /v1/technicians` | `visit:read` |
 | `PATCH /v1/technicians/{id}` | `user:write` |
+| `POST /v1/technicians/{id}/photo` | `user:write` |
 
 ## Common questions
 
