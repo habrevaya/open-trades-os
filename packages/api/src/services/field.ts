@@ -3,7 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { field, money as m } from "@opentradesos/core";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, UnprocessableError,
+  audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
 } from "./context";
 import * as billing from "./billing";
 import { emit } from "./events";
@@ -500,6 +500,9 @@ export async function templateFor(tx: Database, jobTypeId: string | null) {
  * idempotency key is derived from it, so even a replay that did would find
  * the payment it already made.
  */
+/** The billing service's refusals, each already a sentence for a person. */
+const REFUSALS = new Set(["ConflictError", "UnprocessableError", "NotFoundError", "PeriodClosedError"]);
+
 async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<string | null> {
   if (!op.subjectId) return "That payment names no visit.";
   const method = op.payload["method"];
@@ -568,12 +571,9 @@ async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperati
      * a fault, and thrown, so the whole batch is retried rather than the
      * payment being marked refused for a reason nobody can act on.
      */
-    if (error instanceof ConflictError || error instanceof UnprocessableError || error instanceof NotFoundError
-      || (error as { name?: string }).name === "PermissionError") {
-      return error instanceof Error && (error as { name?: string }).name === "PermissionError"
-        ? "Your account may not take payments. The office will need to record it."
-        : (error as Error).message;
-    }
+    const name = error instanceof Error ? error.name : "";
+    if (name === "PermissionError") return "Your account may not take payments. The office will need to record it.";
+    if (REFUSALS.has(name)) return (error as Error).message;
     throw error;
   }
 }

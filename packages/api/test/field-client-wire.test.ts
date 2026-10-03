@@ -10,6 +10,8 @@ import type {
   CodeRequestResult, PaymentLinkResult,
 } from "@opentradesos/field-client/wire";
 import type { SyncResponse, Transport } from "@opentradesos/field-client/queue";
+import { PUSH_CHANNELS } from "@opentradesos/field-client/wire";
+import { ANDROID_CHANNEL } from "../src/push/provider";
 import {
   getFieldSnapshot, signInDevice, registerDevice, listPendingUploads, storeUpload,
   sendArrivalNotice, syncOperations, requestSignInCode, signInWithCode, visitPaymentLink,
@@ -57,6 +59,10 @@ describe("the field client's wire types", () => {
     expect(accepts<CodeRequestResult>(codeSent)).toBe(true);
     expect(accepts<SignInResult>(codeSignIn)).toBe(true);
     expect(accepts<PaymentLinkResult>(link)).toBe(true);
+  });
+
+  it("send notices to the Android channels the app creates", () => {
+    expect(ANDROID_CHANNEL).toEqual(PUSH_CHANNELS);
   });
 
   it("send what the server accepts", () => {

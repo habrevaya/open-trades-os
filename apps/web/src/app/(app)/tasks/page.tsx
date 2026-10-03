@@ -300,7 +300,9 @@ export default async function TasksPage({
                 <TaskActions
                   id={task.id}
                   claimable={task.assigneeUserId === null}
-                  closable={writes && !(change && change.status === "pending") && task.checklistTotal === 0}
+                  closable={(writes || task.assigneeUserId === user.actor.userId)
+                    && !(change && change.status === "pending") && task.checklistTotal === 0}
+                  dismissable={writes}
                 />
               </li>
             );

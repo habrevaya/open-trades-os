@@ -128,3 +128,13 @@ export interface ArrivalNoticeResult {
   alreadySent: boolean;
   reason: string | null;
 }
+
+/**
+ * The Android notification channels the app creates and the server sends to:
+ * one that rings for a change to somebody's day, and one with no sound for
+ * the same change inside the company's quiet hours. Named once here, and the
+ * server's own list is held to it by a test in the API package, because a
+ * notice sent to a channel the app never made is shown with Android's
+ * defaults, which is loud.
+ */
+export const PUSH_CHANNELS = { normal: "visits", quiet: "visits-quiet" } as const;
