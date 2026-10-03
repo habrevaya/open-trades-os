@@ -623,7 +623,7 @@ function Photos({ photos, onPhoto }: {
   return (
     <div>
       <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Photos</p>
-      <p className="mt-1 text-sm text-ink-500" role="status">
+      <p className="mt-1 text-sm text-ink-500" aria-live="polite">
         {parts.length > 0 ? `Taken here: ${parts.join(", ")}.` : "No photos taken here yet."}
       </p>
       <label className={`mt-2 flex h-12 w-full cursor-pointer items-center justify-center rounded border border-steel-300 text-base font-medium ${busy ? "opacity-60" : ""}`}>

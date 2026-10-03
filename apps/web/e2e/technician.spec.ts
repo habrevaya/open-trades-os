@@ -105,3 +105,57 @@ test("a punch the server refuses says why beside the clock, straight away, inste
   await expect(tech.getByRole("main").getByRole("alert")).toHaveCount(0);
   await expect(tech.getByRole("button", { name: pressed === "Clock in" ? "Clock out" : "Clock in" })).toBeVisible();
 });
+
+/** A one pixel PNG, as the camera control would hand over a picture. */
+const PIXEL = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("a technician photographs the work and takes cash on /my-day, and the office sees the payment", async ({ owner, tech }) => {
+  const customer = `Ines Abara ${run}`;
+  const customerId = await newCustomer(owner, {
+    name: customer, phone: "(512) 555-0161",
+    address: { street: "77 Pecan Hollow", city: "Austin", state: "TX", zip: "78745" },
+  });
+
+  await owner.getByRole("link", { name: "77 Pecan Hollow, Austin" }).click();
+  await owner.getByRole("link", { name: "Book a job here" }).click();
+  await owner.getByLabel("Summary").fill(`Water heater pilot out ${run}`);
+  const now = companyNow("America/Chicago");
+  await owner.getByLabel("Day", { exact: true }).fill(now.date);
+  await owner.getByLabel("Arrives from").fill(now.time);
+  await owner.getByLabel("Ray Ortiz").check();
+  await owner.getByRole("button", { name: "Book job" }).click();
+  await expect(owner).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+
+  await tech.goto("/my-day");
+  const visit = tech.getByRole("article").filter({ hasText: customer });
+  await visit.getByRole("button").first().click();
+
+  // The camera: a file input that asks the phone for its rear camera.
+  const camera = visit.getByLabel("Take a photo");
+  await expect(camera).toHaveAttribute("type", "file");
+  await expect(camera).toHaveAttribute("accept", "image/*");
+  await expect(camera).toHaveAttribute("capture", "environment");
+  await camera.setInputFiles({ name: "pilot.png", mimeType: "image/png", buffer: PIXEL });
+  // Kept on the phone, its record synced, then its bytes sent when the server asks for them.
+  await expect(visit.getByText(/Taken here: 1 sent\./)).toBeVisible({ timeout: 30_000 });
+
+  // Cash, through the same queue as every other tap.
+  await expect(visit.getByText("Nothing invoiced for this job yet.", { exact: false })).toBeVisible();
+  await visit.getByText("Cash", { exact: true }).click();
+  await visit.getByLabel("Amount").fill("85");
+  await visit.getByRole("button", { name: "Record cash payment" }).click();
+  await expect(visit.getByText("Cash $85.00, sent")).toBeVisible({ timeout: 30_000 });
+
+  // A check needs its number before it goes anywhere.
+  await visit.getByText("Check", { exact: true }).click();
+  await visit.getByLabel("Amount").fill("20");
+  await visit.getByRole("button", { name: "Record check payment" }).click();
+  await expect(visit.getByRole("alert").filter({ hasText: "Enter the check number" })).toBeVisible();
+
+  // The office sees the money on the customer, held until it is applied.
+  await owner.goto(`/customers/${customerId}`);
+  await expect(owner.getByRole("region", { name: "Payments" })).toContainText("$85.00");
+});
