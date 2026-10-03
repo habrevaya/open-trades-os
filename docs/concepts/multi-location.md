@@ -33,13 +33,17 @@ covers. It is not an organizational wall and it is not in scope here.
 | `location_id` on visit and membership | Yes |
 | `Actor` carries `businessUnitId` and `locationId`, resolved with the session | Yes |
 | Scope ladder includes `business_unit` and `location` | Yes |
-| Job reads filter by branch or shop when the scope asks for it | Yes, `services/scope.ts` |
-| Any shipped role that USES those scopes | **No**, and it needs custom roles, since `member_role` is a fixed enum |
+| Job reads filter by branch or shop when the scope asks for it | Yes, `services/scope.ts`, the list and now a job opened by its id or edited |
+| A screen to make branches and put people and work in them | Yes, Settings, Branches and Settings, Team |
+| A role that USES the branch scope | Yes, made on Settings, Roles ("their branch's work"). No PRESET uses it, since `member_role` is a fixed enum |
 | Per-membership scope overrides | Yes, and they can only narrow |
 | Scope applied to customer, invoice and estimate reads | Yes |
-| Scope applied to visits, service reports and timesheets | **No** |
-| Numbering, sequences and documents per branch | **No** |
-| Cross branch reporting and elimination | **No** |
+| Scope applied to the visits report dataset | Yes, through the visit's job |
+| Scope applied to the dispatch board, service reports and timesheets | **No** |
+| A branch filter on the job, customer, invoice and estimate lists and on reports | Yes, for people who see the whole company; it narrows and never widens |
+| Reports grouped by branch | Yes, a Branch column on the jobs, invoices, estimates, visits and job profitability datasets |
+| Numbering, sequences and documents per branch | **No**, decided: one sequence per company |
+| Cross branch elimination | **No** |
 
 ## The bug this came out of
 
@@ -62,10 +66,46 @@ a scope that cannot be turned into a filter matches nothing. An account that
 sees nothing raises a ticket within the hour. An account that sees everything
 is found during an incident, if it is found.
 
-## What has to be decided before a branch scope ships
+## What was decided when the branch scope shipped
 
-These are open questions, not a backlog. Each one changes the data model or
-changes what a number means.
+A branch on the screens is a business unit. The two answers below that
+changed code are in `services/branches.ts` and the `app.default_job_branch`
+trigger in `packages/db/sql/after.sql`.
+
+**Where a job's branch comes from.** Whoever books it chooses, and if they do
+not, it takes the branch of the person saving it, then the branch its job type
+belongs to, and otherwise none. A trigger, because eight services insert jobs
+and none of them chose a branch. A job with no branch belongs to nobody's
+branch: only people who see the whole company see it, and Settings, Branches
+counts those jobs and moves them in bulk. A branch scoped person can only put
+work in their own branch; moving work between branches is for somebody who sees
+the whole company, because a job moved out of your branch is one you can no
+longer see.
+
+**Numbers.** One sequence per company. Austin's invoices have gaps in them.
+
+**One job, two branches.** One job carries one branch. A Houston crew on an
+Austin job puts the revenue in Austin and the labour on Houston's people.
+
+**A technician at two locations.** Unchanged: a membership carries one branch
+and one location.
+
+**The price book by branch.** Company wide.
+
+**Consolidated numbers.** A report is scoped like every read, so a branch
+manager's reports are their branch's; somebody who sees the whole company
+sees everything, and can narrow any report to one branch or group it by
+branch.
+
+**A customer's branch.** A customer has none of their own. They belong to the
+branches that have done work for them, so a customer a branch manager has
+just added does not appear in their customer list until a job is booked for
+them (they can still open the customer they just made).
+
+## The questions as they were asked
+
+These were the open questions before any of the above was decided, kept
+because each answer changes the data model or what a number means.
 
 **Where does a job's business unit come from?** Today it is a nullable column
 nobody sets. The candidates are the job type, the technician assigned, the
