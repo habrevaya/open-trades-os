@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { email } from "@opentradesos/api/services";
+import { emailInbound } from "@opentradesos/api/services";
 // Registers the email adapters.
 import "@opentradesos/api/email";
 
@@ -26,7 +26,10 @@ export const dynamic = "force-dynamic";
  * WHAT A FORGED EVENT IS WORTH, so that none of this is optional: anybody who
  * could post an unverified bounce here could put any address on this
  * company's do not email list, silently, and the company would stop being
- * able to invoice that customer without ever learning why.
+ * able to invoice that customer without ever learning why. And since a
+ * customer's reply to an email arrives here too, anybody who could post an
+ * unverified one could put words in a customer's mouth, in the thread the
+ * office answers from.
  */
 
 /**
@@ -57,7 +60,7 @@ export async function POST(
    */
   const rawBody = await request.text();
 
-  const outcome = await email.receiveByToken(getDb(), {
+  const outcome = await emailInbound.receiveByToken(getDb(), {
     token,
     url: publicUrl(token),
     headers: Object.fromEntries(
@@ -71,7 +74,8 @@ export async function POST(
    * between that would let somebody test tokens against the difference.
    *
    * 422 for a body this cannot parse, because it will fail identically on
-   * every retry.
+   * every retry. 503 for a reply whose words the provider would not hand
+   * over just now, because a retry later is exactly the remedy.
    *
    * 200 for anything that was recorded, including an event nothing here
    * models, because the provider should stop retrying it: a non 2xx has
@@ -83,7 +87,8 @@ export async function POST(
     const status = outcome.reason === "unknown_token" ? 404
       : outcome.reason === "bad_signature" ? 401
         : outcome.reason === "not_supported" ? 409
-          : 422;
+          : outcome.reason === "body_unavailable" ? 503
+            : 422;
     return Response.json({ error: outcome.reason }, { status });
   }
 

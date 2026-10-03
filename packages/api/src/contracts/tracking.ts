@@ -20,6 +20,10 @@ const NumberRow = z.object({
   attributionSource: z.string().nullable(), channelId: Uuid.nullable(), campaignId: Uuid.nullable(),
   forwardsToE164: z.string().nullable(), routedHere: z.boolean(), whisper: z.boolean(),
   recordCalls: z.boolean(), routeByHours: z.boolean(), afterHoursForwardsToE164: z.string().nullable(),
+  /** The phone menu that answers it, when one does. */
+  menuId: Uuid.nullable(),
+  /** Answered here but brought rather than bought: releasing it never gives it away at the carrier. */
+  adopted: z.boolean(),
 });
 
 const E164 = z.string().regex(/^\+[1-9]\d{6,14}$/, "A number in full international form: +15125550123");
@@ -84,6 +88,8 @@ export const setNumberRouting = defineRoute({
     recordCalls: z.boolean().optional(),
     routeByHours: z.boolean().optional(),
     afterHoursForwardsToE164: E164.nullable().optional(),
+    /** A phone menu answers instead: the menu in business hours, and outside them where the menu says. Null goes back to ringing. */
+    menuId: Uuid.nullable().optional(),
   }),
   output: NumberRow,
 });
@@ -93,7 +99,7 @@ export const releasePhoneNumber = defineRoute({
   path: "/v1/marketing/tracking-numbers/{id}/release",
   summary: "Hand a number back, at the carrier as well",
   description:
-    "A number bought here is released at Twilio first and then here; if the carrier refuses, nothing changes. Calls it already took keep their campaign. Releasing one already released answers as before.",
+    "A number bought here is released at Twilio first and then here; if the carrier refuses, nothing changes. A number the company brought with it and had answered here is never released at Twilio: its calls are handed back to where they went before. Calls it already took keep their campaign. Releasing one already released answers as before.",
   module: "M19",
   permissions: ["settings:write"],
   idempotent: true,

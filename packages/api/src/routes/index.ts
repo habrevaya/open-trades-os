@@ -18,7 +18,7 @@ import {
   acquisition, marketingReport, phoneNumbers,
   customerTags, customerDuplicates, priceCategories, repricing, taskRules, taskChecklist,
   laborSettings,
-  voice, websiteTracking, referrals,
+  voice, websiteTracking, referrals, phoneMenus, transcription,
 } from "../services/index";
 
 /**
@@ -299,6 +299,7 @@ export const handlers = {
   attachRecording: telephony.handlers.attachRecording,
   deleteRecording: telephony.handlers.deleteRecording,
   attachTranscript: telephony.handlers.attachTranscript,
+  transcribeCall: transcription.handlers.transcribeCall,
 
   // Dispatch
   getDispatchBoard: dispatch.board,
@@ -427,6 +428,7 @@ export const handlers = {
   getOnCallNow: onCall.handlers.getOnCallNow,
   listOnCallRotations: onCall.handlers.listOnCallRotations,
   scheduleOnCall: onCall.handlers.scheduleOnCall,
+  fillOnCallWeeks: onCall.handlers.fillOnCallWeeks,
   handOverOnCall: onCall.handlers.handOverOnCall,
 
   listCommissionBases: commissions.handlers.listCommissionBases,
@@ -747,6 +749,19 @@ export const handlers = {
   buyTrackingNumber: voice.handlers.buyTrackingNumber,
   setNumberRouting: voice.handlers.setNumberRouting,
   releasePhoneNumber: voice.handlers.releasePhoneNumber,
+  answerNumberHere: voice.handlers.answerNumberHere,
+  stopAnsweringNumber: voice.handlers.stopAnsweringNumber,
+  listPhoneMenus: phoneMenus.handlers.listPhoneMenus,
+  getPhoneMenu: phoneMenus.handlers.getPhoneMenu,
+  createPhoneMenu: phoneMenus.handlers.createPhoneMenu,
+  updatePhoneMenu: phoneMenus.handlers.updatePhoneMenu,
+  deletePhoneMenu: phoneMenus.handlers.deletePhoneMenu,
+  listRingGroups: phoneMenus.handlers.listRingGroups,
+  createRingGroup: phoneMenus.handlers.createRingGroup,
+  updateRingGroup: phoneMenus.handlers.updateRingGroup,
+  deleteRingGroup: phoneMenus.handlers.deleteRingGroup,
+  listAnsweringPhones: phoneMenus.handlers.listAnsweringPhones,
+  setAnsweringPhone: phoneMenus.handlers.setAnsweringPhone,
   recordPublicTouch: websiteTracking.handlers.recordPublicTouch,
   getVisitorNumber: websiteTracking.handlers.getVisitorNumber,
   getWebsiteTracking: websiteTracking.handlers.getWebsiteTracking,

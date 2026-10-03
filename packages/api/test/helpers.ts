@@ -103,7 +103,10 @@ const ORDER = [
   "recording_policy",
   /** A website visitor's lease on a pool number points at the number. */
   "dni_session",
-  "phone_number", "messaging_campaign", "messaging_brand",
+  "phone_number",
+  /** A number points at the menu that answers it; menus and groups point at each other only by id in their options. */
+  "phone_menu", "ring_group", "answering_phone",
+  "messaging_campaign", "messaging_brand",
   "portal_event", "portal_grant",
   "booking_request", "bookable_service", "arrival_window",
   "portal_block", "portal_layout", "service_report_template",

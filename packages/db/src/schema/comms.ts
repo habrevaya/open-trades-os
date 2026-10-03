@@ -128,6 +128,92 @@ export const messagingCampaign = pgTable("messaging_campaign", {
   brandIdx: index("messaging_campaign_brand_idx").on(t.brandId),
 }));
 
+/* ------------------------------------------------------- phone menus */
+
+/**
+ * Where a call goes, as core's router names it: a ring group, a menu, the on
+ * call rota, voicemail, a forwarded number or one person. Declared here as
+ * the stored shape rather than imported, because this package does not
+ * depend on core; the services check every value against core's catalogue
+ * before it is written.
+ */
+export type StoredDestination =
+  | { kind: "ring_group"; id: string }
+  | { kind: "queue"; id: string }
+  | { kind: "voicemail"; box: string }
+  | { kind: "forward"; e164: string }
+  | { kind: "ivr"; menu: string }
+  | { kind: "on_call_rota"; id: string }
+  | { kind: "person"; userId: string };
+
+/**
+ * A PHONE MENU: "press 1 for service, 2 for billing".
+ *
+ * The options are a list on the row rather than a table of their own,
+ * because a menu is edited and saved as one thing on one screen, and an
+ * option means nothing outside the menu it is in. What each option points
+ * at is checked against what exists every time the menu is saved, and again
+ * when a call reaches it, because a ring group can be deleted afterwards.
+ *
+ * `after_hours_to` is where calls go outside the company's business hours
+ * (the hours online booking keeps). Null means the menu answers at every
+ * hour.
+ */
+export const phoneMenu = pgTable("phone_menu", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  greeting: text("greeting").notNull(),
+  options: jsonb("options").$type<{ key: string; label: string; to: StoredDestination }[]>().notNull().default([]),
+  noInputTo: jsonb("no_input_to").$type<StoredDestination>().notNull(),
+  afterHoursTo: jsonb("after_hours_to").$type<StoredDestination | null>(),
+  timeoutSeconds: integer("timeout_seconds").notNull().default(6),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: index("phone_menu_org_idx").on(t.organizationId),
+}));
+
+/**
+ * A RING GROUP: several phones rung at once, or one after another.
+ *
+ * Members are people at the company (rung on the number their account holds,
+ * resolved at the moment of the call, so a new phone needs no change here)
+ * or a number outside it, such as an answering service.
+ */
+export const ringGroup = pgTable("ring_group", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** `all_at_once` or `in_order`, from core's catalogue. */
+  strategy: text("strategy").notNull(),
+  ringSeconds: integer("ring_seconds").notNull().default(20),
+  members: jsonb("members").$type<{ userId?: string | null; e164?: string | null; label: string }[]>()
+    .notNull().default([]),
+  noAnswerTo: jsonb("no_answer_to").$type<StoredDestination>().notNull(),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: index("ring_group_org_idx").on(t.organizationId),
+}));
+
+/**
+ * THE NUMBER A PERSON ANSWERS THE COMPANY'S CALLS ON.
+ *
+ * What a phone menu option, a ring group or the on call rota actually rings
+ * when it rings a person. Kept per company rather than on the person's
+ * account, because the same person can work for two companies on two
+ * phones, and because it is the office that decides where its calls go:
+ * the person's own account page is theirs.
+ */
+export const answeringPhone = pgTable("answering_phone", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  e164: text("e164").notNull(),
+  ...timestamps,
+}, (t) => ({
+  personIdx: uniqueIndex("answering_phone_person_idx").on(t.organizationId, t.userId),
+}));
+
 /* ------------------------------------------------------------------ numbers */
 
 export const phoneNumberPurpose = pgEnum("phone_number_purpose", [
@@ -219,6 +305,26 @@ export const phoneNumber = pgTable("phone_number", {
   recordCalls: boolean("record_calls").notNull().default(false),
   routeByHours: boolean("route_by_hours").notNull().default(false),
   afterHoursForwardsToE164: text("after_hours_forwards_to_e164"),
+  /**
+   * The phone menu that answers this number, when it has one. Set, it
+   * replaces the forward above: in business hours the caller hears the menu,
+   * and outside them goes where the menu says.
+   */
+  menuId: uuid("menu_id").references(() => phoneMenu.id, { onDelete: "set null" }),
+  /**
+   * WHEN A NUMBER THE COMPANY ALREADY HAD WAS POINTED HERE, rather than
+   * bought here.
+   *
+   * The difference matters most when it stops. A number bought here is
+   * released at the carrier when it is released here; a number the company
+   * brought with it (the one on the van for twenty years) must never be,
+   * because releasing it at the carrier gives it away. So an adopted number
+   * keeps where its calls used to go, and "stop answering here" puts that
+   * back instead.
+   */
+  adoptedAt: timestamp("adopted_at", { withTimezone: true }),
+  previousVoiceUrl: text("previous_voice_url"),
+  previousStatusUrl: text("previous_status_url"),
   releasedAt: timestamp("released_at", { withTimezone: true }),
   ...timestamps,
   ...sourceRef,
@@ -355,6 +461,14 @@ export const conversation = pgTable("conversation", {
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
   subject: text("subject"),
   status: conversationStatus("status").notNull().default("open"),
+  /**
+   * The token in the address an email thread's replies go to,
+   * `reply+TOKEN@` the company's reply domain. Random and long, because it
+   * is the only thing that decides which thread an incoming email lands in.
+   * Null on a text thread and on an email thread nothing has been sent from
+   * since replies were turned on.
+   */
+  replyToken: text("reply_token"),
   assignedUserId: uuid("assigned_user_id").references(() => user.id, { onDelete: "set null" }),
   /**
    * Denormalized so an inbox list is one indexed read. A shared inbox is
@@ -371,6 +485,8 @@ export const conversation = pgTable("conversation", {
   addressIdx: index("conversation_address_idx").on(t.organizationId, t.channel, t.externalAddress),
   customerIdx: index("conversation_customer_idx").on(t.customerId),
   jobIdx: index("conversation_job_idx").on(t.jobId),
+  replyTokenIdx: uniqueIndex("conversation_reply_token_idx").on(t.replyToken)
+    .where(sql`${t.replyToken} is not null`),
 }));
 
 export const messageStatus = pgEnum("message_status", [
@@ -414,8 +530,21 @@ export const message = pgTable("message", {
   subject: text("subject"),
   bodyHtml: text("body_html"),
   headers: jsonb("headers").$type<Record<string, string>>().notNull().default({}),
-  /** Attachments by reference. The bytes live in object storage. */
-  media: jsonb("media").$type<{ url: string; contentType: string; bytes?: number }[]>()
+  /**
+   * Pictures and files that came with a text, or went with one.
+   *
+   * `storageKey` is set when this product kept the bytes as a stored file:
+   * an inbound picture fetched from the carrier, or a picture sent from the
+   * inbox. `url` is where the CARRIER fetches an outgoing one from (a public
+   * address carrying `publicKey`, unguessable and good for a week), or the
+   * carrier's own address for something that was not kept. `refused` says
+   * why an inbound file was not kept, in words, so the thread can show
+   * something other than a gap.
+   */
+  media: jsonb("media").$type<{
+    url: string; contentType: string; bytes?: number;
+    storageKey?: string; publicKey?: string; refused?: string;
+  }[]>()
     .notNull().default([]),
   status: messageStatus("status").notNull(),
   /**
@@ -572,6 +701,31 @@ export const call = pgTable("call", {
    * visible without reading transcripts.
    */
   transcriptRedactionCounts: jsonb("transcript_redaction_counts").$type<Record<string, number>>(),
+  /**
+   * The same redacted words, without speakers or timestamps, for the search
+   * index. Kept apart from `transcript` because that one carries "[00:14]"
+   * on every line, and a timestamp in an index is a token: searching for a
+   * unit number like "214" would match the clock on a hundred calls.
+   */
+  transcriptText: text("transcript_text"),
+  /**
+   * Where transcribing this call's audio stands: `pending` while it waits for
+   * the speech to text provider, `done`, or `failed` with the provider's
+   * reason. Null for a call with no kept audio, or none that was sent.
+   */
+  transcriptStatus: text("transcript_status"),
+  /** Which audio the transcript is of: `recording` or `voicemail`. Deleting a recording deletes its transcript. */
+  transcriptSource: text("transcript_source"),
+  transcriptError: text("transcript_error"),
+  transcriptAttempts: integer("transcript_attempts").notNull().default(0),
+  /**
+   * What the caller pressed in each phone menu on the way, in order: the
+   * menu, the key and what it was for. "Where it went" says the end of the
+   * route; this says the path, which is what an owner reads when a billing
+   * question rang the service team.
+   */
+  menuChoices: jsonb("menu_choices").$type<{ menuId: string; menu: string; key: string | null; label: string; at: string }[]>()
+    .notNull().default([]),
   /** What the call was: booked, quote requested, wrong number, spam. */
   disposition: text("disposition"),
   attributionSource: text("attribution_source"),
@@ -597,6 +751,12 @@ export const call = pgTable("call", {
   orgIdx: index("call_org_idx").on(t.organizationId, t.startedAt),
   customerIdx: index("call_customer_idx").on(t.customerId),
   numberIdx: index("call_number_idx").on(t.organizationId, t.receivedOnE164),
+  /** Full text over the redacted words, for searching the call log. */
+  transcriptSearchIdx: index("call_transcript_search_idx")
+    .using("gin", sql`to_tsvector('english', coalesce(${t.transcriptText}, ''))`),
+  /** The worker's queue: calls whose audio is waiting to be transcribed. */
+  transcriptPendingIdx: index("call_transcript_pending_idx").on(t.organizationId)
+    .where(sql`${t.transcriptStatus} = 'pending'`),
   /**
    * ONE ROW PER CALL AT THE PROVIDER, AND THE REASON IT IS AN INDEX.
    *

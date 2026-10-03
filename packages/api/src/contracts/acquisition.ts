@@ -358,9 +358,19 @@ export const listMarketingCalls = defineRoute({
     campaignId: Uuid.optional(),
     channelId: Uuid.optional(),
     limit: z.coerce.number().int().min(1).max(500).optional(),
+    /**
+     * Words said on the call, searched in its redacted transcript, or digits
+     * of the number that rang. "water heater" finds the call where somebody
+     * said the water heater is leaking.
+     */
+    q: z.string().max(200).optional(),
   }),
   output: z.object({
-    calls: z.array(MarketingCall.extend({ numberLabel: z.string().nullable(), outcomeWhy: z.string() })),
+    calls: z.array(MarketingCall.extend({
+      numberLabel: z.string().nullable(), outcomeWhy: z.string(),
+      /** The line of the transcript that matched a search, when there was one. */
+      transcriptMatch: z.string().nullable(),
+    })),
   }),
 });
 
@@ -379,6 +389,22 @@ export const getMarketingCall = defineRoute({
     routedBecause: z.string().nullable(),
     /** Why nothing was recorded, when recording was asked for and refused. */
     recordingRefusal: z.string().nullable(),
+    /** What the caller pressed in each phone menu on the way, in order. */
+    menuChoices: z.array(z.object({ menu: z.string(), key: z.string().nullable(), label: z.string(), at: z.string() })),
+    /**
+     * The words of the recording or voicemail, already redacted, one line
+     * per stretch of speech with its time into the audio. Empty when there
+     * is none.
+     */
+    transcript: z.array(z.object({ at: z.string(), speaker: z.string(), text: z.string(), startMs: z.number().int() })),
+    /** `pending`, `working`, `done`, `failed` or null, with the reason when it failed. */
+    transcriptStatus: z.string().nullable(),
+    transcriptError: z.string().nullable(),
+    transcriptSource: z.string().nullable(),
+    /** How many card numbers and the like were taken out, by kind. */
+    transcriptRedactions: z.record(z.string(), z.number().int()),
+    /** False when the speech to text was unsure enough that somebody should listen before acting on it. */
+    transcriptReliable: z.boolean().nullable(),
   }),
 });
 

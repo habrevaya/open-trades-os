@@ -83,7 +83,21 @@ export interface MessagingProvider {
   verify(request: WebhookRequest): boolean;
   parseInbound(request: WebhookRequest): InboundMessage | null;
   parseDelivery(request: WebhookRequest): DeliveryReport | null;
+  /**
+   * The bytes of a picture that came with an inbound message, from the
+   * carrier's own address for it.
+   *
+   * Optional, because not every carrier hands media over this way. A
+   * carrier without it has its pictures kept by reference only, as the
+   * carrier's link, and the thread says so rather than showing a picture
+   * nobody here can open.
+   */
+  fetchMedia?(url: string): Promise<MediaResult>;
 }
+
+export type MediaResult =
+  | { ok: true; bytes: Uint8Array; contentType: string }
+  | { ok: false; code: string; message: string; retryable: boolean };
 
 export class ProviderNotConfiguredError extends Error {
   constructor(provider: string) {

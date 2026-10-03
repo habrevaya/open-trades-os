@@ -64,6 +64,7 @@ import { acquisitionRoutes } from "./acquisition";
 import { customerTagRoutes } from "./customer-tags";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
 import { taskRuleRoutes } from "./task-rules";
+import { phoneMenuRoutes } from "./phone-menus";
 
 export * from "./common";
 export * from "./customers";
@@ -122,6 +123,7 @@ export * from "./visit-changes";
 export * from "./customer-tags";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
+export * from "./phone-menus";
 export * from "./tasks";
 
 /**
@@ -186,6 +188,7 @@ export const routes = {
   ...calendarRoutes,
   ...callTrackingRoutes,
   ...trackingRoutes,
+  ...phoneMenuRoutes,
   ...companyRoutes,
   ...readbackRoutes,
   ...serviceReportRoutes,

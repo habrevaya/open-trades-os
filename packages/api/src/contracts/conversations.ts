@@ -66,6 +66,17 @@ export const getConversation = defineRoute({
     messages: z.array(z.object({
       id: Uuid, direction: z.string(), channel: z.string(), status: z.string(),
       body: z.string().nullable(), createdAt: Iso, readAt: Iso.nullable(),
+      /** An email's subject; null on a text. */
+      subject: z.string().nullable(),
+      /** Who it came from: on an email reply, possibly not the address the thread is with. */
+      fromAddress: z.string(),
+      /**
+       * Pictures and files. `storageKey` is set for one kept here (the inbox
+       * shows it); `refused` says why one was not kept.
+       */
+      media: z.array(z.object({
+        contentType: z.string(), storageKey: z.string().nullable(), refused: z.string().nullable(),
+      })),
     })),
     canReply: z.boolean(),
     /** Why not, as a code and in words, when a reply would be refused. */
@@ -89,11 +100,20 @@ export const replyToConversation = defineRoute({
   method: "post",
   path: "/v1/conversations/{id}/messages",
   summary: "Reply in a conversation",
-  description: "Queued, never sent here: the worker hands it to the carrier. Refused with the reason in words when the number may not be texted.",
+  description:
+    "Queued, never sent here: the worker hands it to the carrier or the mail provider. A text thread is answered by text and an email thread by email, each under its own consent rules, and refused with the reason in words when it may not go. Pictures go as a picture message on a text thread (JPEG, PNG or GIF, three at most and five megabytes together, which is what carriers deliver) and as attachments on an email thread.",
   module: "M18",
   permissions: ["message:send"],
   idempotent: true,
-  input: z.object({ id: Uuid, body: z.string().min(1).max(1600) }),
+  input: z.object({
+    id: Uuid,
+    body: z.string().max(1600).default(""),
+    pictures: z.array(z.object({
+      /** The picture's bytes, base64 encoded. What it is is read from the bytes, never from the name. */
+      contentBase64: z.string().min(1).max(7_500_000),
+      fileName: z.string().max(200).optional(),
+    })).max(3).optional(),
+  }),
   output: z.object({ messageId: Uuid, status: z.string() }),
 });
 

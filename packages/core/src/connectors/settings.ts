@@ -88,6 +88,12 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
   },
   resend: {
     fromAddress: { kind: "text" },
+    /**
+     * The domain Resend receives for, which reply addresses are built on:
+     * `reply+TOKEN@` this. Absent, emails go out with no reply address of
+     * this product's own and a reply lands wherever the From address does.
+     */
+    replyDomain: { kind: "text" },
     fromName: { kind: "text" },
     verifiedDomains: { kind: "list" },
     webhookSecretRef: { kind: "secret_name" },
@@ -127,6 +133,13 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
   mapbox: {
     countryCodes: { kind: "list" },
     minIntervalMs: { kind: "number" },
+    baseUrl: BASE_URL,
+  },
+  whisper: {
+    /** Where the API lives: OpenAI's, or a Whisper server the company runs itself. */
+    endpoint: { kind: "text" },
+    model: { kind: "text" },
+    language: { kind: "text" },
     baseUrl: BASE_URL,
   },
   callrail: {
