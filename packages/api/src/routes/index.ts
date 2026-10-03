@@ -25,6 +25,7 @@ import {
   ads,
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
+  rateCards, jobBilling, claims, payerDelivery,
 } from "../services/index";
 
 /**
@@ -176,6 +177,26 @@ export const handlers = {
   listRateCardLines: contractService.handlers.listRateCardLines,
   resolveContractPrice: contractService.handlers.resolveContractPrice,
   getPropertyCeiling: contractService.handlers.getPropertyCeiling,
+  updateContract: contractService.handlers.updateContract,
+
+  // Commercial and warranty billing
+  getRateCardTerms: rateCards.handlers.getRateCardTerms,
+  setRateCardTerms: rateCards.handlers.setRateCardTerms,
+  previewJobBilling: jobBilling.handlers.previewJobBilling,
+  billJob: jobBilling.handlers.billJob,
+  setJobContract: jobBilling.handlers.setJobContract,
+  listJobClocks: jobBilling.handlers.listJobClocks,
+  setJobParties: jobBilling.handlers.setJobParties,
+  setJobCoverage: jobBilling.handlers.setJobCoverage,
+  resolveCoverageFromEquipment: jobBilling.handlers.resolveCoverageFromEquipment,
+  listClaims: claims.handlers.listClaims,
+  getClaim: claims.handlers.getClaim,
+  fileClaim: claims.handlers.fileClaim,
+  decideClaim: claims.handlers.decideClaim,
+  recordClaimPayment: claims.handlers.recordClaimPayment,
+  exportPayerInvoices: payerDelivery.handlers.exportPayerInvoices,
+  issuePayerPortalLink: payerDelivery.handlers.issuePayerPortalLink,
+  viewPayerPortal: payerDelivery.handlers.viewPayerPortal,
 
   // Things a published field needed before it could ever be written.
   updateProperty: properties.update,

@@ -152,6 +152,12 @@ export const NAV: NavGroup[] = [
            * price and one as a queue.
            */
           { href: "/contracts/external", label: "Work from other systems" },
+          /**
+           * The clocks every contract starts, soonest first. Under Contracts
+           * because each one is a promise in one of them; the same deadlines
+           * also raise tasks in the office queue before they run out.
+           */
+          { href: "/contracts/deadlines", label: "Deadlines" },
         ],
       },
       {
@@ -193,6 +199,12 @@ export const NAV: NavGroup[] = [
           { href: "/invoices/statements", label: "Statements" },
           /** Overdue reminders the collections agent drafted, to send, edit or set aside. */
           { href: "/invoices/reminders", label: "Reminders" },
+          /**
+           * Claims on home warranty companies, manufacturers and carriers.
+           * Under Invoices because a claim is the conversation about an
+           * invoice to a third party, and it is chased by whoever chases those.
+           */
+          { href: "/invoices/claims", label: "Claims" },
         ],
       },
       {

@@ -18,6 +18,7 @@ import { reviewRoutes } from "./reviews";
 import { recurringRoutes } from "./recurring";
 import { peopleRoutes } from "./people";
 import { contractRoutes } from "./contracts";
+import { commercialBillingRoutes } from "./commercial-billing";
 import { webhookRoutes } from "./webhooks";
 import { customFieldRoutes } from "./custom-fields";
 import { paymentRoutes } from "./payments";
@@ -94,6 +95,7 @@ export * from "./reviews";
 export * from "./recurring";
 export * from "./people";
 export * from "./contracts";
+export * from "./commercial-billing";
 export * from "./webhooks";
 export * from "./custom-fields";
 export * from "./payments";
@@ -180,6 +182,7 @@ export const routes = {
   ...recurringRoutes,
   ...peopleRoutes,
   ...contractRoutes,
+  ...commercialBillingRoutes,
   ...webhookRoutes,
   ...customFieldRoutes,
   ...paymentRoutes,

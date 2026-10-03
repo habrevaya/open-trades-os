@@ -42,6 +42,8 @@ export const DeliveryState = z.enum([
   "refused",
   /** A link was minted and handed to the operator. Nothing more is knowable. */
   "link_issued",
+  /** It went out in a CSV or XML file for the payer's own system. */
+  "exported",
   /** In the outbox. No provider has seen it. */
   "queued",
   /** A provider accepted it. Through a plain SMTP relay this is the last word. */

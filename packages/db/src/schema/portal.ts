@@ -50,6 +50,13 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
    * that already exists, and the page has to say so in those words.
    */
   "change_order",
+  /**
+   * Every invoice one payer owes: a warranty company, a carrier, a
+   * facilities client's accounts payable. The subject is the payer's own
+   * customer record, and the page lists what is addressed to them or paid by
+   * them and nothing else.
+   */
+  "payer",
 ]);
 
 /**

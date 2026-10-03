@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, lte, gte, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, time } from "@opentradesos/core";
+import { deadlines, money as m, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, type ServiceContext,
 } from "./context";
@@ -48,13 +48,42 @@ export interface ContractInput {
   defaultNotToExceed?: string | null | undefined;
   purchaseOrderNumber?: string | null | undefined;
   coveredScope?: string | null | undefined;
+  notToExceedAction?: "hold" | "warn" | undefined;
+  slaTerms?: Array<{ kind: string; minutes: number; priority?: string | undefined }> | undefined;
+  invoiceWithinDays?: number | null | undefined;
+  claimWithinDays?: number | null | undefined;
+  invoiceFormat?: "csv" | "xml" | null | undefined;
 }
+
+/**
+ * The clocks a contract states, checked by the same rules that run them.
+ * A term nobody could be held to is refused here rather than raised as a
+ * deadline nobody can meet.
+ */
+function checkClocks(input: Pick<ContractInput, "slaTerms" | "invoiceWithinDays" | "claimWithinDays">,
+  current?: typeof schema.serviceContract.$inferSelect) {
+  const problem = deadlines.termsProblem({
+    sla: input.slaTerms ?? current?.slaTerms ?? [],
+    invoiceWithinDays: input.invoiceWithinDays !== undefined ? input.invoiceWithinDays : current?.invoiceWithinDays ?? null,
+    claimWithinDays: input.claimWithinDays !== undefined ? input.claimWithinDays : current?.claimWithinDays ?? null,
+  });
+  if (problem) throw new ConflictError(problem);
+}
+
+/** What changing a contract may send: any of its terms, each possibly absent. */
+export type ContractChanges = { [K in keyof ContractInput]?: ContractInput[K] | undefined }
+  & { id: string; active?: boolean | undefined };
+
+/** SLA terms as stored, without an undefined priority. */
+const storedSla = (terms: NonNullable<ContractInput["slaTerms"]>) =>
+  terms.map((t) => (t.priority ? { kind: t.kind, minutes: t.minutes, priority: t.priority } : { kind: t.kind, minutes: t.minutes }));
 
 export async function createContract(ctx: ServiceContext, input: ContractInput) {
   return guardedWrite(ctx, "contract:write", async (tx) => {
     if (input.startsOn && input.endsOn && input.endsOn < input.startsOn) {
       throw new ConflictError("That contract ends before it starts.");
     }
+    checkClocks(input);
 
     const [customer] = await tx.select({ id: schema.customer.id })
       .from(schema.customer)
@@ -74,10 +103,72 @@ export async function createContract(ctx: ServiceContext, input: ContractInput) 
       defaultNotToExceed: input.defaultNotToExceed ?? null,
       purchaseOrderNumber: input.purchaseOrderNumber ?? null,
       coveredScope: input.coveredScope ?? null,
+      notToExceedAction: input.notToExceedAction ?? "hold",
+      slaTerms: storedSla(input.slaTerms ?? []),
+      invoiceWithinDays: input.invoiceWithinDays ?? null,
+      claimWithinDays: input.claimWithinDays ?? null,
+      invoiceFormat: input.invoiceFormat ?? null,
     }).returning();
 
     await audit(tx, ctx, "contract.created", "service_contract", row!.id, null, row!);
     return row!;
+  });
+}
+
+const shapeContract = (contract: typeof schema.serviceContract.$inferSelect, customerName: string) => ({
+  id: contract.id,
+  customerId: contract.customerId,
+  customerName,
+  name: contract.name,
+  contractNumber: contract.contractNumber,
+  startsOn: contract.startsOn,
+  endsOn: contract.endsOn,
+  autoRenews: contract.autoRenews,
+  escalationRate: contract.escalationRate,
+  defaultNotToExceed: contract.defaultNotToExceed,
+  purchaseOrderNumber: contract.purchaseOrderNumber,
+  coveredScope: contract.coveredScope,
+  notToExceedAction: (contract.notToExceedAction === "warn" ? "warn" : "hold") as "hold" | "warn",
+  slaTerms: contract.slaTerms as Array<{ kind: "respond" | "arrive" | "complete"; minutes: number; priority?: "normal" | "high" | "emergency" }>,
+  invoiceWithinDays: contract.invoiceWithinDays,
+  claimWithinDays: contract.claimWithinDays,
+  invoiceFormat: (contract.invoiceFormat ?? null) as "csv" | "xml" | null,
+  active: contract.active,
+});
+
+/**
+ * Change a contract's terms, only the ones sent.
+ *
+ * The jobs running under it are not touched here. Their clocks are
+ * reconciled against the contract as it now reads on the worker's next
+ * pass, so a contract edited mid job moves that job's deadlines rather than
+ * leaving the old ones running.
+ */
+export async function updateContract(
+  ctx: ServiceContext, input: ContractChanges,
+) {
+  return guardedWrite(ctx, "contract:write", async (tx) => {
+    const before = await loadContract(tx, ctx.actor.organizationId, input.id);
+    const startsOn = input.startsOn !== undefined ? input.startsOn : before.startsOn;
+    const endsOn = input.endsOn !== undefined ? input.endsOn : before.endsOn;
+    if (startsOn && endsOn && endsOn < startsOn) throw new ConflictError("That contract ends before it starts.");
+    checkClocks(input, before);
+
+    const set: Partial<typeof schema.serviceContract.$inferInsert> = { updatedAt: new Date() };
+    for (const key of [
+      "name", "contractNumber", "startsOn", "endsOn", "autoRenews", "defaultNotToExceed", "purchaseOrderNumber",
+      "coveredScope", "notToExceedAction", "invoiceWithinDays", "claimWithinDays", "invoiceFormat", "active",
+    ] as const) {
+      if (input[key] !== undefined) (set as Record<string, unknown>)[key] = input[key];
+    }
+    if (input.slaTerms !== undefined) set.slaTerms = storedSla(input.slaTerms);
+
+    const [after] = await tx.update(schema.serviceContract).set(set)
+      .where(eq(schema.serviceContract.id, before.id)).returning();
+    await audit(tx, ctx, "contract.updated", "service_contract", before.id, before, after!);
+    const [customer] = await tx.select({ name: schema.customer.name }).from(schema.customer)
+      .where(eq(schema.customer.id, after!.customerId)).limit(1);
+    return shapeContract(after!, customer?.name ?? "");
   });
 }
 
@@ -95,21 +186,7 @@ export async function listContracts(ctx: ServiceContext, input: { customerId?: s
       ))
       .orderBy(asc(schema.serviceContract.name));
 
-    return rows.map(({ contract, customerName }) => ({
-      id: contract.id,
-      customerId: contract.customerId,
-      customerName,
-      name: contract.name,
-      contractNumber: contract.contractNumber,
-      startsOn: contract.startsOn,
-      endsOn: contract.endsOn,
-      autoRenews: contract.autoRenews,
-      escalationRate: contract.escalationRate,
-      defaultNotToExceed: contract.defaultNotToExceed,
-      purchaseOrderNumber: contract.purchaseOrderNumber,
-      coveredScope: contract.coveredScope,
-      active: contract.active,
-    }));
+    return rows.map(({ contract, customerName }) => shapeContract(contract, customerName));
   });
 }
 
@@ -609,6 +686,9 @@ export const handlers = {
     const row = await createContract(ctx, input);
     return { id: row.id, name: row.name };
   },
+
+  updateContract: (ctx: ServiceContext, input: ContractChanges) =>
+    updateContract(ctx, input),
 
   addContractSite: (ctx: ServiceContext, input: {
     contractId: string; propertyId: string;

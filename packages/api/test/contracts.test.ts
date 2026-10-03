@@ -88,6 +88,8 @@ describe("permissions", () => {
        */
       "GET /v1/portal/invoice",
       "GET /v1/portal/job",
+      /** A payer's own invoices, through a link of the `payer` scope. */
+      "GET /v1/portal/payer",
       /**
        * The customer's own referral link, from their account link. The grant
        * names the customer; the answer is their code and the first names of

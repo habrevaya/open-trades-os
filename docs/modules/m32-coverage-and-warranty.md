@@ -80,10 +80,26 @@ down without anybody remembering to. It never overrules a person, because the
 office knowing this is a warranty callback beats the system knowing the
 customer has a plan.
 
+Or read it from the unit. A job about a unit with warranty dates can resolve
+its coverage from them (`POST /v1/jobs/{id}/coverage/from-equipment`, or the
+button under who is paying on the job): parts and labour each covered if
+their warranty was in force on the day of the first visit, not today. Out of
+warranty is said, and nothing is written, because the office may know of an
+extension the dates do not.
+
+The API sets coverage with `PUT /v1/jobs/{id}/coverage`, the job screen with
+the source, the claim reference and the deductible.
+
 ### Find out what to charge
 
 `quote` splits the job between the customer and whoever is covering it,
 applying the percentage, the cap and the deductible in that order.
+
+**And the invoice applies it.** An invoice raised to the job's own customer
+takes the coverage's share off automatically, by the same arithmetic: each
+line the coverage touches carries the customer's part and a sentence saying
+what the coverage took ("Parts warranty covers 699.00 of 749.00"). A line
+that names its own source is left alone, as before.
 
 ### Invoice it
 
@@ -98,6 +114,31 @@ with.
 Every line carries the coverage source on the way out, which the API contract
 has promised since it was written.
 
+### Bill whoever covers it
+
+Billing the job by payer (M31, `POST /v1/jobs/{id}/billing`) sends the
+covered work, priced by the third party's own schedule, less the deductible,
+to the third party named under Pays, and the rest to the customer, as two
+invoices that add up to the work.
+
+### Claim on them
+
+The invoice to the third party is the receivable. The claim is its own
+document (`POST /v1/claims`), filed from that invoice with their reference,
+and it meets the claim deadline the contract set. Its status follows what
+they do:
+
+- **submitted**, when it is filed;
+- **approved**, for what was claimed or less, never more
+  (`POST /v1/claims/{id}/decision`);
+- **paid**, when what they agreed has arrived, or **short paid** when less
+  has (`POST /v1/claims/{id}/payments`, which records a real payment from
+  them on the invoice);
+- **denied**, with their reason, which is final: an appeal is a new claim.
+
+A shortfall stays on the invoice, to chase or write off there.
+`Invoices > Claims` (`/invoices/claims`) lists them, waiting first.
+
 ### Find out what free work cost
 
 `bySource` counts jobs and value by coverage source, and separates work the
@@ -109,14 +150,16 @@ attached to it.
 
 Resolving coverage needs `job:write`, because it is a decision about the job.
 Quoting needs `invoice:read`. The coverage report needs
-`report.financial:read`, because it is a revenue number.
+`report.financial:read`, because it is a revenue number. Filing a claim and
+recording its decision need `invoice:write`; recording their payment needs
+`payment:collect`.
 
 ## Not built
 
-The customer's share is computed by `quote` and not yet subtracted
-automatically at invoicing: a percentage, a cap or a deductible is recorded
-and applied by the person writing the invoice. Billing the third party, which
-is where a home warranty rate card and a manufacturer claim actually get paid,
-belongs to M31 and is not built. Neither is resolving coverage from an
-equipment warranty record, which would need the warranty dates the schema has
-and nothing writes.
+No claim is submitted to anybody's system: filing records that the claim was
+made, with their reference, and the submission itself happens in the warranty
+company's or manufacturer's portal. A short payment is not billed on to the
+customer automatically; whether the homeowner owes it is a conversation, and
+the shortfall stays on the third party's invoice until somebody decides.
+Coverage read from a unit covers what the dates say and nothing about why: a
+warranty voided by an unlicensed install is not something the dates know.

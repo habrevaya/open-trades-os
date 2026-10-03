@@ -1212,6 +1212,33 @@ returns table (organization_id uuid)
 revoke all on function app.task_rule_organizations(int) from public;
 grant execute on function app.task_rule_organizations(int) to background;
 
+-- ---- Companies whose contract clocks need a pass -------------------------
+-- The commercial module keeps SLA, invoicing and claim clocks on jobs, and
+-- the worker reconciles them and raises a task for any about to breach. The
+-- worker has no tenant until it picks one, so it asks here which companies
+-- hold a contract in force or a live clock waiting to escalate, and nothing
+-- else: a list of ids, the same shape as task_rule_organizations above.
+create or replace function app.contract_clock_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select c.organization_id from public.service_contract c
+       where c.active and c.deleted_at is null
+      union
+      select o.organization_id from public.obligation o
+       where o.state in ('open', 'breached') and o.escalate_at is not null and o.escalated_at is null
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.contract_clock_organizations(int) from public;
+grant execute on function app.contract_clock_organizations(int) to background;
+
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN
 -- sessions, which is right: a policy letting any authenticated role read the

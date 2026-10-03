@@ -113,6 +113,10 @@ const REFUSED: Record<string, Refused> = {
   crew_member_uniq_idx: {
     file: "crews.ts", how: "check", says: "same technician on the crew twice",
   },
+  /** A second claim filed on the same third party invoice. */
+  coverage_claim_invoice_idx: {
+    file: "claims.ts", how: "check", says: "already has a claim",
+  },
 };
 
 /**
