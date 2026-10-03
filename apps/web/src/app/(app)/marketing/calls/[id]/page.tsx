@@ -2,14 +2,24 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { marketingReport, properties, NotFoundError } from "@opentradesos/api/services";
-import { assertCan } from "@opentradesos/core";
+import { assertCan, can } from "@opentradesos/core";
 import { Phone } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import { bookFromCall } from "../../actions";
+import { transcribeNow } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+/** What a removed thing is called, in the singular, for "Removed before it was stored". */
+const REDACTED: Record<string, string> = {
+  card_number: "card number",
+  card_security_code: "card security code",
+  ssn: "social security number",
+  bank_routing_number: "bank routing number",
+  bank_account_number: "bank account number",
+};
 
 /**
  * A CALL, INTO A CUSTOMER AND A JOB
@@ -50,6 +60,11 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         <Fact label="Channel">{call.channelName}</Fact>
         <Fact label="What it was">{call.outcomeLabel}</Fact>
         <Fact label="Caller">{call.firstTimeCaller === true ? "First time" : call.firstTimeCaller === false ? "Called before" : null}</Fact>
+        {call.menuChoices.length > 0 ? (
+          <Fact label="What they pressed">
+            {call.menuChoices.map((c) => `${c.key ? `${c.key} for ${c.label}` : c.label} in the ${c.menu} menu`).join(", then ")}
+          </Fact>
+        ) : null}
         {call.routedBecause ? <Fact label="Where it went">{call.routedBecause}</Fact> : null}
       </Facts>
 
@@ -74,6 +89,53 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               <audio controls preload="none" src={`/marketing/calls/${call.id}/voicemail`} className="mt-1 w-full" />
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {/*
+        The words, already redacted: a card number read out on the call was
+        removed before they were stored, and the screen says how many were.
+        Said plainly when the speech to text was unsure, because a transcript
+        reads as fact and a misheard address is a van at the wrong house.
+      */}
+      {call.transcript.length > 0 || call.transcriptStatus || call.hasRecording || call.hasVoicemail ? (
+        <section className="mt-6" aria-label="Transcript">
+          <h2 className="text-sm font-medium">
+            Transcript{call.transcriptSource === "voicemail" ? " of the voicemail" : call.transcriptSource === "recording" ? " of the recording" : ""}
+          </h2>
+          {call.transcript.length > 0 ? (
+            <>
+              {call.transcriptReliable === false ? (
+                <p className="mt-1 text-sm text-amber-700">
+                  The speech to text was unsure of parts of this. Listen before acting on an address or a number in it.
+                </p>
+              ) : null}
+              {Object.keys(call.transcriptRedactions).length > 0 ? (
+                <p className="mt-1 text-sm text-ink-500">
+                  Removed before it was stored: {Object.entries(call.transcriptRedactions)
+                    .map(([kind, n]) => `${n} ${REDACTED[kind] ?? kind.replace(/_/g, " ")}${n === 1 ? "" : "s"}`).join(", ")}.
+                </p>
+              ) : null}
+              <ol className="mt-2 space-y-1.5 text-sm">
+                {call.transcript.map((line, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="w-12 shrink-0 tabular-nums text-ink-500">{line.at}</span>
+                    <span className="whitespace-pre-wrap">{line.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          ) : call.transcriptStatus === "pending" || call.transcriptStatus === "working" ? (
+            <p className="mt-1 text-sm text-ink-700">Being written out. It appears here in a minute or two.</p>
+          ) : call.transcriptStatus === "failed" ? (
+            <p className="mt-1 text-sm text-ink-700">It could not be written out: {call.transcriptError}</p>
+          ) : (
+            <p className="mt-1 text-sm text-ink-700">Not written out.</p>
+          )}
+          {can(user.actor, "message:send") && (call.hasRecording || call.hasVoicemail)
+            && call.transcriptStatus !== "pending" && call.transcriptStatus !== "working" && call.transcript.length === 0 ? (
+              <ActionForm action={transcribeNow} submit="Write it out now" tone="quiet" hidden={{ id: call.id }} className="mt-2" />
+            ) : null}
         </section>
       ) : null}
 

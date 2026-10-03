@@ -1,8 +1,9 @@
 import {
   WEEKDAYS, hoursAt, route, checkRoutingTable, mayRecord,
   type BusinessHours, type OpenWindow, type Weekday, type RoutingTable, type RoutingResult,
-  type HoursVerdict, type CallParty, type JurisdictionPolicy, type RecordingDecision,
+  type HoursVerdict, type CallParty, type JurisdictionPolicy, type RecordingDecision, type RoutingDestination,
 } from "../telephony/index.js";
+import { menuHoursTable, type PhoneMenu } from "./menus.js";
 
 /**
  * A TRACKING NUMBER THAT ANSWERS ITS OWN CALLS
@@ -33,7 +34,13 @@ export type Verb =
   | { verb: "gather"; action: string; timeoutSeconds: number; numDigits: number; say: string }
   | {
       verb: "dial";
-      to: string;
+      /**
+       * One number, or several rung at once. Several is a ring group's "all
+       * at once": the carrier rings every phone and the first to pick up
+       * gets the caller, which is the only way to do that without the
+       * caller hearing a transfer.
+       */
+      to: string | readonly string[];
       action: string;
       timeoutSeconds: number;
       /** Played to the person answering before the two are connected. */
@@ -71,12 +78,12 @@ function verbXml(v: Verb): string {
         ? `${attr("record", "record-from-answer-dual")}${attr("recordingStatusCallback", v.recordingCallback)}`
           + `${attr("recordingStatusCallbackEvent", "completed")}`
         : "";
-      const number = v.whisperUrl
-        ? `<Number${attr("url", v.whisperUrl)}>${escapeXml(v.to)}</Number>`
-        : `<Number>${escapeXml(v.to)}</Number>`;
+      const numbers = (typeof v.to === "string" ? [v.to] : v.to).map((to) => v.whisperUrl
+        ? `<Number${attr("url", v.whisperUrl)}>${escapeXml(to)}</Number>`
+        : `<Number>${escapeXml(to)}</Number>`).join("");
       return `<Dial${attr("action", v.action)}${attr("method", "POST")}${attr("timeout", v.timeoutSeconds)}`
         + `${attr("answerOnBridge", "true")}${v.callerId ? attr("callerId", v.callerId) : ""}${recording}>`
-        + `${number}</Dial>`;
+        + `${numbers}</Dial>`;
     }
     case "record":
       return `<Record${attr("action", v.action)}${attr("method", "POST")}${attr("maxLength", v.maxSeconds)}`
@@ -125,12 +132,23 @@ export function whisperText(input: {
   channelName?: string | null | undefined;
   campaignName?: string | null | undefined;
   recording: boolean;
+  /**
+   * What the caller pressed in a phone menu, by its label: "Billing". Said
+   * first, because it is the thing the person answering needs before they
+   * say hello: a billing question answered as a booking is a caller asked
+   * to repeat themselves.
+   */
+  choice?: string | null | undefined;
 }): string {
   const from = [input.channelName, input.campaignName]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
-  const head = from.length > 0 ? `Call from ${from.join(", ")}.` : "Call from a tracking number.";
-  return input.recording ? `${head} This call is being recorded.` : head;
+  const choice = input.choice?.trim();
+  const head = from.length > 0
+    ? `Call from ${from.join(", ")}.`
+    : choice ? "" : "Call from a tracking number.";
+  const said = [choice ? `${choice} call.` : "", head].filter(Boolean).join(" ");
+  return input.recording ? `${said} This call is being recorded.` : said;
 }
 
 /* ---------------------------------------------------------- business hours */
@@ -257,6 +275,30 @@ export function routeCall(input: {
   });
 }
 
+/**
+ * Where a call to a number answered by a phone menu goes: the menu in
+ * business hours, and outside them wherever the menu says. A company with no
+ * hours declared is treated as open, for the reason `businessHoursFrom`
+ * gives: it is not closed all week.
+ */
+export function routeToMenu(input: {
+  menu: Pick<PhoneMenu, "id" | "afterHoursTo">;
+  dialled: string;
+  hours: BusinessHours | null;
+  knownCustomer: boolean;
+  now: Date;
+  describe?: ((destination: RoutingDestination) => string) | undefined;
+}): RoutingResult {
+  const verdict = input.hours ? hoursAt(input.hours, input.now) : alwaysOpen(input.now);
+  return route(menuHoursTable(input.menu), {
+    dialledNumber: input.dialled,
+    knownCustomer: input.knownCustomer,
+    hasOpenJob: false,
+    emergencySelected: false,
+    hours: verdict,
+  }, input.describe);
+}
+
 /* --------------------------------------------------------------- recording */
 
 /**
@@ -370,3 +412,9 @@ export function checkNumberSearch(input: {
   }
   return { ok: true, areaCode, locality, region };
 }
+
+/**
+ * Phone menus, ring groups and the on call week, which build the destinations
+ * the router above can send a call to.
+ */
+export * from "./menus.js";

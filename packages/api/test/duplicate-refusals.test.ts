@@ -146,6 +146,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   field_operation_client_idx: "The client's own operation id, which makes a retry safe.",
   field_upload_client_idx: "The client's own upload id, which makes a retry safe.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",
+  answering_phone_person_idx:
+    "One number per person per company, written with on conflict do update: saving a person's number again replaces it.",
+  conversation_reply_token_idx:
+    "A random token the service mints for an email thread's reply address. Nobody types it, and a collision is a 2^-190 event rather than a duplicate somebody entered.",
   dni_session_live_idx:
     "One live lease per pool number. Leasing inserts with on conflict do nothing and the loser "
     + "takes the next free number, so two visitors are never shown one number.",

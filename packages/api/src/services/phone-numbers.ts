@@ -124,6 +124,11 @@ export interface NumberInput {
   recordCalls?: boolean | undefined;
   routeByHours?: boolean | undefined;
   afterHoursForwardsToE164?: string | null | undefined;
+  /**
+   * The phone menu that answers it. Set, it takes the place of the forward:
+   * in business hours the menu, outside them where the menu says.
+   */
+  menuId?: string | null | undefined;
   /** The carrier's id, set by the purchase and nothing else. */
   providerNumberId?: string | null | undefined;
 }
@@ -339,7 +344,16 @@ export async function update(
       routeByHours: input.routeByHours ?? before.routeByHours,
       afterHoursForwardsToE164: input.afterHoursForwardsToE164 !== undefined
         ? input.afterHoursForwardsToE164 : before.afterHoursForwardsToE164,
+      menuId: input.menuId !== undefined ? input.menuId : before.menuId,
     };
+    if (merged.menuId && merged.menuId !== before.menuId) {
+      const [menu] = await tx.select({ id: schema.phoneMenu.id }).from(schema.phoneMenu)
+        .where(and(
+          eq(schema.phoneMenu.organizationId, ctx.actor.organizationId),
+          eq(schema.phoneMenu.id, merged.menuId),
+        )).limit(1);
+      if (!menu) throw new NotFoundError("Phone menu");
+    }
     const { e164, purpose, source } = validate(merged);
     const tracking = await trackingOf(tx, ctx.actor.organizationId, {
       purpose, source, campaignId: merged.campaignId, channelId: merged.channelId,
@@ -358,6 +372,7 @@ export async function update(
       recordCalls: merged.recordCalls ?? false,
       routeByHours: merged.routeByHours ?? false,
       afterHoursForwardsToE164: merged.afterHoursForwardsToE164?.trim() || null,
+      menuId: merged.menuId ?? null,
       updatedAt: new Date(),
     }).where(eq(schema.phoneNumber.id, input.id)).returning();
 
@@ -517,6 +532,13 @@ function shape(row: typeof schema.phoneNumber.$inferSelect) {
     recordCalls: row.recordCalls,
     routeByHours: row.routeByHours,
     afterHoursForwardsToE164: row.afterHoursForwardsToE164,
+    menuId: row.menuId,
+    /**
+     * A number the company already had, pointed here rather than bought
+     * here. Releasing it hands its calls back to wherever they went before,
+     * and never gives the number away at the carrier.
+     */
+    adopted: row.adoptedAt !== null,
     releasedAt: row.releasedAt?.toISOString() ?? null,
   };
 }

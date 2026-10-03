@@ -1,9 +1,10 @@
 import { and, asc, eq, gt, isNull, lt, lte, ne, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan } from "@opentradesos/core";
+import { assertCan, voice } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, type ServiceContext,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, type ServiceContext,
 } from "./context";
+import { replayed, remember } from "./once";
 
 /**
  * WHO GETS THE TWO AM CALL
@@ -322,6 +323,86 @@ export async function handOver(
   });
 }
 
+/**
+ * FILL THE ROTA BY THE WEEK.
+ *
+ * How most shops actually run it: Dana this week, Sam next week, Lee the
+ * week after, the phone changing hands at eight on Monday morning. Built by
+ * core's `weeklyRota`, which hands over at the same WALL CLOCK time every
+ * week in the company's zone, so the weeks either side of the clocks
+ * changing are a week and an hour or a week less one, and nobody is on call
+ * for an hour they were not told about.
+ *
+ * ALL OR NOTHING. Each week goes through the same overlap refusal a single
+ * shift does, in one transaction, so a rota that collides with somebody
+ * already on in week three adds nothing at all rather than two weeks and a
+ * gap, and the refusal names the week.
+ */
+export async function fillWeeks(ctx: ServiceContext, input: {
+  technicianIds: readonly string[];
+  firstDay: string;
+  handoverAt: string;
+  weeks: number;
+  businessUnitId?: string | null | undefined;
+}) {
+  return guardedWrite(ctx, "visit:dispatch", async (tx) => {
+    const again = await replayed<{ shifts: { id: string; technicianId: string; startsAt: string; endsAt: string }[] }>(
+      tx, ctx, "on_call_weeks");
+    if (again) return again;
+
+    const clock = /^(\d{1,2}):(\d{2})$/.exec(input.handoverAt.trim());
+    const minute = clock ? Number(clock[1]) * 60 + Number(clock[2]) : Number.NaN;
+    const rota = voice.weeklyRota({
+      technicianIds: input.technicianIds,
+      firstDay: input.firstDay,
+      handoverMinute: minute,
+      weeks: input.weeks,
+      timeZone: await timezoneOf(tx, ctx.actor.organizationId),
+    });
+    if (!rota.ok) throw new ConflictError(rota.reason);
+
+    const active = await tx.select({ id: schema.technician.id }).from(schema.technician)
+      .where(and(
+        eq(schema.technician.organizationId, ctx.actor.organizationId),
+        eq(schema.technician.active, true),
+      ));
+    const known = new Set(active.map((t) => t.id));
+    const stranger = input.technicianIds.find((id) => !known.has(id));
+    if (stranger) throw new ConflictError("Somebody on that list is not an active technician in this company.");
+
+    const shifts: { id: string; technicianId: string; startsAt: string; endsAt: string }[] = [];
+    for (const [index, week] of rota.weeks.entries()) {
+      const clash = await overlapping(
+        tx, ctx.actor.organizationId, week.startsAt, week.endsAt, input.businessUnitId ?? null, null,
+      );
+      if (clash) {
+        throw new ConflictError(
+          `Week ${index + 1} collides with ${clash.technicianName}, who is already on call from `
+          + `${clash.startsAt.toISOString()} to ${clash.endsAt.toISOString()}. Nothing was added.`,
+        );
+      }
+      const [row] = await tx.insert(schema.onCallRotation).values({
+        organizationId: ctx.actor.organizationId,
+        technicianId: week.technicianId,
+        businessUnitId: input.businessUnitId ?? null,
+        startsAt: week.startsAt,
+        endsAt: week.endsAt,
+      }).returning();
+      shifts.push({
+        id: row!.id, technicianId: row!.technicianId,
+        startsAt: row!.startsAt.toISOString(), endsAt: row!.endsAt.toISOString(),
+      });
+    }
+
+    await audit(tx, ctx, "on_call.weeks_filled", "on_call_rotation", shifts[0]!.id, null, {
+      weeks: shifts.length, firstDay: input.firstDay, handoverAt: input.handoverAt,
+    });
+    const answer = { shifts };
+    await remember(tx, ctx, "on_call_weeks", shifts[0]?.id ?? null, answer);
+    return answer;
+  });
+}
+
 /* ----------------------------------------------------------------- lookups */
 
 /**
@@ -349,7 +430,7 @@ export async function handOver(
  * not try: if two rows ever did cover one instant it would mean the guard had
  * been bypassed, and picking one quietly is how that stays unnoticed.
  */
-async function coveringAt(
+export async function coveringAt(
   tx: Database, organizationId: string, at: Date, businessUnitId: string | null,
 ): Promise<OnCallShift | null> {
   const rows = await tx.select({
@@ -451,6 +532,11 @@ export const handlers = {
       startsAt: row.startsAt, endsAt: row.endsAt,
     };
   },
+
+  fillOnCallWeeks: (ctx: ServiceContext, input: {
+    technicianIds: string[]; firstDay: string; handoverAt: string; weeks: number;
+    businessUnitId?: string | null | undefined;
+  }) => fillWeeks(ctx, input),
 
   handOverOnCall: (ctx: ServiceContext, input: {
     toTechnicianId: string; at?: string | undefined;

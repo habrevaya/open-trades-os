@@ -28,6 +28,7 @@ import { registeredAiProviders } from "../src/ai/index";
  */
 import { registeredCalendarProviders } from "../src/calendar/index";
 import { registeredCallTrackingProviders } from "../src/call-tracking/index";
+import { transcriptionProviders as registeredTranscriptionProviders } from "../src/voice/index";
 /**
  * THE MESSAGING REGISTRY, WHICH THIS SWEEP DID NOT KNOW ABOUT.
  *
@@ -81,6 +82,7 @@ describe("the connector catalogue", () => {
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(),
+      ...registeredTranscriptionProviders(),
     ]);
     const lying = cat.builtConnectors()
       .map((c) => c.key)
@@ -105,6 +107,7 @@ describe("the connector catalogue", () => {
       ...registeredAccountingProviders(), ...registeredAiProviders(),
       ...registeredCalendarProviders(), ...registeredCallTrackingProviders(),
       ...registeredMessagingProviders(), ...registeredGeocoders(),
+      ...registeredTranscriptionProviders(),
     ];
     const hidden = registered.filter((key) => cat.connector(key)?.state === "declared");
     expect(hidden, "built and unreachable").toEqual([]);

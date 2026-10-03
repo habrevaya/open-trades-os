@@ -94,12 +94,31 @@ export async function put(
   const hash = sha256(input.bytes);
   const key = f.storageKey({ organizationId, sha256: hash, extension: verdict.extension });
 
-  const [existing] = await tx.select().from(schema.storedFile)
+  const [found] = await tx.select().from(schema.storedFile)
     .where(and(
       eq(schema.storedFile.organizationId, organizationId),
       eq(schema.storedFile.storageKey, key),
-      isNull(schema.storedFile.deletedAt),
     )).limit(1);
+
+  /**
+   * THE SAME BYTES, KEPT AGAIN AFTER BEING DELETED. A deleted file keeps its
+   * row (emptied, stamped) and the key is unique, so inserting the same bytes
+   * a second time collided with the row of the first and failed. It happens
+   * more than it sounds: two calls that recorded the same few seconds of
+   * silence are the same file. The row is filled again rather than inserted.
+   */
+  if (found?.deletedAt) {
+    const [revived] = await tx.update(schema.storedFile).set({
+      bytes: Buffer.from(input.bytes),
+      sizeBytes: verdict.sizeBytes,
+      contentType: verdict.contentType,
+      uploadedByUserId: input.uploadedByUserId ?? null,
+      deletedAt: null,
+      updatedAt: new Date(),
+    }).where(eq(schema.storedFile.id, found.id)).returning();
+    return { file: view(revived!), alreadyHeld: false };
+  }
+  const existing = found;
 
   if (existing) {
     /**

@@ -328,6 +328,13 @@ export const NAV: NavGroup[] = [
           { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
           /**
+           * How the company's own number answers: the menu, the groups of
+           * phones it rings and who answers on which phone. Under Settings
+           * beside Integrations, because it is set up once and read by every
+           * call.
+           */
+          { href: "/settings/phone", label: "Phone menus" },
+          /**
            * The snippet a company pastes into its own site and the pool of
            * numbers it swaps in. Under Settings because it is set up once.
            */

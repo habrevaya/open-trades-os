@@ -141,6 +141,34 @@ export function createTwilioVoice(
       );
     },
 
+    findNumber(e164) {
+      const params = new URLSearchParams({ PhoneNumber: e164 });
+      return call(`${account}/IncomingPhoneNumbers.json?${params}`, { method: "GET" }, (payload) => {
+        const rows = (payload["incoming_phone_numbers"] as Record<string, unknown>[] | undefined) ?? [];
+        const row = rows.find((r) => r["phone_number"] === e164);
+        if (!row || typeof row["sid"] !== "string") return { found: false as const };
+        const text = (value: unknown) => typeof value === "string" && value !== "" ? value : null;
+        return {
+          found: true as const,
+          providerNumberId: row["sid"],
+          voiceUrl: text(row["voice_url"]),
+          statusUrl: text(row["status_callback"]),
+        };
+      });
+    },
+
+    pointCalls(input) {
+      const form = new URLSearchParams({
+        VoiceUrl: input.voiceUrl, VoiceMethod: "POST",
+        StatusCallback: input.statusUrl, StatusCallbackMethod: "POST",
+      });
+      return call(
+        `${account}/IncomingPhoneNumbers/${encodeURIComponent(input.providerNumberId)}.json`,
+        { method: "POST", form },
+        () => ({}),
+      );
+    },
+
     releaseNumber(providerNumberId) {
       return call(
         `${account}/IncomingPhoneNumbers/${encodeURIComponent(providerNumberId)}.json`,

@@ -8,6 +8,7 @@ import * as accounting from "./accounting";
 import * as email from "./email";
 import * as websiteTracking from "./website-tracking";
 import * as voice from "./voice";
+import * as transcription from "./transcription";
 import * as referrals from "./referrals";
 import { AccountingNotConfiguredError } from "../accounting/provider";
 import { EmailProviderNotConfiguredError } from "../email/provider";
@@ -157,6 +158,20 @@ async function marketingUpkeep(db: Database, organizationId: string): Promise<vo
 }
 
 /**
+ * Write out the recordings and voicemails this company's calls left, a few
+ * at a time. A recording kept here emits `call.recorded` and a voicemail
+ * `call.missed`, so a company with audio waiting is a company this hook is
+ * already called for. Nothing is waiting for a company with no speech to
+ * text connected, because nothing is queued for one.
+ */
+async function transcribeCalls(db: Database, readSecret: SecretReader, organizationId: string): Promise<void> {
+  const pass = await transcription.transcribePending(db, organizationId, { readSecret });
+  if (pass.failed > 0) {
+    console.warn(`[worker] ${pass.failed} call transcripts failed for ${organizationId}; the reason is on each call.`);
+  }
+}
+
+/**
  * BOTH RUN, AND NEITHER CAN STOP THE OTHER.
  *
  * `afterDrain` is awaited inside the worker's pass, so a throw from any of
@@ -180,6 +195,7 @@ export function backgroundHooks(
     { name: "sendWebhooks", run: (org: string) => sendWebhooks(db, org) },
     { name: "syncAccounting", run: (org: string) => syncAccounting(db, org) },
     { name: "marketingUpkeep", run: (org: string) => marketingUpkeep(db, org) },
+    { name: "transcribeCalls", run: (org: string) => transcribeCalls(db, readSecret, org) },
   ];
   return async (organizationId: string) => {
     for (const step of steps) {

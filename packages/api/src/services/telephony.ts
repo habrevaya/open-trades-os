@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { telephony, transcript as tr } from "@opentradesos/core";
 import {
@@ -404,10 +404,24 @@ export async function deleteRecordingIn(tx: Database, ctx: ServiceContext, callI
   const call = await loadCall(tx, ctx.actor.organizationId, callId);
   if (call.recordingDeletedAt) return call;
 
+  /**
+   * A transcript of the recording goes with it, in the same statement. The
+   * words are the recording in another form, and a deletion that left them
+   * would be a deletion of the sound only. A voicemail's transcript stays:
+   * deleting a call recording does not delete the message the caller left.
+   * One an integration sent, which cannot say what it was made from, goes
+   * too: the safe reading of "delete the recording" is the one that leaves
+   * no words of the conversation behind.
+   */
+  const recordingTranscript = call.transcriptSource !== "voicemail";
   const [row] = await tx.update(schema.call).set({
     recordingUrl: null,
     recordingStorageKey: null,
     recordingDeletedAt: new Date(),
+    ...(recordingTranscript ? {
+      transcript: null, transcriptSegments: null, transcriptText: null, transcriptRedactedAt: null,
+      transcriptRedactionCounts: null, transcriptStatus: null, transcriptSource: null, transcriptError: null,
+    } : {}),
     updatedAt: new Date(),
   }).where(eq(schema.call.id, call.id)).returning();
 
@@ -455,6 +469,12 @@ export async function recordingAudio(ctx: ServiceContext, callId: string, which:
 export interface AttachTranscriptInput {
   callId: string;
   segments: readonly tr.RawSegment[];
+  /**
+   * Which of the call's audio the words are of, when this product made the
+   * transcript itself. Null for one an integration sent: it is still kept,
+   * and nothing here can say what it was made from.
+   */
+  source?: "recording" | "voicemail" | null | undefined;
 }
 
 /**
@@ -479,52 +499,104 @@ export interface AttachTranscriptInput {
  * shortcut and it would put the card number back.
  */
 export async function attachTranscript(ctx: ServiceContext, input: AttachTranscriptInput) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
+  return guardedWrite(ctx, "message:send", (tx) => attachTranscriptIn(tx, ctx, input));
+}
 
-    const normalized = tr.normalizeSegments(input.segments);
-    if (!normalized.ok) {
+/**
+ * The same, inside a transaction somebody else opened: the guarded route
+ * above, and the background transcriber, which acts as the system for the
+ * reason `voice.ts` gives about the carrier's webhook.
+ *
+ * A TRANSCRIPT IS A RECORDING BY ANOTHER NAME, so two calls are refused one:
+ * a call where somebody asked not to be recorded, and a call whose recording
+ * was deleted (unless it is the voicemail being written out, which is a
+ * message the caller chose to leave). Writing down every word of a
+ * conversation somebody refused to have recorded keeps exactly what they
+ * refused.
+ */
+export async function attachTranscriptIn(tx: Database, ctx: ServiceContext, input: AttachTranscriptInput) {
+  const call = await loadCall(tx, ctx.actor.organizationId, input.callId);
+
+  if (input.source !== "voicemail") {
+    if (call.recordingRefusal === "party_declined") {
       throw new ConflictError(
-        "This transcript was refused rather than repaired, because a transcript that was quietly straightened out gets believed: "
-        + normalized.defects.map((d) => tr.describeDefect(d)).join(" "),
+        "Somebody on this call asked not to be recorded, so a transcript of it is not kept either: every word written down is the recording they refused.",
       );
     }
+    if (call.recordingDeletedAt) {
+      throw new ConflictError("This call's recording was deleted, and a transcript of it would keep what was deleted.");
+    }
+  }
 
-    const redacted = tr.redactTranscript(normalized.segments);
-    const now = new Date();
+  const normalized = tr.normalizeSegments(input.segments);
+  if (!normalized.ok) {
+    throw new ConflictError(
+      "This transcript was refused rather than repaired, because a transcript that was quietly straightened out gets believed: "
+      + normalized.defects.map((d) => tr.describeDefect(d)).join(" "),
+    );
+  }
 
-    const [row] = await tx.update(schema.call).set({
-      transcript: tr.renderForSummary(redacted.segments),
-      transcriptSegments: redacted.segments.map((s) => ({
-        speaker: s.speaker, startMs: s.startMs, endMs: s.endMs, text: s.text, confidence: s.confidence,
-      })),
-      transcriptRedactedAt: now,
-      transcriptRedactionCounts: redacted.report.countsByCategory,
-      updatedAt: now,
-    }).where(eq(schema.call.id, call.id)).returning();
+  const redacted = tr.redactTranscript(normalized.segments);
+  const now = new Date();
 
-    await audit(tx, ctx, "call.transcript_attached", "call", call.id, null, {
-      segments: redacted.segments.length,
-      redacted: redacted.report.redacted,
-      countsByCategory: redacted.report.countsByCategory,
-    });
+  const [row] = await tx.update(schema.call).set({
+    transcript: tr.renderForSummary(redacted.segments),
+    transcriptSegments: redacted.segments.map((s) => ({
+      speaker: s.speaker, startMs: s.startMs, endMs: s.endMs, text: s.text, confidence: s.confidence,
+    })),
+    /** The search form, from the same redacted segments and with no timestamps in it. */
+    transcriptText: tr.searchDocument(redacted.segments).text,
+    transcriptRedactedAt: now,
+    transcriptRedactionCounts: redacted.report.countsByCategory,
+    transcriptStatus: "done",
+    transcriptSource: input.source ?? null,
+    transcriptError: null,
+    updatedAt: now,
+  }).where(eq(schema.call.id, call.id)).returning();
 
-    return {
-      call: row!,
-      report: redacted.report,
-      quality: tr.assessQuality(redacted.segments),
-    };
+  await audit(tx, ctx, "call.transcript_attached", "call", call.id, null, {
+    segments: redacted.segments.length,
+    redacted: redacted.report.redacted,
+    countsByCategory: redacted.report.countsByCategory,
+    source: input.source ?? null,
   });
+
+  return {
+    call: row!,
+    report: redacted.report,
+    quality: tr.assessQuality(redacted.segments),
+  };
 }
 
 /* ------------------------------------------------------------------ reads */
 
-export const callsFor = (ctx: ServiceContext, options: { customerId?: string; limit?: number } = {}) =>
+/**
+ * What a search box matches on a call: the words said on it, or the number
+ * that rang. Shared by the API's call list and the call log screen, so the
+ * two cannot disagree about what "search calls" means.
+ *
+ * The words through Postgres's own full text search over the redacted
+ * transcript, so "leaking water heater" finds the call where somebody said
+ * "the water heater is leaking". Digits as digits, so "555 0192" finds the
+ * caller whichever way their number was written.
+ */
+export function callSearch(q: string | undefined) {
+  const text = q?.trim() ?? "";
+  if (text === "") return undefined;
+  const digits = text.replace(/\D/g, "");
+  const words = sql`to_tsvector('english', coalesce(${schema.call.transcriptText}, '')) @@ websearch_to_tsquery('english', ${text})`;
+  return digits.length >= 4 && digits.length === text.replace(/[\s().+-]/g, "").length
+    ? sql`(${words} or regexp_replace(${schema.call.fromE164}, '[^0-9]', '', 'g') like ${`%${digits}%`})`
+    : words;
+}
+
+export const callsFor = (ctx: ServiceContext, options: { customerId?: string; limit?: number; q?: string } = {}) =>
   guardedRead(ctx, "message:read", async (tx) => {
-    const where = options.customerId
-      ? and(eq(schema.call.organizationId, ctx.actor.organizationId), eq(schema.call.customerId, options.customerId))
-      : eq(schema.call.organizationId, ctx.actor.organizationId);
-    return tx.select().from(schema.call).where(where)
+    return tx.select().from(schema.call).where(and(
+      eq(schema.call.organizationId, ctx.actor.organizationId),
+      options.customerId ? eq(schema.call.customerId, options.customerId) : undefined,
+      callSearch(options.q),
+    ))
       .orderBy(desc(schema.call.startedAt))
       .limit(Math.min(options.limit ?? 50, 200));
   });
@@ -582,9 +654,12 @@ export const handlers = {
     providerCallId: input.providerCallId ?? null,
   }),
 
-  listCalls: async (ctx: ServiceContext, input: { customerId?: string | undefined; limit: number }) => ({
+  listCalls: async (ctx: ServiceContext, input: {
+    customerId?: string | undefined; limit: number; q?: string | undefined;
+  }) => ({
     calls: await callsFor(ctx, {
       ...(input.customerId ? { customerId: input.customerId } : {}),
+      ...(input.q ? { q: input.q } : {}),
       limit: input.limit,
     }),
   }),

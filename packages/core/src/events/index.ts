@@ -139,8 +139,14 @@ export const EVENTS = {
     entity: "estimate",
     emitted: true,
   },
+  /**
+   * A text, a picture message or a reply to an email. The channel rides on
+   * the payload, so a workflow that texts back can leave an email alone. An
+   * automatic reply (an out of office) is stored and does not emit this, so
+   * two autoresponders never answer each other all weekend.
+   */
   "message.received": {
-    summary: "A customer texted in",
+    summary: "A customer texted or emailed in",
     entity: "conversation",
     emitted: true,
   },
@@ -155,6 +161,25 @@ export const EVENTS = {
    */
   "call.missed": {
     summary: "A call came in and nobody answered it",
+    entity: "call",
+    emitted: true,
+  },
+  /**
+   * A recording was kept for a call the recording check allowed. Emitted
+   * when the audio is stored here, not when the call ends, because a
+   * recording the check refused is never kept and never announced.
+   */
+  "call.recorded": {
+    summary: "A call's recording was kept",
+    entity: "call",
+    emitted: true,
+  },
+  /**
+   * The words of a call's recording or voicemail were written down, redacted.
+   * The transcript is on the call; the payload says which audio it was of.
+   */
+  "call.transcribed": {
+    summary: "A call's recording or voicemail was written out",
     entity: "call",
     emitted: true,
   },

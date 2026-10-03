@@ -85,7 +85,9 @@ export type ConnectorCapability =
    * migration with nothing behind it, exactly as `calendar` was, and the
    * reason `property.latitude` was a column nothing filled.
    */
-  | "maps";
+  | "maps"
+  /** Speech to text, for the call recordings and voicemails this product keeps. */
+  | "transcription";
 
 /**
  * How the operator proves who they are.
@@ -160,6 +162,8 @@ export type ConnectorFlow =
   | "books_in"
   /** Questions out and answers back, priced per token against the operator's own account. */
   | "model_calls"
+  /** Words out of a call's audio. */
+  | "transcripts_in"
   /**
    * The schedule out: visits leaving this product for a calendar somebody
    * has already got open.
@@ -562,6 +566,22 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "A Mapbox account with permanent geocoding enabled, which is a paid tier, and an access token scoped to geocoding only. Put the token in your secret store and enter its name here; this product holds the name and never the value.",
     limitation:
       "Only the permanent tier may be stored, and this product stores every answer, so it always asks for that tier and a token without it is refused. The token travels in the request's URL because that is the only place Mapbox accepts it, which is why it should be scoped to geocoding and nothing else. Google is deliberately not offered: its terms cap keeping coordinates at thirty days and bar drawing them on a map that is not Google's.",
+  },
+
+  /* ------------------------------------------------------- call transcripts */
+  {
+    key: "whisper",
+    label: "Speech to text (Whisper)",
+    capability: "transcription",
+    auth: "api_key",
+    flows: ["transcripts_in"],
+    state: "built",
+    purpose:
+      "Write out every call recording and voicemail this product keeps, so the call log can be searched for what was said and a voicemail can be read in the van rather than played. Card numbers and security codes read aloud are removed before the words are stored.",
+    setup:
+      "Either an API key from your own OpenAI account, put in your secret store with its name entered here, or the address of a Whisper server you run yourself (faster-whisper-server, LocalAI or the whisper.cpp server all speak the same API) and no key at all. Then every recording and voicemail kept from that moment is written out by the background worker within a minute or two.",
+    limitation:
+      "The audio is sent to whichever server you point it at, so a company that does not want customers' calls to leave the building runs its own. It does not tell voices apart: a recorded call reads as one stream of words, not as caller and answerer. Only audio this product kept is transcribed, which means only calls the recording check allowed and voicemails; a recording deleted here takes its transcript with it.",
   },
 
   /* -------------------------------------------------------- call tracking */

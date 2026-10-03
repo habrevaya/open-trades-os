@@ -53,6 +53,22 @@ export interface VoiceProvider {
     Promise<VoiceResult<{ providerNumberId: string; e164: string }>>;
   /** Point a number the account already holds at our webhooks. */
   configureNumber(input: { providerNumberId: string; webhooks: NumberWebhooks }): Promise<VoiceResult<object>>;
+  /**
+   * A number the account already holds, with where its calls go now.
+   * `found: false` when the account does not hold it, which is an answer
+   * rather than a failure: the number may be with another carrier.
+   */
+  findNumber(e164: string): Promise<VoiceResult<
+    | { found: true; providerNumberId: string; voiceUrl: string | null; statusUrl: string | null }
+    | { found: false }
+  >>;
+  /**
+   * Point only a number's CALLS somewhere: here when it is adopted, and back
+   * where they were when it stops being answered here. Texts are left
+   * alone, because a number adopted for its calls may have its texts
+   * answered by something else entirely.
+   */
+  pointCalls(input: { providerNumberId: string; voiceUrl: string; statusUrl: string }): Promise<VoiceResult<object>>;
   releaseNumber(providerNumberId: string): Promise<VoiceResult<object>>;
   fetchRecording(recordingUrl: string): Promise<VoiceResult<{ bytes: Uint8Array }>>;
   deleteRecording(recordingId: string): Promise<VoiceResult<object>>;
