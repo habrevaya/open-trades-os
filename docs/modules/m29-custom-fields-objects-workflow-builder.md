@@ -179,6 +179,17 @@ holds, because the office manager is the person who gets asked.
 
 ### Declare a field
 
+`/settings/custom-fields` lists the fields on customers, properties and jobs with
+how many records hold a value for each (and, for a required one, how many do not
+yet), declares a new one (its label, the key it is stored under, the kind of
+answer, the choices for a list, and whether it is required), changes the label,
+choices, order and whether it is required, and retires one. Retiring is refused
+while records hold a value until "retire it anyway" is ticked, and the count is
+in the sentence: the values stay in the records, unseen, and come back if a field
+with the same key is defined again. Values stored under a key nothing defines (an
+import, usually) are listed under the record type they are on. Reading the screen
+needs `settings:read` and changing it `customfield:write`.
+
 `POST /v1/custom-fields` defines one, `PATCH /v1/custom-fields/{id}` changes it and
 `DELETE /v1/custom-fields/{id}` removes it, all with `customfield:write`.
 `GET /v1/custom-fields` lists them and `GET /v1/custom-fields/usage` says how many rows
@@ -204,6 +215,15 @@ A refused save is a 422 with one sentence per field, each at `customFields.<key>
 (or `property.customFields.<key>` for an address created with its customer) and
 starting with the field's label: "Permit number is required.", "Units has to be a
 number." A screen shows all of them at once under the form.
+
+### Find customers by one
+
+The customer list filters by a field: choose the field, type or pick the value.
+A choice matches exactly, several choices match a customer holding that one among
+theirs, yes or no matches as stored, a number matches as a number, and free text
+matches anywhere in the value, ignoring case. `GET /v1/customers` takes the same
+as `fieldKey` and `fieldValue`, and refuses a key the company has not declared on
+customers, in words, rather than matching nobody.
 
 ### Build an automation
 
@@ -320,8 +340,9 @@ turned on again from its original wording.
 
 Custom objects: fields only. Custom field values are checked on customers,
 properties and jobs and on nothing else, because nothing else has a `custom_fields`
-column. There is no settings screen for declaring a field yet: definitions are made
-through `POST /v1/custom-fields`, and the record screens draw whatever exists. Writing a workflow definition is office only, as
+column. Only the customer list filters by a custom field; the property and job
+lists do not yet, and neither does the report builder. A field's key cannot be
+changed once made (`/settings/custom-fields` says why). Writing a workflow definition is office only, as
 above. The canvas offers `all` conditions only. The engine evaluates `any` and `none`
 too, and a screen offering all three needs a nested group editor to say which
 applies to what; every condition on a branch has to hold, which is what somebody

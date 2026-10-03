@@ -73,9 +73,11 @@ export default async function SettingsPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Settings" />
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
-        {user.organizationName}. The look of the product is editable here.
-        Everything below it is read only in this build and changes go through
-        the API.
+        {user.organizationName}. The look, the time zone, call recording and phone numbers are
+        changed here. People are invited and given roles on{" "}
+        <a href="/settings/team" className="underline underline-offset-4">Team</a>, and the setup list
+        is still at <a href="/setup" className="underline underline-offset-4">Setup</a>, with what is
+        done ticked off.
       </p>
 
       {/*

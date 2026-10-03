@@ -94,6 +94,12 @@ export const Job = z.object({
   total: MoneyString.nullable(),
   tags: z.array(z.string()),
   customFields: z.record(z.unknown()),
+  /**
+   * The branch (business unit) this job belongs to, or null for none. A
+   * branch scoped person sees only their branch's jobs, so a job with none is
+   * seen by the people who see the whole company.
+   */
+  businessUnitId: Uuid.nullable().optional(),
   visits: z.array(Visit),
   /** Redacted unless the caller holds job.cost:read. */
   cost: MoneyString.nullable().optional(),
@@ -137,6 +143,12 @@ export const JobCreate = z.object({
   priority: z.number().int().min(0).max(2).optional(),
   tags: z.array(z.string()).default([]),
   customFields: z.record(z.unknown()).default({}),
+  /**
+   * The branch to put it in. Left out, it goes in the branch of the person
+   * booking it, then its job type's branch, otherwise none. Somebody limited
+   * to their own branch can only name that one.
+   */
+  businessUnitId: Uuid.optional(),
   /**
    * THE JOB THIS ONE IS A RETURN VISIT FOR.
    *
@@ -205,6 +217,11 @@ export const listJobs = defineRoute({
     technicianId: Uuid.optional(),
     scheduledFrom: z.string().datetime().optional(),
     scheduledTo: z.string().datetime().optional(),
+    /**
+     * One branch, or `none` for jobs nobody has put in a branch. Narrows what
+     * the caller's own scope already lets them see; never widens it.
+     */
+    businessUnitId: z.union([Uuid, z.literal("none")]).optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
   }),
@@ -249,6 +266,11 @@ export const updateJob = defineRoute({
     status: JobStatus.optional(),
     /** Null clears the job's lead source; a value is checked against the channel list. */
     leadSource: z.string().max(100).nullable().optional(),
+    /**
+     * Move the job to another branch, or out of every branch with null. Only
+     * somebody who sees the whole company may move work out of their own.
+     */
+    businessUnitId: Uuid.nullable().optional(),
     channelId: Uuid.nullable().optional(),
     campaignId: Uuid.nullable().optional(),
     /**

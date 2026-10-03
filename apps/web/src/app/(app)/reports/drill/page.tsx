@@ -2,33 +2,19 @@ import { notFound } from "next/navigation";
 import { Money } from "@opentradesos/ui";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { reports, ConflictError } from "@opentradesos/api/services";
-import { can, type reporting } from "@opentradesos/core";
+import { reports, branches, ConflictError } from "@opentradesos/api/services";
+import { can } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Empty, PageHeader, Table, Th, Td } from "@/components/Table";
 import { definitionFrom, type Params } from "@/lib/report-params";
 import { pinsFrom, safeBack } from "@/lib/drill";
 import { formatDay } from "@/lib/dates";
 import { enumText } from "@/lib/labels";
+import { describeDefinition, said } from "@/lib/report-words";
 
 export const dynamic = "force-dynamic";
 
 const NUMBER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-
-/** A month bucket comes back as `2026-09`, which nobody reads as September. */
-function formatMonth(value: string): string {
-  const date = new Date(`${value}-01T12:00:00Z`);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).format(date);
-}
-
-/** A pinned or filtered value, in the words the report showed it in. */
-function said(type: string, value: string | null, sortPrefix?: boolean): string {
-  if (value === null || value === "") return "Not set";
-  if (type === "status") return enumText(value);
-  if (type === "date" && /^\d{4}-\d{2}$/.test(value)) return formatMonth(value);
-  return sortPrefix ? value.replace(/^\d+\s+/, "") : value;
-}
 
 function Value({
   type, value, timezone,
@@ -77,7 +63,10 @@ export default async function DrillPage({ searchParams }: { searchParams: Promis
 
   const dataset = reports.CATALOGUE.find((d) => d.key === definition.dataset);
   const measures = result?.columns.filter((c) => c.role === "measure") ?? [];
-  const described = describeDefinition(definition, dataset, user.organizationTimezone);
+  const branchName = definition.branchId
+    ? (await branches.options(ctx)).branches.find((b) => b.id === definition.branchId)?.name ?? null
+    : null;
+  const described = describeDefinition(definition, dataset, user.organizationTimezone, branchName);
   const plural = result ? result.plural[0]!.toUpperCase() + result.plural.slice(1) : "Records";
 
   return (
@@ -175,29 +164,4 @@ export default async function DrillPage({ searchParams }: { searchParams: Promis
       ) : null}
     </div>
   );
-}
-
-/** The report's filters and dates, in words. */
-function describeDefinition(
-  definition: reporting.ReportDefinition,
-  dataset: reporting.Dataset | undefined,
-  timezone: string,
-): string[] {
-  const out: string[] = [];
-  for (const filter of definition.filters ?? []) {
-    const dimension = dataset?.dimensions.find((d) => d.key === filter.dimension);
-    const name = dimension?.label ?? filter.dimension;
-    const values = (Array.isArray(filter.value) ? filter.value : [filter.value])
-      .map((v) => said(dimension?.type ?? "text", v, dimension?.sortPrefix));
-    const verb = filter.op === "neq" ? "is not" : filter.op === "in" ? "is one of" : "is";
-    out.push(`${name} ${verb} ${values.join(", ")}`);
-  }
-  if (definition.from && definition.to) {
-    out.push(`From ${formatDay(definition.from, timezone)} up to ${formatDay(definition.to, timezone)}`);
-  } else if (definition.from) {
-    out.push(`From ${formatDay(definition.from, timezone)}`);
-  } else if (definition.to) {
-    out.push(`Before ${formatDay(definition.to, timezone)}`);
-  }
-  return out;
 }

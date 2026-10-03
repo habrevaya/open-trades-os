@@ -8,7 +8,7 @@ import {
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
 import { admitDate, admitInstant, requireImport } from "./history";
-import { invoiceScopeFilter } from "./scope";
+import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
 import { inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
@@ -884,6 +884,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.customerId ? eq(schema.invoice.customerId, input.customerId) : undefined,
         input.payerCustomerId ? eq(schema.invoice.payerCustomerId, input.payerCustomerId) : undefined,
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
+        input.businessUnitId ? invoiceBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.invoice, input),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))

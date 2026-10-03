@@ -209,3 +209,47 @@ export function conversationScopeFilter(scope: Scope, actor: ScopeContext): SQL 
     )
   )`;
 }
+
+/* ---------------------------------------------- a branch chosen on a list */
+
+/**
+ * A BRANCH SOMEBODY PICKED, as opposed to a branch somebody is limited to.
+ *
+ * The office filtering the job list to Houston and a Houston manager whose
+ * scope is Houston are asking the same question, and both are answered by
+ * the `business_unit` case of the filters above rather than by a second set
+ * of conditions. Two definitions of "belongs to Houston" would disagree
+ * about invoices with no job, or customers served by both branches, and the
+ * filtered list would stop adding up to what the manager sees.
+ *
+ * These narrow; they never widen. A filter is ANDed with the person's own
+ * scope by every caller, so picking Austin while scoped to Houston shows
+ * nothing rather than Austin.
+ */
+const branch = (businessUnitId: string): ScopeContext => ({ businessUnitId });
+
+/** Jobs in one branch, or with none (`null`), which only the office sees. */
+export function jobBranchFilter(businessUnitId: string | null): SQL {
+  return businessUnitId === null
+    ? sql`${schema.job.businessUnitId} is null`
+    : jobScopeFilter("business_unit", branch(businessUnitId)) ?? NOTHING;
+}
+
+/** Customers the branch has done work for. */
+export const customerBranchFilter = (businessUnitId: string): SQL =>
+  customerScopeFilter("business_unit", branch(businessUnitId)) ?? NOTHING;
+
+/** Invoices on the branch's jobs. An invoice with no job belongs to no branch. */
+export const invoiceBranchFilter = (businessUnitId: string): SQL =>
+  invoiceScopeFilter("business_unit", branch(businessUnitId)) ?? NOTHING;
+
+/** Estimates on the branch's jobs, the same way. */
+export const estimateBranchFilter = (businessUnitId: string): SQL =>
+  estimateScopeFilter("business_unit", branch(businessUnitId)) ?? NOTHING;
+
+/**
+ * Any record whose job id is an expression, for the report datasets that are
+ * not the job table itself (a visit, a profitability row).
+ */
+export const branchOfJob = (businessUnitId: string, jobId: SQL): SQL =>
+  jobVisibility("business_unit", branch(businessUnitId), jobId) ?? NOTHING;

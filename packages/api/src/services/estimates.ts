@@ -9,7 +9,7 @@ import {
   scopeOf, timezoneOf,
 } from "./context";
 import { admitDate } from "./history";
-import { estimateScopeFilter } from "./scope";
+import { estimateScopeFilter, estimateBranchFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
@@ -302,6 +302,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         input.status ? inArray(schema.estimate.status, input.status) : undefined,
         input.customerId ? eq(schema.estimate.customerId, input.customerId) : undefined,
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,
+        input.businessUnitId ? estimateBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.estimate, input),
         after ? lt(schema.estimate.id, after) : undefined,
       ))

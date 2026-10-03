@@ -189,6 +189,7 @@ export const NAV: NavGroup[] = [
           { href: "/pricebook/categories", label: "Categories" },
           /** Many prices at once, previewed, written as new versions and undoable. */
           { href: "/pricebook/changes", label: "Change prices" },
+          { href: "/pricebook/tax", label: "Sales tax" },
         ],
       },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
@@ -320,6 +321,10 @@ export const NAV: NavGroup[] = [
            * else: a property gets its territory when it is created, and the trip
            * charge follows from that rather than from anything on the board.
            */
+          { href: "/settings/team", label: "Team" },
+          { href: "/settings/branches", label: "Branches" },
+          { href: "/settings/roles", label: "Roles" },
+          { href: "/settings/custom-fields", label: "Custom fields" },
           { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
           /**

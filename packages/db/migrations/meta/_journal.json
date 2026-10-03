@@ -512,6 +512,13 @@
       "when": 1791003512056,
       "tag": "0072_naive_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791034960504,
+      "tag": "0073_bitter_virginia_dare",
+      "breakpoints": true
     }
   ]
 }

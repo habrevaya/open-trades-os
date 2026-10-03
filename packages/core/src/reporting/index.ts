@@ -130,6 +130,13 @@ export interface ReportDefinition {
    */
   orderBy?: string;
   limit?: number;
+  /**
+   * One branch's records only: the jobs in it, and whatever hangs off those
+   * jobs. A narrowing on top of the reader's own scope, never a widening, and
+   * refused on a dataset whose records do not belong to branches rather than
+   * quietly ignored.
+   */
+  branchId?: string;
 }
 
 export type ReportRefusal =
@@ -233,3 +240,4 @@ export function explainRefusal(refusal: ReportRefusal): string {
 export * from "./drill.js";
 export * from "./schedule.js";
 export * from "./csv.js";
+export * from "./chart.js";

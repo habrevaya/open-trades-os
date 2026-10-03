@@ -2,12 +2,21 @@
 
 import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
-import { requireSetupUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { booking, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
-const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
-const refresh = () => revalidatePath("/booking");
+/**
+ * `requireUser`, not the setup gate: the setup wizard draws these same forms
+ * before setup is finished, and the gate is about which page a person lands
+ * on, not about what they may change. What they may change is the service's
+ * question, asked the same way either side of setup.
+ */
+const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
+const refresh = () => {
+  revalidatePath("/booking");
+  revalidatePath("/setup/hours");
+};
 
 type Result = NonNullable<FormState>;
 

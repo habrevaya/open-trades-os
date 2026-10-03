@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { customFields as rules } from "@opentradesos/core";
 import {
@@ -925,6 +925,73 @@ export async function formFields(ctx: ServiceContext, entityType: string) {
       .orderBy(asc(schema.customFieldDefinition.sortOrder), asc(schema.customFieldDefinition.key));
     return rows.map(shape);
   });
+}
+
+/* ------------------------------------------------------------ filtering by one */
+
+/**
+ * A condition matching the records whose field `key` holds `value`, for a list
+ * filtered by a custom field ("every customer whose Gate code is set to...",
+ * "every customer on the Annual plan").
+ *
+ * THE KEY MUST BE DECLARED. A filter on a key nothing defines matches nothing
+ * for a reason nobody can see, and a typo in an address bar would read as
+ * "no customers on the Annual plan". Refused in words instead.
+ *
+ * THE MATCH FOLLOWS THE TYPE, because the stored shape does. A yes or no
+ * field stores JSON true or false and is matched as one, so "true" the string
+ * is not mistaken for it. A number is compared as a number, so 5 matches a
+ * stored 5.0. A field with several choices stores a list and matches a
+ * record holding the choice among its others. Free text matches anywhere in
+ * the value, ignoring case, because that is what somebody typing into a
+ * filter box means. Everything else (a single choice, a date) is the value
+ * exactly.
+ *
+ * The value is always bound as a parameter. The key is interpolated only
+ * after it has been found among the company's own definitions, which are
+ * themselves held to the key pattern above, and even then as a bound value
+ * rather than as SQL.
+ */
+export async function filterCondition(
+  tx: Database, organizationId: string, entityType: string, key: string, value: string,
+  column: SQL,
+): Promise<SQL> {
+  const entity = entityOf(entityType);
+  const [definition] = await tx.select().from(schema.customFieldDefinition)
+    .where(and(
+      eq(schema.customFieldDefinition.organizationId, organizationId),
+      eq(schema.customFieldDefinition.entityType, entity),
+      eq(schema.customFieldDefinition.key, key),
+      isNull(schema.customFieldDefinition.deletedAt),
+    )).limit(1);
+  if (!definition) {
+    throw new ConflictError(
+      `There is no ${entity} field called "${key}" to filter by. Choose one of the fields the company has set up.`,
+    );
+  }
+
+  const wanted = value.trim();
+  if (wanted === "") throw new ConflictError(`Say what ${definition.label} should be.`);
+
+  switch (definition.dataType) {
+    case "boolean": {
+      const truth = /^(true|yes)$/i.test(wanted) ? true : /^(false|no)$/i.test(wanted) ? false : null;
+      if (truth === null) throw new ConflictError(`${definition.label} is a yes or no field. Filter by yes or no.`);
+      return sql`(${column} -> ${key}) = ${truth ? "true" : "false"}::jsonb`;
+    }
+    case "number": {
+      if (!/^-?\d+(\.\d+)?$/.test(wanted)) {
+        throw new ConflictError(`${definition.label} is a number. Filter by a number.`);
+      }
+      return sql`(${column} -> ${key}) = to_jsonb(${wanted}::numeric)`;
+    }
+    case "multiselect":
+      return sql`(${column} -> ${key}) @> jsonb_build_array(${wanted}::text)`;
+    case "text":
+      return sql`(${column} ->> ${key}) ilike ${`%${wanted.replace(/[\\%_]/g, (c) => `\\${c}`)}%`}`;
+    default:
+      return sql`(${column} ->> ${key}) = ${wanted}`;
+  }
 }
 
 /* ------------------------------------------------------------- the routes */

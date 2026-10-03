@@ -1,10 +1,11 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing } from "@opentradesos/api/services";
+import { billing, branches } from "@opentradesos/api/services";
 import { Chip, Money } from "@opentradesos/ui";
 import { INVOICE_STATUS, INVOICE_TONE, label, tone } from "@/lib/labels";
 import { todayIn, formatDay } from "@/lib/dates";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
+import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 
 export const dynamic = "force-dynamic";
 
@@ -35,10 +36,17 @@ function daysOverdue(dueOn: string | null, today: string): number {
  * otherwise. What is here is the part that does not need a report: which of
  * these is late, and by how long.
  */
-export default async function InvoicesPage() {
+export default async function InvoicesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ branch?: string }>;
+}) {
   const user = await requireSetupUser();
+  const ctx = { actor: user.actor, db: getDb() };
+  const options = await branches.options(ctx);
+  const branch = chosenBranch(options, (await searchParams).branch);
 
-  const page = await billing.list({ actor: user.actor, db: getDb() }, { limit: 100 });
+  const page = await billing.list(ctx, { limit: 100, ...(branch ? { businessUnitId: branch } : {}) });
   // The company's today. A shop in Austin looking at a server in UTC at nine
   // in the evening would otherwise be told an invoice is a day later than it
   // is, which at a due date boundary is the difference between late and not.
@@ -48,6 +56,7 @@ export default async function InvoicesPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Invoices" count={page.data.length} />
+      <BranchFilter options={options} action="/invoices" current={branch} />
 
       {late > 0 && (
         <p className="mt-2 text-sm text-ink-700">
@@ -56,10 +65,16 @@ export default async function InvoicesPage() {
       )}
 
       {page.data.length === 0 ? (
-        <Empty title="No invoices yet">
-          An invoice comes from a completed job, so the first one arrives once
-          work does.
-        </Empty>
+        branch ? (
+          <Empty title="No invoices in that branch">
+            An invoice belongs to a branch through its job. One raised with no job is in none.
+          </Empty>
+        ) : (
+          <Empty title="No invoices yet">
+            An invoice comes from a completed job, so the first one arrives once
+            work does.
+          </Empty>
+        )
       ) : (
         <Table head={
           <>

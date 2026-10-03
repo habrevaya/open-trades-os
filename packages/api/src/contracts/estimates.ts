@@ -161,6 +161,8 @@ export const listEstimates = defineRoute({
     jobId: Uuid.optional(),
     /** Ages out the pipeline: everything sent and undecided before this date. */
     sentBefore: z.string().date().optional(),
+    /** Estimates on one branch's jobs. An estimate with no job is in no branch. */
+    businessUnitId: Uuid.optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
   }),

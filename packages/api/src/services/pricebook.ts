@@ -313,6 +313,13 @@ export interface RevisionChanges {
   cost?: string;
   laborMinutes?: number;
   taxable?: boolean;
+  /**
+   * Null clears it; left out, the current one carries forward. The setup
+   * wizard's tax step and a trade pack upgrade are what change these, through
+   * here, so a tax class or a warranty is versioned exactly like a price.
+   */
+  taxClass?: string | null;
+  warrantyMonths?: number | null;
 }
 
 /**
@@ -349,9 +356,9 @@ export async function reviseWithin(
     cost: changes.cost ?? current.version.cost,
     laborMinutes: changes.laborMinutes ?? current.version.laborMinutes,
     taxable: changes.taxable ?? current.version.taxable,
-    taxClass: current.version.taxClass,
+    taxClass: changes.taxClass !== undefined ? changes.taxClass : current.version.taxClass,
     commissionRate: current.version.commissionRate,
-    warrantyMonths: current.version.warrantyMonths,
+    warrantyMonths: changes.warrantyMonths !== undefined ? changes.warrantyMonths : current.version.warrantyMonths,
     components: current.version.components,
     effectiveFrom,
   }).returning();

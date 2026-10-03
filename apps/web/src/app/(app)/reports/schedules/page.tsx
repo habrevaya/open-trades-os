@@ -8,7 +8,7 @@ import { ActionForm } from "@/components/ActionForm";
 import { Empty, PageHeader } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import { enumText } from "@/lib/labels";
-import { deleteSchedule, setPaused } from "./actions";
+import { deleteSchedule, sendNow, setPaused } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -140,6 +140,16 @@ export default async function SchedulesPage() {
                       action={setPaused} tone="quiet" className="flex items-center gap-2"
                       submit={schedule.paused ? `Resume ${schedule.name}` : `Pause ${schedule.name}`}
                       hidden={{ id: schedule.id, paused: schedule.paused ? "false" : "true" }}
+                    />
+                    {/*
+                      Beside Pause because it is the other thing somebody
+                      does to a schedule without changing it: see what it
+                      sends, or send it again for the accountant who lost it.
+                    */}
+                    <ActionForm
+                      action={sendNow} tone="quiet" className="flex flex-wrap items-center gap-2"
+                      submit={`Send ${schedule.name} now`}
+                      hidden={{ id: schedule.id }}
                     />
                     <a href={`/reports/schedules/${schedule.id}`}
                        className="inline-flex h-9 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">

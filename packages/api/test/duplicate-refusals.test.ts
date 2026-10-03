@@ -205,6 +205,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",
   discount_policy_org_idx: "One policy per company, upserted.",
+  setup_step_key_idx: "One row per setup step per company, upserted when a step is marked done or reopened.",
   asset_compliance_kind_idx: "One expiry per asset per kind, upserted by `setAssetObligation`.",
   brand_asset_kind_idx:
     "One asset per kind (a logo, a mark, a favicon), replaced rather than added to on upload.",

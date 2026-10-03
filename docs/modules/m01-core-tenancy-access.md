@@ -98,9 +98,13 @@ The sign up flow creates the user, the organization and the owner membership
 together, then hands off to the wizard in M02. There is no step where a company
 exists without an owner.
 
-Afterwards, `Settings` is where people are managed: who works here, what role
-each one holds, and custom roles for a company whose shape the nine presets do
-not fit. Seeing the list needs `user:read`, inviting needs `user:invite`,
+Afterwards, `/settings/team` is where people are managed: inviting somebody
+(`POST /v1/invitations`, which makes the person with a preset role, puts them
+in a branch, gives anybody who goes out to jobs a place on the board, and hands
+back a one time link to choose a password), changing a role
+(`POST /v1/memberships/{membershipId}/role`), moving somebody to another branch,
+and turning somebody off. `/settings/roles` makes a custom role for a company
+whose shape the nine presets do not fit. Seeing the list needs `user:read`, inviting needs `user:invite`,
 changing a role needs `user:write` and defining a custom role needs
 `role:write`. Each of those is separate because they are four different
 decisions, and the person who corrects a job title is not always the person who
@@ -123,6 +127,26 @@ Set a scope override on their membership. It can only take access away. The
 column for this existed for a while with nothing reading it, which meant an
 administrator who set one believed they had applied a restriction and had not;
 that is now the behaviour the tests assert rather than a comment.
+
+### Divide the company into branches
+
+`/settings/branches` makes a branch (a business unit underneath), renames and
+retires one, and moves the work that is in no branch into one, in bulk
+(`POST /v1/branch-assignments`). A person is put in a branch on Team
+(`POST /v1/memberships/{membershipId}/branch`). On `/settings/roles`, a role
+made with "their branch's work" sees the jobs in its holder's branch and the
+customers, invoices, estimates, conversations and reports (visits counted in a
+report included) that hang off them, and nothing else: not in a list, not by opening a job's address, not
+in a report grouped by branch, not in the records behind a number. A branch
+manager cannot be given that role without a branch, cannot have their branch
+taken away while they hold it, and can only put work in their own branch.
+
+A job saved without a branch takes the branch of whoever saved it, then its
+job type's, and otherwise none; a job in no branch is seen by the people who
+see the whole company. The job, customer, invoice and estimate lists and every
+report have a branch filter for those people (`GET /v1/branches` lists the
+names); it narrows and never widens. `docs/concepts/multi-location.md` has the
+decisions behind each of these.
 
 ### Find out who did something
 
@@ -181,9 +205,15 @@ issuing its token and revoking it, because those are one decision.
 
 ## What is not built
 
-Multi location is real in the schema, the columns and the scope filters, and no
-shipped role uses either yet: a branch or shop scope narrows jobs and
-everything read through a job, but nothing in the product asks a company to
-divide itself up. `docs/concepts/multi-location.md` is honest about that.
+Multi location: branches, a branch scope on a custom role, and branch filters
+are built (above). No preset role is branch scoped, so a branch manager is a
+custom role. Job and invoice numbers are one sequence per company, the price
+book is the same in every branch, a job carries one branch, a location (a
+building) scope is still only reachable through the API, and the dispatch
+board, service reports and timesheets are not yet narrowed by branch.
+`docs/concepts/multi-location.md` lists what remains. An invite link is shown
+to the inviter rather than emailed. `RoleEscalationError` from the custom roles
+routes reaches an HTTP caller as a server error rather than a 403; the screens
+put it in words.
 `billing:manage` is declared and nothing checks it, because this product has no
 subscription to manage; it exists for a hosted deployment that does.

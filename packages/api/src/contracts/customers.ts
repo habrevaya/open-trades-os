@@ -125,6 +125,16 @@ export const listCustomers = defineRoute({
      */
     tags: z.array(z.string().max(40)).max(20).optional(),
     tagMatch: z.enum(["any", "all"]).optional(),
+    /** Customers one branch has done work for. */
+    businessUnitId: Uuid.optional(),
+    /**
+     * Customers whose custom field `fieldKey` holds `fieldValue`. The key has
+     * to be a field the company has declared on customers. A yes or no field
+     * matches `true` or `false`; a field with several choices matches a
+     * customer holding that choice among theirs.
+     */
+    fieldKey: z.string().max(64).optional(),
+    fieldValue: z.string().max(200).optional(),
     includeInactive: z.boolean().default(false),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,

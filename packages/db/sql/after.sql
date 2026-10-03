@@ -1947,3 +1947,193 @@ create or replace function app.operator_set_membership(
 
 revoke all on function app.operator_set_membership(uuid, uuid, text) from public;
 grant execute on function app.operator_set_membership(uuid, uuid, text) to platform_operator;
+
+-- ---- Which branch a new job belongs to ------------------------------------
+-- A branch is a business unit, and `job.business_unit_id` is what a branch
+-- scoped person's job list is filtered on (services/scope.ts). Eight places
+-- in this product insert a job (booking one, confirming an online request,
+-- converting an estimate, accepting a lead, a recurring plan, an agreement
+-- visit, a route, a project phase) and not one of them chose a branch, so a
+-- branch manager who booked a job watched it vanish from their own list the
+-- moment it was saved: it belonged to no branch, and their scope shows one.
+--
+-- So the default lives here, once, under all eight, rather than in eight
+-- services that would each have to remember it. A job saved without a branch
+-- takes the branch of the person saving it, then the branch its job type
+-- belongs to, and otherwise stays with none, which only company wide people
+-- see and Settings > Branches lists for somebody to sort out. A branch that
+-- has been retired is not handed to new work. A job saved WITH a branch keeps
+-- it: whether this person may choose that branch is the service's question,
+-- because it is about their scope rather than about the row.
+--
+-- Security invoker on purpose. It reads the membership and the job type the
+-- request can already see, inside the tenant the request is already in.
+create or replace function app.default_job_branch() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  begin
+    if new.business_unit_id is null then
+      select m.business_unit_id into new.business_unit_id
+        from public.membership m
+        join public.business_unit bu on bu.id = m.business_unit_id and bu.active
+       where m.organization_id = new.organization_id
+         and m.user_id = (select app.current_user_id())
+         and m.active
+       limit 1;
+    end if;
+    if new.business_unit_id is null and new.job_type_id is not null then
+      select jt.business_unit_id into new.business_unit_id
+        from public.job_type jt
+        join public.business_unit bu on bu.id = jt.business_unit_id and bu.active
+       where jt.id = new.job_type_id
+         and jt.organization_id = new.organization_id;
+    end if;
+    return new;
+  end;
+  $$;
+
+drop trigger if exists job_default_branch on public.job;
+create trigger job_default_branch
+  before insert on public.job
+  for each row execute function app.default_job_branch();
+
+-- ---- Inviting somebody to work here ----------------------------------------
+-- The setup wizard's team step, and Settings > Team. Until these two
+-- functions existed the only way a second person got into a company was the
+-- operator API or a row typed into the database, so every company was one
+-- person with a login.
+--
+-- Both run as definer because the `user` table's policy lets a session see
+-- only its own row, which is right and stays right: an office manager must
+-- not be able to list every account on the deployment. They check the
+-- caller's standing themselves rather than trusting the service, the same as
+-- `revoke_sessions_for`, and they act only inside the caller's own company.
+-- The permission (`user:invite`) and whether the role being handed out is
+-- within the inviter's own authority are checked by the service before it
+-- gets here; this is the second lock, not the first.
+--
+-- AN ADDRESS THAT ALREADY HAS AN ACCOUNT IS NOT ADDED, and that is the rule
+-- the whole design rests on. Adding an existing account to this company would
+-- hand this company's records to whoever controls that account, and nothing
+-- here proves that is the person the address belongs to: anybody can sign up
+-- with an address that is not theirs, or be invited somewhere else first and
+-- choose the password. So an invite creates the person or finds them already
+-- in THIS company, and an address in use anywhere else is refused with
+-- `elsewhere` for the service to explain.
+create or replace function app.invite_member(p_email text, p_name text, p_role text)
+  returns table (membership_id uuid, user_id uuid, outcome text, active boolean, has_password boolean)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+    v_email text := lower(trim(p_email));
+    v_user uuid;
+    v_membership uuid;
+    v_active boolean;
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active
+    ) then
+      raise exception 'only an active member of a company may invite somebody to it'
+        using errcode = 'insufficient_privilege';
+    end if;
+
+    select u.id into v_user from public."user" u where u.email = v_email;
+
+    if v_user is null then
+      insert into public."user" (email, name)
+      values (v_email, nullif(trim(coalesce(p_name, '')), ''))
+      returning id into v_user;
+      insert into public.membership (organization_id, user_id, role)
+      values (v_org, v_user, p_role::public.member_role)
+      returning id into v_membership;
+      return query select v_membership, v_user, 'created'::text, true, false;
+      return;
+    end if;
+
+    select m.id, m.active into v_membership, v_active
+      from public.membership m
+     where m.organization_id = v_org and m.user_id = v_user;
+
+    if v_membership is null then
+      return query select null::uuid, null::uuid, 'elsewhere'::text, false, false;
+      return;
+    end if;
+
+    return query select v_membership, v_user, 'member'::text, v_active,
+      exists (select 1 from public.credential c where c.user_id = v_user);
+  end;
+  $$;
+
+-- A first-password link for somebody this company invited.
+--
+-- `issue_setup_token` is the operator's and stays the operator's. This is the
+-- same link with the tenant's narrower rule in front of it: the person must
+-- be a member of the caller's company, of NO other company, and have no
+-- password yet. The middle condition is what stops one company issuing a
+-- link for somebody another company invited and is still waiting on: with it,
+-- a link can only ever open an account whose sole membership is the company
+-- that asked for it, which is the account it created.
+create or replace function app.issue_invite_token(
+  p_user_id uuid, p_token_hash text, p_expires_at timestamptz
+) returns boolean
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active
+    ) then
+      return false;
+    end if;
+    if not exists (
+      select 1 from public.membership m where m.organization_id = v_org and m.user_id = p_user_id
+    ) then
+      return false;
+    end if;
+    if exists (
+      select 1 from public.membership m where m.user_id = p_user_id and m.organization_id <> v_org
+    ) then
+      return false;
+    end if;
+    if exists (select 1 from public.credential c where c.user_id = p_user_id) then
+      return false;
+    end if;
+
+    update public.setup_token
+       set revoked_at = now(), updated_at = now()
+     where user_id = p_user_id and used_at is null and revoked_at is null;
+    insert into public.setup_token (user_id, token_hash, expires_at)
+    values (p_user_id, p_token_hash, p_expires_at);
+    return true;
+  end;
+  $$;
+
+revoke all on function app.invite_member(text, text, text) from public;
+revoke all on function app.issue_invite_token(uuid, text, timestamptz) from public;
+grant execute on function app.invite_member(text, text, text) to authenticated;
+grant execute on function app.issue_invite_token(uuid, text, timestamptz) to authenticated;
+
+-- Which of this company's people have not chosen a password yet: invited,
+-- and not in. Membership ids only, for the team list to say "has not signed
+-- in yet" and offer a fresh link. Whether a colleague has finished signing
+-- up is not a secret inside their own company; their password row is, and
+-- this reads its existence and nothing else.
+create or replace function app.organization_people_waiting()
+  returns table (membership_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select m.id
+    from public.membership m
+    where m.organization_id = (select app.current_organization_id())
+      and not exists (select 1 from public.credential c where c.user_id = m.user_id)
+  $$;
+
+revoke all on function app.organization_people_waiting() from public;
+grant execute on function app.organization_people_waiting() to authenticated;

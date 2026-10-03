@@ -99,6 +99,10 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  setup_step: {
+    step_key: "Which setup step a row is about, such as payments or tax. A word from the "
+      + "product's own list of steps, not a key to anything.",
+  },
   property: {
     address_key: "The address itself, lower cased with its spacing tidied, which the geocoder "
       + "compares to decide whether a coordinate still answers for it. A key in the sense of a "

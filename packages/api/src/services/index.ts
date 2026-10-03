@@ -117,3 +117,6 @@ export * as portalSignIn from "./portal-sign-in";
 export * as portalSettings from "./portal-settings";
 export * as savedCards from "./saved-cards";
 export * as tips from "./tips";
+export * as setup from "./setup";
+export * as team from "./team";
+export * as branches from "./branches";

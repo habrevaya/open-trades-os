@@ -21,6 +21,10 @@
       "description": "Core, Tenancy and Access"
     },
     {
+      "name": "M02",
+      "description": "Setup, Configuration and Trade Packs"
+    },
+    {
       "name": "M03",
       "description": "CRM"
     },
@@ -7694,6 +7698,331 @@
         ]
       }
     },
+    "/v1/branch-assignments": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "assignJobsToBranch",
+        "summary": "Put jobs in a branch, or take them out of every branch",
+        "description": "Up to five hundred at a time, each one audited on the job. Only somebody who sees the whole company may move work between branches, because a branch scoped person who moved a job elsewhere could no longer see it. A retired branch takes no new work.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignJobsToBranchInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put jobs in a branch, or take them out of every branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignJobsToBranchOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
+        ]
+      }
+    },
+    "/v1/branch-overview": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getBranchOverview",
+        "summary": "Each branch with its people and its work",
+        "description": "Every branch, retired ones too, with how many people belong to it and how many jobs (and open jobs) are in it; how many jobs are in no branch, which only people who see the whole company can see; and how many people have no branch.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M01"
+        ],
+        "responses": {
+          "200": {
+            "description": "Each branch with its people and its work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBranchOverviewOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/branches": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listBranchOptions",
+        "summary": "The branches a list can be filtered by",
+        "description": "Live branches by name, the caller's own, and whether the caller's view is already narrower than the whole company, in which case a branch filter can only narrow it further. Open to anybody who reads jobs, customers, invoices, estimates or reports, because a dispatcher filtering a list needs the names and has no business in Settings.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M01"
+        ],
+        "responses": {
+          "200": {
+            "description": "The branches a list can be filtered by",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBranchOptionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      }
+    },
     "/v1/business-units": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -13030,6 +13359,217 @@
         "x-authorization": "session",
         "x-permissions": [
           "commission:configure"
+        ]
+      }
+    },
+    "/v1/company": {
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PATCH"
+      ],
+      "get": {
+        "operationId": "getCompanyDetails",
+        "summary": "What the company is called, and the zone its days run in",
+        "description": "Requires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "What the company is called, and the zone its days run in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCompanyDetailsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "patch": {
+        "operationId": "updateCompanyDetails",
+        "summary": "Rename the company, or set its legal name",
+        "description": "The name is what customers see on every invoice, text and portal page; the legal name is what goes on a document with legal weight and is often not the name on the van. The time zone is changed on its own, from Settings, because of what changing it does.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M02"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCompanyDetailsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rename the company, or set its legal name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateCompanyDetailsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -19961,6 +20501,33 @@
             }
           },
           {
+            "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fieldKey",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "fieldValue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
             "name": "includeInactive",
             "in": "query",
             "required": false,
@@ -25596,6 +26163,15 @@
             }
           },
           {
+            "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "externalSource",
             "in": "query",
             "required": false,
@@ -30411,6 +30987,273 @@
         ]
       }
     },
+    "/v1/invitations": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "inviteMember",
+        "summary": "Invite somebody to work here",
+        "description": "Creates the person with a preset role, in a branch if one is named, with a technician record when they go out to jobs (the default for technicians and crew leads), and returns a one-time link for them to choose a password, valid for seven days. The role must be one the inviter could define themselves. An address that already has an account with another company is refused, because adding an existing account would hand this company to whoever controls it. Inviting somebody who was invited and has not signed in returns a new link and retires the old one.\n\nRequires a session holding: user:invite.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMemberInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Invite somebody to work here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteMemberOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:invite"
+        ]
+      }
+    },
+    "/v1/invitations/{membershipId}/resend": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "resendInvite",
+        "summary": "A new link for somebody who has not signed in yet",
+        "description": "The old link stops working. Refused for somebody who has chosen a password, who signs in as normal.\n\nRequires a session holding: user:invite.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendInviteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "A new link for somebody who has not signed in yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResendInviteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:invite"
+        ]
+      }
+    },
     "/v1/invoice-deliveries/undelivered": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -30731,6 +31574,15 @@
             "schema": {
               "type": "string",
               "format": "date"
+            }
+          },
+          {
+            "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           },
           {
@@ -31973,6 +32825,228 @@
         ]
       }
     },
+    "/v1/item-tax": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listItemTax",
+        "summary": "Which items are taxed, and under which class",
+        "description": "Every live price book item, with its shelf, whether it is taxable and its tax class, as of now. No rates: a rate is set on the document it is charged on.\n\nRequires a session holding: pricebook:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which items are taxed, and under which class",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListItemTaxOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:read"
+        ]
+      },
+      "post": {
+        "operationId": "setItemTax",
+        "summary": "Set whether items are taxed, many at once",
+        "description": "A new version of each item that changes, exactly as a price change is, so an invoice that charged tax on an item last month still says it did. Items already as asked are left alone. An exempt item cannot be taxable.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetItemTaxInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Set whether items are taxed, many at once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetItemTaxOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      }
+    },
     "/v1/job-types": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -32313,6 +33387,25 @@
             "schema": {
               "type": "string",
               "format": "date-time"
+            }
+          },
+          {
+            "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "none"
+                  ]
+                }
+              ]
             }
           },
           {
@@ -40378,6 +41471,282 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetMembershipActiveOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write"
+        ]
+      }
+    },
+    "/v1/memberships/{membershipId}/branch": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setMemberBranch",
+        "summary": "Put somebody in a branch",
+        "description": "Their branch is what a branch scope shows them and where a job they book lands. Taking it away is refused while their role or their own limits show them only their branch, because they would then see nothing at all.\n\nRequires a session holding: membership:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMemberBranchInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put somebody in a branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMemberBranchOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "membership:write"
+        ]
+      }
+    },
+    "/v1/memberships/{membershipId}/role": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setMemberRole",
+        "summary": "Give somebody a different preset role",
+        "description": "Checked both ways: the caller must hold everything the new role carries and everything the old one did, so an administrator cannot demote an owner. Nobody changes their own role, and the last owner stays an owner. Choosing a preset takes away a custom role, which would otherwise go on replacing it; a custom role is given with the custom roles routes.\n\nRequires a session holding: user:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMemberRoleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give somebody a different preset role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMemberRoleOutput"
                 }
               }
             }
@@ -59699,6 +61068,144 @@
         ]
       }
     },
+    "/v1/report-schedules/{id}/send": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "sendReportScheduleNow",
+        "summary": "Send a scheduled report now",
+        "description": "The same delivery a scheduled occurrence makes, to the same people, covering the same days measured back from now, but run as the person sending it rather than whoever set the schedule up, and refused if they could not run the report themselves. Every recipient is checked and sent their own run as on a schedule. The schedule's clock does not move, and a paused schedule can still be sent by hand. The email goes out with the worker's next pass over the outbox.\n\nRequires a session holding: report:build.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendReportScheduleNowInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Send a scheduled report now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendReportScheduleNowOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:build"
+        ]
+      }
+    },
     "/v1/reporting-lines": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -63882,6 +65389,382 @@
         ]
       }
     },
+    "/v1/setup": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getSetup",
+        "summary": "How far the company's setup has got",
+        "description": "Every setup step, in the wizard's order: whether somebody has marked it done and when, whether the caller may do it, and what is already in place for it in words (\"Stripe connected\", \"43 items, 12 taxable\"). Done is something a person says, not something inferred, because most steps have no answer in the data; the facts sit beside it so the two can be compared.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "How far the company's setup has got",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSetupOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/setup/finish": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "finishSetup",
+        "summary": "Leave the wizard for the app",
+        "description": "Allowed with steps outstanding, because a wizard that will not let go is one people abandon. The steps stay on the list, which stays open afterwards. Finishing twice keeps the first time.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishSetupInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Leave the wizard for the app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinishSetupOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/setup/steps/{key}": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "markSetupStep",
+        "summary": "Mark a setup step done, or not done",
+        "description": "Needs settings:read and the step's own permission as well (settings:write for the company, trade, service area and tax steps' settings, booking:configure for hours, user:invite for the team, pricebook:write for the price book and tax, integration:write for payments, phone and email, and accounting), because saying a step is done is a statement about that step. Marking done what is done keeps when it was first done.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "company",
+                "trade",
+                "service-area",
+                "hours",
+                "team",
+                "pricebook",
+                "tax",
+                "payments",
+                "communications",
+                "integrations"
+              ]
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkSetupStepInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Mark a setup step done, or not done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkSetupStepOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
     "/v1/statement-deliveries": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -67398,6 +69281,104 @@
         ]
       }
     },
+    "/v1/team": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTeam",
+        "summary": "Everybody in the company, with their role and branch",
+        "description": "Turned off people too, so they can be turned back on. `waiting` is somebody invited who has not chosen a password yet.\n\nRequires a session holding: user:read.",
+        "tags": [
+          "M01"
+        ],
+        "responses": {
+          "200": {
+            "description": "Everybody in the company, with their role and branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTeamOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:read"
+        ]
+      }
+    },
     "/v1/technicians": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -69235,6 +71216,484 @@
         "x-authorization": "session",
         "x-permissions": [
           "timesheet:read"
+        ]
+      }
+    },
+    "/v1/trade-packs": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTradePacks",
+        "summary": "The trade packs this product ships, and the version the company is on",
+        "description": "Requires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "The trade packs this product ships, and the version the company is on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTradePacksOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/trade-packs/{id}/apply": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyTradePack",
+        "summary": "Apply a trade pack",
+        "description": "Seeds the pack's price book, job types, categories, service report template, inspection programmes, retention rules and portal layout, in one transaction. Additive: an item or job type whose code the company already has is skipped and counted, never overwritten, and the rest of the pack is seeded once, so applying a pack again changes nothing.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTradePackInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Apply a trade pack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyTradePackOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/trade-packs/{id}/upgrade": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "previewTradePackUpgrade",
+        "summary": "What a newer version of a trade pack would change",
+        "description": "Nothing is written. Items the company does not have are added; items still exactly as the older version seeded them take the new values; items somebody here changed, or made under the same code, are kept and listed with what the new version would have changed; items the new version dropped are kept and listed. Job types the company is missing are added. Costs are shown only to a caller who may read them.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 60
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What a newer version of a trade pack would change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewTradePackUpgradeOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "post": {
+        "operationId": "upgradeTradePack",
+        "summary": "Upgrade to the newer version of a trade pack",
+        "description": "Applies the plan the preview shows, worked out again inside the transaction so an item edited after the preview was looked at is kept rather than overwritten. An updated item gets a new version, as a price change by hand does, so documents that quoted the old one still say the old one. Nothing the company changed or made is touched, and nothing is deleted.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpgradeTradePackInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Upgrade to the newer version of a trade pack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeTradePackOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -74755,6 +77214,61 @@
           "skipped"
         ]
       },
+      "ApplyTradePackInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ApplyTradePackOutput": {
+        "type": "object",
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "created": {
+            "type": "object",
+            "properties": {
+              "priceBookItems": {
+                "type": "integer"
+              },
+              "jobTypes": {
+                "type": "integer"
+              },
+              "categories": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "priceBookItems",
+              "jobTypes",
+              "categories"
+            ]
+          },
+          "skipped": {
+            "type": "object",
+            "properties": {
+              "priceBookItems": {
+                "type": "integer"
+              },
+              "jobTypes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "priceBookItems",
+              "jobTypes"
+            ]
+          }
+        },
+        "required": [
+          "packId",
+          "version",
+          "created",
+          "skipped"
+        ]
+      },
       "ApproveEstimateInput": {
         "type": "object",
         "properties": {
@@ -75710,6 +78224,50 @@
           "crewId",
           "status",
           "on"
+        ]
+      },
+      "AssignJobsToBranchInput": {
+        "type": "object",
+        "properties": {
+          "jobIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 500
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "jobIds",
+          "businessUnitId"
+        ]
+      },
+      "AssignJobsToBranchOutput": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "integer"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "moved",
+          "businessUnitId"
         ]
       },
       "AssignTrackingNumberInput": {
@@ -81768,6 +84326,10 @@
             "additionalProperties": {},
             "default": {}
           },
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "parentJobId": {
             "type": "string",
             "format": "uuid"
@@ -82061,6 +84623,13 @@
           "customFields": {
             "type": "object",
             "additionalProperties": {}
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "visits": {
             "type": "array",
@@ -87563,6 +90132,10 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 1000
+              },
+              "branchId": {
+                "type": "string",
+                "format": "uuid"
               }
             },
             "required": [
@@ -87983,6 +90556,22 @@
         },
         "required": [
           "moved"
+        ]
+      },
+      "FinishSetupInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "FinishSetupOutput": {
+        "type": "object",
+        "properties": {
+          "setupCompletedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "setupCompletedAt"
         ]
       },
       "GetAccountingStatusOutput": {
@@ -89159,6 +91748,76 @@
           "slots"
         ]
       },
+      "GetBranchOverviewOutput": {
+        "type": "object",
+        "properties": {
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "people": {
+                  "type": "integer"
+                },
+                "openJobs": {
+                  "type": "integer"
+                },
+                "jobs": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "code",
+                "active",
+                "people",
+                "openJobs",
+                "jobs"
+              ]
+            }
+          },
+          "unassigned": {
+            "type": "object",
+            "properties": {
+              "jobs": {
+                "type": "integer"
+              },
+              "openJobs": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "jobs",
+              "openJobs"
+            ]
+          },
+          "peopleWithoutBranch": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "branches",
+          "unassigned",
+          "peopleWithoutBranch"
+        ]
+      },
       "GetCallOutput": {
         "type": "object",
         "properties": {
@@ -89594,6 +92253,28 @@
           "cancellationReason",
           "createdAt",
           "result"
+        ]
+      },
+      "GetCompanyDetailsOutput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "legalName",
+          "timezone"
         ]
       },
       "GetComplianceSummaryOutput": {
@@ -93767,6 +96448,13 @@
           "customFields": {
             "type": "object",
             "additionalProperties": {}
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "visits": {
             "type": "array",
@@ -98304,6 +100992,142 @@
           "explanation"
         ]
       },
+      "GetSetupOutput": {
+        "type": "object",
+        "properties": {
+          "companyName": {
+            "type": "string"
+          },
+          "setupCompletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "progress": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "essentialTotal": {
+                "type": "integer"
+              },
+              "essentialDone": {
+                "type": "integer"
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "company",
+                  "trade",
+                  "service-area",
+                  "hours",
+                  "team",
+                  "pricebook",
+                  "tax",
+                  "payments",
+                  "communications",
+                  "integrations"
+                ]
+              },
+              "complete": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "total",
+              "done",
+              "essentialTotal",
+              "essentialDone",
+              "next",
+              "complete"
+            ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "company",
+                    "trade",
+                    "service-area",
+                    "hours",
+                    "team",
+                    "pricebook",
+                    "tax",
+                    "payments",
+                    "communications",
+                    "integrations"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "essential": {
+                  "type": "boolean"
+                },
+                "hasLeadTime": {
+                  "type": "boolean"
+                },
+                "permission": {
+                  "type": "string"
+                },
+                "done": {
+                  "type": "boolean"
+                },
+                "doneAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "allowed": {
+                  "type": "boolean"
+                },
+                "facts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "title",
+                "summary",
+                "essential",
+                "hasLeadTime",
+                "permission",
+                "done",
+                "doneAt",
+                "allowed",
+                "facts"
+              ]
+            }
+          }
+        },
+        "required": [
+          "companyName",
+          "setupCompletedAt",
+          "progress",
+          "steps"
+        ]
+      },
       "GetSkillStandingInput": {
         "type": "object",
         "properties": {
@@ -100029,6 +102853,73 @@
           "name",
           "enabled",
           "templateKey"
+        ]
+      },
+      "InviteMemberInput": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "format": "email"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "dispatcher",
+              "csr",
+              "technician",
+              "crew_lead",
+              "accountant",
+              "readonly"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "goesOut": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "role"
+        ]
+      },
+      "InviteMemberOutput": {
+        "type": "object",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reissued": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "membershipId",
+          "link",
+          "reissued"
         ]
       },
       "IssueAppTokenInput": {
@@ -102264,6 +105155,52 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "ListBranchOptionsOutput": {
+        "type": "object",
+        "properties": {
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "code"
+              ]
+            }
+          },
+          "yours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "narrowed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "branches",
+          "yours",
+          "narrowed"
         ]
       },
       "ListBusinessUnitsOutput": {
@@ -106641,6 +109578,55 @@
           "hasMore"
         ]
       },
+      "ListItemTaxOutput": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxClass": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "name",
+                "category",
+                "taxable",
+                "taxClass"
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
       "ListJobLinesOutput": {
         "type": "object",
         "properties": {
@@ -106942,6 +109928,13 @@
                 "customFields": {
                   "type": "object",
                   "additionalProperties": {}
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
                 },
                 "cost": {
                   "type": [
@@ -112068,6 +115061,114 @@
           "hasMore"
         ]
       },
+      "ListTeamOutput": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "membershipId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "email": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "office_manager",
+                    "dispatcher",
+                    "csr",
+                    "technician",
+                    "crew_lead",
+                    "accountant",
+                    "readonly"
+                  ]
+                },
+                "roleLabel": {
+                  "type": "string"
+                },
+                "customRoleId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customRoleName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "waiting": {
+                  "type": "boolean"
+                },
+                "isYou": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "membershipId",
+                "userId",
+                "name",
+                "email",
+                "role",
+                "roleLabel",
+                "customRoleId",
+                "customRoleName",
+                "businessUnitId",
+                "branchName",
+                "technicianId",
+                "active",
+                "waiting",
+                "isYou"
+              ]
+            }
+          }
+        },
+        "required": [
+          "people"
+        ]
+      },
       "ListTechniciansOutput": {
         "type": "object",
         "properties": {
@@ -112644,6 +115745,66 @@
         },
         "required": [
           "numbers"
+        ]
+      },
+      "ListTradePacksOutput": {
+        "type": "object",
+        "properties": {
+          "primaryTrade": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "packs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "applied": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "upgradable": {
+                  "type": "boolean"
+                },
+                "priceBookItems": {
+                  "type": "integer"
+                },
+                "jobTypes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "summary",
+                "version",
+                "applied",
+                "upgradable",
+                "priceBookItems",
+                "jobTypes"
+              ]
+            }
+          }
+        },
+        "required": [
+          "primaryTrade",
+          "packs"
         ]
       },
       "ListUndeliveredInvoicesOutput": {
@@ -114873,6 +118034,91 @@
           "recoveredAt"
         ]
       },
+      "MarkSetupStepInput": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "done"
+        ]
+      },
+      "MarkSetupStepOutput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "company",
+              "trade",
+              "service-area",
+              "hours",
+              "team",
+              "pricebook",
+              "tax",
+              "payments",
+              "communications",
+              "integrations"
+            ]
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "progress": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "essentialTotal": {
+                "type": "integer"
+              },
+              "essentialDone": {
+                "type": "integer"
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "company",
+                  "trade",
+                  "service-area",
+                  "hours",
+                  "team",
+                  "pricebook",
+                  "tax",
+                  "payments",
+                  "communications",
+                  "integrations"
+                ]
+              },
+              "complete": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "total",
+              "done",
+              "essentialTotal",
+              "essentialDone",
+              "next",
+              "complete"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "done",
+          "progress"
+        ]
+      },
       "MaterialiseProjectInput": {
         "type": "object",
         "properties": {}
@@ -117000,6 +120246,291 @@
           "scheduleId",
           "occurrences",
           "onlyOneKnowable"
+        ]
+      },
+      "PreviewTradePackUpgradeOutput": {
+        "type": "object",
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "fromVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "toVersion": {
+            "type": "integer"
+          },
+          "upToDate": {
+            "type": "boolean"
+          },
+          "add": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "string"
+                },
+                "cost": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "name",
+                "category",
+                "price",
+                "cost"
+              ]
+            }
+          },
+          "update": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "changes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "from": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "to": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "from",
+                      "to"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "itemId",
+                "code",
+                "name",
+                "changes"
+              ]
+            }
+          },
+          "kept": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "edited",
+                    "yours"
+                  ]
+                },
+                "changes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "from": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "to": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "from",
+                      "to"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "itemId",
+                "code",
+                "name",
+                "reason",
+                "changes"
+              ]
+            }
+          },
+          "unchanged": {
+            "type": "integer"
+          },
+          "dropped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "itemId",
+                "code",
+                "name"
+              ]
+            }
+          },
+          "jobTypes": {
+            "type": "object",
+            "properties": {
+              "add": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "name"
+                  ]
+                }
+              },
+              "present": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "add",
+              "present"
+            ]
+          }
+        },
+        "required": [
+          "packId",
+          "fromVersion",
+          "toVersion",
+          "upToDate",
+          "add",
+          "update",
+          "kept",
+          "unchanged",
+          "dropped",
+          "jobTypes"
         ]
       },
       "PublishRegulatoryConstantInput": {
@@ -121775,6 +125306,33 @@
           "standing"
         ]
       },
+      "ResendInviteInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResendInviteOutput": {
+        "type": "object",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reissued": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "membershipId",
+          "link",
+          "reissued"
+        ]
+      },
       "ReserveStockInput": {
         "type": "object",
         "properties": {
@@ -125180,6 +128738,97 @@
           "results"
         ]
       },
+      "SendReportScheduleNowInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "SendReportScheduleNowOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "periodFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "periodTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "rowCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                },
+                "messageId": {
+                  "type": "string"
+                },
+                "refused": {
+                  "type": "string"
+                },
+                "messageStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "address",
+                "messageStatus"
+              ]
+            }
+          },
+          "scheduleId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "status",
+          "error",
+          "periodFrom",
+          "periodTo",
+          "rowCount",
+          "recipients",
+          "scheduleId"
+        ]
+      },
       "SetAccountMappingInput": {
         "type": "object",
         "properties": {
@@ -125825,6 +129474,52 @@
           "note"
         ]
       },
+      "SetItemTaxInput": {
+        "type": "object",
+        "properties": {
+          "itemIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "taxClass": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "labor",
+              "material",
+              "equipment",
+              "service",
+              "exempt"
+            ]
+          }
+        },
+        "required": [
+          "itemIds",
+          "taxable",
+          "taxClass"
+        ]
+      },
+      "SetItemTaxOutput": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changed"
+        ]
+      },
       "SetMarketingSettingsInput": {
         "type": "object",
         "properties": {
@@ -125863,6 +129558,98 @@
         "required": [
           "attributionModel",
           "requireLeadSource"
+        ]
+      },
+      "SetMemberBranchInput": {
+        "type": "object",
+        "properties": {
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "businessUnitId"
+        ]
+      },
+      "SetMemberBranchOutput": {
+        "type": "object",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "membershipId",
+          "businessUnitId"
+        ]
+      },
+      "SetMemberRoleInput": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "dispatcher",
+              "csr",
+              "technician",
+              "crew_lead",
+              "accountant",
+              "readonly"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "SetMemberRoleOutput": {
+        "type": "object",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "dispatcher",
+              "csr",
+              "technician",
+              "crew_lead",
+              "accountant",
+              "readonly"
+            ]
+          },
+          "customRoleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "membershipId",
+          "role",
+          "customRoleId"
         ]
       },
       "SetMembershipActiveInput": {
@@ -130199,6 +133986,48 @@
           "archived"
         ]
       },
+      "UpdateCompanyDetailsInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "legalName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateCompanyDetailsOutput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "legalName",
+          "timezone"
+        ]
+      },
       "UpdateCrewInput": {
         "type": "object",
         "properties": {
@@ -131273,6 +135102,13 @@
             "additionalProperties": {},
             "default": {}
           },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "parentJobId": {
             "type": "string",
             "format": "uuid"
@@ -131454,6 +135290,13 @@
           "customFields": {
             "type": "object",
             "additionalProperties": {}
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "visits": {
             "type": "array",
@@ -133565,6 +137408,56 @@
           "failureCount",
           "lastDeliveryAt",
           "createdAt"
+        ]
+      },
+      "UpgradeTradePackInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpgradeTradePackOutput": {
+        "type": "object",
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "fromVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "toVersion": {
+            "type": "integer"
+          },
+          "added": {
+            "type": "integer"
+          },
+          "updated": {
+            "type": "integer"
+          },
+          "kept": {
+            "type": "integer"
+          },
+          "unchanged": {
+            "type": "integer"
+          },
+          "dropped": {
+            "type": "integer"
+          },
+          "jobTypesAdded": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "packId",
+          "fromVersion",
+          "toVersion",
+          "added",
+          "updated",
+          "kept",
+          "unchanged",
+          "dropped",
+          "jobTypesAdded"
         ]
       },
       "UploadAttachmentInput": {

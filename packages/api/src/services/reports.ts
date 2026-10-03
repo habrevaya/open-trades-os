@@ -6,7 +6,10 @@ import {
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { CATALOGUE } from "./report-catalogue";
-import { jobScopeFilter, invoiceScopeFilter, estimateScopeFilter } from "./scope";
+import {
+  jobScopeFilter, invoiceScopeFilter, estimateScopeFilter, jobVisibility,
+  jobBranchFilter, invoiceBranchFilter, estimateBranchFilter, branchOfJob,
+} from "./scope";
 import { BUILT_IN } from "./report-built-in";
 
 export { CATALOGUE, BUILT_IN };
@@ -66,11 +69,25 @@ export const SCOPE_FILTERS: Record<string, (ctx: ServiceContext) => SQL | undefi
    * second filter, so there is one definition of what a technician may see
    * and not two that can disagree.
    */
-  visits: (ctx) => scopeOf(ctx, "visit") === "all" ? undefined : sql`exists (
-    select 1 from public.visit_assignment va
-    where va.visit_id = visit.id
-      and va.technician_id = ${ctx.actor.technicianId ?? null}::uuid
-  )`,
+  visits: (ctx) => {
+    const scope = scopeOf(ctx, "visit");
+    if (scope === "all") return undefined;
+    if (scope === "own") {
+      return sql`exists (
+        select 1 from public.visit_assignment va
+        where va.visit_id = visit.id
+          and va.technician_id = ${ctx.actor.technicianId ?? null}::uuid
+      )`;
+    }
+    /**
+     * A crew, a branch or a shop: whatever jobs that scope reaches, through
+     * the visit's job. This used to apply the technician's own filter to
+     * every scope narrower than the whole company, so a branch manager with
+     * no technician record counted no visits at all: fail closed, and
+     * useless.
+     */
+    return jobVisibility(scope, ctx.actor, sql`visit.job_id`) ?? sql`false`;
+  },
   // Not scoped by work. Reads of the queue are gated on `task:read`.
   tasks: () => undefined,
   /**
@@ -89,6 +106,23 @@ export const SCOPE_FILTERS: Record<string, (ctx: ServiceContext) => SQL | undefi
    * job, and the dataset needs `adspend:read`, which no field role holds.
    */
   calls: () => undefined,
+};
+
+/**
+ * ONE BRANCH, CHOSEN ON THE REPORT, for each dataset whose records belong to
+ * one. The same filters the lists use, so a report narrowed to Houston counts
+ * exactly the records the Houston job list shows.
+ *
+ * A dataset missing here cannot be narrowed to a branch, and asking is
+ * refused rather than ignored: a task report "for Houston" that quietly
+ * counted every task in the company is the report somebody acts on.
+ */
+export const BRANCH_FILTERS: Record<string, (businessUnitId: string) => SQL> = {
+  jobs: (unit) => jobBranchFilter(unit),
+  profitability: (unit) => jobBranchFilter(unit),
+  invoices: (unit) => invoiceBranchFilter(unit),
+  estimates: (unit) => estimateBranchFilter(unit),
+  visits: (unit) => branchOfJob(unit, sql`visit.job_id`),
 };
 
 export function scopeFilterFor(ctx: ServiceContext, dataset: reporting.Dataset): SQL | undefined {
@@ -134,6 +168,16 @@ function conditionsFor(
      */
     const table = dataset.from.replace("public.", "");
     conditions.push(sql.raw(`"${table}".deleted_at is null`));
+  }
+
+  if (definition.branchId) {
+    const narrow = BRANCH_FILTERS[dataset.key];
+    if (!narrow) {
+      throw new ConflictError(
+        `${dataset.label} do not belong to branches, so this report cannot be narrowed to one. Clear the branch to run it.`,
+      );
+    }
+    conditions.push(narrow(definition.branchId));
   }
 
   if (definition.from) {
