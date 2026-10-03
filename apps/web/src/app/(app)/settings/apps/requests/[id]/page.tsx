@@ -100,10 +100,24 @@ export default async function AppRequestPage({ params }: { params: Promise<{ id:
         </ul>
       )}
 
-      {review.blockedBecause ? (
-        app.status === "pending"
-          ? <p role="alert" className="mt-6 text-sm text-red-600">{review.blockedBecause}</p>
-          : <p className="mt-6 text-sm text-ink-700">{review.blockedBecause}</p>
+      {app.status === "pending" && review.blockedBecause ? (
+        <p role="alert" className="mt-6 text-sm text-red-600">{review.blockedBecause}</p>
+      ) : null}
+      {app.status === "active" || app.status === "refused" ? (
+        <div className="mt-6 rounded-md border border-steel-200 bg-canvas p-4">
+          <p role="status" className="text-sm font-medium">
+            {app.status === "active"
+              ? `Approved. ${app.name} collects its credential itself, once, with the secret it was given when it asked.`
+              : `Refused. ${app.name} holds nothing and is told no when it asks.`}
+          </p>
+          {review.returnTo ? (
+            <p className="mt-2 text-sm">
+              <a href={review.returnTo} className="text-blue-600 underline underline-offset-4">
+                Go back to {app.request?.returnsTo ?? "the app"}
+              </a>
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {app.status === "pending" && !app.request?.expired && can(user.actor, "integration:write") ? (
         <Decide id={app.id} name={app.name} approvable={review.approvable} />

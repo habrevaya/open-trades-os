@@ -11457,6 +11457,7 @@ export interface ReviewAppRequestOutput {
   }>;
   approvable: boolean;
   blockedBecause: string | null;
+  returnTo: string | null;
 }
 
 export interface RevisePriceBookItemInput {

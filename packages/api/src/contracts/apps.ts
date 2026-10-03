@@ -270,6 +270,8 @@ export const reviewAppRequest = defineRoute({
     reach: z.array(z.object({ resource: z.string(), scope: z.string(), widerThanYours: z.boolean() })),
     approvable: z.boolean(),
     blockedBecause: z.string().nullable(),
+    /** Once answered, where to send the person who answered, with the outcome for the app. */
+    returnTo: z.string().nullable(),
   }),
 });
 

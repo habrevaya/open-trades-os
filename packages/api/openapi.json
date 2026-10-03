@@ -142980,6 +142980,12 @@
               "string",
               "null"
             ]
+          },
+          "returnTo": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -142987,7 +142993,8 @@
           "asks",
           "reach",
           "approvable",
-          "blockedBecause"
+          "blockedBecause",
+          "returnTo"
         ]
       },
       "RevisePriceBookItemInput": {

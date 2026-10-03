@@ -798,6 +798,12 @@ export interface RequestReview {
   /** Whether the person looking could approve it as it stands, and the reason when not. */
   approvable: boolean;
   blockedBecause: string | null;
+  /**
+   * Once it is answered, where to send the person who answered it, carrying
+   * the outcome for the app. Null while it waits, and for an app that gave no
+   * address.
+   */
+  returnTo: string | null;
 }
 
 /**
@@ -842,7 +848,14 @@ export async function review(ctx: ServiceContext, input: { id: string }): Promis
       : "It asks to reach more records than you can reach yourself.";
   }
 
-  return { app, asks, reach, approvable: blockedBecause === null, blockedBecause };
+  let returnTo: string | null = null;
+  if (app.source === "request" && (app.status === "active" || app.status === "refused")) {
+    const [row] = await inTenant(ctx, (tx) => tx.select().from(schema.connectedApp)
+      .where(eq(schema.connectedApp.id, input.id)).limit(1));
+    if (row) returnTo = returnAddress(row, app.status === "active" ? "approved" : "refused");
+  }
+
+  return { app, asks, reach, approvable: blockedBecause === null, blockedBecause, returnTo };
 }
 
 /** Where the person deciding goes next, carrying the outcome for the app. */
