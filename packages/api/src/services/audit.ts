@@ -45,6 +45,8 @@ export interface AuditRow {
   actorAgentId: string | null;
   /** A customer acting through a portal grant rather than a session. */
   actorPortalGrantId: string | null;
+  /** The contact on the customer who held that grant, when it was not the customer themselves. */
+  actorContactId: string | null;
   action: string;
   entityType: string;
   entityId: string | null;
@@ -124,6 +126,7 @@ export async function read(ctx: ServiceContext, input: AuditQuery): Promise<Audi
         actorUserId: row.actorUserId,
         actorAgentId: row.actorAgentId,
         actorPortalGrantId: row.actorPortalGrantId,
+        actorContactId: row.actorContactId,
         action: row.action,
         entityType: row.entityType,
         entityId: row.entityId,

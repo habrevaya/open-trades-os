@@ -315,5 +315,7 @@ function shape(row: typeof schema.contact.$inferSelect) {
     phone: row.phone,
     preferredChannel: row.preferredChannel,
     isPrimary: row.isPrimary,
+    /** Whether the office lets them sign in to the customer's portal as the customer. */
+    portalAccess: row.portalAccessAt !== null,
   };
 }

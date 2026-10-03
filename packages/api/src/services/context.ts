@@ -38,6 +38,12 @@ export interface ServiceContext {
    */
   portalGrantId?: string;
   /**
+   * The contact holding that grant, when a contact on the customer signed in
+   * as them. Written on every audit entry beside the grant, so the trail
+   * names the person and not only the account they used.
+   */
+  portalContactId?: string | null | undefined;
+  /**
    * The SHA-256 of the phone app's device token, when that is what signed
    * this request in. Registering a device reads it to bind the token to the
    * device it came from, so revoking that device ends the sign in too.
@@ -369,6 +375,7 @@ export async function audit(
      */
     actorUserId: ctx.portalGrantId || isSystem(ctx.actor) ? null : ctx.actor.userId,
     actorPortalGrantId: ctx.portalGrantId ?? null,
+    actorContactId: ctx.portalGrantId ? ctx.portalContactId ?? null : null,
     actorAgentId: ctx.agentId ?? ctx.actor.agentId ?? null,
     action,
     entityType,

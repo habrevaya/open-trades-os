@@ -149,6 +149,7 @@ export function verifyStripeSignature(
  */
 function kindOf(type: string): PaymentEventKind {
   if (type === "payment_intent.succeeded") return "succeeded";
+  if (type === "payment_intent.processing") return "processing";
   if (type === "payment_intent.payment_failed") return "failed";
   if (type === "charge.refunded" || type === "refund.created" || type === "refund.updated") {
     return "refunded";
@@ -222,6 +223,20 @@ function feeFrom(object: Record<string, unknown>): number | null {
     ?? asObject(object["balance_transaction"]);
   const fee = num(balance?.["fee"]);
   return fee ?? (direct === null ? null : direct);
+}
+
+/**
+ * How the customer paid, where the event says so definitely: the charge's
+ * own details, or an intent that only ever allowed one kind. An intent
+ * that offered several says nothing about which was used, and then this is
+ * null rather than a guess.
+ */
+function methodTypeFrom(object: Record<string, unknown>): string | null {
+  const charge = asObject(object["latest_charge"]) ?? (object["object"] === "charge" ? object : null);
+  const details = str(asObject(charge?.["payment_method_details"])?.["type"]);
+  if (details) return details;
+  const allowed = object["payment_method_types"];
+  return Array.isArray(allowed) && allowed.length === 1 ? str(allowed[0]) : null;
 }
 
 function metadataFrom(object: Record<string, unknown>): Record<string, string> {
@@ -317,6 +332,15 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
        * secret like any other card.
        */
       const saved = request.customerRef && request.paymentMethodRef;
+      /**
+       * A SAVED BANK ACCOUNT is debited through ACH, named explicitly rather
+       * than left to automatic payment methods, and carries the customer's
+       * agreement to this debit: they are on the page pressing Pay, and
+       * Stripe keeps where and on what as the mandate. It comes back
+       * `processing`, and stays so until the webhook says it settled.
+       */
+      const bank = saved && request.methodKind === "bank_account";
+      const online = request.acceptance?.ip && request.acceptance.userAgent;
       const { ok, status, json } = await call("/payment_intents", {
         amount: request.amountMinor,
         currency: request.currency.toLowerCase(),
@@ -327,11 +351,21 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
          * method types that has to be kept in step with a dashboard nobody
          * on this side can see.
          */
-        automatic_payment_methods: saved ? { enabled: true, allow_redirects: "never" } : { enabled: true },
+        ...(bank
+          ? { payment_method_types: ["us_bank_account"] }
+          : { automatic_payment_methods: saved ? { enabled: true, allow_redirects: "never" } : { enabled: true } }),
         ...(saved ? {
           customer: request.customerRef,
           payment_method: request.paymentMethodRef,
           confirm: true,
+        } : {}),
+        ...(bank && online ? {
+          mandate_data: {
+            customer_acceptance: {
+              type: "online",
+              online: { ip_address: request.acceptance!.ip, user_agent: request.acceptance!.userAgent },
+            },
+          },
         } : {}),
         description: request.description,
         receipt_email: request.receiptEmail,
@@ -440,6 +474,7 @@ export function stripeProvider(settings: StripeSettings, secretKey: string): Pay
         failureMessage:
           str(asObject(object["last_payment_error"])?.["message"])
           ?? str(object["failure_message"]),
+        methodType: methodTypeFrom(object),
       };
     },
   };
@@ -461,9 +496,10 @@ type Failure = (status: number, json: Record<string, unknown>) =>
  * than believed from the browser. The card it names is only recorded when
  * Stripe says the setup succeeded, for the customer this company made.
  *
- * Cards only. A saved bank account needs a mandate and its own wording on
- * the page, and nothing here has asked a company whether it wants to hold
- * one.
+ * A bank account is saved the same way, verified by the customer signing
+ * in to their bank in Stripe's window, and only when the company has turned
+ * bank payments on (`portal.bankAccounts`), because the money from one
+ * arrives days later and can still fail in between.
  */
 function vault(call: Call, failure: Failure): CardVault {
   return {
@@ -482,9 +518,24 @@ function vault(call: Call, failure: Failure): CardVault {
     },
 
     async startSetup(request) {
+      const bank = request.kind === "bank_account";
       const { ok, status, json } = await call("/setup_intents", {
         customer: request.customerRef,
-        payment_method_types: ["card"],
+        payment_method_types: [bank ? "us_bank_account" : "card"],
+        /**
+         * A bank account is verified by the customer signing in to their
+         * bank in Stripe's window (Financial Connections), and by nothing
+         * slower: `instant` refuses micro deposits, which would leave a
+         * customer waiting two days to finish saving it.
+         */
+        ...(bank ? {
+          payment_method_options: {
+            us_bank_account: {
+              verification_method: "instant",
+              financial_connections: { permissions: ["payment_method"] },
+            },
+          },
+        } : {}),
         /**
          * On session: the customer will be on the page, pressing Pay, every
          * time this card is used. Asking for off session use would let the
@@ -511,6 +562,20 @@ function vault(call: Call, failure: Failure): CardVault {
       const method = asObject(json["payment_method"]);
       const card = asObject(method?.["card"]);
       const ref = str(method?.["id"]) ?? str(json["payment_method"]);
+      const account = asObject(method?.["us_bank_account"]);
+      if (ref && (method?.["type"] === "us_bank_account" || account)) {
+        return {
+          ok: true,
+          value: {
+            setupId: str(json["id"]) ?? setupId,
+            status: str(json["status"]) ?? "unknown",
+            customerRef: str(json["customer"]),
+            card: null,
+            bankAccount: { ref, bankName: str(account?.["bank_name"]), last4: str(account?.["last4"]) },
+            metadata: metadataFrom(json),
+          },
+        };
+      }
       return {
         ok: true,
         value: {

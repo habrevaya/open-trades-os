@@ -62,6 +62,9 @@ export const Visit = z.object({
   arrivedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
   technicianNotes: z.string().nullable(),
+  /** What the customer reads about the visit on their account, as the office chose to share it. */
+  customerNotes: z.string().nullable(),
+  customerNotesSharedAt: z.string().datetime().nullable(),
   externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 

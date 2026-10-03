@@ -93,6 +93,72 @@ export const PortalTipOffer = z.object({
   for: z.array(z.string()),
 });
 
+const ReportView = z.object({
+  id: Uuid,
+  visitId: Uuid,
+  publishedAt: z.string().datetime(),
+  summary: z.string().nullable(),
+  observations: z.string().nullable(),
+  fields: z.array(z.object({
+    key: z.string(), label: z.string(), kind: z.string(), unit: z.string().nullable(), value: z.string().nullable(),
+    outOfRange: z.boolean(),
+    /** What was applied, when the field records a product. */
+    product: z.object({
+      name: z.string().nullable(), epaRegistrationNumber: z.string().nullable(), quantity: z.string().nullable(),
+      unit: z.string().nullable(), target: z.string().nullable(),
+    }).nullable(),
+  })),
+});
+
+/**
+ * The work, as the company chose to show it: the blocks its trade pack lays
+ * out, in order, and what each draws.
+ */
+export const AccountExtras = z.object({
+  blocks: z.array(z.object({
+    kind: z.enum([
+      "visit_timeline", "service_report", "readings_trend", "equipment_register",
+      "checklist_results", "photo_gallery", "documents", "invoices", "payments",
+      "plan_status", "next_visit", "recommended_work", "referral", "contact_card",
+    ]),
+    title: z.string(),
+    config: z.record(z.unknown()),
+    /** False for a block every account shows that the layout did not name. */
+    declared: z.boolean(),
+  })),
+  history: z.array(z.object({
+    visitId: Uuid, jobId: Uuid, jobNumber: z.number().int(), summary: z.string(),
+    date: z.string().datetime().nullable(), status: z.string(), technicianName: z.string().nullable(),
+    /** What the office shared about the visit, never the technician's own notes. */
+    notes: z.string().nullable(),
+    report: ReportView.nullable(),
+  })),
+  equipment: z.array(z.object({
+    id: Uuid, property: z.string(), name: z.string(), tag: z.string().nullable(),
+    manufacturer: z.string().nullable(), model: z.string().nullable(), serialNumber: z.string().nullable(),
+    installedOn: z.string().nullable(), warrantyPartsExpiresOn: z.string().nullable(),
+    warrantyLaborExpiresOn: z.string().nullable(), location: z.string().nullable(),
+    details: z.array(z.object({ label: z.string(), value: z.string() })),
+  })),
+  readings: z.array(z.object({
+    key: z.string(), label: z.string(), unit: z.string().nullable(),
+    points: z.array(z.object({ at: z.string().datetime(), value: z.string(), outOfRange: z.boolean() })),
+  })),
+  checklist: z.object({
+    date: z.string().datetime().nullable(), summary: z.string(),
+    items: z.array(z.object({ label: z.string(), done: z.boolean() })),
+  }).nullable(),
+  photos: z.array(z.object({ id: Uuid, takenAt: z.string().datetime(), jobNumber: z.number().int() })),
+  payments: z.array(z.object({
+    id: Uuid, receivedAt: z.string().datetime(), amount: MoneyString, method: z.string(), status: z.string(),
+  })),
+  planVisits: z.array(z.object({
+    agreementId: Uuid, planName: z.string(), dueOn: z.string(), state: z.enum(["done", "booked", "skipped", "due"]),
+  })),
+  recommendations: z.array(z.object({ date: z.string().datetime(), text: z.string() })),
+  contact: z.object({ phone: z.string().nullable(), technicians: z.array(z.string()) }),
+});
+
 export const viewPortalAccount = defineRoute({
   method: "get",
   path: "/v1/portal/account",
@@ -123,6 +189,8 @@ export const viewPortalAccount = defineRoute({
       id: Uuid, number: z.number().int(), status: z.string(),
       issuedOn: z.string().date().nullable(), dueOn: z.string().date().nullable(),
       currency: z.string(), total: MoneyString, balance: MoneyString, payable: z.boolean(),
+      /** A bank payment for it is on its way, so it is not offered for payment again until it arrives or fails. */
+      bankPaymentPending: z.boolean(),
       tipping: PortalTipOffer,
     })),
     estimates: z.array(z.object({
@@ -137,6 +205,17 @@ export const viewPortalAccount = defineRoute({
       id: Uuid, status: z.string(), amountRequested: MoneyString, amountReceived: MoneyString, currency: z.string(),
     })),
     onlinePaymentAvailable: z.boolean(),
+    /** Visits asked for from the account that the office has not booked yet. */
+    requested: z.array(z.object({
+      id: Uuid, serviceName: z.string(), requestedDate: z.string().date(),
+      windowName: z.string().nullable(), technicianName: z.string().nullable(),
+    })),
+    /** Bank payments on their way, and the ones that failed in the last month and why. */
+    bankPayments: z.array(z.object({
+      id: Uuid, status: z.enum(["pending", "failed"]), amount: MoneyString, invoiceNumbers: z.array(z.number().int()),
+      startedAt: z.string().datetime(), failedAt: z.string().datetime().nullable(), reason: z.string().nullable(),
+    })),
+    extras: AccountExtras,
   }),
 });
 
@@ -189,6 +268,9 @@ export const openPortalRecord = defineRoute({
 
 export const PortalCard = z.object({
   id: Uuid,
+  /** A card, or a bank account saved the same way. */
+  kind: z.enum(["card", "bank_account"]),
+  /** The card brand, or the bank's name. */
   brand: z.string().nullable(),
   last4: z.string().nullable(),
   expMonth: z.number().int().nullable(),
@@ -199,26 +281,31 @@ export const PortalCard = z.object({
 export const listPortalCards = defineRoute({
   method: "get",
   path: "/v1/portal/cards",
-  summary: "The cards the customer has saved",
-  description: "From a sign in only. The brand, the last four digits and the expiry, which is all that is kept: the card itself is held by the processor.",
+  summary: "The cards and bank accounts the customer has saved",
+  description: "From a sign in only. The brand or bank, the last four digits and a card's expiry, which is all that is kept: the card or account itself is held by the processor.",
   module: "M13",
   permissions: [],
   authorization: "grant",
   input: z.object({ token: Token }),
-  output: z.object({ cards: z.array(PortalCard), canSave: z.boolean() }),
+  output: z.object({
+    cards: z.array(PortalCard),
+    canSave: z.boolean(),
+    /** Whether a bank account may be saved too: the company has to have turned bank payments on. */
+    canSaveBank: z.boolean(),
+  }),
 });
 
 export const startPortalCardSetup = defineRoute({
   method: "post",
   path: "/v1/portal/card-setup",
-  summary: "Start saving a card",
+  summary: "Start saving a card or a bank account",
   description:
-    "From a sign in only. Returns what the processor's own card element needs to collect the card in the browser. The card details go to the processor and never to this server.",
+    "From a sign in only. Returns what the processor's own element needs to collect the card, or to verify a bank account by signing in to the bank, in the browser. The details go to the processor and never to this server. A bank account only when the company has turned bank payments on.",
   module: "M13",
   permissions: [],
   authorization: "grant",
   idempotent: true,
-  input: z.object({ token: Token }),
+  input: z.object({ token: Token, kind: z.enum(["card", "bank_account"]).optional() }),
   output: z.object({
     setupId: z.string(),
     clientSecret: z.string(),
@@ -258,7 +345,7 @@ export const payPortalInvoiceWithCard = defineRoute({
   path: "/v1/portal/cards/{cardId}/pay",
   summary: "Pay one invoice with a saved card",
   description:
-    "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. The invoice shows paid when the processor's signed webhook says the money moved.",
+    "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved.",
   module: "M13",
   permissions: [],
   authorization: "grant",
@@ -280,6 +367,7 @@ const PortalSettings = z.object({
     presets: z.array(z.number().int()),
   }),
   jobPhotos: z.enum(["chosen", "all"]),
+  bankAccounts: z.boolean(),
 });
 
 export const getPortalSettings = defineRoute({
@@ -295,9 +383,9 @@ export const getPortalSettings = defineRoute({
 export const setPortalSettings = defineRoute({
   method: "patch",
   path: "/v1/portal-settings",
-  summary: "Turn tipping on or off, and choose which job photographs customers see",
+  summary: "Turn tipping and bank payments on or off, and choose which job photographs customers see",
   description:
-    "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job.",
+    "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail.",
   module: "M05",
   permissions: ["settings:write"],
   idempotent: true,
@@ -307,6 +395,8 @@ export const setPortalSettings = defineRoute({
       presets: z.array(z.number().int().min(1).max(50)).min(1).max(4),
     }).optional(),
     jobPhotos: z.enum(["chosen", "all"]).optional(),
+    /** Let signed in customers save a bank account and pay from it. The company turns bank debits on with Stripe too. */
+    bankAccounts: z.boolean().optional(),
   }),
   output: PortalSettings.extend({ signInUrl: z.string() }),
 });

@@ -1286,6 +1286,8 @@ export interface CompleteVisitOutput {
   arrivedAt: string | null;
   completedAt: string | null;
   technicianNotes: string | null;
+  customerNotes: string | null;
+  customerNotesSharedAt: string | null;
   externalRef: {
     source: string;
     id: string;
@@ -1433,6 +1435,7 @@ export interface ConfirmBookingRequestOutput {
     sourceUrl: string | null;
     referrer: string | null;
     utm: Record<string, string>;
+    preferredTechnicianId: string | null;
     declineReason: string | null;
     decidedAt: string | null;
     createdAt: string;
@@ -1450,6 +1453,7 @@ export interface ConfirmPortalCardSetupInput {
 
 export interface ConfirmPortalCardSetupOutput {
   id: string;
+  kind: "card" | "bank_account";
   brand: string | null;
   last4: string | null;
   expMonth: number | null;
@@ -1734,6 +1738,7 @@ export interface CreateBookingRequestOutput {
     sourceUrl: string | null;
     referrer: string | null;
     utm: Record<string, string>;
+    preferredTechnicianId: string | null;
     declineReason: string | null;
     decidedAt: string | null;
     createdAt: string;
@@ -2384,6 +2389,8 @@ export interface CreateJobOutput {
     arrivedAt: string | null;
     completedAt: string | null;
     technicianNotes: string | null;
+    customerNotes: string | null;
+    customerNotesSharedAt: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -3340,6 +3347,7 @@ export interface DeclineBookingRequestOutput {
   sourceUrl: string | null;
   referrer: string | null;
   utm: Record<string, string>;
+  preferredTechnicianId: string | null;
   declineReason: string | null;
   decidedAt: string | null;
   createdAt: string;
@@ -4013,6 +4021,14 @@ export interface EmailCustomerStatementOutput {
   state: "queued" | "refused";
   explanation: string | null;
   portalUrl: string;
+}
+
+export interface EndCustomerPortalSessionsInput {
+  sessionId?: string;
+}
+
+export interface EndCustomerPortalSessionsOutput {
+  ended: number;
 }
 
 export interface Error {
@@ -5681,6 +5697,8 @@ export interface GetJobOutput {
     arrivedAt: string | null;
     completedAt: string | null;
     technicianNotes: string | null;
+    customerNotes: string | null;
+    customerNotesSharedAt: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -6147,12 +6165,42 @@ export interface GetPhoneMenuOutput {
   }>;
 }
 
+export interface GetPortalBookingAvailabilityOutput {
+  slots: Array<{
+    date: string;
+    arrivalWindowId: string;
+    label: string;
+    startsAt: string;
+    endsAt: string;
+    remaining: number;
+  }>;
+}
+
+export interface GetPortalBookingOptionsOutput {
+  services: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    price: string | null;
+    currency: string;
+  }>;
+  properties: Array<{
+    id: string;
+    label: string;
+  }>;
+  technicians: Array<{
+    id: string;
+    name: string;
+  }>;
+}
+
 export interface GetPortalSettingsOutput {
   tipping: {
     enabled: boolean;
     presets: number[];
   };
   jobPhotos: "chosen" | "all";
+  bankAccounts: boolean;
   signInUrl: string;
 }
 
@@ -6457,6 +6505,15 @@ export interface GetProposalTermsOutput {
   terms: string | null;
 }
 
+export interface GetPublicPortalBrandingOutput {
+  organizationName: string;
+  color: string | null;
+  on: string | null;
+  text: string | null;
+  hasLogo: boolean;
+  version: number;
+}
+
 export interface GetPurchaseOrderOutput {
   id: string;
   number: number;
@@ -6542,6 +6599,7 @@ export interface GetRecordHistoryOutput {
     actorUserId: string | null;
     actorAgentId: string | null;
     actorPortalGrantId: string | null;
+    actorContactId: string | null;
     action: string;
     entityType: string;
     entityId: string | null;
@@ -7712,6 +7770,18 @@ export interface ListAttachmentsOutput {
   }>;
 }
 
+export interface ListBankPaymentsOutput {
+  bankPayments: Array<{
+    id: string;
+    status: "pending" | "failed";
+    amount: string;
+    invoiceIds: string[];
+    startedAt: string;
+    failedAt: string | null;
+    reason: string | null;
+  }>;
+}
+
 export interface ListBookableServicesOutput {
   organizationName: string;
   services: Array<{
@@ -7756,6 +7826,7 @@ export interface ListBookingRequestsOutput {
     sourceUrl: string | null;
     referrer: string | null;
     utm: Record<string, string>;
+    preferredTechnicianId: string | null;
     declineReason: string | null;
     decidedAt: string | null;
     createdAt: string;
@@ -8334,6 +8405,22 @@ export interface ListCustomerDuplicatePairsOutput {
   }>;
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+export interface ListCustomerPortalSessionsOutput {
+  sessions: Array<{
+    id: string;
+    startedAt: string;
+    expiresAt: string;
+    lastUsedAt: string | null;
+    lastUsedIp: string | null;
+    active: boolean;
+    endedAt: string | null;
+    endedReason: string | null;
+    channel: "email" | "sms" | null;
+    address: string | null;
+    contactName: string | null;
+  }>;
 }
 
 export interface ListCustomerTagsOutput {
@@ -9478,6 +9565,7 @@ export interface ListPlatformCampaignsOutput {
 export interface ListPortalCardsOutput {
   cards: Array<{
     id: string;
+    kind: "card" | "bank_account";
     brand: string | null;
     last4: string | null;
     expMonth: number | null;
@@ -9485,6 +9573,26 @@ export interface ListPortalCardsOutput {
     savedAt: string;
   }>;
   canSave: boolean;
+  canSaveBank: boolean;
+}
+
+export interface ListPortalSignInsOutput {
+  attempts: Array<{
+    id: string;
+    at: string;
+    channel: "email" | "sms";
+    address: string;
+    outcome: "signed_in" | "waiting" | "wrong_code" | "too_many_attempts" | "replaced" | "expired" | "no_account";
+    wrongCodes: number;
+    delivery: string | null;
+    requestedIp: string | null;
+    signedInIp: string | null;
+    customers: Array<{
+      id: string;
+      name: string;
+    }>;
+    contactName: string | null;
+  }>;
 }
 
 export interface ListPriceBookCategoriesOutput {
@@ -11635,6 +11743,7 @@ export interface ReadAuditLogOutput {
     actorUserId: string | null;
     actorAgentId: string | null;
     actorPortalGrantId: string | null;
+    actorContactId: string | null;
     action: string;
     entityType: string;
     entityId: string | null;
@@ -12708,6 +12817,22 @@ export interface RequestDepositOutput {
   updatedAt: string;
 }
 
+export interface RequestPortalBookingInput {
+  token: string;
+  bookableServiceId: string;
+  propertyId: string;
+  requestedDate: string;
+  arrivalWindowId: string;
+  technicianId?: string;
+  notes?: string;
+}
+
+export interface RequestPortalBookingOutput {
+  requestId: string;
+  requestedDate: string;
+  arrivalWindowId: string;
+}
+
 export interface RequestPortalCodeInput {
   address: string;
 }
@@ -13501,6 +13626,8 @@ export interface ScheduleVisitOutput {
   arrivedAt: string | null;
   completedAt: string | null;
   technicianNotes: string | null;
+  customerNotes: string | null;
+  customerNotesSharedAt: string | null;
   externalRef: {
     source: string;
     id: string;
@@ -13846,6 +13973,16 @@ export interface SetCertificationStatusOutput {
   statusReason: string | null;
 }
 
+export interface SetContactPortalAccessInput {
+  allowed: boolean;
+}
+
+export interface SetContactPortalAccessOutput {
+  id: string;
+  portalAccess: boolean;
+  endedSessions: number;
+}
+
 export interface SetCrewMembersInput {
   members: Array<{
     technicianId: string;
@@ -14105,6 +14242,7 @@ export interface SetPortalSettingsInput {
     presets: number[];
   };
   jobPhotos?: "chosen" | "all";
+  bankAccounts?: boolean;
 }
 
 export interface SetPortalSettingsOutput {
@@ -14113,6 +14251,7 @@ export interface SetPortalSettingsOutput {
     presets: number[];
   };
   jobPhotos: "chosen" | "all";
+  bankAccounts: boolean;
   signInUrl: string;
 }
 
@@ -14526,6 +14665,16 @@ export interface ShareAttachmentWithCustomerOutput {
   sharedWithCustomerAt: string | null;
 }
 
+export interface ShareVisitNotesInput {
+  notes: string | null;
+}
+
+export interface ShareVisitNotesOutput {
+  id: string;
+  customerNotes: string | null;
+  sharedAt: string | null;
+}
+
 export interface ShareWithNetworkInput {
   aggregate: "job_counts" | "revenue_summary" | "kpi_scorecard" | "gl_summary";
 }
@@ -14656,6 +14805,7 @@ export interface StartConversationOutput {
 
 export interface StartPortalCardSetupInput {
   token: string;
+  kind?: "card" | "bank_account";
 }
 
 export interface StartPortalCardSetupOutput {
@@ -15563,6 +15713,8 @@ export interface UpdateJobOutput {
     arrivedAt: string | null;
     completedAt: string | null;
     technicianNotes: string | null;
+    customerNotes: string | null;
+    customerNotesSharedAt: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -16459,6 +16611,7 @@ export interface ViewPortalAccountOutput {
     total: string;
     balance: string;
     payable: boolean;
+    bankPaymentPending: boolean;
     tipping: {
       available: boolean;
       presets: Array<{
@@ -16490,6 +16643,123 @@ export interface ViewPortalAccountOutput {
     currency: string;
   }>;
   onlinePaymentAvailable: boolean;
+  requested: Array<{
+    id: string;
+    serviceName: string;
+    requestedDate: string;
+    windowName: string | null;
+    technicianName: string | null;
+  }>;
+  bankPayments: Array<{
+    id: string;
+    status: "pending" | "failed";
+    amount: string;
+    invoiceNumbers: number[];
+    startedAt: string;
+    failedAt: string | null;
+    reason: string | null;
+  }>;
+  extras: {
+    blocks: Array<{
+      kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+      title: string;
+      config: Record<string, unknown>;
+      declared: boolean;
+    }>;
+    history: Array<{
+      visitId: string;
+      jobId: string;
+      jobNumber: number;
+      summary: string;
+      date: string | null;
+      status: string;
+      technicianName: string | null;
+      notes: string | null;
+      report: {
+        id: string;
+        visitId: string;
+        publishedAt: string;
+        summary: string | null;
+        observations: string | null;
+        fields: Array<{
+          key: string;
+          label: string;
+          kind: string;
+          unit: string | null;
+          value: string | null;
+          outOfRange: boolean;
+          product: {
+            name: string | null;
+            epaRegistrationNumber: string | null;
+            quantity: string | null;
+            unit: string | null;
+            target: string | null;
+          } | null;
+        }>;
+      } | null;
+    }>;
+    equipment: Array<{
+      id: string;
+      property: string;
+      name: string;
+      tag: string | null;
+      manufacturer: string | null;
+      model: string | null;
+      serialNumber: string | null;
+      installedOn: string | null;
+      warrantyPartsExpiresOn: string | null;
+      warrantyLaborExpiresOn: string | null;
+      location: string | null;
+      details: Array<{
+        label: string;
+        value: string;
+      }>;
+    }>;
+    readings: Array<{
+      key: string;
+      label: string;
+      unit: string | null;
+      points: Array<{
+        at: string;
+        value: string;
+        outOfRange: boolean;
+      }>;
+    }>;
+    checklist: {
+      date: string | null;
+      summary: string;
+      items: Array<{
+        label: string;
+        done: boolean;
+      }>;
+    } | null;
+    photos: Array<{
+      id: string;
+      takenAt: string;
+      jobNumber: number;
+    }>;
+    payments: Array<{
+      id: string;
+      receivedAt: string;
+      amount: string;
+      method: string;
+      status: string;
+    }>;
+    planVisits: Array<{
+      agreementId: string;
+      planName: string;
+      dueOn: string;
+      state: "done" | "booked" | "skipped" | "due";
+    }>;
+    recommendations: Array<{
+      date: string;
+      text: string;
+    }>;
+    contact: {
+      phone: string | null;
+      technicians: string[];
+    };
+  };
 }
 
 export interface ViewPortalChangeOrderOutput {
@@ -17276,6 +17546,10 @@ export interface EmailCustomerStatementParams {
   id: string;
 }
 
+export interface EndCustomerPortalSessionsParams {
+  id: string;
+}
+
 export interface ExceptRecurringOccurrenceParams {
   id: string;
 }
@@ -17587,6 +17861,18 @@ export interface GetPhoneMenuInput {
   id: string;
 }
 
+export interface GetPortalBookingAvailabilityInput {
+  token: string;
+  bookableServiceId: string;
+  from?: string;
+  days?: number;
+  technicianId?: string;
+}
+
+export interface GetPortalBookingOptionsInput {
+  token: string;
+}
+
 export type GetPortalSettingsInput = Record<string, never>;
 
 export interface GetPortalVisitChangeInput {
@@ -17638,6 +17924,10 @@ export interface GetPropertyCeilingInput {
 }
 
 export type GetProposalTermsInput = Record<string, never>;
+
+export interface GetPublicPortalBrandingInput {
+  organizationSlug: string;
+}
 
 export interface GetPurchaseOrderInput {
   id: string;
@@ -17851,6 +18141,11 @@ export interface ListAttachmentsInput {
   entityId: string;
 }
 
+export interface ListBankPaymentsInput {
+  customerId?: string;
+  invoiceId?: string;
+}
+
 export interface ListBookableServicesInput {
   organizationSlug: string;
   postalCode?: string;
@@ -17980,6 +18275,10 @@ export interface ListCustomFieldsInput {
 export interface ListCustomerDuplicatePairsInput {
   cursor?: string;
   limit?: number;
+}
+
+export interface ListCustomerPortalSessionsInput {
+  id: string;
 }
 
 export type ListCustomerTagsInput = Record<string, never>;
@@ -18258,6 +18557,11 @@ export type ListPlatformCampaignsInput = Record<string, never>;
 
 export interface ListPortalCardsInput {
   token: string;
+}
+
+export interface ListPortalSignInsInput {
+  customerId?: string;
+  limit?: number;
 }
 
 export interface ListPriceBookInput {
@@ -18961,6 +19265,10 @@ export interface SetCertificationStatusParams {
   id: string;
 }
 
+export interface SetContactPortalAccessParams {
+  id: string;
+}
+
 export interface SetCrewMembersParams {
   id: string;
 }
@@ -19070,6 +19378,10 @@ export interface SettleReferralRewardParams {
 }
 
 export interface ShareAttachmentWithCustomerParams {
+  id: string;
+}
+
+export interface ShareVisitNotesParams {
   id: string;
 }
 
@@ -19513,6 +19825,7 @@ export interface OperationTypes {
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
   emailCustomerStatement: { input: EmailCustomerStatementParams & EmailCustomerStatementInput; output: EmailCustomerStatementOutput };
+  endCustomerPortalSessions: { input: EndCustomerPortalSessionsParams & EndCustomerPortalSessionsInput; output: EndCustomerPortalSessionsOutput };
   exceptRecurringOccurrence: { input: ExceptRecurringOccurrenceParams & ExceptRecurringOccurrenceInput; output: ExceptRecurringOccurrenceOutput };
   exportPayPeriod: { input: ExportPayPeriodInput; output: ExportPayPeriodOutput };
   exportPayerInvoices: { input: ExportPayerInvoicesParams & ExportPayerInvoicesInput; output: ExportPayerInvoicesOutput };
@@ -19594,6 +19907,8 @@ export interface OperationTypes {
   getPayrollRegister: { input: GetPayrollRegisterInput; output: GetPayrollRegisterOutput };
   getPerformance: { input: GetPerformanceInput; output: GetPerformanceOutput };
   getPhoneMenu: { input: GetPhoneMenuInput; output: GetPhoneMenuOutput };
+  getPortalBookingAvailability: { input: GetPortalBookingAvailabilityInput; output: GetPortalBookingAvailabilityOutput };
+  getPortalBookingOptions: { input: GetPortalBookingOptionsInput; output: GetPortalBookingOptionsOutput };
   getPortalSettings: { input: GetPortalSettingsInput; output: GetPortalSettingsOutput };
   getPortalVisitChange: { input: GetPortalVisitChangeInput; output: GetPortalVisitChangeOutput };
   getPriceBookItem: { input: GetPriceBookItemInput; output: GetPriceBookItemOutput };
@@ -19606,6 +19921,7 @@ export interface OperationTypes {
   getProperty: { input: GetPropertyInput; output: GetPropertyOutput };
   getPropertyCeiling: { input: GetPropertyCeilingInput; output: GetPropertyCeilingOutput };
   getProposalTerms: { input: GetProposalTermsInput; output: GetProposalTermsOutput };
+  getPublicPortalBranding: { input: GetPublicPortalBrandingInput; output: GetPublicPortalBrandingOutput };
   getPurchaseOrder: { input: GetPurchaseOrderInput; output: GetPurchaseOrderOutput };
   getRateCardTerms: { input: GetRateCardTermsInput; output: GetRateCardTermsOutput };
   getRating: { input: GetRatingInput; output: GetRatingOutput };
@@ -19670,6 +19986,7 @@ export interface OperationTypes {
   listAssets: { input: ListAssetsInput; output: ListAssetsOutput };
   listAssetsHeldBy: { input: ListAssetsHeldByInput; output: ListAssetsHeldByOutput };
   listAttachments: { input: ListAttachmentsInput; output: ListAttachmentsOutput };
+  listBankPayments: { input: ListBankPaymentsInput; output: ListBankPaymentsOutput };
   listBookableServices: { input: ListBookableServicesInput; output: ListBookableServicesOutput };
   listBookingRequests: { input: ListBookingRequestsInput; output: ListBookingRequestsOutput };
   listBranchOptions: { input: ListBranchOptionsInput; output: ListBranchOptionsOutput };
@@ -19700,6 +20017,7 @@ export interface OperationTypes {
   listCrewsForJob: { input: ListCrewsForJobInput; output: ListCrewsForJobOutput };
   listCustomFields: { input: ListCustomFieldsInput; output: ListCustomFieldsOutput };
   listCustomerDuplicatePairs: { input: ListCustomerDuplicatePairsInput; output: ListCustomerDuplicatePairsOutput };
+  listCustomerPortalSessions: { input: ListCustomerPortalSessionsInput; output: ListCustomerPortalSessionsOutput };
   listCustomerTags: { input: ListCustomerTagsInput; output: ListCustomerTagsOutput };
   listCustomers: { input: ListCustomersInput; output: ListCustomersOutput };
   listDeclaredSubmissions: { input: ListDeclaredSubmissionsInput; output: ListDeclaredSubmissionsOutput };
@@ -19757,6 +20075,7 @@ export interface OperationTypes {
   listPhoneMenus: { input: ListPhoneMenusInput; output: ListPhoneMenusOutput };
   listPlatformCampaigns: { input: ListPlatformCampaignsInput; output: ListPlatformCampaignsOutput };
   listPortalCards: { input: ListPortalCardsInput; output: ListPortalCardsOutput };
+  listPortalSignIns: { input: ListPortalSignInsInput; output: ListPortalSignInsOutput };
   listPriceBook: { input: ListPriceBookInput; output: ListPriceBookOutput };
   listPriceBookCategories: { input: ListPriceBookCategoriesInput; output: ListPriceBookCategoriesOutput };
   listPriceChanges: { input: ListPriceChangesInput; output: ListPriceChangesOutput };
@@ -19928,6 +20247,7 @@ export interface OperationTypes {
   requestAppInstall: { input: RequestAppInstallInput; output: RequestAppInstallOutput };
   requestChangeOrder: { input: RequestChangeOrderParams & RequestChangeOrderInput; output: RequestChangeOrderOutput };
   requestDeposit: { input: RequestDepositInput; output: RequestDepositOutput };
+  requestPortalBooking: { input: RequestPortalBookingInput; output: RequestPortalBookingOutput };
   requestPortalCode: { input: RequestPortalCodeParams & RequestPortalCodeInput; output: RequestPortalCodeOutput };
   requestPortalVisitChange: { input: RequestPortalVisitChangeInput; output: RequestPortalVisitChangeOutput };
   requestReview: { input: RequestReviewInput; output: RequestReviewOutput };
@@ -19989,6 +20309,7 @@ export interface OperationTypes {
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
+  setContactPortalAccess: { input: SetContactPortalAccessParams & SetContactPortalAccessInput; output: SetContactPortalAccessOutput };
   setCrewMembers: { input: SetCrewMembersParams & SetCrewMembersInput; output: SetCrewMembersOutput };
   setCustomerAdData: { input: SetCustomerAdDataParams & SetCustomerAdDataInput; output: SetCustomerAdDataOutput };
   setCustomerReferrer: { input: SetCustomerReferrerParams & SetCustomerReferrerInput; output: SetCustomerReferrerOutput };
@@ -20034,6 +20355,7 @@ export interface OperationTypes {
   settleCommission: { input: SettleCommissionInput; output: SettleCommissionOutput };
   settleReferralReward: { input: SettleReferralRewardParams & SettleReferralRewardInput; output: SettleReferralRewardOutput };
   shareAttachmentWithCustomer: { input: ShareAttachmentWithCustomerParams & ShareAttachmentWithCustomerInput; output: ShareAttachmentWithCustomerOutput };
+  shareVisitNotes: { input: ShareVisitNotesParams & ShareVisitNotesInput; output: ShareVisitNotesOutput };
   shareWithNetwork: { input: ShareWithNetworkInput; output: ShareWithNetworkOutput };
   signInDevice: { input: SignInDeviceInput; output: SignInDeviceOutput };
   signInWithCode: { input: SignInWithCodeInput; output: SignInWithCodeOutput };
@@ -20283,6 +20605,7 @@ export const OPERATIONS = {
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   emailCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
+  endCustomerPortalSessions: { method: "POST", path: "/v1/customers/{id}/portal-sessions/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:revoke"] },
   exceptRecurringOccurrence: { method: "POST", path: "/v1/recurring-schedules/{id}/exceptions", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   exportPayPeriod: { method: "POST", path: "/v1/payroll/exports", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   exportPayerInvoices: { method: "POST", path: "/v1/payers/{customerId}/invoice-export", pathParams: ["customerId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
@@ -20364,6 +20687,8 @@ export const OPERATIONS = {
   getPayrollRegister: { method: "GET", path: "/v1/payroll/register", pathParams: [], queryParams: ["periodId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
   getPerformance: { method: "GET", path: "/v1/marketing/performance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getPhoneMenu: { method: "GET", path: "/v1/phone-menus/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  getPortalBookingAvailability: { method: "GET", path: "/v1/portal/booking/availability", pathParams: [], queryParams: ["token","bookableServiceId","from","days","technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  getPortalBookingOptions: { method: "GET", path: "/v1/portal/booking", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalSettings: { method: "GET", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalVisitChange: { method: "GET", path: "/v1/portal/visit-change", pathParams: [], queryParams: ["token","visitId","from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPriceBookItem: { method: "GET", path: "/v1/pricebook/items/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
@@ -20376,6 +20701,7 @@ export const OPERATIONS = {
   getProperty: { method: "GET", path: "/v1/properties/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:read"] },
   getPropertyCeiling: { method: "GET", path: "/v1/contracts/ceiling", pathParams: [], queryParams: ["customerId","propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   getProposalTerms: { method: "GET", path: "/v1/proposal-terms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
+  getPublicPortalBranding: { method: "GET", path: "/v1/public/portal/{organizationSlug}/branding", pathParams: ["organizationSlug"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getPurchaseOrder: { method: "GET", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   getRateCardTerms: { method: "GET", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getRating: { method: "GET", path: "/v1/reviews/rating", pathParams: [], queryParams: ["platform"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
@@ -20440,6 +20766,7 @@ export const OPERATIONS = {
   listAssets: { method: "GET", path: "/v1/assets", pathParams: [], queryParams: ["kind","includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listAssetsHeldBy: { method: "GET", path: "/v1/assets/held-by", pathParams: [], queryParams: ["custodianKind","custodianId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listAttachments: { method: "GET", path: "/v1/attachments", pathParams: [], queryParams: ["entityType","entityId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
+  listBankPayments: { method: "GET", path: "/v1/bank-payments", pathParams: [], queryParams: ["customerId","invoiceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listBookableServices: { method: "GET", path: "/v1/public/services", pathParams: [], queryParams: ["organizationSlug","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   listBookingRequests: { method: "GET", path: "/v1/bookings", pathParams: [], queryParams: ["cursor","limit","status","from","to"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["booking:read"] },
   listBranchOptions: { method: "GET", path: "/v1/branches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -20470,6 +20797,7 @@ export const OPERATIONS = {
   listCrewsForJob: { method: "GET", path: "/v1/crews/for-job", pathParams: [], queryParams: ["jobId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listCustomFields: { method: "GET", path: "/v1/custom-fields", pathParams: [], queryParams: ["entityType"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCustomerDuplicatePairs: { method: "GET", path: "/v1/customer-duplicates", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
+  listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listCustomerTags: { method: "GET", path: "/v1/customer-tags", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
   listDeclaredSubmissions: { method: "GET", path: "/v1/compliance/submissions/declared", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -20527,6 +20855,7 @@ export const OPERATIONS = {
   listPhoneMenus: { method: "GET", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listPortalCards: { method: "GET", path: "/v1/portal/cards", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  listPortalSignIns: { method: "GET", path: "/v1/portal-sign-ins", pathParams: [], queryParams: ["customerId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listPriceBook: { method: "GET", path: "/v1/pricebook/items", pathParams: [], queryParams: ["cursor","limit","q","kind","categoryId","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["pricebook:read"] },
   listPriceBookCategories: { method: "GET", path: "/v1/pricebook/categories", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listPriceChanges: { method: "GET", path: "/v1/pricebook/price-changes", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
@@ -20698,6 +21027,7 @@ export const OPERATIONS = {
   requestAppInstall: { method: "POST", path: "/v1/public/app-requests", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   requestChangeOrder: { method: "POST", path: "/v1/projects/{projectId}/change-orders", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   requestDeposit: { method: "POST", path: "/v1/deposits", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:collect"] },
+  requestPortalBooking: { method: "POST", path: "/v1/portal/booking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   requestPortalCode: { method: "POST", path: "/v1/public/portal/{organizationSlug}/codes", pathParams: ["organizationSlug"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   requestPortalVisitChange: { method: "POST", path: "/v1/portal/visit-change", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   requestReview: { method: "POST", path: "/v1/reviews/requests", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
@@ -20759,6 +21089,7 @@ export const OPERATIONS = {
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  setContactPortalAccess: { method: "POST", path: "/v1/contacts/{id}/portal-access", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write","portal:revoke"] },
   setCrewMembers: { method: "PUT", path: "/v1/crews/{id}/members", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   setCustomerAdData: { method: "PUT", path: "/v1/customers/{id}/ad-data", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setCustomerReferrer: { method: "PUT", path: "/v1/customers/{id}/referrer", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
@@ -20804,6 +21135,7 @@ export const OPERATIONS = {
   settleCommission: { method: "POST", path: "/v1/commissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   settleReferralReward: { method: "POST", path: "/v1/marketing/referral-rewards/{id}/settle", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   shareAttachmentWithCustomer: { method: "POST", path: "/v1/attachments/{id}/customer-sharing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
+  shareVisitNotes: { method: "POST", path: "/v1/visits/{id}/customer-notes", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
   shareWithNetwork: { method: "POST", path: "/v1/network/share", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   signInDevice: { method: "POST", path: "/v1/field/sign-in", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   signInWithCode: { method: "POST", path: "/v1/field/sign-in/verify", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
@@ -22322,6 +22654,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * End a customer's sign in, or every one they have open.
+   *
+   * POST /v1/customers/{id}/portal-sessions/end. Needs portal:revoke.
+   */
+  endCustomerPortalSessions(input: EndCustomerPortalSessionsParams & EndCustomerPortalSessionsInput, options?: CallOptions): Promise<EndCustomerPortalSessionsOutput> {
+    return this.call("endCustomerPortalSessions", input, options);
+  }
+
+  /**
    * The customer declined this one, or it moves.
    *
    * POST /v1/recurring-schedules/{id}/exceptions. Needs job:write.
@@ -23051,6 +23392,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The windows open for a service, from anybody or from one technician.
+   *
+   * GET /v1/portal/booking/availability.
+   */
+  getPortalBookingAvailability(input: GetPortalBookingAvailabilityInput, options?: CallOptions): Promise<GetPortalBookingAvailabilityOutput> {
+    return this.call("getPortalBookingAvailability", input, options);
+  }
+
+  /**
+   * What a signed in customer can book, where, and with whom.
+   *
+   * GET /v1/portal/booking.
+   */
+  getPortalBookingOptions(input: GetPortalBookingOptionsInput, options?: CallOptions): Promise<GetPortalBookingOptionsOutput> {
+    return this.call("getPortalBookingOptions", input, options);
+  }
+
+  /**
    * What customers may do for themselves on the portal.
    *
    * GET /v1/portal-settings. Needs settings:read.
@@ -23156,6 +23515,15 @@ export abstract class GeneratedOperations {
    */
   getProposalTerms(input: GetProposalTermsInput = {} as GetProposalTermsInput, options?: CallOptions): Promise<GetProposalTermsOutput> {
     return this.call("getProposalTerms", input, options);
+  }
+
+  /**
+   * A company's name, colour and whether it has a logo, for its sign in page.
+   *
+   * GET /v1/public/portal/{organizationSlug}/branding.
+   */
+  getPublicPortalBranding(input: GetPublicPortalBrandingInput, options?: CallOptions): Promise<GetPublicPortalBrandingOutput> {
+    return this.call("getPublicPortalBranding", input, options);
   }
 
   /**
@@ -23735,6 +24103,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Bank payments on their way, and the ones that failed this month.
+   *
+   * GET /v1/bank-payments. Needs payment:read.
+   */
+  listBankPayments(input: ListBankPaymentsInput = {} as ListBankPaymentsInput, options?: CallOptions): Promise<ListBankPaymentsOutput> {
+    return this.call("listBankPayments", input, options);
+  }
+
+  /**
    * What this company lets the public book.
    *
    * GET /v1/public/services.
@@ -24002,6 +24379,15 @@ export abstract class GeneratedOperations {
    */
   listCustomerDuplicatePairs(input: ListCustomerDuplicatePairsInput = {} as ListCustomerDuplicatePairsInput, options?: CallOptions): Promise<ListCustomerDuplicatePairsOutput> {
     return this.call("listCustomerDuplicatePairs", input, options);
+  }
+
+  /**
+   * A customer's sign ins, open and recently ended.
+   *
+   * GET /v1/customers/{id}/portal-sessions. Needs portal:read.
+   */
+  listCustomerPortalSessions(input: ListCustomerPortalSessionsInput, options?: CallOptions): Promise<ListCustomerPortalSessionsOutput> {
+    return this.call("listCustomerPortalSessions", input, options);
   }
 
   /**
@@ -24509,12 +24895,21 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The cards the customer has saved.
+   * The cards and bank accounts the customer has saved.
    *
    * GET /v1/portal/cards.
    */
   listPortalCards(input: ListPortalCardsInput, options?: CallOptions): Promise<ListPortalCardsOutput> {
     return this.call("listPortalCards", input, options);
+  }
+
+  /**
+   * Customers asking for sign in codes, and what became of each.
+   *
+   * GET /v1/portal-sign-ins. Needs portal:read.
+   */
+  listPortalSignIns(input: ListPortalSignInsInput = {} as ListPortalSignInsInput, options?: CallOptions): Promise<ListPortalSignInsOutput> {
+    return this.call("listPortalSignIns", input, options);
   }
 
   /**
@@ -26057,6 +26452,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Ask for a visit from the customer's own account.
+   *
+   * POST /v1/portal/booking.
+   */
+  requestPortalBooking(input: RequestPortalBookingInput, options?: CallOptions): Promise<RequestPortalBookingOutput> {
+    return this.call("requestPortalBooking", input, options);
+  }
+
+  /**
    * Send a customer a sign in code.
    *
    * POST /v1/public/portal/{organizationSlug}/codes.
@@ -26606,6 +27010,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Let a contact sign in as their customer, or stop them.
+   *
+   * POST /v1/contacts/{id}/portal-access. Needs customer:write, portal:revoke.
+   */
+  setContactPortalAccess(input: SetContactPortalAccessParams & SetContactPortalAccessInput, options?: CallOptions): Promise<SetContactPortalAccessOutput> {
+    return this.call("setContactPortalAccess", input, options);
+  }
+
+  /**
    * Who is on the crew.
    *
    * PUT /v1/crews/{id}/members. Needs visit:dispatch.
@@ -26759,7 +27172,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Turn tipping on or off, and choose which job photographs customers see.
+   * Turn tipping and bank payments on or off, and choose which job photographs customers see.
    *
    * PATCH /v1/portal-settings. Needs settings:write.
    */
@@ -27011,6 +27424,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Show the customer what happened on a visit, in words the office chose.
+   *
+   * POST /v1/visits/{id}/customer-notes. Needs servicereport:publish.
+   */
+  shareVisitNotes(input: ShareVisitNotesParams & ShareVisitNotesInput, options?: CallOptions): Promise<ShareVisitNotesOutput> {
+    return this.call("shareVisitNotes", input, options);
+  }
+
+  /**
    * Start sharing one aggregate with the network's operator.
    *
    * POST /v1/network/share. Needs settings:write.
@@ -27101,7 +27523,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Start saving a card.
+   * Start saving a card or a bank account.
    *
    * POST /v1/portal/card-setup.
    */

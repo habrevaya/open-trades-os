@@ -69,6 +69,7 @@ import { customerTagRoutes } from "./customer-tags";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
 import { taskRuleRoutes } from "./task-rules";
 import { customerPortalRoutes } from "./customer-portal";
+import { portalAccessRoutes } from "./portal-access";
 import { setupRoutes } from "./setup";
 import { branchRoutes } from "./branches";
 import { phoneMenuRoutes } from "./phone-menus";
@@ -138,6 +139,7 @@ export * from "./customer-tags";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
 export * from "./customer-portal";
+export * from "./portal-access";
 export * from "./setup";
 export * from "./branches";
 export * from "./phone-menus";
@@ -234,6 +236,7 @@ export const routes = {
   ...priceBookBulkRoutes,
   ...taskRuleRoutes,
   ...customerPortalRoutes,
+  ...portalAccessRoutes,
   ...setupRoutes,
   ...branchRoutes,
   ...adsRoutes,
