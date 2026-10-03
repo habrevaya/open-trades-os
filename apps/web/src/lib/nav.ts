@@ -328,6 +328,12 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/website", label: "Website" },
           /**
+           * What a customer can do on their own: where they sign in, whether
+           * they can tip, which job photographs they see. Beside Website,
+           * because the sign in address is the other thing a company puts on it.
+           */
+          { href: "/settings/portal", label: "Customer portal" },
+          /**
            * The applications a company has let in, which is a different list from
            * the integrations this product ships: one is somebody else's software
            * acting with a grant, the other is an adapter written here. Keeping

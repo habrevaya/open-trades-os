@@ -11,7 +11,11 @@ import { startPaymentFor, type StartPayment } from "../../start-payment";
  * the customer the link names before anything is charged; another
  * customer's invoice is the same not-found as one that does not exist.
  */
-export async function startAccountPayment(token: string, invoiceId: string): Promise<StartPayment> {
+export async function startAccountPayment(
+  token: string, invoiceId: string, options?: { tip?: string },
+): Promise<StartPayment> {
   return startPaymentFor((meta) =>
-    portalAccount.startInvoicePayment(getDb(), { token, invoiceId }, meta));
+    portalAccount.startInvoicePayment(getDb(), {
+      token, invoiceId, ...(options?.tip ? { tip: options.tip } : {}),
+    }, meta));
 }

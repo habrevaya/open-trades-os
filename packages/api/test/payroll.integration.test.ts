@@ -789,6 +789,7 @@ const wiring: { [K in keyof typeof payrollRoutes]: SessionHandler<(typeof payrol
   exportPayPeriod: payroll.handlers.exportPayPeriod,
   listPayrollExports: payroll.handlers.listPayrollExports,
   payCommissions: payroll.handlers.payCommissions,
+  payTips: payroll.handlers.payTips,
   getMyTimeclock: labor.handlers.getMyTimeclock,
 };
 

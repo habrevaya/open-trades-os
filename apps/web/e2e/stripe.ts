@@ -143,6 +143,15 @@ export async function fakeStripeJs(page: Page): Promise<void> {
               + "?payment_intent=" + intent + "&redirect_status=succeeded");
             return new Promise(function () {});
           },
+          confirmSetup: function (options) {
+            var setup = String(secret).split("_secret_")[0];
+            window.location.assign(options.confirmParams.return_url
+              + "?setup_intent=" + setup + "&redirect_status=succeeded");
+            return new Promise(function () {});
+          },
+          handleNextAction: function () {
+            return Promise.resolve({});
+          },
         };
       };
     `,

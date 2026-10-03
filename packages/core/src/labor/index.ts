@@ -1446,7 +1446,7 @@ export function checkPeriod(period: PayPeriod, policy: OvertimePolicy): PolicyVe
 
 export type StatementLineKind =
   | "regular" | "overtime" | "double_time" | "on_call"
-  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward";
+  | "salary" | "commission" | "commission_clawback" | "clawback_carried_forward" | "tip";
 
 export interface StatementLine {
   kind: StatementLineKind;
@@ -1508,6 +1508,13 @@ export interface StatementInput {
    * and is carried only so the technician can see which job it came from.
    */
   clawbacks?: readonly { creditId: string; line: ClawbackLine; occurredAt: Date; earnedAt: Date }[] | undefined;
+  /**
+   * Tips customers gave this person, already split. Only this person's, and
+   * only the ones whose `occurredAt` falls inside this period, for the reason
+   * commissions are filtered: a caller handing over somebody's whole tip
+   * history would otherwise pay all of it every period.
+   */
+  tips?: readonly { tipId: string; personId: string; amount: Money; label: string; occurredAt: Date }[] | undefined;
   currency?: string | undefined;
   now: Date;
 }
@@ -1746,6 +1753,38 @@ export function buildStatement(input: StatementInput): StatementVerdict {
     });
     gross = lines.reduce((acc, line) => add(acc, line.amount), zero(currency));
     warnings.push(`A commission reversal of ${moneyToString(negateMoney(carriedForward))} was more than this period could absorb. It has been carried forward rather than issuing a negative statement.`);
+  }
+
+  /**
+   * TIPS GO ON AFTER THE CLAWBACK HAS BEEN SETTLED, and the order is the rule.
+   *
+   * A tip is the technician's money that a customer handed to the company to
+   * pass on. Letting a commission reversal be absorbed by it would be the
+   * company keeping part of a tip to recover its own overpayment, which US
+   * federal law forbids an employer to do with an employee's tips. So the
+   * clawback is measured against wages alone, carried forward if wages cannot
+   * take it, and the tips are added whole afterwards.
+   */
+  for (const tip of input.tips ?? []) {
+    if (tip.personId !== personId) continue;
+    if (!inPeriod(tip.occurredAt)) continue;
+    if (isZero(tip.amount)) continue;
+    if (tip.amount.currency !== currency) {
+      return {
+        ok: false,
+        refusals: [{
+          code: "currency_mismatch",
+          message: `Tip ${tip.tipId} is in ${tip.amount.currency} and this statement is in ${currency}. Converting it here would bake a rate nobody chose into somebody's tips.`,
+        }],
+      };
+    }
+    lines.push({
+      kind: "tip",
+      label: tip.label,
+      explanation: `${moneyToString(tip.amount)} a customer added for the technicians when they paid, on ${dateIn(tip.occurredAt, policy.timeZone)}. The company held it for you and passes it on whole.`,
+      amount: round(tip.amount, 2),
+    });
+    gross = add(gross, round(tip.amount, 2));
   }
 
   return {

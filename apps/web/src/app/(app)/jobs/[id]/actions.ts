@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { commercial, entitlements, jobs, visitChanges, ConflictError } from "@opentradesos/api/services";
+import { commercial, entitlements, files, jobs, visitChanges, ConflictError } from "@opentradesos/api/services";
 import type { coverage } from "@opentradesos/core";
 import { partiesFromForm } from "@/lib/job-parties";
 import { completeVisit } from "@opentradesos/api/contracts";
@@ -204,4 +204,19 @@ export async function setJobSource(_previous: FormState, form: FormData): Promis
   });
   revalidatePath(`/jobs/${jobId}`);
   return result;
+}
+
+/**
+ * Show one job photograph on the customer's job link, or stop showing it.
+ * Every photograph starts private; this is the decision to share one.
+ */
+export async function shareJobPhoto(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  return attempt(form, async () => {
+    await files.shareWithCustomer(await ctx(), {
+      attachmentId: field(form, "attachmentId") ?? "",
+      shared: field(form, "shared") === "yes",
+    });
+    revalidatePath(`/jobs/${jobId}`);
+  });
 }
