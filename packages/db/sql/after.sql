@@ -1096,6 +1096,31 @@ returns table (organization_id uuid)
 revoke all on function app.agreement_renewal_organizations(int) from public;
 grant execute on function app.agreement_renewal_organizations(int) to background;
 
+-- ---- Companies with task rules to apply ----------------------------------
+-- The task pass in the worker raises recurring tasks and escalates late ones,
+-- across every tenant, and the worker cannot read across tenants under RLS.
+-- This answers only WHICH companies have an active template or an active
+-- escalation rule; what is due is decided per company, in its own timezone,
+-- by the service. A suspended company is left alone, like every other pass.
+create or replace function app.task_rule_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select t.organization_id from public.task_template t where t.active
+      union
+      select r.organization_id from public.task_escalation_rule r where r.active
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.task_rule_organizations(int) from public;
+grant execute on function app.task_rule_organizations(int) to background;
+
 -- ---- Ending somebody else's sessions ------------------------------------
 -- `session_self_access` above limits the application role to its OWN
 -- sessions, which is right: a policy letting any authenticated role read the

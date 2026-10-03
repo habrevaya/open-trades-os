@@ -1,6 +1,6 @@
 import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
-import { assertCan } from "@opentradesos/core";
+import { assertCan, tags as tagRules } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
@@ -41,6 +41,31 @@ function asCustomer<T extends Record<string, unknown>>(row: T) {
 }
 
 /**
+ * The customers carrying some or all of these tags.
+ *
+ * `tag` was on the contract from the start and nothing read it, so a caller
+ * filtering by a tag got the whole book back and no sign anything was wrong.
+ * Compared without case through the same key `core/tags` uses, so "vip"
+ * finds the customers tagged "VIP".
+ *
+ * NO INDEX SERVES THIS, and that is a choice rather than an oversight. A GIN
+ * index on `tags` answers exact spellings only, and the whole point of the
+ * comparison is that the spelling may differ; the case blind check reads each
+ * customer's short list, which for a company of ten thousand customers is a
+ * few milliseconds. A book far larger than that wants a normalised tag table,
+ * and the docs say so.
+ */
+function tagFilter(input: ListInput) {
+  const wanted = [...(input.tags ?? []), ...(input.tag ? [input.tag] : [])]
+    .map(tagRules.tagKey)
+    .filter((key) => key !== "");
+  if (wanted.length === 0) return undefined;
+  const keys = sql`${sql.param([...new Set(wanted)])}::text[]`;
+  const held = sql`(select coalesce(array_agg(lower(btrim(t.tag))), '{}') from jsonb_array_elements_text(${schema.customer.tags}) as t(tag))`;
+  return input.tagMatch === "all" ? sql`${held} @> ${keys}` : sql`${held} && ${keys}`;
+}
+
+/**
  * The exemplar service. Every other one follows this shape.
  */
 export async function list(ctx: ServiceContext, input: ListInput) {
@@ -66,6 +91,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
             ilike(schema.customer.phone, `%${input.q}%`),
           )
         : undefined,
+      tagFilter(input),
       cursor ? lt(schema.customer.createdAt, new Date(cursor)) : undefined,
     );
 

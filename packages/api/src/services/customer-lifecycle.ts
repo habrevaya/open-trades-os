@@ -336,7 +336,14 @@ export async function mergedInto(ctx: ServiceContext, input: { id: string }) {
  * Soft deleted rows are excluded, so a record already merged away does not come
  * back as a candidate for merging again.
  */
-const NAME_SIMILARITY = 0.45;
+export const NAME_SIMILARITY = 0.45;
+
+/**
+ * The three reasons, strongest first, in the words a person deciding reads.
+ * Exported so the company wide sweep in `customer-duplicates.ts` says exactly
+ * what this per record matcher says about the same pair.
+ */
+export const DUPLICATE_REASONS = ["Same phone number", "Same email address", "Similar name"] as const;
 
 export interface DuplicateCandidate {
   id: string;
@@ -386,6 +393,17 @@ export async function likelyDuplicates(
       where c.organization_id = ${ctx.actor.organizationId}
         and c.id <> ${input.id}
         and c.deleted_at is null
+        /**
+         * Not a pair somebody already looked at and said are two people. The
+         * sweep remembers that decision, and a matcher that ignored it would
+         * offer the landlord as the tenant's duplicate on every visit to her
+         * page, which is the noise that makes people stop reading the list.
+         */
+        and not exists (
+          select 1 from public.customer_not_duplicate d
+          where (d.customer_a_id = c.id and d.customer_b_id = ${input.id})
+             or (d.customer_b_id = c.id and d.customer_a_id = ${input.id})
+        )
         and (
           (${phone} is not null and c.phone = ${phone})
           or (${email} is not null and lower(c.email) = lower(${email}))

@@ -484,6 +484,13 @@
       "when": 1790994578581,
       "tag": "0068_worthless_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790995447207,
+      "tag": "0069_sparkling_shadow_king",
+      "breakpoints": true
     }
   ]
 }

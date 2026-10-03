@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { packById, type TradePack } from "@opentradesos/trade-packs";
 import { audit, type ServiceContext, guardedWrite, NotFoundError } from "./context";
@@ -65,9 +65,30 @@ async function seed(tx: Database, org: string, pack: TradePack) {
   const categoryNames = [...new Set(pack.priceBook.map((i) => i.category))];
   const categoryIds = new Map<string, string>();
 
+  /**
+   * A shelf the company already has is used rather than made twice. Applying
+   * a pack again, or a second pack that also has "Maintenance", used to add a
+   * second category of the same name beside the first; the category manager
+   * now refuses two shelves with one name under one parent, and so does the
+   * index behind it, so the seed matches on the name the way that index does.
+   */
+  const existing = await tx.select({ id: schema.priceBookCategory.id, name: schema.priceBookCategory.name })
+    .from(schema.priceBookCategory)
+    .where(and(
+      eq(schema.priceBookCategory.organizationId, org),
+      isNull(schema.priceBookCategory.parentId),
+      isNull(schema.priceBookCategory.deletedAt),
+    ));
+  const byName = new Map(existing.map((row) => [row.name.toLowerCase(), row.id]));
+
   for (const [index, name] of categoryNames.entries()) {
+    const already = byName.get(name.toLowerCase());
+    if (already) {
+      categoryIds.set(name, already);
+      continue;
+    }
     const [row] = await tx.insert(schema.priceBookCategory)
-      .values({ organizationId: org, name, sortOrder: index })
+      .values({ organizationId: org, name, sortOrder: existing.length + index })
       .returning({ id: schema.priceBookCategory.id });
     categoryIds.set(name, row!.id);
     created.categories++;

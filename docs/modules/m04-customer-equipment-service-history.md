@@ -83,6 +83,24 @@ jobs that named it still resolve.
 The history read gathers the jobs that named the unit, the visits that
 inspected it and the deficiencies raised against it, newest first.
 
+### Watch warranties running out
+
+`/customers/warranties` is the warranty watch on a screen: units whose parts or
+labour cover ends in the next 30, 60 or 90 days, and units whose cover ended
+in the last 90, grouped by customer and then by address. Each unit says when
+each kind of cover ends or ended, links to the address its register is on and
+to the customer, and offers the two follow ups the list exists for: "Raise a
+follow up task", which puts a task about the unit in the office queue (and is
+not offered again while one is open), and "Estimate a replacement", which opens
+a new estimate for that customer at that address.
+
+The customer is the one linked to the address now, primary first and owners
+before tenants, and `GET /v1/equipment-warranties` returns it on every unit
+(`customer`, null for an address nobody is linked to). Reading the screen needs
+`equipment:read`; it sits under Customers, so somebody who can see customers
+and not equipment is told which permission the page needs rather than shown an
+empty list.
+
 ## Permissions
 
 | Role | Access |
@@ -145,8 +163,13 @@ everything naming it still resolves.
 ## What is not built
 
 Resolving coverage from an equipment warranty record is not wired to M32: the
-dates are here and that module does not read them. There is no screen for the
-warranty watch, so the list worth a daily look is an API read or a report
-somebody builds. Nothing matches an incoming unit against the register by serial
-number on the office side, so a duplicate row for one furnace is still possible
-when somebody types rather than scans.
+dates are here and that module does not read them. Nothing matches an incoming
+unit against the register by serial number on the office side, so a duplicate
+row for one furnace is still possible when somebody types rather than scans.
+
+The warranty screen's windows are fixed at 30, 60 and 90 days ahead and 90
+behind; the API takes any window up to two years. A unit has no page of its
+own, so its links go to the address its register is on. Nothing raises a
+warranty follow up on its own: the task is a button, and an automation that
+raised one per lapsing unit would need a trigger the workflow engine does not
+have.

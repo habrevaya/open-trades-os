@@ -59,6 +59,9 @@ import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
 import { dispatchMapRoutes } from "./dispatch-map";
 import { acquisitionRoutes } from "./acquisition";
+import { customerTagRoutes } from "./customer-tags";
+import { priceBookBulkRoutes } from "./pricebook-bulk";
+import { taskRuleRoutes } from "./task-rules";
 
 export * from "./common";
 export * from "./customers";
@@ -112,6 +115,10 @@ export * from "./statements";
 export * from "./dispatch-map";
 export * from "./agreements";
 export * from "./visit-changes";
+export * from "./customer-tags";
+export * from "./pricebook-bulk";
+export * from "./task-rules";
+export * from "./tasks";
 
 /**
  * Every route in the product, and the only description of them.
@@ -193,6 +200,9 @@ export const routes = {
   ...kpiRoutes,
   ...dispatchMapRoutes,
   ...reportRoutes,
+  ...customerTagRoutes,
+  ...priceBookBulkRoutes,
+  ...taskRuleRoutes,
 } as const;
 
 export type RouteName = keyof typeof routes;

@@ -1,6 +1,6 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, date, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, uniqueIndex, date, timestamp } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, geocodeColumns } from "./_shared";
-import { organization } from "./tenancy";
+import { organization, user } from "./tenancy";
 import { marketingChannel, acquisitionCampaign } from "./acquisition";
 
 /**
@@ -87,6 +87,37 @@ export const customer = pgTable("customer", {
   orgIdx: index("customer_org_idx").on(t.organizationId),
   nameIdx: index("customer_name_idx").on(t.organizationId, t.name),
   emailIdx: index("customer_email_idx").on(t.organizationId, t.email),
+}));
+
+/**
+ * TWO RECORDS SOMEBODY LOOKED AT AND SAID ARE DIFFERENT PEOPLE.
+ *
+ * The company wide duplicate sweep matches on a shared phone, a shared email
+ * or a similar name, and two of those are true of people who are not the
+ * same: a landlord and the tenant whose bills she pays share a number, and
+ * "John Smith" is two customers in any town of size. Without a memory of the
+ * decision the sweep shows the same pair every morning until somebody stops
+ * opening it, which is the failure a duplicate list most often dies of.
+ *
+ * Stored as an ORDERED pair, the smaller id first, so the pair has one row
+ * whichever side somebody dismissed it from, and the unique index makes a
+ * second press a no op rather than a second row.
+ */
+export const customerNotDuplicate = pgTable("customer_not_duplicate", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The smaller of the two ids. */
+  customerAId: uuid("customer_a_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** The larger. */
+  customerBId: uuid("customer_b_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** Why, when somebody said. "Landlord and tenant" is the usual one. */
+  reason: text("reason"),
+  decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pairIdx: uniqueIndex("customer_not_duplicate_pair_idx").on(t.organizationId, t.customerAId, t.customerBId),
+  /** The per record matcher asks from either side. */
+  bIdx: index("customer_not_duplicate_b_idx").on(t.customerBId),
 }));
 
 export const property = pgTable("property", {

@@ -259,6 +259,16 @@ export const membership = pgTable("membership", {
   scopeOverrides: jsonb("scope_overrides").$type<Record<string, string>>().notNull().default({}),
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
+  /**
+   * Who this person answers to, when the company has said.
+   *
+   * Read by task escalation and nothing else: "tell the assignee's manager"
+   * needs somebody to tell, and a role preset is not a person. Nullable,
+   * because most companies of four people have never written it down, and
+   * an escalation with no manager recorded goes to the owners and says why
+   * rather than going nowhere.
+   */
+  reportsToUserId: uuid("reports_to_user_id").references(() => user.id, { onDelete: "set null" }),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({

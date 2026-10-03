@@ -89,6 +89,65 @@ revision waiting, with what it will become beside what it is until then.
 `pricebook:publish`, which is a different decision from writing an item and is
 held by fewer people.
 
+### Reorganise the shelves
+
+`/pricebook/categories` is the category manager: the categories in the order
+the tablet shows them, nested up to three levels ("Plumbing, Water heaters,
+Tankless"), each with how many items sit on it. Add one, rename it, move it
+under another or to the top, move it up or down among its siblings, and
+remove one that is empty; a category holding items or other categories is
+refused with how many. Two categories with one name under one parent are
+refused in words, compared without capitals. Below the list are the items on
+the chosen shelf (or on none), ticked and moved to another.
+
+Moving an item between categories changes the item rather than writing a
+version, because no document points at a category: it changes nothing anybody
+was charged. Applying a trade pack again reuses a category of the same name
+rather than adding a second one.
+
+On the API: `GET /v1/pricebook/categories` (flat, in reading order, with a
+depth on each row), `POST /v1/pricebook/categories`,
+`PATCH /v1/pricebook/categories/{id}`,
+`POST /v1/pricebook/categories/{id}/place` (a position among siblings, so a
+retry lands where the first call did), `POST /v1/pricebook/categories/{id}/remove`
+and `POST /v1/pricebook/item-categories`.
+
+### Change many prices at once
+
+`/pricebook/changes` chooses items by category (with the ones inside it) and
+by a search, and a change: up or down by a percentage, up or down by an
+amount, priced to a margin over cost, or only rounded up to a price ending
+(.00, .95, .99, .49), with a change and a rounding together allowed. Preview
+shows every item's price now and after, and for whoever holds
+`pricebook.cost:read` its cost and margin now and after; an item that will not
+change says why (no cost recorded for a margin rule, a change that would
+price it at nothing, a revision already scheduled). Untick anything to leave
+alone, then apply.
+
+Applying writes a NEW VERSION per item through the same code a single
+revision uses, so no version is edited in place and every document already
+raised keeps its price. The prices are recomputed inside the write rather
+than taken from a preview that may be a minute old. Each change is recorded
+with the version it closed and the version it wrote per item, listed below the
+form, and has an Undo: each price goes back to what it was, as another new
+version, recorded as a change of its own that points at the one it undoes.
+Undo is the old prices, not the opposite rule, because five per cent up and
+five per cent down lands at 99.75 rather than 100. An item somebody has
+changed again since is left alone and named.
+
+The arithmetic is `core/repricing`: no floats, cents half up after a change,
+rounding to an ending always UP so it never takes money off a price, and a
+margin rule rounding up so the margin is at least what was asked. A rule that
+is a typo (a thousand per cent, a margin of 45 rather than 0.45, nought) is
+refused before anything is shown.
+
+On the API: `GET /v1/pricebook/price-change-preview`,
+`POST /v1/pricebook/price-changes`, `GET /v1/pricebook/price-changes`,
+`GET /v1/pricebook/price-changes/{id}` and
+`POST /v1/pricebook/price-changes/{id}/reverse`. Previewing and applying need
+`pricebook:write`; a margin rule also needs `pricebook.cost:read`, because a
+price computed from cost and shown beside the rule gives the cost back.
+
 ## Permissions
 
 | Role | Access |
@@ -115,6 +174,17 @@ screen.
 | `GET /v1/pricebook/scheduled` | `pricebook:read` |
 | `POST /v1/pricebook/scheduled/{versionId}/publish` | `pricebook:publish` |
 | `POST /v1/pricebook/scheduled/{versionId}/discard` | `pricebook:publish` |
+| `GET /v1/pricebook/categories` | `pricebook:read` |
+| `POST /v1/pricebook/categories` | `pricebook:write` |
+| `PATCH /v1/pricebook/categories/{id}` | `pricebook:write` |
+| `POST /v1/pricebook/categories/{id}/place` | `pricebook:write` |
+| `POST /v1/pricebook/categories/{id}/remove` | `pricebook:write` |
+| `POST /v1/pricebook/item-categories` | `pricebook:write` |
+| `GET /v1/pricebook/price-change-preview` | `pricebook:write` |
+| `POST /v1/pricebook/price-changes` | `pricebook:write` |
+| `GET /v1/pricebook/price-changes` | `pricebook:read` |
+| `GET /v1/pricebook/price-changes/{id}` | `pricebook:read` |
+| `POST /v1/pricebook/price-changes/{id}/reverse` | `pricebook:write` |
 
 ## Common questions
 
@@ -132,7 +202,12 @@ different permission from editing the book.
 
 ## What is not built
 
-Categories are a column and a seed, with no screen for reorganising them.
-Nothing bulk edits or bulk re-margins, so re-pricing a seeded book is item by
-item. There is no supplier catalogue import, and no link from a price book item
-to a vendor's part number, which is where M16 would meet this.
+A bulk change takes effect when it is applied; it cannot be dated ahead the way
+a single revision can, so a quarterly change across a category is staged item
+by item or applied on the day. An item with a revision already scheduled is
+left out of a bulk change rather than given a version beside it. A bulk change
+reaches at most two thousand items at a time. The single item editor still has
+no screen: `/pricebook` lists, searches and filters by category, and a
+revision of one item is an API call. There is no supplier catalogue import,
+and no link from a price book item to a vendor's part number, which is where
+M16 would meet this.
