@@ -166,10 +166,16 @@ A migration app token needs, at most: `customer:read`, `customer:write`,
 The generated reference is `packages/api/openapi.json`. The calls above are
 the whole of a load.
 
-Not yet accepted, and reported by the toolkit as gaps: an estimate's historical
-status (sent, approved, converted) with its date, customer notes, partial
-billing addresses, property coordinates, a price book item without a code, and
-a person who never had a login.
+An estimate's outcome comes in on `POST /v1/estimates` as `outcome`: approved
+on a day with the option that won (and who signed, when the source says),
+declined on a day with the reason, or expired on a day. It needs
+`data:import`, emits no event and records no signature, so loading history
+starts no automation. An imported approval converts like any other.
+
+Not yet accepted, and reported by the toolkit as gaps: the day an estimate was
+sent or converted, customer notes, partial billing addresses, property
+coordinates, a price book item without a code, and a person who never had a
+login.
 
 ## Taking a copy
 
@@ -296,8 +302,8 @@ The importer is the separate migration toolkit, which loads through `/api/v1`
 with a connected app's token, and what is here is the half that has to be right:
 an API that takes history faithfully and refuses what it should.
 
-An estimate's historical status is not accepted, so a migration brings estimates
-in as current rather than as won or lost. The export writes one newline delimited
+An estimate's history carries its outcome but not the day it was sent or
+converted. The export writes one newline delimited
 JSON stream and nothing else: no per table CSV, no archive, and no object storage
 path, so a company exporting a large instance streams it to their own disk.
 Nothing imports an export back, which is the obvious symmetry and is not built.

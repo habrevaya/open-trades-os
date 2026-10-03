@@ -109,7 +109,50 @@ per location, `GET /v1/reorder-policies` reads them back, and
 `POST /v1/purchase-orders` raises an order,
 `POST /v1/purchase-orders/{id}/status` moves it (submitting needs approval),
 and `POST /v1/purchase-orders/{id}/receipts` records what arrived.
-`/purchasing` is the screen.
+`/purchasing` is the screen, and each order opens at `/purchasing/{id}`, line by
+line with the vendor's part number first, printable for a counter that still
+takes orders on paper. `GET /v1/purchase-orders/{id}` is the same.
+
+An order line is looked up, not typed. It names our item or a part number, and
+the part number is matched against what this vendor calls our items, then
+against our own item codes; the line is written with our item, the vendor's
+number as it stands that day (copied, so renumbering the part later does not
+change what the order said) and the vendor's price on record unless a price is
+given. A part nobody can find, or one with no price from this vendor and none
+given, is refused in words. On `/purchasing`, "Order by part number" offers the
+chosen vendor's known numbers as you type, and an order built from the reorder
+suggestions takes the vendor's price for a line left blank.
+
+### Know what each vendor calls a part
+
+Each price book item's screen lists the vendors who sell it to us with their
+own part number, their description and their price for one, and takes a new
+one or replaces the existing one for a vendor. One number per item per vendor,
+and one item per number per vendor: a number already given to another of our
+items for that vendor is refused in words. `GET /v1/vendor-items`,
+`PUT /v1/vendor-items` and `POST /v1/vendor-items/{id}/remove`. A link is
+vendor data: `vendor:read` to read, `vendor:write` to change.
+
+### Import a supplier's catalogue
+
+`/purchasing/catalogue` reads the spreadsheet a supply house sends: a header
+line, then a part number, a description, a cost and the vendor on each row
+(the common spellings of each header are understood, and the vendor can be
+chosen for a file without that column). Nothing is written until the preview
+has said what each row would do: update the link that part number already
+names, link one of our items whose code is the part number, create a new
+material priced at the margin given (rounded up to a price ending if asked),
+change nothing, or be skipped with the reason (an unknown vendor, a cost that
+is not an amount, a part twice in the file, a new part with no margin to price
+it at, so nothing is ever sold at cost by accident). Untick a row to leave it
+alone, then apply. Applying works the plan out again from the same file inside
+the write. When asked, a matched item's own cost (the one job costing reads)
+follows the vendor's as a new version, so every document already priced keeps
+its cost, and an item with a price change already scheduled is left alone and
+said so. `POST /v1/vendor-catalogue/preview` and
+`POST /v1/vendor-catalogue/apply` are the same, and need `vendor:write` and
+`pricebook:write`, because an import writes both; an item's own cost is shown
+beside the vendor's only to whoever holds `pricebook.cost:read`.
 
 ### Commodity delivery
 
@@ -141,6 +184,12 @@ permission rather than an inventory one, because a delivery is a billable event.
 | `GET /v1/vendors` | `vendor:read` |
 | `POST /v1/vendors` | `vendor:write` |
 | `POST /v1/purchase-orders` | `po:write` |
+| `GET /v1/purchase-orders/{id}` | `po:read` |
+| `GET /v1/vendor-items` | `vendor:read` |
+| `PUT /v1/vendor-items` | `vendor:write` |
+| `POST /v1/vendor-items/{id}/remove` | `vendor:write` |
+| `POST /v1/vendor-catalogue/preview` | `vendor:write`, `pricebook:write` |
+| `POST /v1/vendor-catalogue/apply` | `vendor:write`, `pricebook:write` |
 | `POST /v1/purchase-orders/{id}/status` | `po:write`, and `po:approve` to submit |
 
 Five of these routes declared inventory permissions while their services checked
@@ -164,8 +213,11 @@ question about it is what to bill.
 
 ## What is not built
 
-No supplier catalogue import and no link from a price book item to a vendor's part
-number, so a purchase order line is typed rather than looked up. No landed cost
-allocation: a receipt carries its unit cost and freight is not spread. No serial or
-lot tracking on stock. Purchase order approval is a status transition rather than a
-multi step approval chain.
+A catalogue import reads a CSV, not a spreadsheet file or a supplier's API or
+EDI feed, and at most five thousand rows at a time; it records the vendor's
+cost and does not track their price breaks, pack sizes or units of measure. It
+does not create vendors: one the file names that nobody has added is skipped.
+No landed cost allocation: a receipt carries its unit cost and freight is not
+spread. No serial or lot tracking on stock. Purchase order approval is a status
+transition rather than a multi step approval chain, and an order is printed or
+read to the vendor rather than sent to them by email.
