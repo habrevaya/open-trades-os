@@ -143,7 +143,7 @@ describe("the container fleet", () => {
 
   it("is a child of Fleet rather than a filter on it", () => {
     const fleet = NAV.flatMap((g) => g.items).find((i) => i.href === "/fleet");
-    expect(fleet?.children?.map((c) => c.href)).toEqual(["/fleet", "/fleet/containers"]);
+    expect(fleet?.children?.map((c) => c.href)).toEqual(["/fleet", "/fleet/containers", "/fleet/containers/tickets"]);
     expect(fleet?.permission).toBe("asset:read");
   });
 });

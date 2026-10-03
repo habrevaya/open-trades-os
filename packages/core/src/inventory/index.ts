@@ -367,6 +367,11 @@ export interface Movement {
   readonly reasonCode?: string | undefined;
   readonly purchaseOrderId?: string | undefined;
   readonly purchaseOrderLineId?: string | undefined;
+  /**
+   * The serial number or lot this movement moved, for a tracked item. A
+   * serialised unit moves one to a movement. See `units.ts`.
+   */
+  readonly lotId?: string | undefined;
 }
 
 /** The signed effect of one movement on the two STORED quantities. */
@@ -1415,22 +1420,39 @@ export function cogsByJob(issues: readonly CostedIssue[], currency: CurrencyCode
  * a four hundred dollar order is twelve percent, and twelve percent is most of
  * a trade's net margin.
  *
- * Allocated by value, not by piece count, because a delivery of one furnace
- * and forty screws did not incur its freight equally. Allocated at cent
- * precision because these shares land on a vendor bill somebody reconciles
- * line by line. If every line is zero value, which happens on a warranty
- * replacement shipment, it falls back to an even split rather than throwing:
- * the freight is real and has to land somewhere.
+ * TWO WAYS TO SPREAD IT, and the receiving clerk chooses, because the right
+ * one depends on what the freight was charged for.
+ *
+ *   BY VALUE, the default, because a delivery of one furnace and forty screws
+ *   did not incur its freight equally, and most freight is priced on what is
+ *   in the box.
+ *
+ *   BY QUANTITY, for the delivery whose freight was charged per piece or per
+ *   pallet: forty identical filters and four expensive ones on the same
+ *   pallet each cost the same to carry.
+ *
+ * Allocated at cent precision because these shares land on a vendor bill
+ * somebody reconciles line by line, and ALLOCATED rather than divided, so the
+ * shares always add back to exactly the charge. If every line is zero by the
+ * chosen basis, which happens on a warranty replacement shipment, it falls
+ * back to an even split rather than throwing: the freight is real and has to
+ * land somewhere.
  */
+export type LandedCostBasis = "value" | "quantity";
+
 export function allocateLandedCost(
   extra: Money,
-  lines: readonly { lineId: string; value: Money }[],
+  lines: readonly { lineId: string; value: Money; quantity?: Quantity | undefined }[],
+  basis: LandedCostBasis = "value",
 ): { lineId: string; share: Money }[] {
   if (lines.length === 0) return [];
   if (isZero(extra)) return lines.map((line) => ({ lineId: line.lineId, share: zero(extra.currency) }));
 
-  const anyValue = lines.some((line) => !isZero(line.value));
-  const ratios = anyValue ? lines.map((line) => moneyToString(line.value)) : lines.map(() => "1");
+  const weights = basis === "quantity"
+    ? lines.map((line) => quantityToString(line.quantity ?? ZERO_QUANTITY))
+    : lines.map((line) => moneyToString(line.value));
+  const anyWeight = weights.some((w) => !/^-?0(\.0+)?$/.test(w));
+  const ratios = anyWeight ? weights : lines.map(() => "1");
   const shares = allocate(extra, ratios, 2);
 
   return lines.map((line, index) => ({
@@ -1843,3 +1865,7 @@ export function outstandingValue(purchaseOrder: PurchaseOrder, currency: Currenc
     return add(total, multiply(line.unitPrice, quantityToString(outstanding)));
   }, zero(currency));
 }
+
+export * from "./units.js";
+export * from "./approvals.js";
+export * from "./restock.js";

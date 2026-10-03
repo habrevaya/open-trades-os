@@ -108,12 +108,13 @@ export default async function PurchasingPage() {
 
       <h2 className="mt-10 font-medium text-ink-900">Who we buy from</h2>
       {vendorList.length > 0 && (
-        <Table head={<><Th>Name</Th><Th>Account</Th><Th>Phone</Th></>}>
+        <Table head={<><Th>Name</Th><Th>Account</Th><Th>Phone</Th><Th>Orders email</Th></>}>
           {vendorList.map((vendor) => (
             <tr key={vendor.id}>
               <Td>{vendor.name}</Td>
               <Td className="text-ink-500">{vendor.accountNumber ?? ""}</Td>
               <Td className="text-ink-500">{vendor.phone ?? ""}</Td>
+              <Td className="text-ink-500">{vendor.email ?? ""}</Td>
             </tr>
           ))}
         </Table>

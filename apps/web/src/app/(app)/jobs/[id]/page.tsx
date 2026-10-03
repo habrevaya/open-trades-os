@@ -12,6 +12,7 @@ import { Authorize, Coverage } from "./Commercial";
 import { BillingPlanView, ContractAndDeadlines, CoverageFromUnit } from "./CommercialBilling";
 import { Priority } from "./Priority";
 import { Branch } from "./Branch";
+import { RequiredSkills } from "./RequiredSkills";
 import { Parties } from "./Parties";
 import { Costing } from "./Costing";
 import { Chip } from "@opentradesos/ui";
@@ -169,6 +170,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
       <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />
+      <RequiredSkills jobId={id} actor={user.actor} writes={writes} />
 
       <Origin jobId={id} job={job} sources={sources} attribution={attribution} writes={writes}
               timezone={user.organizationTimezone} />

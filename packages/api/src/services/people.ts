@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { time } from "@opentradesos/core";
+import { people as peopleCore, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
@@ -66,6 +66,8 @@ export interface CertificationTypeInput {
   expires?: boolean | undefined;
   defaultValidMonths?: number | null | undefined;
   renewalLeadDays?: number | undefined;
+  /** Continuing education hours a renewal needs, where the authority asks for any. */
+  ceHoursRequired?: string | null | undefined;
   note?: string | null | undefined;
 }
 
@@ -125,6 +127,7 @@ export async function defineCertificationType(
       expires: input.expires ?? true,
       defaultValidMonths: months,
       renewalLeadDays: lead,
+      ceHoursRequired: ceHours(input.ceHoursRequired),
       note: input.note ?? null,
     }).returning();
 
@@ -140,6 +143,7 @@ export interface CertificationTypeUpdate {
   grantsSkills?: string[] | undefined;
   defaultValidMonths?: number | null | undefined;
   renewalLeadDays?: number | undefined;
+  ceHoursRequired?: string | null | undefined;
   note?: string | null | undefined;
   active?: boolean | undefined;
 }
@@ -177,6 +181,7 @@ export async function updateCertificationType(ctx: ServiceContext, input: Certif
       ...(input.grantsSkills !== undefined ? { grantsSkills: normaliseSkills(input.grantsSkills) } : {}),
       ...(input.defaultValidMonths !== undefined ? { defaultValidMonths: input.defaultValidMonths } : {}),
       ...(input.renewalLeadDays !== undefined ? { renewalLeadDays: input.renewalLeadDays } : {}),
+      ...(input.ceHoursRequired !== undefined ? { ceHoursRequired: ceHours(input.ceHoursRequired) } : {}),
       ...(input.note !== undefined ? { note: input.note } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
       updatedAt: new Date(),
@@ -185,6 +190,19 @@ export async function updateCertificationType(ctx: ServiceContext, input: Certif
     await audit(tx, ctx, "certification_type.updated", "certification_type", before.id, before, row!);
     return row!;
   });
+}
+
+/**
+ * Continuing education hours, as hundredths a person can type: "16", "7.5".
+ * Zero is stored as none, because a requirement of nothing is no requirement.
+ */
+function ceHours(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || value.trim() === "") return null;
+  let hundredths: bigint;
+  try { hundredths = peopleCore.hundredths(value); } catch {
+    throw new ConflictError(`"${value}" is not a number of hours. Hours go to two decimal places at most.`);
+  }
+  return hundredths === 0n ? null : peopleCore.hoursLabel(hundredths);
 }
 
 /** Trimmed, de-duplicated, and empty strings dropped. A skill of "" matches nothing. */
@@ -206,6 +224,7 @@ export async function listCertificationTypes(ctx: ServiceContext) {
       expires: row.expires,
       defaultValidMonths: row.defaultValidMonths,
       renewalLeadDays: row.renewalLeadDays,
+      ceHoursRequired: row.ceHoursRequired === null ? null : peopleCore.hoursLabel(peopleCore.hundredths(row.ceHoursRequired)),
       active: row.active,
       note: row.note,
     }));
@@ -962,7 +981,7 @@ export const handlers = {
     types: {
       id: string; code: string; name: string; authority: string | null;
       grantsSkills: string[]; expires: boolean; defaultValidMonths: number | null;
-      renewalLeadDays: number; active: boolean; note: string | null;
+      renewalLeadDays: number; ceHoursRequired: string | null; active: boolean; note: string | null;
     }[];
   }> => ({ types: await listCertificationTypes(ctx) }),
 

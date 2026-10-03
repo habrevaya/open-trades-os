@@ -156,3 +156,8 @@ export * as financing from "./financing";
 export * as costing from "./costing";
 export * as budgets from "./budgets";
 export * as journals from "./journals";
+export * as stockUnits from "./stock-units";
+export * as purchaseApprovals from "./purchase-approvals";
+export * as purchaseOrderEmail from "./purchase-order-email";
+export * as rentalBilling from "./rental-billing";
+export * as peopleRecords from "./people-records";

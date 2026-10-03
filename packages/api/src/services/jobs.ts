@@ -17,7 +17,7 @@ import { emit } from "./events";
 import { announce, NEW_VISIT } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
-import { gate as qualificationGate } from "./qualification";
+import { gate as qualificationGate, workSkills } from "./qualification";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
@@ -314,12 +314,16 @@ async function assertAvailable(
 async function assertQualified(
   ctx: ServiceContext, tx: Database, jobTypeId: string | null,
   technicianIds: readonly string[], windowStart: Date, windowEnd: Date,
+  /** What this one job asks for beyond its type, checked with the type's. */
+  jobSkills: readonly string[] = [],
 ): Promise<void> {
-  if (!jobTypeId || technicianIds.length === 0) return;
-  const [type] = await tx.select({ skills: schema.jobType.requiredSkills })
-    .from(schema.jobType).where(eq(schema.jobType.id, jobTypeId)).limit(1);
+  if ((!jobTypeId && jobSkills.length === 0) || technicianIds.length === 0) return;
+  const [type] = jobTypeId
+    ? await tx.select({ skills: schema.jobType.requiredSkills })
+      .from(schema.jobType).where(eq(schema.jobType.id, jobTypeId)).limit(1)
+    : [];
   await qualificationGate(ctx, tx, {
-    technicianIds, skills: type?.skills ?? [], windowStart, windowEnd,
+    technicianIds, skills: workSkills(type?.skills, jobSkills), windowStart, windowEnd,
   });
 }
 
@@ -828,7 +832,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       );
       await assertQualified(
         ctx, tx, job.jobTypeId, input.technicianIds,
-        new Date(input.windowStart), new Date(input.windowEnd),
+        new Date(input.windowStart), new Date(input.windowEnd), job.requiredSkills,
       );
     }
 

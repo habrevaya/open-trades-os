@@ -18,6 +18,8 @@ export function AddVendor() {
         { name: "name", label: "Name", required: true, width: "w-56" },
         { name: "accountNumber", label: "Account number", required: false, width: "w-40" },
         { name: "phone", label: "Phone", required: false, width: "w-40" },
+        /** Where an order is emailed. Without it an order can only be printed or read down the phone. */
+        { name: "email", label: "Orders email", required: false, width: "w-56" },
       ].map((field) => (
         <label key={field.name} className="flex flex-col gap-1">
           <span className="text-sm text-ink-500">{field.label}</span>

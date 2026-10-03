@@ -236,13 +236,28 @@ export const NAV: NavGroup[] = [
           { href: "/pricebook/tax", label: "Sales tax" },
         ],
       },
-      { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
+      {
+        href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory",
+        children: [
+          { href: "/inventory", label: "Stock" },
+          /** Every serial and lot, and the trace from the order it came on to the customer it went to. */
+          { href: "/inventory/serials", label: "Serials and lots" },
+          /** What each truck should carry, and filling it from the warehouse. */
+          { href: "/inventory/trucks", label: "Truck stock" },
+        ],
+      },
       {
         href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing",
         children: [
           { href: "/purchasing", label: "Orders" },
           /** A supplier's spreadsheet, previewed and then applied to the price book and their part numbers. */
           { href: "/purchasing/catalogue", label: "Supplier catalogue" },
+          /**
+           * Who has to say yes before a large order goes out. It inherits
+           * `po:read` to be SHOWN, so a buyer can see why their order waits,
+           * and changing a step needs `settings:write`.
+           */
+          { href: "/purchasing/approvals", label: "Approval steps" },
         ],
       },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
@@ -258,6 +273,8 @@ export const NAV: NavGroup[] = [
            * two screens here for the same one.
            */
           { href: "/fleet/containers", label: "Containers" },
+          /** A facility's file of scale tickets, matched to the hauls they weighed. */
+          { href: "/fleet/containers/tickets", label: "Scale tickets" },
         ],
       },
       /**
@@ -336,6 +353,19 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/reviews", label: "Reviews", permission: "review:respond", icon: "reviews" },
+      /**
+       * The people who work here as the office keeps them: onboarding, who to
+       * ring, the facts of their employment and their skills. Business rather
+       * than Work, because it is about the company's own staff; their licences
+       * stay under Certifications, beside the work they unlock.
+       */
+      {
+        href: "/people", label: "People", permission: "user:read", icon: "people",
+        children: [
+          { href: "/people", label: "Everybody" },
+          { href: "/people/onboarding", label: "Onboarding" },
+        ],
+      },
       /** The company's own licences, insurance and filings. Business, because it is about the company rather than a job. */
       {
         href: "/compliance", label: "Compliance", permission: "document:read", icon: "compliance",

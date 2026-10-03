@@ -33,6 +33,7 @@ export * as events from "./events/index.js";
 export * as geo from "./geo/index.js";
 export * as routing from "./routing/index.js";
 export * as qualification from "./qualification/index.js";
+export * as people from "./people/index.js";
 export * as membership from "./membership/index.js";
 export * as tags from "./tags/index.js";
 export * as repricing from "./repricing/index.js";

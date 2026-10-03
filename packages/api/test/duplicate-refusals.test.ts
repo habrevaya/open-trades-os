@@ -125,6 +125,21 @@ const REFUSED: Record<string, Refused> = {
   coverage_claim_invoice_idx: {
     file: "claims.ts", how: "check", says: "already has a claim",
   },
+  /** A second approval step given a number already taken. */
+  purchase_approval_rule_step_idx: {
+    file: "purchase-approvals.ts", how: "check", says: "There is already a step",
+  },
+  /**
+   * A serial number received twice. The row is looked up first and reused for
+   * a unit that left and came back; one still in stock is refused by name.
+   */
+  stock_lot_number_idx: {
+    file: "inventory.ts", how: "check", says: "is already in stock at",
+  },
+  /** The same skill recorded twice for one person while the first is still open. */
+  technician_skill_open_idx: {
+    file: "people-records.ts", how: "check", says: "already has",
+  },
 };
 
 /**
@@ -155,6 +170,17 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   field_operation_device_seq_idx: "The device's own counter, which the sync protocol orders by.",
   workflow_version_idx: "The next version number, assigned on publish.",
   workflow_step_run_idx: "One row per step of a run, keyed by the run and the step.",
+  stock_tracking_item_idx:
+    "One tracking mode per item. Setting it reads the row first and updates it in place, so nothing inserts a second.",
+  truck_stock_minimum_item_location_idx:
+    "One live minimum per item per truck, written with on conflict do update: setting it again replaces it.",
+  purchase_order_approval_step_idx:
+    "A step of an order is decided once. The service only ever decides the step that is waiting, so a collision is two people deciding the same step in the same instant, and the second is a conflict rather than a duplicate anybody typed.",
+  purchase_order_send_token_idx: "The hash of thirty two random bytes minted for an emailed order's printable link.",
+  onboarding_item_template_idx:
+    "One copy of each checklist line per person. Starting onboarding inserts with on conflict do nothing, so starting again adds only the new lines.",
+  employment_record_person_idx:
+    "One employment record per person, written with on conflict do update: saving it again replaces it.",
   vendor_item_vendor_item_idx:
     "One link per item per vendor: setting a part number updates the item's existing link to that vendor rather than inserting another.",
 

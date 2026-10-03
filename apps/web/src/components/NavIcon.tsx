@@ -22,7 +22,7 @@ export type IconName =
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
   | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance"
-  | "books";
+  | "books" | "people";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   /** Books: a ledger open flat, two pages and a spine, for the journal and the budget. */
@@ -30,6 +30,18 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M12 6.5c-2-1.6-4.8-2-8-1.5v13c3.2-.5 6 0 8 1.5 2-1.5 4.8-2 8-1.5V5c-3.2-.5-6-.1-8 1.5Z" />
       <path d="M12 6.5V19.5" />
+    </>
+  ),
+  /**
+   * People: a hard hat, for the crew. Not a head and shoulders, because
+   * Customers is already two of those and the pair has to survive the rail
+   * collapsing to icons.
+   */
+  people: (
+    <>
+      <path d="M5 16.5a7 7 0 0 1 14 0" />
+      <path d="M3.5 16.5h17v2h-17z" />
+      <path d="M10 10V7h4v3" />
     </>
   ),
   /** Compliance: a shield, for what keeps the company allowed to work. */

@@ -59,6 +59,10 @@ export const REDACTED: Record<string, Record<string, string>> = {
     token_hash: "The hash of a live customer link. The links themselves cannot be reconstructed "
       + "and should not be: they are capabilities.",
   },
+  purchase_order_send: {
+    link_token_hash: "The hash of a live link a vendor opens an emailed purchase order with. The "
+      + "order and every send of it are exported; the link is a capability and is not.",
+  },
   portal_sign_in: {
     code_hash: "The salted hash of a customer's six digit sign in code. Six digits are a million "
       + "guesses away from it, which is why it is kept from the file even though every code is "

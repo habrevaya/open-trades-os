@@ -111,7 +111,13 @@ const ORDER = [
   // Tasks before runs: a task points at the run that raised it.
   // Inventory, in dependency order: movements reference orders and lines,
   // lines reference an order, and a reorder policy references a vendor.
-  "stock_movement", "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
+  // A movement points at the serial or lot it moved and the delivery it came
+  // on; a delivery's charges, an order's approvals and its sends point at
+  // the order; truck minimums point at the item and the truck.
+  "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
+  "purchase_order_receipt_charge", "purchase_order_receipt",
+  "purchase_order_approval", "purchase_order_send", "purchase_approval_rule",
+  "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the
   // database: the thing pointing goes before the thing pointed at.
@@ -168,6 +174,8 @@ const ORDER = [
   "retention_hold", "retention_purge_run",
   "retention_policy", "regulatory_submission",
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
+  /** A charge found on a haul points at the hire and at the fee it was priced from. */
+  "rental_charge",
   "rental", "rentable_asset", "territory", "business_hours",
   /**
    * The company's own tools, children first. Every one of these cascades
@@ -258,7 +266,16 @@ const ORDER = [
    * instance of, so both go before the technician below and the type goes
    * after the holdings of it.
    */
-  "person_certification", "certification_type",
+  "person_certification",
+  /**
+   * The rest of what the office keeps about a person: continuing education
+   * and skills point at the technician (and the hours at a certification
+   * type), the others at the membership, and a person's onboarding line at
+   * the template line it was copied from and the asset handed over.
+   */
+  "continuing_education", "technician_skill",
+  "onboarding_item", "onboarding_template_item", "emergency_contact", "employment_record",
+  "certification_type",
   "custom_field_definition", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",
   /**

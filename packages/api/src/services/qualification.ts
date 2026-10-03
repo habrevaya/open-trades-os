@@ -82,19 +82,41 @@ export async function qualify(
   return out;
 }
 
-/** The skills a visit's work needs, from its job's type. Empty when the job has no type. */
+/**
+ * The skills a visit's work needs: its job type's, and whatever this one job
+ * asks for beyond them (`job.required_skills`). Empty when neither says
+ * anything.
+ */
 export async function requiredSkillsOf(tx: Database, visitId: string): Promise<{
   skills: string[]; windowStart: Date | null; windowEnd: Date | null;
 }> {
   const [row] = await tx.select({
     skills: schema.jobType.requiredSkills,
+    jobSkills: schema.job.requiredSkills,
     windowStart: schema.visit.windowStart,
     windowEnd: schema.visit.windowEnd,
   }).from(schema.visit)
     .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
     .leftJoin(schema.jobType, eq(schema.jobType.id, schema.job.jobTypeId))
     .where(eq(schema.visit.id, visitId)).limit(1);
-  return { skills: row?.skills ?? [], windowStart: row?.windowStart ?? null, windowEnd: row?.windowEnd ?? null };
+  return {
+    skills: workSkills(row?.skills, row?.jobSkills),
+    windowStart: row?.windowStart ?? null,
+    windowEnd: row?.windowEnd ?? null,
+  };
+}
+
+/**
+ * WHAT THE WORK NEEDS: the job type's skills and the job's own, together.
+ *
+ * One function, called by every path that checks a person or a crew for a
+ * job, so a skill asked for by one unusual job is checked exactly where the
+ * type's are and cannot be checked on the board and forgotten at booking.
+ */
+export function workSkills(
+  typeSkills: readonly string[] | null | undefined, jobSkills: readonly string[] | null | undefined,
+): string[] {
+  return q.normaliseSkills([...(typeSkills ?? []), ...(jobSkills ?? [])]);
 }
 
 /**

@@ -582,6 +582,13 @@
       "when": 1791066467934,
       "tag": "0082_luxuriant_pixie",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1791071122187,
+      "tag": "0083_real_tigra",
+      "breakpoints": true
     }
   ]
 }

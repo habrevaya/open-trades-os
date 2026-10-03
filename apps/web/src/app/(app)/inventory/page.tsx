@@ -1,8 +1,10 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory } from "@opentradesos/api/services";
+import { inventory, stockUnits } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
+import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
+import { receiveStockAction, transferStockAction, useOnJobAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +34,24 @@ export default async function InventoryPage() {
     );
   }
 
-  const [levels, reserved, buy] = await Promise.all([
+  const [levels, reserved, buy, items, places] = await Promise.all([
     inventory.levels(ctx),
     inventory.commitments(ctx),
     inventory.toOrder(ctx),
+    stockUnits.stockItems(ctx),
+    stockUnits.stockLocations(ctx),
   ]);
+  const moves = can(user.actor, "inventory:adjust") && items.length > 0 && places.length > 0;
+  /**
+   * The item list says how each part is tracked, because the one thing a
+   * person receiving a compressor has to know before they press the button
+   * is that it wants its serial numbers.
+   */
+  const itemOptions = items.map((item) => ({
+    value: item.id,
+    label: `${item.name} (${item.code})${item.tracking === "serial" ? ", by serial" : item.tracking === "lot" ? ", by lot" : ""}`,
+  }));
+  const placeOptions = places.map((p) => ({ value: p.id, label: p.isWarehouse ? `${p.name} (warehouse)` : p.name }));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -104,6 +119,62 @@ export default async function InventoryPage() {
             </tr>
           ))}
         </Table>
+      )}
+
+      {moves && (
+        <section className="mt-10" aria-labelledby="move-stock">
+          <h2 id="move-stock" className="text-base font-semibold">Move stock</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            A part tracked by serial or lot needs its numbers: one per line, or separated by commas, as
+            they are read off the label or scanned. Leave the quantity empty and it is the number of serials.
+            Serials, the trucks and what each should carry are under{" "}
+            <a href="/inventory/serials" className="underline underline-offset-4">Serials and lots</a> and{" "}
+            <a href="/inventory/trucks" className="underline underline-offset-4">Truck stock</a>.
+          </p>
+          <div className="mt-4 grid gap-6 lg:grid-cols-3">
+            <div className="rounded-md border border-steel-200 bg-canvas p-4">
+              <h3 className="font-medium">Receive</h3>
+              <p className="mt-1 text-xs text-ink-500">Stock arriving without a purchase order. An order is received on its own page.</p>
+              <ActionForm action={receiveStockAction} submit="Receive" className="mt-3 space-y-3">
+                <Select label="Part" name="itemId" options={itemOptions} />
+                <Select label="Into" name="locationId" options={placeOptions} />
+                <TextField label="Quantity" name="quantity" inputMode="decimal" />
+                <TextField label="What it all cost" name="totalCost" inputMode="decimal" required />
+                <TextArea label="Serial or lot numbers" name="units" rows={3} />
+              </ActionForm>
+            </div>
+            <div className="rounded-md border border-steel-200 bg-canvas p-4">
+              <h3 className="font-medium">Move between places</h3>
+              <p className="mt-1 text-xs text-ink-500">From the warehouse onto a truck, or truck to truck.</p>
+              <ActionForm action={transferStockAction} submit="Move" className="mt-3 space-y-3">
+                <Select label="Part" name="itemId" options={itemOptions} />
+                <Select label="From" name="fromLocationId" options={placeOptions} />
+                <Select label="To" name="toLocationId" options={placeOptions} />
+                <TextField label="Quantity" name="quantity" inputMode="decimal" />
+                <TextArea label="Serial or lot numbers" name="units" rows={3} />
+              </ActionForm>
+            </div>
+            <div className="rounded-md border border-steel-200 bg-canvas p-4">
+              <h3 className="font-medium">Use on a job</h3>
+              <p className="mt-1 text-xs text-ink-500">
+                A serialised unit installed at the job&apos;s address can be recorded as the customer&apos;s
+                equipment in the same go: give it a kind, like Condenser.
+              </p>
+              <ActionForm action={useOnJobAction} submit="Use on the job" className="mt-3 space-y-3">
+                <Select label="Part" name="itemId" options={itemOptions} />
+                <Select label="Taken from" name="locationId" options={placeOptions} />
+                <TextField label="Job number" name="jobNumber" inputMode="numeric" required />
+                <TextField label="Quantity" name="quantity" inputMode="decimal" />
+                <TextArea label="Serial or lot numbers" name="units" rows={2} />
+                <TextField label="Record as customer equipment, of the kind" name="installCategory" placeholder="Condenser" />
+                <div className="grid grid-cols-2 gap-2">
+                  <TextField label="Make" name="installManufacturer" />
+                  <TextField label="Model" name="installModel" />
+                </div>
+              </ActionForm>
+            </div>
+          </div>
+        </section>
       )}
 
       <h2 className="mt-8 text-base font-semibold">Spoken for</h2>
