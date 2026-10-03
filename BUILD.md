@@ -19,7 +19,7 @@
 | Domain logic | Access control, money, estimates, the ledger, the field operation model, recurrence, automation, inspection, labor, coverage, reporting |
 | API | Every declared route is served, over HTTP, at `/api/v1`. Booked-to-paid, the sell path, dispatch, field sync, properties, the price book, job editing, inventory, purchasing, time, reviews, forms, webhooks |
 | Web app | Dispatch board with a map beside it or instead of it, a technician's day, the customer portal (proposal, tracking, booking, invoice, deposit, and the customer's whole account at `/c/{token}`), and office screens for customers, projects (phases that wait for each other, a job per phase, draws raised as invoices, budget against actual), jobs (with cost against revenue on each job, for whoever may read both, and a job costing report beside the four margin reports; booked, assigned and completed from the office), invoices (raised, edited, issued, sent, voided, written off and credited, with credit notes that take money off one invoice's lines at the tax it charged or sit on the customer's account until used), customer statements over any period read from the ledger, printable and on the customer's own account link, and emailed as a link to it by hand or every month to each customer owing more than a set amount, payments (recorded, held, applied, refunded, and a card taken), estimates (options, a deposit, the approval link, and converting to a job), agreements, inventory, purchasing, the fleet (the register with who holds each thing, check out and in, meter readings, service due, and registration, inspection, insurance and calibration in the order to act on them), certifications (who holds what until when, whether the card was seen, what is due for renewal, suspend, revoke and reinstate, and the kinds that unlock skills), timesheets, payroll (pay periods, the register with a reason on every line and the people who cannot be paid named first, close and reopen, the CSV export and recording commissions paid), reports and dashboards (every number on either opening the records behind it, which add up to it, and any report emailed on a schedule with a CSV of every row), compliance (documents on file and when each runs out, the lapsed ones marked needed for work, renewals, and the filing calendar the trade pack declares), automations, reviews and the inbox (threads by customer, on the customer's page too, texting a customer first, and what each number has agreed to beside the conversation; the same conversations and consent are in the API at `/v1/conversations` and `/v1/consent`). Settings → Integrations connects, changes and disconnects every built integration (Stripe, QuickBooks, Xero, Twilio, JustCall, Resend, SMTP, CallRail, the AI models and the OpenStreetMap and Mapbox geocoders), shows each one's state and webhook address, and takes secret names rather than secrets |
-| Mobile | The technician's day runs as a web page on the phone they already have. The server takes photo and signature bytes, hash checked, deduplicated by content and served back at `/files/{key}`, and the phone page has no camera control to send any. The Expo app is not built, and the bytes are in Postgres rather than object storage |
+| Mobile | The Expo technician app in `apps/mobile`, against whatever server address the company types in: sign in with an email and password for a revocable device token, the day in route order from the phone's own SQLite even with no signal, on my way, arrived, working and done, the clock, notes, photos from the camera and a customer's signature sent through the hash checked upload path, a "waiting to send" line and problems in plain words, and sync after every tap, on a timer with backoff, when the signal returns and from the background task. Typechecked, unit tested and bundled for both platforms here; it has not been run on a device or simulator. The same day still runs as a web page at `/my-day`, which has no camera control. No push notifications, and the bytes are in Postgres rather than object storage. `apps/mobile/README.md` |
 | Worker | Built. `pnpm --filter @opentradesos/api worker` drains the event log, fires schedules, resumes waiting runs, sweeps for things that did not happen, puts a few addresses on the map for companies that connected a geocoder, sends scheduled reports and monthly statements once per occurrence, and then sends the outbox (texts and, now, email), webhooks and accounting sync. On a host with no long running processes the same pass runs from `POST /api/internal/worker/tick`. `docs/self-hosting/worker.md` |
 | Trade packs | 8 shipped: HVAC, plumbing, electrical, lawn and landscape, pest control, cleaning, dumpster rental, trash bin cleaning |
 | Migration | The importer is the separate migration toolkit, which loads through `/api/v1` with an app token; nothing here imports from Jobber or Housecall Pro. The API takes history faithfully: back-dated invoices, payments, refunds and completions posted on their own dates (never into a closed period), tax as charged, invoice adjustments with a to-the-cent totals cross check, unapplied money, source document numbers, cancelled and untimed visits, `externalRef` provenance on every create with lookup on every list, people and job type lists, and file attachments. History needs the owner-only `data:import` permission. An estimate's historical status is not yet accepted. `docs/modules/m30-migration-data-portability.md` |
@@ -205,16 +205,29 @@ was taken for, and serves it at `/files/{key}` scoped by the caller's own
 company rather than by the key. An upload that cannot be stored is counted and
 then abandoned with the error on the row, because a queue with no attempt count
 retries forever and a photograph nobody knew had failed is the worse outcome.
-This paragraph used to say those bytes had no upload path, which stopped being
-true at the server end and stayed written down. It is still true at the other
-end: `/my-day` has no camera control and the client queue carries operations
-rather than files, so the upload path is a server with nobody uploading to it.
-That is the right order to have built it in, because the half that has to be
-idempotent, hash checked and tenant scoped is the half that is hard to change
-later.
+The phone app is what uploads to it: a photograph or a signature is copied
+into the app's own storage, hashed, recorded as an operation, and its bytes
+sent once the server lists them as owed. `/my-day` in a browser still has no
+camera control.
 
-Not done, and named so nobody assumes otherwise: the Expo app, which adds
-background sync, reliable camera capture and a home screen icon; object storage,
+The Expo app is built in `apps/mobile`. It signs in against a server address
+the company types, with an email and password, for a device token that is a
+session underneath (so deactivating the person ends it) and is bound to the
+device it registered (so the office can take a lost phone away with
+`POST /v1/field/devices/{id}/revoke`). Everything it writes goes through the
+same queue the web page uses, kept in SQLite on the phone, and the sync it runs
+after every tap is the same function its background task runs. Building it
+found three faults in the shared queue and the sync route, all fixed: a
+request that got no answer was counted as a failed try, so a phone three
+minutes without signal stopped sending its day; two writes at once could take
+the same sequence number and one overwrote the other; and an operation held
+behind a gap was held for ever, including behind a number the phone had
+handed out and then lost in a crash. The app is typechecked, its logic is
+unit tested and it bundles for Android and iOS; nobody has run it on a device.
+
+Not done, and named so nobody assumes otherwise: running the app on a real
+phone, and a store listing; push notifications for a new or changed visit;
+object storage,
 because the bytes are columns in Postgres, which is correct for a self hoster
 with a few gigabytes of photographs and not for a company with a terabyte; the
 customer portal reading a job photograph, which needs a token path rather than

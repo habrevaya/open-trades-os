@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { FieldQueue, MemoryStorage, type Transport, type SyncResponse } from "../src/index";
+import {
+  FieldQueue, MemoryStorage, OfflineError, backoffDelayMs, type Transport, type SyncResponse,
+} from "../src/index";
 
 /**
  * The queue on a phone that keeps dying.
@@ -527,5 +529,192 @@ describe("a full offline day", () => {
 
     while ((await q.pending()).length > 0) await q.flush(ordered);
     expect(seen).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+});
+
+describe("two taps at once", () => {
+  it("gives each its own sequence rather than writing one over the other", async () => {
+    /**
+     * Storage is asynchronous, so two enqueues started together both read the
+     * same counter unless something orders them. The second would then be
+     * written under the first one's key, and a photo saved at the moment the
+     * status button was pressed would replace the status change.
+     */
+    const q = makeQueue();
+    const ops = await Promise.all([
+      q.enqueue({ kind: "visit.en_route", subjectId: "v1" }),
+      q.enqueue({ kind: "attachment.attach", subjectId: "v1", payload: { uploadId: "u1" } }),
+      q.enqueue({ kind: "visit.note", subjectId: "v1", payload: { text: "dog in yard" } }),
+    ]);
+
+    expect(ops.map((o) => o.sequence).sort()).toEqual([1, 2, 3]);
+    expect((await q.pending()).map((o) => o.kind)).toEqual([
+      "visit.en_route", "attachment.attach", "visit.note",
+    ]);
+  });
+
+  it("does not put back an operation the technician dismissed while it was being sent", async () => {
+    const q = makeQueue();
+    const op = await q.enqueue({ kind: "visit.note", payload: { text: "wrong job" } });
+
+    let release: () => void = () => {};
+    const slow: Transport = {
+      async send(input) {
+        await new Promise<void>((resolve) => { release = resolve; });
+        return {
+          results: input.operations.map((o) => ({
+            clientId: o.clientId, status: "rejected" as const, conflict: null,
+            rejection: "That visit is not here.", occurredAt: o.occurredAt, clamped: null,
+          })),
+          awaiting: [], snapshotRevision: 1,
+        };
+      },
+    };
+
+    const sending = q.flush(slow);
+    await new Promise((r) => setTimeout(r, 0));
+    await q.dismiss(op.clientId);
+    release();
+    await sending;
+
+    expect(await q.pending()).toHaveLength(0);
+  });
+});
+
+describe("no signal", () => {
+  it("is not counted against the operations, so a day offline does not give up", async () => {
+    /**
+     * The defect this replaced: a plain network error counted as an attempt,
+     * so five timer ticks without signal, two and a half minutes, put every
+     * operation past the limit and the queue stopped sending the day.
+     */
+    const q = makeQueue({ maxAttempts: 3 });
+    await q.enqueue({ kind: "visit.arrive", subjectId: "v1" });
+
+    const offline: Transport = { async send() { throw new OfflineError(); } };
+    for (let i = 0; i < 10; i++) await q.flush(offline);
+
+    const [op] = await q.pending();
+    expect(op!.attempts).toBe(0);
+    expect(await q.problems()).toHaveLength(0);
+    expect((await q.flush(applyAll())).applied).toBe(1);
+  });
+
+  it("recognises an offline error by its shape, from another copy of the package", async () => {
+    const q = makeQueue();
+    await q.enqueue({ kind: "visit.arrive", subjectId: "v1" });
+    const foreign = Object.assign(new Error("Network request failed"), { offline: true });
+    await q.flush({ async send() { throw foreign; } });
+    expect((await q.pending())[0]!.attempts).toBe(0);
+  });
+
+  it("still counts an answer that refused the whole batch", async () => {
+    const q = makeQueue();
+    await q.enqueue({ kind: "visit.arrive", subjectId: "v1" });
+    await q.flush(alwaysFails("This device has been revoked."));
+    expect((await q.pending())[0]!.attempts).toBe(1);
+  });
+});
+
+describe("waiting between tries", () => {
+  it("doubles from five seconds to a ceiling of fifteen minutes", () => {
+    const top = () => 1;
+    expect(backoffDelayMs(0, top)).toBe(0);
+    expect(backoffDelayMs(1, top)).toBe(5_000);
+    expect(backoffDelayMs(2, top)).toBe(10_000);
+    expect(backoffDelayMs(4, top)).toBe(40_000);
+    expect(backoffDelayMs(20, top)).toBe(15 * 60_000);
+    // The randomised half never takes it below half the ceiling.
+    expect(backoffDelayMs(3, () => 0)).toBe(10_000);
+  });
+
+  it("makes the timer wait after a failure and stops waiting after an answer", async () => {
+    let clock = at("2026-04-02T09:00:00Z");
+    const q = makeQueue({ now: () => clock, random: () => 1 });
+    await q.enqueue({ kind: "visit.arrive", subjectId: "v1" });
+    expect(await q.due()).toBe(true);
+
+    await q.flush({ async send() { throw new OfflineError(); } });
+    expect(await q.due()).toBe(false);
+    expect((await q.backoffUntil())!.toISOString()).toBe("2026-04-02T09:00:05.000Z");
+
+    await q.flush({ async send() { throw new OfflineError(); } });
+    expect((await q.backoffUntil())!.toISOString()).toBe("2026-04-02T09:00:10.000Z");
+
+    clock = at("2026-04-02T09:00:11Z");
+    expect(await q.due()).toBe(true);
+    await q.flush(applyAll());
+    expect(await q.backoffUntil()).toBeNull();
+  });
+
+  it("survives a restart, so a phone killed while offline does not hammer the server on launch", async () => {
+    const q = makeQueue({ random: () => 1 });
+    await q.enqueue({ kind: "visit.arrive", subjectId: "v1" });
+    await q.flush({ async send() { throw new OfflineError(); } });
+
+    const restarted = new FieldQueue({
+      storage: MemoryStorage.from(storage.snapshot()), deviceId: "device-1",
+      now: () => at("2026-04-02T09:00:01Z"),
+    });
+    expect(await restarted.due()).toBe(false);
+  });
+});
+
+describe("a conflict already recorded", () => {
+  it("is kept on the phone and not sent again", async () => {
+    const q = makeQueue();
+    const op = await q.enqueue({ kind: "visit.arrive", subjectId: "v1" });
+    await q.flush(respondWith([{
+      clientId: op.clientId, status: "conflicted",
+      conflict: "Recorded visit.arrive, but the visit was cancelled by the time it reached us.",
+      rejection: null, occurredAt: op.occurredAt, clamped: null,
+    }]));
+
+    let sent = 0;
+    await q.flush({ async send(input) { sent += input.operations.length; return { results: [], awaiting: [], snapshotRevision: 1 }; } });
+    expect(sent).toBe(0);
+    expect(await q.problems()).toHaveLength(1);
+  });
+});
+
+describe("a number the phone lost", () => {
+  it("declares a number the server waits for and the phone does not hold", async () => {
+    const q = makeQueue();
+    const first = await q.enqueue({ kind: "visit.note", payload: { text: "never sent" } });
+    await q.enqueue({ kind: "visit.note", payload: { text: "after it" } });
+    // Discarded before it ever got through, which leaves a hole at one.
+    await q.dismiss(first.clientId);
+
+    const seen: Array<number[] | undefined> = [];
+    const server: Transport = {
+      async send(input) {
+        seen.push(input.skipped);
+        const ok = input.skipped?.includes(1) ?? false;
+        return {
+          results: input.operations.map((o) => ({
+            clientId: o.clientId, status: ok ? "applied" as const : "held" as const,
+            conflict: null, rejection: null, occurredAt: o.occurredAt, clamped: null,
+          })),
+          awaiting: ok ? [] : [1],
+          snapshotRevision: 1,
+        };
+      },
+    };
+
+    const held = await q.flush(server);
+    expect(held).toMatchObject({ held: 1, skipping: 1 });
+    const applied = await q.flush(server);
+    expect(applied.applied).toBe(1);
+    expect(seen).toEqual([undefined, [1]]);
+  });
+
+  it("does not declare an operation it still holds, however stuck", async () => {
+    const q = makeQueue({ maxAttempts: 1 });
+    await q.enqueue({ kind: "visit.note" });
+    await q.flush(alwaysFails());
+    await q.enqueue({ kind: "visit.note" });
+
+    const result = await q.flush(respondWith([], [1]));
+    expect(result.skipping).toBe(0);
   });
 });

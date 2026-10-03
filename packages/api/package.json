@@ -18,7 +18,8 @@
     "./calendar": "./src/calendar/index.ts",
     "./call-tracking": "./src/call-tracking/index.ts",
     "./services/calendar": "./src/services/calendar.ts",
-    "./services/call-tracking": "./src/services/call-tracking.ts"
+    "./services/call-tracking": "./src/services/call-tracking.ts",
+    "./services/passwords": "./src/services/passwords.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -38,6 +39,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@opentradesos/field-client": "workspace:*",
     "@types/node": "^22.10.1",
     "@types/nodemailer": "^8.0.2",
     "postgres": "^3.4.5",

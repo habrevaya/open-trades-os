@@ -37,6 +37,12 @@ export interface ServiceContext {
    * trail names the grant instead.
    */
   portalGrantId?: string;
+  /**
+   * The SHA-256 of the phone app's device token, when that is what signed
+   * this request in. Registering a device reads it to bind the token to the
+   * device it came from, so revoking that device ends the sign in too.
+   */
+  deviceTokenHash?: string;
 }
 
 export interface RequestMeta {
@@ -105,6 +111,21 @@ export class OrganizationSuspendedError extends Error {
   constructor() {
     super("This account is suspended. Contact whoever provides your service.");
     this.name = "OrganizationSuspendedError";
+  }
+}
+
+/**
+ * A sign in that did not happen: the wrong password, a locked account, or an
+ * account with nothing for the app it signed in from.
+ *
+ * Its own class so the HTTP layer answers 401 rather than 409. A phone that
+ * reads 409 as "the office changed something" would show a sync conflict to
+ * somebody who mistyped their password.
+ */
+export class SignInRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SignInRefusedError";
   }
 }
 

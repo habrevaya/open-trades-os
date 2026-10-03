@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
+import { bindToken } from "./field-devices";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
 } from "../contracts/field";
@@ -53,6 +54,10 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
         updatedAt: new Date(),
       }).where(eq(schema.device.id, existing.id));
 
+      if (ctx.deviceTokenHash) {
+        await bindToken(tx, existing.id, existing.sessionTokenHash, ctx.deviceTokenHash);
+      }
+
       return { deviceId: existing.id, lastSequence: existing.lastSequence };
     }
 
@@ -66,6 +71,12 @@ export async function register(ctx: ServiceContext, input: z.infer<typeof regist
       osVersion: input.osVersion ?? null,
       pushToken: input.pushToken ?? null,
       lastSeenAt: new Date(),
+      /**
+       * The phone app's token, when that is what registered it, so revoking
+       * this device ends the sign in too. A browser registers with a cookie
+       * and leaves this empty.
+       */
+      sessionTokenHash: ctx.deviceTokenHash ?? null,
     }).returning();
 
     await audit(tx, ctx, "device.registered", "device", created!.id, null,
@@ -106,9 +117,28 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
         eq(schema.fieldOperation.organizationId, ctx.actor.organizationId),
         inArray(schema.fieldOperation.clientId, clientIds),
       ));
-    const alreadyApplied = new Map(seen.map((s) => [s.clientId, s]));
+    /**
+     * HELD IS NOT SETTLED.
+     *
+     * A held operation was recorded and not applied, because something before
+     * it was missing. It used to be treated like any other replay, reported
+     * as held again and never looked at, so once an operation was held it was
+     * held for ever, however many times the phone sent it after the gap was
+     * filled. Its row is replaced now and it is judged again with the rest of
+     * the batch: applied if its turn has come, held again if not.
+     */
+    const heldBefore = seen.filter((s) => s.status === "held").map((s) => s.clientId);
+    if (heldBefore.length > 0) {
+      await tx.delete(schema.fieldOperation).where(and(
+        eq(schema.fieldOperation.organizationId, ctx.actor.organizationId),
+        eq(schema.fieldOperation.status, "held"),
+        inArray(schema.fieldOperation.clientId, heldBefore),
+      ));
+    }
+    const alreadyApplied = new Map(seen.filter((s) => s.status !== "held").map((s) => [s.clientId, s]));
 
     const fresh = input.operations.filter((o) => !alreadyApplied.has(o.clientId));
+    const skipped = { [device.id]: (input.skipped ?? []).filter((n) => n > device.lastSequence) };
 
     /**
      * Clock resolution happens before ordering, because ordering across
@@ -141,7 +171,7 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
 
     const { applicable, held } = field.applicablePrefix(asOperations, {
       [device.id]: device.lastSequence,
-    });
+    }, skipped);
 
     const heldIds = new Set(held.map((h) => h.clientId));
     const byClientId = new Map(resolved.map((r) => [r.input.clientId, r]));
@@ -189,7 +219,7 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
       updatedAt: receivedAt,
     }).where(eq(schema.device.id, device.id));
 
-    const gaps = field.findSequenceGaps(asOperations, { [device.id]: device.lastSequence });
+    const gaps = field.findSequenceGaps(asOperations, { [device.id]: device.lastSequence }, skipped);
     const [snapshot] = await tx.select({ revision: schema.deviceSnapshot.revision })
       .from(schema.deviceSnapshot)
       .where(eq(schema.deviceSnapshot.deviceId, device.id))

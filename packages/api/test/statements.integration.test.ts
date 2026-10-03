@@ -31,7 +31,15 @@ const owner = (): ServiceContext => ({
   actor: { userId: USER, organizationId: ORG, roles: ["owner"] as Actor["roles"] }, db: db(),
 });
 
-/** UTC calendar arithmetic is enough here: the fixture company has no timezone set. */
+/**
+ * UTC calendar arithmetic, against a company pinned to UTC in `beforeAll`.
+ *
+ * The company's timezone decides what "today" is for the service, and an
+ * organization with none set falls back to a default that is not UTC. Left
+ * unpinned, this file failed every night between midnight UTC and the
+ * default zone's midnight, which is exactly the kind of failure that gets
+ * called flaky.
+ */
 const today = () => time.dateIn(new Date(), "UTC");
 const daysAgo = (n: number) => new Date(Date.parse(`${today()}T00:00:00Z`) - n * 864e5).toISOString().slice(0, 10);
 
@@ -47,6 +55,7 @@ beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Statement Co", slug: "statement-co" });
+  await raw`update public.organization set timezone = 'UTC' where id = ${ORG}`;
   const make = async (name: string, phone: string) => (await customers.create(owner(), {
     type: "residential", name, phone, paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {},
   })).id;

@@ -339,6 +339,50 @@ run("the connection coming and going", () => {
     expect(result.awaiting).toContain(base + 2);
   });
 
+  it("applies a held operation once the gap is filled, rather than holding it for ever", async () => {
+    /**
+     * The defect: a held operation was recorded as held and every later send
+     * of it was answered from that record, so nothing behind a gap was ever
+     * applied, even after the missing operation arrived.
+     */
+    const { visitId } = await makeVisit();
+    const device = await freshDevice();
+    const note = (sequence: number, clientId = uuid()) => ({
+      clientId, sequence, kind: "visit.note" as const, subjectId: visitId,
+      occurredAt: new Date().toISOString(), payload: { text: `op ${sequence}` },
+    });
+
+    const three = note(3);
+    const first = await fieldOps.sync(tech(), { deviceId: device, operations: [note(1), three] });
+    expect(first.results.find((r) => r.clientId === three.clientId)?.status).toBe("held");
+
+    const second = await fieldOps.sync(tech(), { deviceId: device, operations: [note(2), three] });
+    expect(second.results.find((r) => r.clientId === three.clientId)?.status).toBe("applied");
+
+    const rows = await raw<{ status: string }[]>`select status from public.field_operation
+      where client_id = ${three.clientId}`;
+    expect(rows.map((r) => r.status)).toEqual(["applied"]);
+    const [visit] = await raw<{ technician_notes: string }[]>`select technician_notes from public.visit where id = ${visitId}`;
+    expect(visit!.technician_notes).toBe("op 1\nop 2\nop 3");
+  });
+
+  it("applies what follows a sequence the device says it lost", async () => {
+    // The phone died between numbering operation 2 and writing it.
+    const { visitId } = await makeVisit();
+    const device = await freshDevice();
+    const ops = [1, 3].map((sequence) => ({
+      clientId: uuid(), sequence, kind: "visit.note" as const, subjectId: visitId,
+      occurredAt: new Date().toISOString(), payload: { text: `op ${sequence}` },
+    }));
+
+    const held = await fieldOps.sync(tech(), { deviceId: device, operations: ops });
+    expect(held.awaiting).toEqual([2]);
+
+    const declared = await fieldOps.sync(tech(), { deviceId: device, operations: [ops[1]!], skipped: [2] });
+    expect(declared.results[0]!.status).toBe("applied");
+    expect(declared.awaiting).toEqual([]);
+  });
+
   it("refuses a revoked device", async () => {
     const installationId = `install-${uuid()}`;
     const { deviceId: doomed } = await fieldOps.register(tech(), { installationId });

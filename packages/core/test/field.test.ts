@@ -207,6 +207,48 @@ describe("what can be applied now", () => {
   });
 });
 
+describe("a sequence the device lost", () => {
+  /**
+   * A phone that died between numbering an operation and writing it, or a
+   * technician who discarded one that never got through. Before a device
+   * could say so, everything after it was held for ever.
+   */
+  it("steps over a number the device says will never come", () => {
+    const ops = [op({ sequence: 1 }), op({ sequence: 3 }), op({ sequence: 4 })];
+    const { applicable, held } = applicablePrefix(ops, {}, { "phone-a": [2] });
+    expect(applicable.map((o) => o.sequence)).toEqual([1, 3, 4]);
+    expect(held).toHaveLength(0);
+  });
+
+  it("steps over several, including right after what was already applied", () => {
+    const ops = [op({ sequence: 8 })];
+    expect(applicablePrefix(ops, { "phone-a": 5 }, { "phone-a": [6, 7] }).applicable).toHaveLength(1);
+  });
+
+  it("still holds behind a gap the device did not declare", () => {
+    const ops = [op({ sequence: 1 }), op({ sequence: 4 })];
+    const { held } = applicablePrefix(ops, {}, { "phone-a": [2] });
+    expect(held.map((o) => o.sequence)).toEqual([4]);
+  });
+
+  it("only steps over the device that declared it", () => {
+    const ops = [op({ deviceId: "phone-b", sequence: 3 })];
+    expect(applicablePrefix(ops, {}, { "phone-a": [1, 2] }).held).toHaveLength(1);
+  });
+
+  it("applies the operation anyway if it turns up after all", () => {
+    // A late arrival is applied, which is what it is. Nothing is lost by a
+    // declaration that turned out to be wrong.
+    const ops = [op({ sequence: 2 })];
+    expect(applicablePrefix(ops, { "phone-a": 3 }, { "phone-a": [2] }).applicable).toHaveLength(1);
+  });
+
+  it("is not reported as missing", () => {
+    const ops = [op({ sequence: 1 }), op({ sequence: 4 })];
+    expect(findSequenceGaps(ops, {}, { "phone-a": [2] })).toEqual([{ deviceId: "phone-a", missing: [3] }]);
+  });
+});
+
 describe("applying against state that moved", () => {
   const now = at("2026-04-02T09:00:00Z");
 
