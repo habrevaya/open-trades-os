@@ -295,6 +295,10 @@ export const handlers = {
   deleteWebhookEndpoint: webhooks.handlers.deleteWebhookEndpoint,
   getWebhookPosition: webhooks.handlers.getWebhookPosition,
   listWebhookEvents: webhooks.handlers.listWebhookEvents,
+  listWebhookDeliveries: webhooks.handlers.listWebhookDeliveries,
+  listWebhookEventDeliveries: webhooks.handlers.listWebhookEventDeliveries,
+  replayWebhookDeliveries: webhooks.handlers.replayWebhookDeliveries,
+  listWebhookReplays: webhooks.handlers.listWebhookReplays,
 
   getPaymentsStatus: payments.handlers.getPaymentsStatus,
   createPaymentIntent: payments.handlers.createPaymentIntent,

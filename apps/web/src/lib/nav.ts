@@ -270,6 +270,13 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/apps", label: "Applications" },
           /**
+           * Where this company's events are sent, and what each receiver said
+           * back. Beside Applications because both are about other software,
+           * and apart from it because an application reads from here and a
+           * webhook is told.
+           */
+          { href: "/settings/webhooks", label: "Webhooks" },
+          /**
            * The group this company is in, and what it has agreed to let the
            * group's operator see. Under Settings because it is a standing
            * decision rather than something anybody opens weekly, and it is the
