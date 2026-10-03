@@ -969,4 +969,37 @@ export function postCommissionPayment(input: {
   });
 }
 
+/**
+ * PAYING OUT TIPS, the only thing that ever happens to them on the books.
+ *
+ * A tip is credited to `TIPS_PAYABLE` the moment it arrives with a payment
+ * (see `postPayment`), because it was never the company's money: it was
+ * handed to the company to pass on. Passing it on discharges that liability
+ * against cash and touches nothing else. No revenue on the way in and no
+ * expense on the way out, which is what keeps a tip heavy month from reading
+ * as a good month followed by a bad one.
+ *
+ * Without this posting a company that tips its technicians through payroll
+ * would carry every tip ever given as a liability for ever, and its balance
+ * sheet would say it still owed technicians money they were paid years ago.
+ */
+export function postTipPayout(input: {
+  payrollRunId: string;
+  occurredAt: Date;
+  amount: Money;
+}): Posting {
+  if (isNegative(input.amount)) {
+    throw new RangeError(`postTipPayout takes the amount paid out, and was given ${toString(input.amount)}.`);
+  }
+  return assertBalanced({
+    sourceType: "tip_payout",
+    sourceId: input.payrollRunId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.TIPS_PAYABLE, input.amount, "Tips paid to technicians"),
+      cr(ACCOUNTS.CASH, input.amount, "Cash out"),
+    ]),
+  });
+}
+
 export { toString as formatAmount, money as parseAmount, compare as compareAmount, isNegative };

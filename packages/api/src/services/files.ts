@@ -221,7 +221,43 @@ export async function attachmentsFor(
       sizeBytes: row.sizeBytes,
       phase: row.phase,
       createdAt: row.createdAt,
+      /** When somebody chose to show it on the customer's job link. Null is private. */
+      sharedWithCustomerAt: row.sharedWithCustomerAt,
     }));
+  });
+}
+
+/**
+ * Show one photograph to the customer, or stop showing it.
+ *
+ * The same permission as publishing a service report, for the reason that
+ * one gives: showing a customer what a technician recorded is a different
+ * decision from recording it. Only a photograph on a job or one of its
+ * visits, because that is the only place a customer's link can show one.
+ */
+export async function shareWithCustomer(
+  ctx: ServiceContext, input: { attachmentId: string; shared: boolean },
+) {
+  return guardedWrite(ctx, "servicereport:publish", async (tx) => {
+    const [row] = await tx.select().from(schema.attachment)
+      .where(and(
+        eq(schema.attachment.organizationId, ctx.actor.organizationId),
+        eq(schema.attachment.id, input.attachmentId),
+        isNull(schema.attachment.deletedAt),
+      )).limit(1);
+    if (!row) throw new NotFoundError("Photo");
+    if (row.kind !== "photo" || (row.entityType !== "job" && row.entityType !== "visit")) {
+      throw new ConflictError("Only a photograph on a job can be shown to the customer.");
+    }
+    const sharedAt = input.shared ? (row.sharedWithCustomerAt ?? new Date()) : null;
+    await tx.update(schema.attachment).set({
+      sharedWithCustomerAt: sharedAt,
+      sharedByUserId: input.shared && !isSystem(ctx.actor) ? ctx.actor.userId : null,
+      updatedAt: new Date(),
+    }).where(eq(schema.attachment.id, row.id));
+    await audit(tx, ctx, input.shared ? "attachment.shared" : "attachment.unshared", "attachment", row.id,
+      { sharedWithCustomerAt: row.sharedWithCustomerAt }, { sharedWithCustomerAt: sharedAt });
+    return { id: row.id, sharedWithCustomerAt: sharedAt?.toISOString() ?? null };
   });
 }
 
@@ -598,6 +634,9 @@ export const handlers = {
 
   getUploadStatus: (ctx: ServiceContext, input: { subjectType: string; subjectId: string }) =>
     outstandingFor(ctx, input),
+
+  shareAttachmentWithCustomer: (ctx: ServiceContext, input: { id: string; shared: boolean }) =>
+    shareWithCustomer(ctx, { attachmentId: input.id, shared: input.shared }),
 } as const;
 
 /**

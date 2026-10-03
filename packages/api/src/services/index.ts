@@ -113,3 +113,7 @@ export * as priceCategories from "./price-categories";
 export * as repricing from "./repricing";
 export * as taskRules from "./task-rules";
 export * as taskChecklist from "./task-checklist";
+export * as portalSignIn from "./portal-sign-in";
+export * as portalSettings from "./portal-settings";
+export * as savedCards from "./saved-cards";
+export * as tips from "./tips";

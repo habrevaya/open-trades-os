@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { requestVisitChange } from "./visit-change-actions";
+import { requestVisitChange, type VisitChangeResult } from "./visit-change-actions";
+
+/** What a page can hand in instead of a token: an action bound on the server that reads the sign in itself. */
+export type SendVisitChange = (input: {
+  visitId?: string | undefined;
+  kind: "reschedule" | "cancel";
+  requestedDate?: string | undefined;
+  arrivalWindowId?: string | undefined;
+  reason?: string | undefined;
+}) => Promise<VisitChangeResult>;
 
 interface Slot {
   date: string;
@@ -33,9 +42,12 @@ const longDay = (date: string) =>
  * is chosen for them, and nothing moves when they press the button: it asks.
  */
 export function VisitChangeForm({
-  token, visitId, slots, rescheduleBlockedBy, path, organizationName,
+  token, send, visitId, slots, rescheduleBlockedBy, path, organizationName,
 }: {
-  token: string;
+  /** The link's token, on a link page. */
+  token?: string;
+  /** On a signed in page, which has no token to hand the browser. */
+  send?: SendVisitChange;
   visitId?: string;
   slots: Slot[];
   rescheduleBlockedBy: string | null;
@@ -65,12 +77,15 @@ export function VisitChangeForm({
     setBusy(true);
     setError(null);
     const [date, windowId] = chosen.split("|");
-    const result = await requestVisitChange({
-      token, kind, path,
+    const asked = {
+      kind,
       ...(visitId ? { visitId } : {}),
       ...(kind === "reschedule" ? { requestedDate: date, arrivalWindowId: windowId } : {}),
       reason,
-    });
+    };
+    const result = send
+      ? await send(asked)
+      : await requestVisitChange({ ...asked, token: token ?? "", path });
     setBusy(false);
     if (result.ok) setSent(true);
     else setError(result.message);

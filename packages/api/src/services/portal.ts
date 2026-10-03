@@ -1,6 +1,6 @@
-import { and, asc, eq, desc, sql, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, branding as brand } from "@opentradesos/core";
+import { money as m, branding as brand, customerPortal as cp } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -15,6 +15,7 @@ import type {
   declinePortalEstimate, viewPortalJob, issuePortalGrant, revokePortalGrant,
 } from "../contracts/portal";
 import { portalBase } from "../lib/portal-base";
+import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 
 /**
  * THE CUSTOMER SIDE
@@ -500,7 +501,69 @@ export async function viewJob(
         detail: e.detail,
         occurredAt: e.occurredAt.toISOString(),
       })),
+      photos: (await photosOf(tx, grant.organizationId, jobId)).map((p) => ({
+        id: p.id, phase: p.phase, takenAt: p.createdAt.toISOString(),
+      })),
     };
+  });
+}
+
+/**
+ * THE PHOTOGRAPHS OF A JOB, AS THE CUSTOMER MAY SEE THEM.
+ *
+ * The token that already lets somebody see this job is what lets them see
+ * its photographs, and nothing else does: the same treatment the company's
+ * logo has, a token that grants sight of the record the file is on. The
+ * bytes are served by id through the job link (`/j/{token}/photos/{id}`),
+ * never by storage key, because a content addressed key is the same for
+ * anybody who has the same file and is not a capability.
+ *
+ * Only photographs (a signature is the customer's own and is not shown back
+ * as a picture), only the ones the company chose or all of them when it
+ * says so (`customerPortal.photoShown`), oldest first so a before and an
+ * after read in order.
+ */
+async function photosOf(tx: Database, organizationId: string, jobId: string) {
+  const settings = await portalSettingsWithin(tx, organizationId);
+  const visitIds = (await tx.select({ id: schema.visit.id }).from(schema.visit)
+    .where(eq(schema.visit.jobId, jobId))).map((v) => v.id);
+  const rows = await tx.select().from(schema.attachment)
+    .where(and(
+      isNull(schema.attachment.deletedAt),
+      visitIds.length > 0
+        ? or(
+          and(eq(schema.attachment.entityType, "job"), eq(schema.attachment.entityId, jobId)),
+          and(eq(schema.attachment.entityType, "visit"), inArray(schema.attachment.entityId, visitIds)),
+        )
+        : and(eq(schema.attachment.entityType, "job"), eq(schema.attachment.entityId, jobId)),
+    ))
+    .orderBy(asc(schema.attachment.createdAt));
+  return rows.filter((row) => row.contentType?.startsWith("image/")
+    && cp.photoShown(settings.jobPhotos, { kind: row.kind, sharedAt: row.sharedWithCustomerAt }));
+}
+
+/**
+ * The bytes of one photograph, through a job link.
+ *
+ * The photograph has to be on THIS link's job and shown to the customer,
+ * checked here rather than trusted from the id: an attachment id from
+ * another job, a private photograph and an id that does not exist all come
+ * back as nothing.
+ */
+export async function jobPhotoFor(
+  db: Database, token: string, attachmentId: string,
+): Promise<{ bytes: Buffer; contentType: string } | null> {
+  const grant = await peek(db, token);
+  const jobId = requireScope(grant, "job");
+  return inGrant(db, grant, async (tx) => {
+    const shown = await photosOf(tx, grant.organizationId, jobId);
+    const photo = shown.find((p) => p.id === attachmentId);
+    if (!photo) return null;
+    const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+      .from(schema.storedFile)
+      .where(and(eq(schema.storedFile.storageKey, photo.storageKey), isNull(schema.storedFile.deletedAt)))
+      .limit(1);
+    return file ?? null;
   });
 }
 
@@ -527,6 +590,8 @@ export async function mintGrant(tx: Database, input: {
   subjectId?: string | null | undefined;
   expiresInDays: number;
   maxUses?: number | null | undefined;
+  /** The code a customer signed in with, when this grant is their session rather than a link. */
+  signInId?: string | null | undefined;
 }): Promise<{ row: typeof schema.portalGrant.$inferSelect; token: string; url: string }> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + input.expiresInDays * 864e5);
@@ -539,6 +604,7 @@ export async function mintGrant(tx: Database, input: {
     tokenHash: hash(token),
     expiresAt,
     maxUses: input.maxUses ?? null,
+    signInId: input.signInId ?? null,
   }).returning();
 
   return { row: row!, token, url: `${portalBase()}/${pathFor(input.scope)}/${token}` };

@@ -8,6 +8,7 @@ import {
 } from "./context";
 import { policyFor } from "./labor";
 import { writePosting } from "./ledger";
+import * as tips from "./tips";
 
 /**
  * PAYROLL EXPORT
@@ -563,6 +564,64 @@ export async function payCommissions(ctx: ServiceContext, input: { periodId: str
   });
 }
 
+/* ------------------------------------------------------- passing tips on */
+
+/**
+ * PAY OUT THE TIPS, which discharges what was held for the technicians.
+ *
+ * The other half of `postPayment`'s tip leg: that credited Tips payable when
+ * the customer paid, and this debits it against cash when the money is passed
+ * on. Nothing is expensed, because a tip was never the company's to spend,
+ * and nothing is netted against anything: a commission reversal carried
+ * forward is not taken out of a tip (see `labor.buildStatement`).
+ *
+ * Everything owed that arrived before the end of the period, not only inside
+ * it, for the reason commissions are paid that way. Marked with the period
+ * that paid it, in the same transaction as the posting, so running this twice
+ * pays nothing twice.
+ */
+export async function payTips(ctx: ServiceContext, input: { periodId: string }) {
+  return guardedWrite(ctx, "payroll:export", async (tx) => {
+    const { period, bounds } = await loadPeriod(tx, ctx, input.periodId);
+    const close = await liveClose(tx, period.id);
+    if (!close) {
+      throw new ConflictError(
+        `${period.label} is not closed. Paying out of an open period pays an amount that can still change.`,
+      );
+    }
+
+    const owed = (await tips.unpaidBefore(tx, ctx.actor.organizationId, bounds.end))
+      .filter((person) => m.isPositive(person.amount));
+    const total = m.sum(owed.map((person) => person.amount), "USD");
+    const paidAt = new Date();
+    let transactionId: string | null = null;
+
+    if (m.isPositive(total)) {
+      transactionId = await writePosting(tx, ctx, ledger.postTipPayout({
+        payrollRunId: period.id,
+        occurredAt: paidAt,
+        amount: total,
+      }));
+      await tips.markPaid(tx, owed.flatMap((person) => person.ids), paidAt, period.id);
+      await audit(tx, ctx, "tips.paid", "pay_period", period.id, null, {
+        total: m.toString(total), people: owed.length, ledgerTransactionId: transactionId,
+      });
+    }
+
+    return {
+      periodId: period.id,
+      paidAt,
+      total: m.toString(total),
+      ledgerTransactionId: transactionId,
+      people: owed.map((person) => ({
+        technicianId: person.technicianId,
+        amount: m.toString(person.amount),
+        includesEarlierPeriods: person.earliest < bounds.start,
+      })),
+    };
+  });
+}
+
 /* ------------------------------------------------------------- internals */
 
 async function loadPeriod(tx: Database, ctx: ServiceContext, periodId: string) {
@@ -673,9 +732,23 @@ async function fingerprintOf(
       lt(schema.commissionEntry.occurredAt, bounds.end),
     ));
 
+  /**
+   * Tips too, because they are on the file. A tip arriving inside a closed
+   * period (a payment backdated into it) would otherwise change what the
+   * export says without the export noticing.
+   */
+  const tipped = await tx.select({ id: schema.tipShare.id, amount: schema.tipShare.amount })
+    .from(schema.tipShare)
+    .where(and(
+      eq(schema.tipShare.organizationId, organizationId),
+      gte(schema.tipShare.occurredAt, bounds.start),
+      lt(schema.tipShare.occurredAt, bounds.end),
+    ));
+
   const lines = [
     ...punches.map((row) => `t:${row.id}:${row.updatedAt.toISOString()}`),
     ...commissions.map((row) => `c:${row.id}:${row.amount}`),
+    ...tipped.map((row) => `p:${row.id}:${row.amount}`),
   ].sort();
 
   return createHash("sha256").update(lines.join("\n"), "utf8").digest("hex");
@@ -779,9 +852,26 @@ async function assemble(
     ))
     .orderBy(asc(schema.commissionEntry.occurredAt));
 
+  /** Tips that arrived inside the period, with the invoice they came with for the line's label. */
+  const tipRows = await tx.select({
+    share: schema.tipShare,
+    technicianName: schema.technician.displayName,
+    invoiceNumber: schema.invoice.number,
+  }).from(schema.tipShare)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.tipShare.technicianId))
+    .leftJoin(schema.invoice, eq(schema.invoice.id, schema.tipShare.invoiceId))
+    .where(and(
+      eq(schema.tipShare.organizationId, ctx.actor.organizationId),
+      gte(schema.tipShare.occurredAt, bounds.start),
+      lt(schema.tipShare.occurredAt, bounds.end),
+    ))
+    .orderBy(asc(schema.tipShare.occurredAt), asc(schema.tipShare.id));
+
   const names = new Map<string, string>();
   for (const row of punches) names.set(row.entry.technicianId, row.technicianName);
   for (const row of commissionRows) names.set(row.entry.technicianId, row.technicianName);
+  /** Somebody tipped and not on the clock this period is still somebody to pay. */
+  for (const row of tipRows) names.set(row.share.technicianId, row.technicianName);
 
   const rows: RegisterRow[] = [];
   const problems: Assembled["problems"] = [];
@@ -864,6 +954,15 @@ async function assemble(
       entries,
       commissions,
       clawbacks,
+      tips: tipRows
+        .filter((row) => row.share.technicianId === technicianId)
+        .map((row) => ({
+          tipId: row.share.id,
+          personId: technicianId,
+          amount: usd(row.share.amount),
+          label: row.invoiceNumber ? `Tip, invoice ${row.invoiceNumber}` : "Tip",
+          occurredAt: row.share.occurredAt,
+        })),
       currency: "USD",
       now,
     });
@@ -994,4 +1093,6 @@ export const handlers = {
 
   payCommissions: (ctx: ServiceContext, input: { periodId: string }) =>
     payCommissions(ctx, input),
+
+  payTips: (ctx: ServiceContext, input: { periodId: string }) => payTips(ctx, input),
 } as const;

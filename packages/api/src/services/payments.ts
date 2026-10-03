@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
+import { customerPortal as cp, money as m, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, inTenant,
   ConflictError, NotFoundError, type ServiceContext,
@@ -8,6 +8,8 @@ import {
 import * as billing from "./billing";
 import * as deposits from "./deposits";
 import { assertPeriodOpen } from "./history";
+import * as tips from "./tips";
+import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import {
   createPaymentProvider, PaymentProviderNotConfiguredError,
   type PaymentEvent, type PaymentProvider, type WebhookRequest,
@@ -186,6 +188,18 @@ async function providerFrom(
   return createPaymentProvider(connection.provider, connection.settings, key);
 }
 
+/**
+ * The company's connection and an adapter for it, for a service beside this
+ * one that talks to the same processor (saving a card). One way to reach the
+ * processor, so the secret is read the same way whoever is asking.
+ */
+export async function processorFor(
+  tx: Database, organizationId: string, deps: PaymentDeps = DEFAULT_DEPS,
+): Promise<{ connection: Connection; provider: PaymentProvider }> {
+  const connection = await connectionFor(tx, organizationId);
+  return { connection, provider: await providerFrom(connection, deps) };
+}
+
 /* ------------------------------------------------------------- the charge */
 
 export interface IntentInput {
@@ -211,6 +225,29 @@ export interface IntentInput {
    * webhook says it arrived: a liability, not a sale.
    */
   depositId?: string | undefined;
+  /**
+   * A tip for the technicians, on top of ONE invoice's balance, as the
+   * customer typed it. Checked here against the company's tip settings and
+   * the balance, split between the technicians on the invoice's job, and
+   * carried on the attempt until the money arrives. Only the portal passes
+   * it: the office takes tips the way it takes any other money.
+   */
+  tip?: string | undefined;
+  /**
+   * A card this customer saved, by our id for it. The charge is confirmed
+   * with it on the spot rather than handed to a payment form.
+   */
+  savedCardId?: string | undefined;
+}
+
+/** What the attempt remembers about a tip, for the moment the money arrives. */
+interface TipPlan {
+  tip: string;
+  invoiceId: string;
+  jobId: string | null;
+  technicianIds: string[];
+  /** The invoice part the tip was added to, so settlement pays the bill first. */
+  invoicePart: string;
 }
 
 /**
@@ -244,6 +281,11 @@ export async function intent(
      */
     let amount: string;
     const allocations: { invoiceId: string; amount: string }[] = [];
+    let tipPlan: TipPlan | null = null;
+
+    if (input.tip !== undefined && (input.depositId || !input.invoiceIds || input.invoiceIds.length !== 1)) {
+      throw new ConflictError("A tip goes with paying one invoice, and nothing else.");
+    }
 
     if (input.depositId) {
       if (input.invoiceIds && input.invoiceIds.length > 0) {
@@ -286,6 +328,34 @@ export async function intent(
         total = m.add(total, balance);
       }
       amount = m.toString(total);
+
+      if (input.tip !== undefined) {
+        const invoiceId = input.invoiceIds[0]!;
+        const settings = await portalSettingsWithin(tx, ctx.actor.organizationId);
+        const checked = cp.checkTip(input.tip, total, settings.tipping);
+        if (!checked.ok) throw new ConflictError(checked.reason);
+        if (m.isPositive(checked.tip)) {
+          const crew = await tips.techniciansFor(tx, invoiceId);
+          if (crew.technicians.length === 0) {
+            /**
+             * Refused before the card is charged rather than after: a tip
+             * with nobody to give it to would sit as money owed to nobody.
+             */
+            throw new ConflictError(
+              "Nobody is recorded as having done this work yet, so there is nobody to give a tip to. "
+              + "Pay the invoice without one.",
+            );
+          }
+          tipPlan = {
+            tip: m.toString(checked.tip),
+            invoiceId,
+            jobId: crew.jobId,
+            technicianIds: crew.technicians.map((t) => t.id),
+            invoicePart: amount,
+          };
+          amount = m.toString(cp.chargeFor(total, checked.tip));
+        }
+      }
     } else {
       if (!input.amount) {
         throw new ConflictError(
@@ -299,6 +369,38 @@ export async function intent(
     const minor = toMinor(amount);
     if (minor <= 0) {
       throw new ConflictError("A card payment has to be for more than nothing.");
+    }
+
+    /**
+     * A SAVED CARD BELONGS TO THE CUSTOMER BEING CHARGED, checked here
+     * whoever the caller is. A card id from another customer is the same
+     * not found as one that does not exist.
+     */
+    let saved: { customerRef: string; paymentMethodRef: string; id: string } | null = null;
+    if (input.savedCardId) {
+      const [card] = await tx.select({
+        id: schema.savedPaymentMethod.id,
+        paymentMethodRef: schema.savedPaymentMethod.externalRef,
+        customerRef: schema.paymentProfile.externalRef,
+        connectionId: schema.paymentProfile.connectionId,
+      })
+        .from(schema.savedPaymentMethod)
+        .innerJoin(schema.paymentProfile, eq(schema.paymentProfile.id, schema.savedPaymentMethod.profileId))
+        .where(and(
+          eq(schema.savedPaymentMethod.id, input.savedCardId),
+          eq(schema.savedPaymentMethod.customerId, input.customerId),
+          isNull(schema.savedPaymentMethod.removedAt),
+        )).limit(1);
+      if (!card) throw new NotFoundError("Saved card");
+      if (card.connectionId !== connection.id) {
+        /**
+         * Saved against a processor account this company has since
+         * replaced. The reference names a card in the old account, which
+         * the new key cannot charge.
+         */
+        throw new ConflictError("That card was saved before the company changed how it takes payments. Add it again.");
+      }
+      saved = { id: card.id, customerRef: card.customerRef, paymentMethodRef: card.paymentMethodRef };
     }
 
     /**
@@ -322,6 +424,8 @@ export async function intent(
       requestPayload: {
         amount, allocations, connectionId: connection.id,
         ...(input.depositId ? { depositId: input.depositId } : {}),
+        ...(tipPlan ? { tip: tipPlan } : {}),
+        ...(saved ? { savedCardId: saved.id } : {}),
       },
     }).returning();
 
@@ -338,6 +442,7 @@ export async function intent(
         [METADATA_ATTEMPT]: attempt!.id,
         [METADATA_ORG]: ctx.actor.organizationId,
       },
+      ...(saved ? { customerRef: saved.customerRef, paymentMethodRef: saved.paymentMethodRef } : {}),
     });
 
     if (!outcome.ok) {
@@ -362,6 +467,8 @@ export async function intent(
 
     await audit(tx, ctx, "payment.intent_created", "customer", input.customerId, null, {
       attemptId: attempt!.id, intentId: outcome.intent.intentId, amount,
+      ...(tipPlan ? { tip: tipPlan.tip } : {}),
+      ...(saved ? { savedCardId: saved.id } : {}),
     });
 
     return {
@@ -372,6 +479,9 @@ export async function intent(
       amount,
       currency: outcome.intent.currency,
       allocations,
+      /** What the processor said, which only matters for a saved card confirmed on the spot. */
+      status: outcome.intent.status,
+      tip: tipPlan?.tip ?? "0.0000",
     };
   });
 }
@@ -619,6 +729,7 @@ async function settle(
 
   const request = (attempt?.requestPayload ?? {}) as {
     amount?: string; allocations?: { invoiceId: string; amount: string }[]; depositId?: string;
+    tip?: TipPlan;
   };
 
   /**
@@ -667,20 +778,62 @@ async function settle(
    * first, which is the rule for money that arrives without instructions,
    * and that is exactly what this is.
    */
+  /**
+   * THE TIP COMES OUT OF WHAT ARRIVED, AFTER THE BILL.
+   *
+   * The charge was the balance plus the tip, and `payment.amount` is what
+   * goes on invoices while `payment.tip_amount` is held for the
+   * technicians, so the two are separated here. When less arrived than was
+   * asked, core pays the invoice first and the tip takes what is left: see
+   * `customerPortal.settleTip`.
+   */
+  const plan = request.tip ?? null;
+  let applied = amount;
+  let tip = m.zero("USD");
+  if (plan) {
+    const split = cp.settleTip({
+      reported: usd(amount), invoicePart: usd(plan.invoicePart), tip: usd(plan.tip),
+    });
+    applied = m.toString(split.applied);
+    tip = split.tip;
+  }
+
   const asked = (request.allocations ?? []).reduce(
     (total, one) => m.add(total, usd(one.amount)), m.money("0", "USD"),
   );
   const fits = request.allocations && request.allocations.length > 0
-    && m.compare(asked, usd(amount)) === 0;
+    && m.compare(asked, usd(applied)) === 0;
 
-  const result = await billing.pay(ctx, {
-    customerId,
-    method: "card",
-    amount,
-    tipAmount: "0",
-    ...(event.feeMinor !== null ? { feeAmount: fromMinor(event.feeMinor) } : {}),
-    ...(fits ? { allocations: request.allocations! } : {}),
-    ...(event.intentId ? { processorPaymentId: event.intentId } : {}),
+  /**
+   * The payment and the tip's shares in one transaction, so a tip is never
+   * on the books as owed without anybody it is owed to. `billing.pay` runs
+   * inside it as a nested transaction, which is how the rest of this layer
+   * puts one guarded write inside another.
+   */
+  const result = await inTenant(ctx, async (tx) => {
+    const paid = await billing.pay({ ...ctx, db: tx }, {
+      customerId,
+      method: "card",
+      amount: applied,
+      tipAmount: m.toString(tip),
+      ...(event.feeMinor !== null ? { feeAmount: fromMinor(event.feeMinor) } : {}),
+      ...(fits ? { allocations: request.allocations! } : {}),
+      ...(event.intentId ? { processorPaymentId: event.intentId } : {}),
+    });
+    if (plan && m.isPositive(tip)) {
+      const [row] = await tx.select({ receivedAt: schema.payment.receivedAt })
+        .from(schema.payment).where(eq(schema.payment.id, paid.id)).limit(1);
+      await tips.writeShares(tx, {
+        organizationId: connection.organizationId,
+        paymentId: paid.id,
+        invoiceId: plan.invoiceId,
+        jobId: plan.jobId,
+        tip,
+        technicianIds: plan.technicianIds,
+        occurredAt: row?.receivedAt ?? new Date(),
+      });
+    }
+    return paid;
   });
 
   await inTenant(ctx, async (tx) => {

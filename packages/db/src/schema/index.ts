@@ -28,3 +28,5 @@ export * from "./reviews";
 export * from "./ai";
 export * from "./assets";
 export * from "./delivery";
+export * from "./customer-portal";
+export * from "./tips";

@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 export interface AccountViewData {
   organizationName: string;
   customerName: string;
+  properties: { id: string; line1: string; line2: string | null; city: string; state: string; postalCode: string }[];
+  jobs: { id: string; number: number; summary: string; status: string; completedAt: string | null }[];
   visits: {
     id: string; jobNumber: number; summary: string; status: string;
     windowStart: string | null; windowEnd: string | null; technicianName: string | null;
@@ -10,6 +12,7 @@ export interface AccountViewData {
   invoices: {
     id: string; number: number; status: string; issuedOn: string | null; dueOn: string | null;
     currency: string; total: string; balance: string; payable: boolean;
+    tipping: { available: boolean; presets: { percent: number; amount: string }[]; for: string[] };
   }[];
   estimates: { id: string; number: number; title: string | null; status: string; sentAt: string | null }[];
   agreements: { id: string; planName: string; status: string; startedOn: string; endsOn: string | null }[];
@@ -43,6 +46,11 @@ const ESTIMATE: Record<string, string> = {
   declined: "Declined", expired: "Expired",
 };
 
+const JOB: Record<string, string> = {
+  scheduled: "Booked", in_progress: "Under way", on_hold: "On hold",
+  completed: "Done", invoiced: "Done", paid: "Done",
+};
+
 const AGREEMENT: Record<string, string> = {
   pending: "Starting", active: "Active", past_due: "Payment due", paused: "Paused",
   lapsed: "Lapsed", cancelled: "Cancelled", completed: "Finished",
@@ -64,7 +72,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * builds the card control for one invoice; it is a client component bound
  * to the token and the invoice on the server.
  */
-export function AccountView({ account, pay, returned = null, statementHref, changeHref }: {
+export function AccountView({
+  account, pay, returned = null, statementHref, changeHref, open, top, after,
+}: {
   account: AccountViewData;
   /** Where asking to move or cancel one coming visit opens, when the page offers it. */
   changeHref?: (visitId: string) => string;
@@ -73,6 +83,16 @@ export function AccountView({ account, pay, returned = null, statementHref, chan
   /** Stripe's redirect outcome, which is the browser's account and changes nothing. */
   returned?: string | null;
   pay: (invoice: AccountViewData["invoices"][number]) => ReactNode;
+  /**
+   * A control that opens one estimate, job or invoice on its own page. Only a
+   * signed in customer gets one: an account link must not hand out an
+   * approval link, so the link page leaves this out.
+   */
+  open?: (kind: "estimate" | "job" | "invoice", id: string, label: string) => ReactNode;
+  /** Above everything else, under the name: who is signed in, and signing out. */
+  top?: ReactNode;
+  /** After the history, before the closing line: saved cards, for a signed in customer. */
+  after?: ReactNode;
 }) {
   const now = Date.now();
   const upcoming = account.visits
@@ -93,6 +113,7 @@ export function AccountView({ account, pay, returned = null, statementHref, chan
             Your statement
           </a>
         )}
+        {top}
       </header>
 
       {(returned === "succeeded" || returned === "processing") && (
@@ -161,6 +182,27 @@ export function AccountView({ account, pay, returned = null, statementHref, chan
         )}
       </Section>
 
+      {account.jobs.length > 0 && (
+        <Section title="Your work">
+          <ul className="mt-3 space-y-2 text-sm">
+            {account.jobs.slice(0, 20).map((j) => (
+              <li key={j.id} className="flex items-start justify-between gap-4">
+                <span>
+                  {j.summary}
+                  <span className="block text-xs text-ink-500">
+                    Job #{j.number}{j.completedAt ? `, done ${day(j.completedAt)}` : ""}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right text-ink-700">
+                  {JOB[j.status] ?? "In progress"}
+                  {open ? <span className="block">{open("job", j.id, "Details and photos")}</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       {past.length > 0 && (
         <Section title="Visits">
           <ul className="mt-3 space-y-2 text-sm">
@@ -182,9 +224,10 @@ export function AccountView({ account, pay, returned = null, statementHref, chan
             {settled.map((i) => (
               <li key={i.id} className="flex justify-between gap-4">
                 <span>Invoice #{i.number}{i.issuedOn ? `, ${day(i.issuedOn)}` : ""}</span>
-                <span className="shrink-0 text-ink-700">
+                <span className="shrink-0 text-right text-ink-700">
                   <span className="font-mono tabular-nums">{money(i.total, i.currency)}</span>
                   {" · "}{INVOICE[i.status] ?? i.status}
+                  {open ? <span className="block">{open("invoice", i.id, "See invoice")}</span> : null}
                 </span>
               </li>
             ))}
@@ -198,7 +241,14 @@ export function AccountView({ account, pay, returned = null, statementHref, chan
             {account.estimates.map((e) => (
               <li key={e.id} className="flex justify-between gap-4">
                 <span>Estimate #{e.number}{e.title ? `, ${e.title}` : ""}</span>
-                <span className="shrink-0 text-ink-700">{ESTIMATE[e.status] ?? e.status}</span>
+                <span className="shrink-0 text-right text-ink-700">
+                  {ESTIMATE[e.status] ?? e.status}
+                  {open ? (
+                    <span className="block">
+                      {open("estimate", e.id, e.status === "sent" || e.status === "viewed" ? "Look and approve" : "See estimate")}
+                    </span>
+                  ) : null}
+                </span>
               </li>
             ))}
           </ul>
@@ -233,6 +283,21 @@ export function AccountView({ account, pay, returned = null, statementHref, chan
           </ul>
         </Section>
       )}
+
+      {account.properties.length > 0 && (
+        <Section title={account.properties.length === 1 ? "Your home" : "Your homes"}>
+          <ul className="mt-3 space-y-2 text-sm">
+            {account.properties.map((p) => (
+              <li key={p.id}>
+                {p.line1}{p.line2 ? `, ${p.line2}` : ""}
+                <span className="block text-ink-500">{p.city}, {p.state} {p.postalCode}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {after}
 
       <p className="text-center text-sm text-ink-700">
         Questions? Reply to the message that brought you here.

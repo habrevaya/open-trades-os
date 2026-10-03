@@ -447,6 +447,38 @@ export const payCommissions = defineRoute({
   }),
 });
 
+/**
+ * PASSING TIPS ON.
+ *
+ * A tip a customer added when they paid is held as Tips payable from the
+ * moment it arrives, split between the technicians on the job. It appears on
+ * the register and the export for the period it arrived in, as its own line,
+ * and this clears it: the liability is discharged against cash and nothing is
+ * expensed, because a tip was never the company's money to spend.
+ */
+export const payTips = defineRoute({
+  method: "post",
+  path: "/v1/payroll/tip-payments",
+  summary: "Clear the tips held for technicians against cash",
+  description:
+    "Every tip still owed that arrived before the end of the period, not only those inside it, so a tip from a fortnight nobody declared a period for is not owed for ever. The period has to be closed. Running it again pays nothing twice: a tip once paid is marked with the period that paid it.",
+  module: "M17",
+  permissions: ["payroll:export"],
+  idempotent: true,
+  input: z.object({ periodId: Uuid }),
+  output: z.object({
+    periodId: Uuid,
+    paidAt: z.string().datetime(),
+    total: MoneyString,
+    ledgerTransactionId: Uuid.nullable(),
+    people: z.array(z.object({
+      technicianId: Uuid,
+      amount: MoneyString,
+      includesEarlierPeriods: z.boolean(),
+    })),
+  }),
+});
+
 /* ------------------------------------------- a technician's own timeclock */
 
 export const getMyTimeclock = defineRoute({
@@ -486,6 +518,6 @@ export const payrollRoutes = {
   listCommissionBases, listCommissionPlans, declareCommissionPlan, deactivateCommissionPlan,
   settleCommission, reverseCommission, listCommissionEarnings,
   declarePayPeriod, listPayPeriods, closePayPeriod, reopenPayPeriod,
-  getPayrollRegister, exportPayPeriod, listPayrollExports, payCommissions,
+  getPayrollRegister, exportPayPeriod, listPayrollExports, payCommissions, payTips,
   getMyTimeclock,
 } as const;

@@ -12,6 +12,8 @@ import { startPaymentFor, type StartPayment } from "../../start-payment";
  * processor's signed webhook is the only thing that does, so a payment the
  * customer abandons halfway through leaves the balance exactly as it was.
  */
-export async function startPayment(token: string): Promise<StartPayment> {
-  return startPaymentFor((meta) => invoiceDelivery.startPayment(getDb(), { token }, meta));
+export async function startPayment(token: string, options?: { tip?: string }): Promise<StartPayment> {
+  return startPaymentFor((meta) => invoiceDelivery.startPayment(getDb(), {
+    token, ...(options?.tip ? { tip: options.tip } : {}),
+  }, meta));
 }

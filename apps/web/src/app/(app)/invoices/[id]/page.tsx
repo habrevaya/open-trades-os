@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
-  agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, NotFoundError,
+  agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
 } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
@@ -41,6 +41,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     invoiceDelivery.history(ctx, { invoiceId: id }).then((r) => r.deliveries),
   ]);
   const credited = (await creditNotes.list(ctx, { limit: 50, invoiceId: id })).data;
+  /** Tips that came with payments on this invoice, and the technicians they are held for. */
+  const tipped = (await tips.forInvoice(ctx, { invoiceId: id })).tips;
   const memberIds = invoice.lines.map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
   const plans = memberIds.length > 0 && can(user.actor, "customer:read")
     ? await agreements.planNamesFor(ctx, { agreementIds: memberIds })
@@ -170,6 +172,28 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         customerEmail={customer?.email ?? null}
         sentBefore={deliveries.length > 0}
       />
+
+      {tipped.length > 0 && (
+        <section aria-label="Tips">
+          <h2 className="mt-10 text-base font-semibold">Tips</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            Added by the customer when they paid. Not part of the invoice: held for the technicians and
+            paid out through payroll.
+          </p>
+          <Table label="Tips on this invoice" head={
+            <><Th>Paid</Th><Th>For</Th><Th>Passed on</Th><Th className="text-right">Tip</Th></>
+          }>
+            {tipped.flatMap((t) => t.shares.map((share) => (
+              <tr key={`${t.paymentId}-${share.technicianId}`}>
+                <Td>{formatIn(t.receivedAt, tz, { dateStyle: "medium" })}</Td>
+                <Td>{share.technicianName}</Td>
+                <Td className="text-ink-700">{share.paidAt ? formatIn(share.paidAt, tz, { dateStyle: "medium" }) : "Not yet"}</Td>
+                <Td className="text-right"><Money value={share.amount} /></Td>
+              </tr>
+            )))}
+          </Table>
+        </section>
+      )}
 
       {credited.length > 0 && (
         <section aria-label="Credit notes">
