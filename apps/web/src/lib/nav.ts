@@ -86,6 +86,8 @@ export const NAV: NavGroup[] = [
            * optimiser read, and that had no screen.
            */
           { href: "/schedule/technicians", label: "Technicians" },
+          /** The board's own answer for the day's open visits, explained, for a dispatcher to apply. */
+          { href: "/schedule/copilot", label: "Copilot" },
         ],
       },
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
@@ -152,7 +154,18 @@ export const NAV: NavGroup[] = [
           { href: "/contracts/external", label: "Work from other systems" },
         ],
       },
-      { href: "/inbox", label: "Inbox", permission: "message:read", icon: "inbox" },
+      {
+        href: "/inbox", label: "Inbox", permission: "message:read", icon: "inbox",
+        children: [
+          { href: "/inbox", label: "Conversations" },
+          /**
+           * What the intake agent drafted from texts, emails, calls and forms,
+           * each bookable with one click. Under the inbox because it is the
+           * inbox's messages, read.
+           */
+          { href: "/inbox/drafts", label: "Booking drafts" },
+        ],
+      },
     ],
   },
   {
@@ -178,6 +191,8 @@ export const NAV: NavGroup[] = [
            * those.
            */
           { href: "/invoices/statements", label: "Statements" },
+          /** Overdue reminders the collections agent drafted, to send, edit or set aside. */
+          { href: "/invoices/reminders", label: "Reminders" },
         ],
       },
       {
@@ -345,6 +360,12 @@ export const NAV: NavGroup[] = [
           { href: "/settings/custom-fields", label: "Custom fields" },
           { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
+          /**
+           * The agents that run on the model connected above: on or off, who
+           * each acts as, and the log of what they did. Beside Integrations,
+           * because the key it spends is set up there.
+           */
+          { href: "/settings/agents", label: "AI agents" },
           /**
            * How the company's own number answers: the menu, the groups of
            * phones it rings and who answers on which phone. Under Settings

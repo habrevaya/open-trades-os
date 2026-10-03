@@ -169,6 +169,9 @@ export async function run(
   const deps = options.deps ?? base.DEFAULT_AGENT_DEPS;
   const acting = await base.actingAs(db, organizationId, "intake", options.startedBy);
   if (!acting.ok) return { draft: null, reason: acting.reason };
+  if (!acting.settings.enabled) {
+    return { draft: null, reason: "The intake agent is off. An owner can turn it on under Settings, AI agents." };
+  }
   const { ctx } = acting;
 
   const now = (deps.now ?? (() => new Date()))();
@@ -408,6 +411,43 @@ async function apply(
   });
 }
 
+/**
+ * Book a request somebody made themselves, on the website or through the chat
+ * agent, into a job with its visit in the window they chose.
+ *
+ * The same two steps as booking a draft, after the request already exists:
+ * the office's confirmation (a no-op on a request already confirmed) and the
+ * visit (keyed on the request), so a retry finishes the booking and a chat's
+ * booking lands on the board the same way an intake draft's does.
+ */
+export async function bookRequest(ctx: ServiceContext, input: { id: string }) {
+  const found = await guardedRead(ctx, "booking:decide", async (tx) => {
+    const [request] = await tx.select().from(schema.bookingRequest)
+      .where(eq(schema.bookingRequest.id, input.id)).limit(1);
+    if (!request) throw new NotFoundError("Booking request");
+    const [window] = request.arrivalWindowId
+      ? await tx.select().from(schema.arrivalWindow).where(eq(schema.arrivalWindow.id, request.arrivalWindowId)).limit(1)
+      : [];
+    const [org] = await tx.select({ timezone: schema.organization.timezone }).from(schema.organization)
+      .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
+    return { request, window: window ?? null, timezone: org!.timezone };
+  });
+  if (found.request.status === "declined") throw new ConflictError("This request was declined, so there is nothing to book.");
+  const confirmed = await booking.confirm(ctx, { id: input.id });
+  let visitId: string | null = null;
+  if (found.window) {
+    const visit = await jobs.addVisit({ ...ctx, idempotencyKey: `booking-request:${input.id}:visit` }, {
+      id: confirmed.jobId,
+      windowStart: booking.windowStart(found.request.requestedDate, found.window.startsAt, found.timezone).toISOString(),
+      windowEnd: booking.windowStart(found.request.requestedDate, found.window.endsAt, found.timezone).toISOString(),
+      estimatedDurationMinutes: 60,
+      technicianIds: [],
+    });
+    visitId = visit.id;
+  }
+  return { bookingRequestId: input.id, customerId: confirmed.customerId, jobId: confirmed.jobId, visitId };
+}
+
 /* --------------------------------------------------------------- reading */
 
 export function drafts(ctx: ServiceContext, input: {
@@ -524,6 +564,7 @@ export const handlers = {
   createIntakeDraft: (ctx: ServiceContext, input: { sourceKind: SourceKind; sourceId: string; fresh?: boolean | undefined }) =>
     draftNow(ctx, input),
   approveIntakeDraft: (ctx: ServiceContext, input: ApproveInput) => approve(ctx, input),
+  bookBookingRequest: (ctx: ServiceContext, input: { id: string }) => bookRequest(ctx, input),
   dismissIntakeDraft: (ctx: ServiceContext, input: { id: string; reason?: string | undefined }) =>
     base.dismiss(ctx, "booking:decide", "intake", input),
 } as const;

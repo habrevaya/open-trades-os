@@ -9,6 +9,8 @@ export interface ThreadRow {
   lastMessagePreview: string | null;
   awaitingReply: boolean;
   unread: number;
+  /** `webchat` for a website chat, whose address is not a number anybody can ring. */
+  channel?: string;
 }
 
 /**
@@ -27,13 +29,15 @@ export function ThreadList({ threads, timezone }: { threads: ThreadRow[]; timezo
           >
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-medium">{thread.customerName ?? "Unknown number"}</span>
+                <span className="font-medium">
+                  {thread.customerName ?? (thread.channel === "webchat" ? "Website chat" : "Unknown number")}
+                </span>
                 {/*
                   The number when we do not know who it is. An inbound text
                   from a number matching no customer is a lead, and showing it
                   as "Unknown" with nothing else would make it unanswerable.
                 */}
-                {thread.customerName === null && (
+                {thread.customerName === null && thread.channel !== "webchat" && (
                   <span className="text-sm text-ink-500"><Phone value={thread.externalAddress} /></span>
                 )}
                 {thread.awaitingReply && <Chip tone="warning">Needs a reply</Chip>}

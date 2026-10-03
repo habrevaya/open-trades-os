@@ -142,7 +142,6 @@ async function inboundText(from: string, body: string): Promise<string> {
 }
 
 let serviceId = "";
-let windowId = "";
 
 beforeAll(async () => {
   if (!url) return;
@@ -161,10 +160,9 @@ beforeAll(async () => {
       min_notice_hours, max_advance_days, max_per_window)
     values (${ORG}, ${jt!.id}, 'Water heater repair', 149.0000, 0, 30, 5) returning id`;
   serviceId = svc!.id;
-  const [w] = await raw<{ id: string }[]>`
+  await raw`
     insert into public.arrival_window (organization_id, name, starts_at, ends_at, days_of_week)
-    values (${ORG}, 'Morning', '08:00', '12:00', ${[0, 1, 2, 3, 4, 5, 6]}) returning id`;
-  windowId = w!.id;
+    values (${ORG}, 'Morning', '08:00', '12:00', ${[0, 1, 2, 3, 4, 5, 6]})`;
   for (let d = 0; d < 7; d += 1) {
     await raw`insert into public.business_hours (organization_id, day_of_week, opens_at, closes_at)
               values (${ORG}, ${d}, '07:00', '18:00')`;
@@ -338,6 +336,7 @@ run("the intake agent", () => {
   });
 
   it("drafts on request as the person asking, and a repeat of the key is the same draft", async () => {
+    await configure("intake");
     const conversationId = await inboundText("+15125550106", "boiler making a banging noise, 3 Ash Ct Austin TX 78704");
     model.script = (request) => call("propose_booking", {
       contactName: "Sam", problemSummary: "Banging boiler.", urgency: "routine",
@@ -351,6 +350,13 @@ run("the intake agent", () => {
     expect(first.startedByUserId).toBe(OWNER);
     expect(model.requests.length).toBe(before + 1);
     await intake.handlers.dismissIntakeDraft(owner(), { id: first.id, reason: "Rang them instead." });
+    await configure("intake", { enabled: false });
+  });
+
+  it("will not read a thread for a person while the agent is off", async () => {
+    const conversationId = await inboundText("+15125550107", "fence fell over");
+    await expect(intake.draftNow(owner(), { sourceKind: "conversation", sourceId: conversationId }, deps()))
+      .rejects.toThrow(/intake agent is off/);
   });
 });
 
@@ -419,6 +425,15 @@ run("the chat agent on the website", () => {
     const [request] = await raw<{ status: string; contact_name: string }[]>`
       select status, contact_name from public.booking_request where organization_id = ${ORG} and contact_name = 'Robin Vale'`;
     expect(request).toEqual({ status: "pending", contact_name: "Robin Vale" });
+
+    // The office books it, and it lands on the board in the window the visitor chose.
+    const [pending] = await raw<{ id: string }[]>`
+      select id from public.booking_request where organization_id = ${ORG} and contact_name = 'Robin Vale'`;
+    const booked = await intake.bookRequest(owner(), { id: pending!.id });
+    const again = await intake.bookRequest(owner(), { id: pending!.id });
+    expect(again).toEqual(booked);
+    const [visit] = await raw<{ window_start: Date }[]>`select window_start from public.visit where id = ${booked.visitId}`;
+    expect(time.minutesInDay(visit!.window_start, ZONE)).toBe(8 * 60);
   });
 
   it("is one message and one answer when the visitor taps send twice", async () => {

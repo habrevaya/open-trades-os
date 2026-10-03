@@ -68,6 +68,15 @@ export async function enabledSince(tx: Database, organizationId: string, kind: a
   return typeof at === "string" && row?.settings["enabled"] === true ? new Date(at) : null;
 }
 
+/**
+ * Whether an agent is switched on, for a screen deciding whether to offer its
+ * button. Says nothing else, so it asks no permission beyond being a member;
+ * whatever the button does is guarded by its own service.
+ */
+export async function isOn(ctx: ServiceContext, kind: a.AgentKind): Promise<boolean> {
+  return inTenant(ctx, async (tx) => (await settingWithin(tx, ctx.actor.organizationId, kind)).enabled);
+}
+
 /** How many model calls this agent has made today, in the company's day. */
 async function runsToday(tx: Database, organizationId: string, kind: a.AgentKind, now: Date): Promise<number> {
   const timezone = await timezoneOf(tx, organizationId);

@@ -207,6 +207,19 @@ export const dismissIntakeDraft = defineRoute({
   output: Draft,
 });
 
+export const bookBookingRequest = defineRoute({
+  method: "post",
+  path: "/v1/ai/intake/requests/{id}/book",
+  summary: "Book a request the chat agent or the website took, with its visit",
+  description:
+    "Confirms the request into a customer, an address and a job the way the office confirms one, and puts a visit in the window the customer chose, so a booking taken in the website chat lands on the board like an intake draft. Safe to repeat.",
+  module: "M27",
+  permissions: ["booking:decide", "visit:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ bookingRequestId: Uuid, customerId: Uuid, jobId: Uuid, visitId: Uuid.nullable() }),
+});
+
 /* -------------------------------------------------------------- estimates */
 
 export const listEstimateDrafts = defineRoute({
@@ -431,7 +444,7 @@ export const readChat = defineRoute({
 
 export const agentRoutes = {
   listAgents, configureAgent, listAgentActivity,
-  listIntakeDrafts, createIntakeDraft, approveIntakeDraft, dismissIntakeDraft,
+  listIntakeDrafts, createIntakeDraft, approveIntakeDraft, dismissIntakeDraft, bookBookingRequest,
   listEstimateDrafts, createEstimateDraft, acceptEstimateDraft, dismissEstimateDraft,
   listCollectionReminders, runCollections, sendCollectionReminder, dismissCollectionReminder,
   listDispatchPlans, createDispatchPlan, applyDispatchPlan, dismissDispatchPlan,

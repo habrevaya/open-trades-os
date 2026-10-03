@@ -346,3 +346,25 @@ describe("settings", () => {
     expect(agents.actsAlone("dispatch", { ...agents.defaultSettings("dispatch"), enabled: true, mode: "auto" })).toBe(false);
   });
 });
+
+describe("the website chat widget", () => {
+  const source = agents.chatWidgetSource({ apiBase: "https://ops.example.com/api", companyKey: "ace" });
+
+  it("is a script that parses", () => {
+    expect(() => new Function(source)).not.toThrow();
+  });
+
+  it("says it is automated in its header, always", () => {
+    expect(source).toContain("Automated assistant. Ask for a person at any time.");
+  });
+
+  it("never writes anybody's words as markup on the company's page", () => {
+    expect(source).not.toMatch(/innerHTML|insertAdjacentHTML|document\.write/);
+    expect(source).toContain("attachShadow");
+  });
+
+  it("sends the chat's token in a body, never in an address", () => {
+    expect(source).not.toMatch(/[?&]token=/);
+    expect(source).toContain("/v1/public/chat/transcript");
+  });
+});
