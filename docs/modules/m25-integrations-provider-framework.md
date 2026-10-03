@@ -154,6 +154,16 @@ build rather than quietly misleading whoever reads it next.
 **Can I write my own adapter?** Yes, against the capability seam. That is the point
 of there being a seam rather than a vendor specific path.
 
+**What does an accounting adapter have to do?** Push a customer, an invoice, a
+payment with its allocations, a credit for a void or write off, a refund, and a
+credit note, apply a credit note to an invoice, find any of those again by the key
+written on it after a lost response, read a change feed from an opaque resume point,
+and list the chart of accounts. Applying a credit note has a finder of its own,
+because not every book can search an application by a key: a Xero allocation carries
+no reference, so its adapter reads the credit note and matches the invoice, amount
+and date. Taking a credit note back is not a method: the sync sends it as an invoice
+and an application, which every adapter already supports.
+
 ## What is not built
 
 Ten catalogue entries are declared and have no adapter, and the catalogue names each

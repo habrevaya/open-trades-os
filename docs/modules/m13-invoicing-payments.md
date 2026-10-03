@@ -132,6 +132,10 @@ be credited for more than it charged, counting every earlier credit and draft, a
 goodwill needs a note. `/invoices/credit-notes` lists every one, with what is still
 unused.
 
+A company syncing its books gets each credit note there too: the credit note itself,
+each use of it on an invoice on the day it was used, and a void as an invoice
+reversing it on the day of the void. M14 says how each lands in QuickBooks and Xero.
+
 ### Statements
 
 **Statement** on a customer's page shows what they owed at the start of a period,
@@ -244,8 +248,6 @@ hold one for.
 A credit note cannot be paid out as money: an unused credit is used on a later
 invoice, or a refund is recorded against a payment. A credit note that has been used
 cannot be voided; the invoice it settled has to be dealt with on its own.
-Credit notes do not reach QuickBooks or Xero yet, so a company syncing its books
-raises the matching credit memo there by hand.
 A statement is emailed as a link; there is no PDF of it attached, and it is not sent
 by text. The monthly run covers the calendar month before and nothing else, and it
 emails nothing until an email provider is connected. Tipping is not built. Tax rate determination is deliberately not

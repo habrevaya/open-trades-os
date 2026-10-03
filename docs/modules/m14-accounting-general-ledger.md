@@ -81,6 +81,23 @@ Accounts Receivable, and to Xero as an invoice for the amount plus Spend Money
 through the mapped customer deposits account, because Xero's receivable is a
 system account nothing else may touch.
 
+**A credit note becomes four kinds of document, each waiting for the one before.**
+Issued, it goes as a QuickBooks CreditMemo or a Xero ACCRECCREDIT credit note, with
+its own lines on the revenue account the ledger debited when it was issued and its
+tax on the mapped tax account, exactly as an invoice's lines are mapped. Each time it
+is used on an invoice, that application goes on its own date once both documents are
+over there: in QuickBooks as a zero payment linking the invoice and the credit memo,
+in Xero as an Allocation on the credit note. A void goes as an invoice for the same
+lines dated the day of the void, settled against the credit note the same way, rather
+than as either book's own void: QuickBooks' API offers no void for a credit memo, only
+a delete, and Xero's void takes the credit out of the period it was issued in, which
+may be closed. A credit note voided before it reached the books never goes. Each is
+dated by its own act for the close (issue, application, void), offered a bounded
+number of times, refused by name when an account is unmapped, and found again after a
+lost response: by its number, or for a Xero allocation by reading the credit note and
+matching the invoice, amount and date. A write off sent after a credit note was used
+on the invoice credits only what was left owing.
+
 ## Setup
 
 QuickBooks Online or Xero is connected at `/settings/integrations`.
@@ -88,6 +105,12 @@ QuickBooks Online or Xero is connected at `/settings/integrations`.
 `PUT /v1/accounting/mappings` says which of this product's categories lands in
 which account. Nothing syncs until the mappings it needs exist, because a default
 is worse than a refusal.
+
+In QuickBooks, turn off **Automatically apply credits** (Account and settings,
+Advanced). With it on, QuickBooks applies a new credit memo to the customer's
+oldest open invoice by itself, which may not be the invoice it was used on here,
+and the application sent afterwards is then refused with QuickBooks' own reason
+and shows on the problems list.
 
 ## Using it
 
@@ -162,7 +185,10 @@ open.
 ## What is not built
 
 No manual journal entry, as above. No branch dimension on a posting. A refund sent
-to the accounting system is not watched for deletion over there. There is no
+to the accounting system is not watched for deletion over there, and neither is a
+credit note application. A credit note used on an invoice raised to a different
+customer it pays for goes to QuickBooks under the credit note's customer and is
+refused there, because a QuickBooks payment cannot link two customers' documents. There is no
 reconciliation screen against a bank feed, and no fixed asset or depreciation
 handling: a company that needs those does them in the accounting system, which is
 where they belong.
