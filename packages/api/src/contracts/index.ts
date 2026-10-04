@@ -7,6 +7,7 @@ import { estimateRoutes } from "./estimates";
 import { portalRoutes } from "./portal";
 import { bookingRoutes } from "./booking";
 import { fieldRoutes } from "./field";
+import { fieldSalesRoutes } from "./field-sales";
 import { telephonyRoutes } from "./telephony";
 import { inventoryRoutes } from "./inventory";
 import { laborRoutes } from "./labor";
@@ -98,6 +99,7 @@ export * from "./estimates";
 export * from "./portal";
 export * from "./booking";
 export * from "./field";
+export * from "./field-sales";
 export * from "./telephony";
 export * from "./inventory";
 export * from "./labor";
@@ -198,6 +200,7 @@ export const routes = {
   ...portalRoutes,
   ...bookingRoutes,
   ...fieldRoutes,
+  ...fieldSalesRoutes,
   ...telephonyRoutes,
   ...inventoryRoutes,
   ...laborRoutes,

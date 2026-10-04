@@ -289,6 +289,8 @@ export const signatureSubject = pgEnum("signature_subject", [
   "estimate", "service_report", "agreement", "authorization",
   /** A change order on a project, signed through its link or recorded by the office. */
   "change_order",
+  /** An invoice the customer signed for on the technician's phone, at the end of the visit. */
+  "invoice",
 ]);
 
 export const documentSignature = pgTable("document_signature", {
@@ -301,6 +303,13 @@ export const documentSignature = pgTable("document_signature", {
   signerPhone: text("signer_phone"),
   /** Vector or raster capture, stored as a document reference. */
   imageUrl: text("image_url"),
+  /**
+   * The drawn signature taken on a technician's phone, by the id the phone
+   * gave it. The image travels the way every photograph from the field does,
+   * behind the record and hash checked, and is found by this id in
+   * `field_upload` once it lands. Null for a signature made anywhere else.
+   */
+  uploadId: text("upload_id"),
   /** SHA-256 of the rendered document at the moment of signing. */
   documentHash: text("document_hash").notNull(),
   /** Which option the signature covers, where the subject offered a choice. */

@@ -147,6 +147,15 @@ employer keeping part of one is what US federal law forbids. A tip arriving
 inside a period after it closed moves the period's fingerprint, so the export
 refuses until it is reopened and closed again.
 
+A tip taken with cash or a check on site (M11) is the same: held, split and
+paid through payroll. A cash tip a customer hands the technician for
+themselves, which they keep, is different: it never reaches the company and
+nothing about it is booked, but it is still pay that has to be reported, so
+the technician records it on the phone and it is a `cash_tip` line on their
+register and export, in the gross, said to be already in their hand. The
+bureau reading that category withholds on it and pays none of it out, and
+paying tips through payroll leaves it alone.
+
 `POST /v1/payroll/tip-payments` records the tips as passed on, from a closed
 period, everything owed up to its end; it debits Tips payable against cash and
 marks each share with the period that paid it, so running it twice pays nothing
@@ -234,9 +243,10 @@ No payroll processing, by design. A wage scale's own overtime multipliers and
 apprentice ratio are taken by the API and not offered on the pay rules screen,
 which loads a scale's classification, rates, authority, reference, jurisdiction
 and start date; and a scale cannot be corrected in place: a wrong one is retired and the right one
-loaded. Tips given through the portal are paid through payroll; a cash tip
-handed to a technician at the door is not recorded anywhere, and a tip is
-split evenly with no way to split it otherwise. Reimbursements and per diem
+loaded. Tips given through the portal or with a payment on site are paid through
+payroll; a cash tip a technician kept is recorded only by the technician, on
+the phone or on `/my-day`, and nobody in the office can record or change one
+for them. A tip is split evenly with no way to split it otherwise. Reimbursements and per diem
 are not modelled. Certified payroll reporting is not built. Commission
 splits across several people are computed by core and settled one earning at a
 time rather than from a screen.

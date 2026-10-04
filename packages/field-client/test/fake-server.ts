@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { field } from "@opentradesos/core";
 import {
-  OfflineError, SignedOutError,
+  OfflineError, SignedOutError, estimateFromPayload,
   type FieldSnapshot, type FieldVisit, type StoreUploadResult, type SyncResponse, type Transport,
   type UploadTransport,
 } from "../src/index";
@@ -115,6 +115,33 @@ export class FakeServer {
   }
 
   private effect(op: field.FieldOperation, visit: FieldVisit | undefined): void {
+    /**
+     * Selling on site, as the server keeps it: the estimate on the visit's
+     * day with the phone's ids, the customer's decision, the invoice raised.
+     * Enough for the phone's view to be checked against what comes back.
+     */
+    const onVisit = typeof op.payload["visitId"] === "string" ? this.visits.get(op.payload["visitId"]) : undefined;
+    if (op.kind === "estimate.create" && onVisit) {
+      onVisit.estimates = [...(onVisit.estimates ?? []), {
+        ...estimateFromPayload(op.subjectId, op.payload, onVisit.member), number: 2001, jobId: onVisit.jobId,
+      }];
+      this.revision += 1;
+    }
+    if (op.kind === "estimate.approve" && onVisit) {
+      const estimate = onVisit.estimates?.find((e) => e.id === op.subjectId);
+      if (estimate) {
+        estimate.status = "approved";
+        estimate.selectedOptionId = String(op.payload["optionId"]);
+        estimate.signerName = String(op.payload["signerName"] ?? "");
+      }
+      this.revision += 1;
+    }
+    if (op.kind === "invoice.raise" && onVisit) {
+      const total = String(op.payload["shownTotal"]);
+      onVisit.invoices = [...(onVisit.invoices ?? []), { id: op.subjectId, number: 3001, status: "open", total, balance: total }];
+      onVisit.amountDue = total;
+      this.revision += 1;
+    }
     if (op.kind === "timeclock.punch_in") this.openSince = op.occurredAt.toISOString();
     if (op.kind === "timeclock.punch_out") this.openSince = null;
     if (op.kind === "attachment.attach" || op.kind === "signature.capture") {

@@ -3,7 +3,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
-  claims as claimService, entitlements, financing, customFields,
+  claims as claimService, entitlements, financing, customFields, fieldSales,
 } from "@opentradesos/api/services";
 import { can, claims, rates } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
@@ -47,6 +47,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const credited = (await creditNotes.list(ctx, { limit: 50, invoiceId: id })).data;
   /** Tips that came with payments on this invoice, and the technicians they are held for. */
   const tipped = (await tips.forInvoice(ctx, { invoiceId: id })).tips;
+  /** The customer's signature, when they signed for it on the technician's phone. */
+  const signed = await fieldSales.signatureOn(ctx, { subject: "invoice", subjectId: id });
   /** A bank payment on its way, or one the bank refused this month, so nobody chases or charges twice. */
   const bank = can(user.actor, "payment:read")
     ? (await payments.bankPayments(ctx, { invoiceId: id })).bankPayments
@@ -113,6 +115,16 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <Fact label="Credited">{zero(invoice.amountCredited ?? "0") ? null : <Money value={invoice.amountCredited ?? "0"} />}</Fact>
         <Fact label="Balance"><Money value={invoice.balance} /></Fact>
         <Fact label="Note">{invoice.memo}</Fact>
+        <Fact label="Signed for">
+          {signed ? (
+            <>
+              {signed.signerName}, {formatIn(signed.signedAt, tz)}{signed.onSite ? ", on the technician's phone" : ""}
+              {signed.imageKey
+                ? <> (<a href={`/files/${signed.imageKey}`} className="text-blue-600 underline underline-offset-4">signature</a>)</>
+                : signed.onSite ? " (the drawn signature has not arrived yet)" : null}
+            </>
+          ) : null}
+        </Fact>
       </Facts>
 
       <Table head={

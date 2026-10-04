@@ -1,6 +1,9 @@
 import type { QueuedOperation } from "./queue";
 import type { UploadRecord } from "./uploads";
-import type { FieldSnapshot, FieldVisit, ReportField } from "./wire";
+import type {
+  BillableLine, FieldEstimate, FieldInvoice, FieldSnapshot, FieldTask, FieldVisit, MemberTerms, ReportField,
+} from "./wire";
+import { addAmounts, estimateFromPayload } from "./sales";
 
 /**
  * THE DAY AS THE TECHNICIAN SHOULD SEE IT
@@ -133,6 +136,38 @@ export interface DayPayment {
   method: "cash" | "check";
   amount: string;
   checkNumber: string | null;
+  /** The tip handed over with it, for the crew. Null when there was none. */
+  tip: string | null;
+  waiting: boolean;
+}
+
+/** An estimate on the visit, from the server or built on this phone, with what the customer decided laid over it. */
+export interface DayEstimate extends FieldEstimate {
+  /** Built, approved or declined on this phone and not sent yet. */
+  waiting: boolean;
+}
+
+/** An invoice on the job, from the server or raised on this phone. */
+export interface DayInvoice extends FieldInvoice {
+  waiting: boolean;
+}
+
+/** A part or charge still to bill, from the server or recorded on this phone. */
+export interface DayBillable extends BillableLine {
+  waiting: boolean;
+}
+
+/** A cash tip the technician recorded as kept. */
+export interface DayCashTip {
+  clientId: string;
+  amount: string;
+  waiting: boolean;
+}
+
+/** A task from the office queue, with what this phone did to it laid over. */
+export interface DayTask extends FieldTask {
+  /** Finished on this phone; it leaves the list once the server has it. */
+  done: boolean;
   waiting: boolean;
 }
 
@@ -144,8 +179,14 @@ export interface DayInspection {
   waiting: boolean;
 }
 
-export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections"> {
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "estimates" | "billable" | "invoices"> {
   checklist: DayChecklistItem[];
+  /** The plan the customer is a member on here, which prices what the phone shows. */
+  member: MemberTerms | null;
+  estimates: DayEstimate[];
+  billable: DayBillable[];
+  invoices: DayInvoice[];
+  cashTips: DayCashTip[];
   report: { id: string | null; submitted: boolean; submitWaiting: boolean; fields: DayReportField[] };
   parts: DayPart[];
   /** Cash and checks recorded on this phone since the day was last fetched. */
@@ -169,6 +210,8 @@ export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "par
 export interface DayView {
   visits: DayVisit[];
   clock: { open: boolean; since: string | null; waiting: boolean };
+  /** The office queue: this person's tasks and the ones nobody has taken. */
+  tasks: DayTask[];
 }
 
 /**
@@ -203,6 +246,11 @@ export function projectDay(input: {
       },
       parts: (visit.parts ?? []).map((part) => ({ ...part, waiting: false })),
       amountDue: visit.amountDue ?? null,
+      member: visit.member ?? null,
+      estimates: (visit.estimates ?? []).map((e) => ({ ...e, waiting: false })),
+      billable: (visit.billable ?? []).map((b) => ({ ...b, waiting: false })),
+      invoices: (visit.invoices ?? []).map((i) => ({ ...i, waiting: false })),
+      cashTips: [],
       payments: [],
       inspections: (visit.inspections ?? []).map((i) => ({
         id: i.id, programName: i.programName, result: i.result, waiting: false,
@@ -217,6 +265,7 @@ export function projectDay(input: {
 
   const open = input.snapshot?.openTimeEntry ?? null;
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
+  const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({ ...t, done: false, waiting: false }));
 
   const landed = new Set((input.applied ?? []).map((op) => op.clientId));
   const ordered = [...(input.applied ?? []), ...input.operations]
@@ -235,6 +284,19 @@ export function projectDay(input: {
       clock.open = false;
       clock.since = null;
       clock.waiting = waiting;
+      continue;
+    }
+    if (op.kind === "task.claim" || op.kind === "task.close") {
+      const task = tasks.find((t) => t.id === op.subjectId);
+      if (!task) continue;
+      if (op.kind === "task.claim") {
+        task.mine = true;
+        task.status = "in_progress";
+      } else {
+        task.done = true;
+        task.status = "done";
+      }
+      task.waiting = waiting;
       continue;
     }
 
@@ -266,6 +328,7 @@ export function projectDay(input: {
   return {
     visits: [...visits.values()].sort(byRoute),
     clock,
+    tasks,
   };
 }
 
@@ -276,10 +339,13 @@ export function projectDay(input: {
  */
 export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payload">): string | undefined {
   if (op.kind === "service_report.set_field" || op.kind === "service_report.submit"
-    || op.kind === "inspection.record") {
+    || op.kind === "inspection.record" || op.kind === "estimate.create" || op.kind === "estimate.approve"
+    || op.kind === "estimate.decline" || op.kind === "invoice.raise") {
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }
+  /** A task is the office's, not a visit's. */
+  if (op.kind === "task.claim" || op.kind === "task.close") return undefined;
   return op.subjectId;
 }
 
@@ -323,14 +389,33 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
       visit.report.submitted = true;
       visit.report.submitWaiting = waiting;
       return;
-    case "visit.add_line":
+    case "visit.add_line": {
+      const lineId = typeof p["lineId"] === "string" ? p["lineId"] : null;
       visit.parts.push({
-        id: op.clientId,
+        id: lineId ?? op.clientId,
         name: typeof p["name"] === "string" ? p["name"] : "Part",
         quantity: typeof p["quantity"] === "string" ? p["quantity"] : "1",
         waiting,
       });
+      /**
+       * Still to bill, so an invoice raised on this phone before it has a
+       * signal can name it. Only with the phone's own line id, which the
+       * server keeps.
+       */
+      if (lineId && p["nonBillableReason"] === undefined && !visit.billable.some((b) => b.id === lineId)) {
+        visit.billable.push({
+          id: lineId,
+          name: typeof p["name"] === "string" ? p["name"] : "Part",
+          quantity: typeof p["quantity"] === "string" ? p["quantity"] : "1",
+          unitPrice: typeof p["unitPrice"] === "string" ? p["unitPrice"] : "0",
+          taxable: p["taxable"] !== false,
+          itemKind: typeof p["itemKind"] === "string" ? p["itemKind"] : null,
+          feeRole: typeof p["feeRole"] === "string" ? p["feeRole"] : null,
+          waiting,
+        });
+      }
       return;
+    }
     case "payment.collect":
       if (p["method"] !== "cash" && p["method"] !== "check") return;
       visit.payments.push({
@@ -338,6 +423,54 @@ function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
         method: p["method"],
         amount: typeof p["amount"] === "string" ? p["amount"] : "0",
         checkNumber: typeof p["checkNumber"] === "string" ? p["checkNumber"] : null,
+        tip: typeof p["tipAmount"] === "string" ? p["tipAmount"] : null,
+        waiting,
+      });
+      return;
+    case "estimate.create": {
+      if (!op.subjectId || visit.estimates.some((e) => e.id === op.subjectId)) return;
+      visit.estimates.unshift({ ...estimateFromPayload(op.subjectId, p, visit.member), jobId: visit.jobId, waiting });
+      return;
+    }
+    case "estimate.approve":
+    case "estimate.decline": {
+      const estimate = visit.estimates.find((e) => e.id === op.subjectId);
+      if (!estimate) return;
+      if (op.kind === "estimate.decline") {
+        estimate.status = "declined";
+      } else {
+        const optionId = typeof p["optionId"] === "string" ? p["optionId"] : null;
+        const ticked = Array.isArray(p["selectedLineIds"]) ? p["selectedLineIds"] as string[] : [];
+        estimate.status = "approved";
+        estimate.selectedOptionId = optionId;
+        estimate.signerName = typeof p["signerName"] === "string" ? p["signerName"] : null;
+        for (const option of estimate.options) {
+          if (option.id !== optionId) continue;
+          for (const line of option.lines) if (line.isOptional) line.isSelected = ticked.includes(line.id);
+          if (typeof p["shownTotal"] === "string") option.total = p["shownTotal"];
+        }
+      }
+      estimate.waiting = waiting;
+      return;
+    }
+    case "invoice.raise": {
+      if (!op.subjectId || visit.invoices.some((i) => i.id === op.subjectId)) return;
+      const total = typeof p["shownTotal"] === "string" ? p["shownTotal"] : "0";
+      visit.invoices.push({ id: op.subjectId, number: 0, status: "open", total, balance: total, waiting });
+      visit.amountDue = addAmounts(visit.amountDue ?? "0", total);
+      if (p["source"] === "estimate") {
+        const estimate = visit.estimates.find((e) => e.id === p["estimateId"]);
+        if (estimate) estimate.status = "converted";
+      } else if (Array.isArray(p["jobLineIds"])) {
+        const billed = new Set(p["jobLineIds"] as string[]);
+        visit.billable = visit.billable.filter((b) => !billed.has(b.id));
+      }
+      return;
+    }
+    case "tip.record":
+      visit.cashTips.push({
+        clientId: op.clientId,
+        amount: typeof p["amount"] === "string" ? p["amount"] : "0",
         waiting,
       });
       return;

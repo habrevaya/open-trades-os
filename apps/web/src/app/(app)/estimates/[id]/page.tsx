@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { agreements, customers, customFields, deposits, estimates, financing, NotFoundError } from "@opentradesos/api/services";
+import { agreements, customers, customFields, deposits, estimates, financing, fieldSales, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { ProposalLayoutPanel } from "./ProposalLayoutPanel";
@@ -42,6 +42,8 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
 
   /** Financing: a monthly figure per option and every application, once the estimate has gone out. */
   const loan = (estimate as { status: string }).status === "draft" ? null : await financing.forEstimate(ctx, { estimateId: id });
+  /** The customer's drawn signature, when they chose and signed on the technician's phone. */
+  const signed = await fieldSales.signatureOn(ctx, { subject: "estimate", subjectId: id });
   const offersFinancing = loan !== null && (loan.connected
     ? loan.options.some((o) => o.applicable) || loan.applications.length > 0
     : can(user.actor, "payment:collect"));
@@ -66,7 +68,13 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
         </Fact>
         <Fact label="Good until">{estimate.expiresOn ? formatDay(estimate.expiresOn, user.organizationTimezone) : null}</Fact>
         <Fact label="Chosen">{chosen?.name}</Fact>
-        <Fact label="Signed by">{estimate.signerName}</Fact>
+        <Fact label="Signed by">
+          {estimate.signerName}
+          {signed?.onSite ? `, on the technician's phone, ${formatIn(signed.signedAt, user.organizationTimezone)}` : null}
+          {signed?.imageKey
+            ? <> (<a href={`/files/${signed.imageKey}`} className="text-blue-600 underline underline-offset-4">signature</a>)</>
+            : null}
+        </Fact>
       </Facts>
 
       <Options estimate={estimate} plans={plans} />

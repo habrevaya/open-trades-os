@@ -7,6 +7,17 @@ What it does, and why it is built the way it is, is in
 `docs/modules/m11-mobile-field-app.md`. This file is how to run it and how to
 build it.
 
+## Selling and closing on site
+
+Besides the day, a visit has the estimate builder (good, better and best from
+the price book on the phone, the member's price shown as it will be charged),
+the customer's screen (choose, tick extras, sign on the glass), the invoice
+(the option signed for or the work recorded, signed for), cash or a check
+with a tip, a card or financing link, a cash tip kept, the office's tasks and
+the field assistant. All of it but the links and the assistant goes through
+the same queue as the rest of the day, so it works with no signal.
+`docs/modules/m11-mobile-field-app.md` has the rules.
+
 ## What has and has not been checked
 
 Typechecked under the repository's strict settings, linted with the shared

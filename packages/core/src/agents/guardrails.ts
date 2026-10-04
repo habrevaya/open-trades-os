@@ -316,3 +316,54 @@ export function dueStep(
   if (due === null || due.afterDays <= latestTaken) return null;
   return due;
 }
+
+/* --------------------------------------------------------- the field assistant */
+
+/**
+ * One thing the field assistant may answer from: a piece of equipment and its
+ * history, a visit's notes, a price book line, one of the company's how-to
+ * notes. Each carries an id the answer has to cite, and the prices in it, so
+ * an answer naming a figure that is in none of them is caught here.
+ */
+export interface FieldFact {
+  id: string;
+  kind: "equipment" | "history" | "notes" | "price" | "procedure" | "job";
+  title: string;
+  detail: string;
+  /** Every amount of money this fact states, as decimal strings. */
+  prices: string[];
+}
+
+export type FieldAnswerVerdict =
+  | { ok: true; answer: string; sources: FieldFact[] }
+  | { ok: false; reason: string };
+
+/**
+ * Whether the assistant's answer may be shown to the technician.
+ *
+ * Two checks, and both are about the one way this agent can do harm, which is
+ * a confident answer that did not come from the company's records. Every fact
+ * it cites must be one it was given, so "according to the service history" is
+ * a history this company holds. And every amount it states must be a price in
+ * one of those facts, because a part's price said wrong in a driveway becomes
+ * the price the customer was told.
+ */
+export function checkFieldAnswer(
+  input: { answer: string; sources: readonly string[] },
+  facts: readonly FieldFact[],
+): FieldAnswerVerdict {
+  const byId = new Map(facts.map((fact) => [fact.id, fact]));
+  const unknown = input.sources.filter((id) => !byId.has(id));
+  if (unknown.length > 0) {
+    return { ok: false, reason: "The answer named a record it was not given, so it was not shown." };
+  }
+  const cited = [...new Set(input.sources)].map((id) => byId.get(id)!);
+  const amounts = unlistedPrices(input.answer, facts.flatMap((fact) => fact.prices));
+  if (amounts.length > 0) {
+    return {
+      ok: false,
+      reason: `The answer named ${amounts.length === 1 ? "an amount" : "amounts"} that ${amounts.length === 1 ? "is" : "are"} not in your records, so it was not shown.`,
+    };
+  }
+  return { ok: true, answer: input.answer.trim(), sources: cited };
+}

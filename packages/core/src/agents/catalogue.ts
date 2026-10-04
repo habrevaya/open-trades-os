@@ -5,7 +5,7 @@ import { check, type JsonSchema } from "./schema.js";
 /**
  * THE AGENTS, AND EVERYTHING EACH ONE MAY DO
  *
- * Six agents, each a narrow job with a short list of actions. An action is
+ * Seven agents, each a narrow job with a short list of actions. An action is
  * offered to the model as a tool, and it is the ONLY way the model can affect
  * anything: an answer in words is shown to a person or thrown away, and an
  * answer that is a tool call is checked here before anything reads it.
@@ -30,9 +30,9 @@ import { check, type JsonSchema } from "./schema.js";
  * by hand.
  */
 
-export type AgentKind = "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+export type AgentKind = "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
 
-export const AGENT_KINDS: readonly AgentKind[] = ["intake", "chat", "voice", "estimate", "collections", "dispatch"];
+export const AGENT_KINDS: readonly AgentKind[] = ["intake", "chat", "voice", "estimate", "collections", "dispatch", "field"];
 
 export const isAgentKind = (value: string): value is AgentKind =>
   (AGENT_KINDS as readonly string[]).includes(value);
@@ -465,6 +465,62 @@ export const AGENTS: Readonly<Record<AgentKind, AgentDefinition>> = {
             },
           },
           required: ["summary", "assignments"],
+        },
+      },
+    ],
+  },
+
+  field: {
+    kind: "field",
+    label: "Field assistant",
+    description:
+      "Answers a technician's question on the phone from your own records and notes: the equipment's service "
+      + "history, the last notes on the job, a part's price and how your company does a common job. It says so "
+      + "when your records do not answer it, and never guesses.",
+    /**
+     * The phone, and the jobs it reads. Each kind of fact it is given is
+     * gated again by the asker's own permissions (equipment, visits, the
+     * price book), so a technician who may not read something is not told it
+     * by the assistant either.
+     */
+    basePermissions: ["field:sync", "job:read"],
+    /**
+     * It answers and does nothing else. There is no action for a person to
+     * approve, so there is nothing to let it do on its own.
+     */
+    autoAllowed: false,
+    actions: [
+      {
+        name: "answer",
+        description:
+          "Answer the technician's question using only the facts given, in a few plain sentences. "
+          + "List the ids of the facts you used. Quote a price only as it appears in the facts.",
+        permissions: [],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: {
+            answer: text(1500, "The answer, in plain words a technician can read on a phone."),
+            sources: {
+              type: "array",
+              minItems: 1,
+              maxItems: 12,
+              description: "The ids of the facts the answer came from.",
+              items: id("A fact's id."),
+            },
+          },
+          required: ["answer", "sources"],
+        },
+      },
+      {
+        name: "not_in_records",
+        description: "Use when the facts given do not answer the question. Say what is missing; do not guess.",
+        permissions: [],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: { reason: text(400, "What the records do not say.") },
+          required: ["reason"],
         },
       },
     ],

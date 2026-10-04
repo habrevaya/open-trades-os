@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  formatAmount, isOwing, outOfRange, parseAmount, readingValue, resultLabel,
+  formatAmount, isOwing, outOfRange, parseAmount, readingValue, resultLabel, tipChoices,
   type DayReportField, type DayVisit,
 } from "@opentradesos/field-client";
+import { recordPayment } from "../lib/sell";
 import type { Navigate } from "../shell/App";
 import { useField } from "../state/FieldProvider";
 import { missingReadings, parseQuantity, searchPriceBook } from "../lib/work";
@@ -209,7 +210,12 @@ export function PartsSection({ visit }: { visit: DayVisit }) {
       return;
     }
     setProblem(null);
-    await field.record("visit.add_line", visit.id, { kind: "part", quantity: qty, ...payload });
+    /**
+     * With an id the phone makes, so an invoice raised here before there is a
+     * signal can name the part, and with what the price book says it is, so
+     * the member's price is worked out the way the server will.
+     */
+    await field.record("visit.add_line", visit.id, { kind: "part", quantity: qty, lineId: Crypto.randomUUID(), ...payload });
     setQuery("");
     setQuantity("1");
   };
@@ -234,6 +240,7 @@ export function PartsSection({ visit }: { visit: DayVisit }) {
                    onPress={() => void add({
                      priceBookItemVersionId: item.versionId, name: item.name,
                      unitPrice: item.unitPrice, taxable: item.taxable,
+                     itemKind: item.kind ?? null, feeRole: item.feeRole ?? null,
                    })}
                    style={styles.match}>
           <Text style={type.body}>{item.code ? `${item.code}  ` : ""}{item.name}</Text>
@@ -252,36 +259,55 @@ export function PartsSection({ visit }: { visit: DayVisit }) {
 /**
  * Money taken on site. Cash and checks are recorded through the queue,
  * because the money is in the technician's hand whether or not there is a
- * signal; a card goes through the invoice's own payment link, which the
- * customer pays on their own phone.
+ * signal, against the invoice raised here first, with a tip on top when the
+ * company takes tips, split between everybody on the job the way a tip on
+ * the portal is. A card goes through the invoice's own payment link, which
+ * the customer pays on their own phone with a tip if they choose, and
+ * financing through the lender's link: both need a signal.
  */
 export function PaymentSection({ visit }: { visit: DayVisit }) {
   const field = useField();
+  const abilities = field.view?.abilities;
   const owing = isOwing(visit.amountDue);
-  const [method, setMethod] = useState<"cash" | "check" | "card">("cash");
-  const [amount, setAmount] = useState(owing ? formatAmount(visit.amountDue!).replace(/[$,]/g, "") : "");
+  const invoice = visit.invoices.find((i) => i.status !== "paid" && i.status !== "draft" && isOwing(i.balance)) ?? null;
+  const [method, setMethod] = useState<"cash" | "check" | "card" | "finance">("cash");
+  const [amount, setAmount] = useState("");
+  /** The amount follows what is owed, an invoice raised a moment ago included, until somebody types their own. */
+  const [typed, setTyped] = useState(false);
+  const shown = typed ? amount : owing ? formatAmount(visit.amountDue!).replace(/[$,]/g, "") : amount;
+  const [tip, setTip] = useState("");
   const [checkNumber, setCheckNumber] = useState("");
   const [said, setSaid] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const tipping = abilities?.tipping.enabled === true;
+  const paying = parseAmount(shown);
+  const suggested = tipping && paying ? tipChoices(paying, abilities!.tipping.presets) : [];
 
   const record = async () => {
-    const parsed = parseAmount(amount);
+    const parsed = parseAmount(shown);
     if (!parsed) return setProblem("Enter the amount they paid, like 120 or 120.50.");
+    const tipAmount = tip.trim() === "" ? null : parseAmount(tip);
+    if (tip.trim() !== "" && !tipAmount) return setProblem("Enter the tip in dollars and cents, like 15 or 12.50.");
     if (method === "check" && checkNumber.trim() === "") return setProblem("Enter the check number, so the office can match it to the bank.");
     setProblem(null);
-    await field.record("payment.collect", visit.id, {
-      method, amount: parsed, ...(method === "check" ? { checkNumber: checkNumber.trim() } : {}),
-    });
+    await field.perform((phone) => recordPayment(phone, {
+      visitId: visit.id, method: method === "check" ? "check" : "cash", amount: parsed, tip: tipAmount,
+      checkNumber: method === "check" ? checkNumber.trim() : null, invoiceId: invoice?.id ?? null,
+    }));
     setCheckNumber("");
+    setTip("");
+    setTyped(false);
+    setAmount("");
   };
 
   const link = async (how: "text" | "share") => {
     setBusy(true);
-    setSaid(await field.paymentLink(visit.id, how));
+    setSaid(method === "finance" ? await field.financingLink(visit.id, how) : await field.paymentLink(visit.id, how));
     setBusy(false);
   };
 
+  const methods = (["cash", "check", "card", ...(abilities?.financing ? ["finance"] as const : [])] as const);
   return (
     <Section title="Payment">
       <Text style={type.body}>
@@ -290,33 +316,49 @@ export function PaymentSection({ visit }: { visit: DayVisit }) {
           : owing ? `Owed on this job: ${formatAmount(visit.amountDue)}` : "Nothing owed on this job."}
       </Text>
       <View style={styles.chips}>
-        {(["cash", "check", "card"] as const).map((m) => (
+        {methods.map((m) => (
           <Pressable key={m} accessibilityRole="radio" accessibilityState={{ selected: method === m }}
                      onPress={() => { setMethod(m); setProblem(null); setSaid(null); }}
                      style={[styles.chip, method === m && styles.chipOn]}>
             <Text style={[styles.chipText, method === m && { color: "#fff" }]}>
-              {m === "cash" ? "Cash" : m === "check" ? "Check" : "Card"}
+              {m === "cash" ? "Cash" : m === "check" ? "Check" : m === "card" ? "Card" : "Finance"}
             </Text>
           </Pressable>
         ))}
       </View>
-      {method === "card" ? (
+      {method === "card" || method === "finance" ? (
         <View>
-          <Button label="Text them a card link" kind="secondary" busy={busy} onPress={() => void link("text")} />
+          <Button label={method === "card" ? "Text them a card link" : "Text them a financing link"} kind="secondary" busy={busy} onPress={() => void link("text")} />
           <View style={{ marginTop: space.sm }}>
             <Button label="Share the link" kind="secondary" disabled={busy} onPress={() => void link("share")} />
           </View>
+          {method === "card" && tipping ? <Text style={[type.soft, { marginTop: space.sm }]}>They can add a tip on the card page.</Text> : null}
         </View>
       ) : (
         <View>
           <View style={styles.row}>
-            <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="Amount"
+            <TextInput value={shown} onChangeText={(text) => { setTyped(true); setAmount(text); }} keyboardType="decimal-pad" placeholder="Amount"
                        placeholderTextColor={color.inkFaint} style={[styles.input, { flex: 1 }]} accessibilityLabel="Amount" />
             {method === "check" ? (
               <TextInput value={checkNumber} onChangeText={setCheckNumber} keyboardType="number-pad" placeholder="Check no."
                          placeholderTextColor={color.inkFaint} style={[styles.input, { flex: 1 }]} accessibilityLabel="Check number" />
             ) : null}
           </View>
+          {tipping ? (
+            <View>
+              <Text style={type.soft}>A tip on top, for everybody on this job:</Text>
+              <View style={styles.chips}>
+                {suggested.map((choice) => (
+                  <Pressable key={choice.percent} accessibilityRole="button" accessibilityLabel={`Tip ${choice.percent} per cent`}
+                             onPress={() => setTip(formatAmount(choice.amount).replace(/[$,]/g, ""))} style={styles.chip}>
+                    <Text style={styles.chipText}>{choice.percent}%</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <TextInput value={tip} onChangeText={setTip} keyboardType="decimal-pad" placeholder="Tip, or leave empty"
+                         placeholderTextColor={color.inkFaint} style={styles.input} accessibilityLabel="Tip" />
+            </View>
+          ) : null}
           <Button label={method === "cash" ? "Record cash payment" : "Record check payment"} kind="secondary"
                   onPress={() => void record()} />
         </View>
@@ -326,6 +368,7 @@ export function PaymentSection({ visit }: { visit: DayVisit }) {
       {visit.payments.map((p) => (
         <Text key={p.clientId} style={[type.body, { marginTop: space.xs }]}>
           {p.method === "cash" ? "Cash" : `Check ${p.checkNumber ?? ""}`.trim()} {formatAmount(p.amount)}
+          {p.tip ? `, tip ${formatAmount(p.tip)}` : ""}
           {p.waiting ? waitingText : <Text style={type.soft}>  sent</Text>}
         </Text>
       ))}

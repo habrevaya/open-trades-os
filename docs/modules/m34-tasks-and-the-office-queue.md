@@ -254,8 +254,11 @@ its checklist, and `/tasks` and the task's own page offer "Done" to its assignee
 Dismissing, "we decided not to", is a judgement about whether the work was worth
 raising, so it stays with `task:write`, as does closing anybody else's task. The rule
 is in `tasks.close` rather than a wider grant, so nothing else a technician could do
-changed. The phone app does not show tasks; a technician finishes one on `/tasks` in
-a browser.
+changed. On the phone and on `/my-day` a technician sees their own tasks and the ones
+nobody has taken, takes one and finishes their own, through the field queue (M11), so it
+works with no signal and the second of two people taking the same task is told somebody
+else has it. A task with a checklist is ticked and finished on its own page in a browser,
+not on the phone.
 
 Escalation counts hours, not working hours: a task due Friday at five escalates
 on Saturday morning under a twelve hour rule, and a company without weekend

@@ -38,3 +38,4 @@ export * from "./proposals";
 export * from "./ads";
 export * from "./finance";
 export * from "./custom-objects";
+export * from "./knowledge";

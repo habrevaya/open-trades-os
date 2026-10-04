@@ -99,6 +99,9 @@ export default async function MyDayPage({
       technicianName={user.name ?? user.email}
       timezone={user.organizationTimezone}
       inspectionPrograms={snapshot.inspectionPrograms}
+      priceBook={snapshot.priceBook}
+      abilities={snapshot.abilities}
+      tasks={snapshot.tasks}
     />
     </>
   );

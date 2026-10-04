@@ -15,7 +15,8 @@ status: partial
 Lets a company connect the model account it already pays for, and runs six
 agents on it: intake (texts, emails, call transcripts and web forms into
 booking drafts), a website and text chat, a phone assistant that answers calls
-live, an estimate drafter, collections and a dispatch copilot. Each acts as a person the company chose, never with more
+live, an estimate drafter, collections, a dispatch copilot, and a field assistant
+that answers a technician's questions from the company's own records. Each acts as a person the company chose, never with more
 access than that person, proposes rather than commits anything that moves money
 or a customer's appointment unless the company lets it act on its own, and
 writes down every proposal, decision and refusal.
@@ -206,6 +207,34 @@ optimiser answer and skills and time off checks, picks only among the people the
 allows, and explains each pick in a sentence. The dispatcher ticks what to apply, and
 each assignment is the board's own, with the qualification check run again.
 
+### Field assistant
+
+On the phone (M11) and on `/my-day`, a technician asks in plain words: when
+this unit was last serviced, what the last technician wrote here, what the
+company charges for a part, how the company does a job. It answers only from
+the company's records and its own how-to notes, chosen in plain code before
+the model is asked and each kind only when the person asking may read it:
+the equipment at the visit's address and its history (`equipment:read`), the
+notes on this visit and earlier ones there (`visit:read`), price book prices
+and never a cost (`pricebook:read`), and the how-to notes. The visit has to be
+on their own day. The answer has to cite the records it came from, and may
+state a price only as one of those records states it; an answer that does
+not is not shown, and the refusal is in the log. A question nothing in the
+records matches is answered "nothing in your company's records matches"
+without asking the model at all. It runs as the person asking, one call, on
+the same spend ceiling and runs a day as every agent, and the log says that
+it answered and from how many records, never what was asked.
+`POST /v1/ai/field-assistant` is the same, and a retry with the same
+idempotency key answers from the record rather than asking twice.
+
+The how-to notes are written on `/settings/agents/notes`
+(`knowledge:write`, which the office manager preset holds), each a job with
+its steps and the words somebody might ask with; read by anybody who reads
+jobs. `GET /v1/knowledge-notes`, `POST /v1/knowledge-notes`,
+`PATCH /v1/knowledge-notes/{id}` and `DELETE /v1/knowledge-notes/{id}`, which
+takes a note out of use and keeps it, so an earlier answer can still be traced
+to what it said.
+
 ### The log
 
 `/settings/agents` lists everything the agents did: drafted, applied (by whom, or on
@@ -223,6 +252,8 @@ offering the tool catalogue that caller may use. `GET /v1/ai/tools` is that cata
 |---|---|
 | Owner, administrator | Connects a model, sets the ceiling, configures agents, reads the log |
 | Anybody else | Uses an agent's drafts with the permission the underlying action takes |
+| Technician | Asks the field assistant (`field:sync`), which tells them nothing they could not read themselves |
+| Office manager | Writes the how-to notes (`knowledge:write`) |
 
 `agent:configure` connects models, runs completions, sets the ceiling and saves agent
 settings. Reading the agents and their log is `integration:read`. Booking an intake
@@ -265,6 +296,11 @@ applying the copilot's plan takes `visit:dispatch`. Asking intake to read a thre
 | `POST /v1/ai/dispatch/plans` | `visit:read` |
 | `POST /v1/ai/dispatch/plans/{id}/apply` | `visit:dispatch` |
 | `POST /v1/ai/dispatch/plans/{id}/dismiss` | `visit:dispatch` |
+| `POST /v1/ai/field-assistant` | `field:sync` |
+| `GET /v1/knowledge-notes` | `job:read` |
+| `POST /v1/knowledge-notes` | `knowledge:write` |
+| `PATCH /v1/knowledge-notes/{id}` | `knowledge:write` |
+| `DELETE /v1/knowledge-notes/{id}` | `knowledge:write` |
 | `GET /v1/public/chat` | Public: whether the chat is on |
 | `POST /v1/public/chat/sessions` | Public: opens a chat, returns its token once |
 | `POST /v1/public/chat/messages` | Public, with the chat's token |
@@ -306,8 +342,11 @@ the caller said on the strength of the disclosure it opens with, not on a press 
 like a recording; a company whose advice says that is not enough for its callers should
 not send calls to it. Its part of the call is never recorded as audio. It cannot move a
 caller to a waiting line or another menu itself, only to its one ring group or voicemail,
-and it takes one booking request a call. There is no LiveKit path. No field assistant for
-technicians. No
+and it takes one booking request a call. There is no LiveKit path. The field assistant finds what to give the
+model by matching the words of the question against the records and notes, not by
+meaning, so a question in words no note uses finds nothing and says so; it reads the
+equipment and notes of one address and the price book, not the photographs, the
+manufacturer's literature or another customer's history, and it needs a signal. No
 streaming: every model call is one request and one response, so the chat answers a
 message at a time. The intake agent books through online booking's services and
 windows only; a company with none set up gets the summary and books by hand, and an

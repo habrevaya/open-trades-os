@@ -18,6 +18,7 @@ import { portalBase } from "../lib/portal-base";
 import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
 import { priorityWithin } from "./agreements";
 import * as location from "./location";
+import * as fieldSales from "./field-sales";
 
 
 /**
@@ -726,22 +727,29 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
      * asks "is there anything new" far more often than it asks for the data,
      * and comparing one integer beats diffing a day of visits.
      */
-    const revision = await computeRevision(tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId));
+    const revision = await computeRevision(
+      tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId), rows.map((r) => r.customerId),
+    );
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
       return {
         revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [],
         locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
+        tasks: [], abilities: await fieldSales.abilitiesFor(tx, ctx),
       };
     }
 
-    const priceBook = await tx.select({
+    const book = await tx.select({
       id: schema.priceBookItem.id,
       versionId: schema.priceBookItemVersion.id,
       code: schema.priceBookItem.code,
       name: schema.priceBookItemVersion.name,
       unitPrice: schema.priceBookItemVersion.price,
       taxable: schema.priceBookItemVersion.taxable,
+      description: schema.priceBookItemVersion.description,
+      kind: schema.priceBookItem.kind,
+      feeRole: schema.priceBookItem.feeRole,
+      components: schema.priceBookItemVersion.components,
     })
       .from(schema.priceBookItemVersion)
       .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -754,8 +762,19 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
            * invisible. The reasoning is on `inForceAt`.
            */
           inForceAt(),
+        /** Only what can still be sold: a retired item is history, not a choice. */
+        eq(schema.priceBookItem.active, true),
       ))
       .limit(2000);
+    /**
+     * A kit is one line at its own price, and the technician says what it
+     * covers, so each one carries its parts by name.
+     */
+    const bookNames = new Map(book.map((item) => [item.id, item.name]));
+    const priceBook = book.map(({ components, ...item }) => ({
+      ...item,
+      components: components.map((c) => ({ name: bookNames.get(c.itemId) ?? "A part", quantity: c.quantity })),
+    }));
 
     // Somebody always forgets to clock out, and the phone needs to know it is
     // still on the clock before it offers to punch in again.
@@ -773,6 +792,9 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
     const extras = await visitExtras(tx, ctx, rows.map((r) => ({
       visitId: r.visit.id, jobId: r.jobId, jobTypeId: r.jobTypeId,
     })));
+    const sales = await fieldSales.salesFor(tx, ctx, rows.map((r) => ({
+      visitId: r.visit.id, jobId: r.jobId, customerId: r.customerId, propertyId: r.property.id,
+    })), new Date());
 
     await tx.insert(schema.deviceSnapshot).values({
       organizationId: ctx.actor.organizationId,
@@ -819,6 +841,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
         },
         checklist: r.visit.checklist,
         ...extras.get(r.visit.id)!,
+        ...sales.get(r.visit.id)!,
       })),
       priceBook,
       openTimeEntry: open
@@ -826,6 +849,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
         : null,
       inspectionPrograms: await programsForField(tx, ctx),
       locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
+      tasks: await fieldSales.tasksFor(tx, ctx),
+      abilities: await fieldSales.abilitiesFor(tx, ctx),
     };
   });
 }
@@ -873,14 +898,27 @@ async function programsForField(tx: Database, ctx: ServiceContext) {
  * another phone, would otherwise be invisible until something about the visit
  * itself changed.
  */
-async function computeRevision(tx: Database, visitIds: string[], jobIds: string[]): Promise<number> {
-  if (visitIds.length === 0) return 0;
+async function computeRevision(tx: Database, visitIds: string[], jobIds: string[], customerIds: string[]): Promise<number> {
+  if (visitIds.length === 0) {
+    /**
+     * A day with no visits still carries the office queue, so a task raised
+     * for somebody with nothing booked reaches their phone.
+     */
+    const [row] = await tx.execute(sql`
+      select coalesce(extract(epoch from (select max(updated_at) from public.task))::bigint, 0)
+        + (select count(*) from public.task where status in ('open', 'in_progress')) as revision`);
+    return Number((row as { revision: number }).revision);
+  }
   const visits = sql.raw(`('${visitIds.join("','")}')`);
   const jobs = sql.raw(`('${[...new Set(jobIds)].join("','")}')`);
+  const customers = sql.raw(`('${[...new Set(customerIds)].join("','")}')`);
   const [row] = await tx.execute(sql`
     select coalesce(extract(epoch from greatest(
       (select max(updated_at) from public.visit where id in ${visits}),
       (select max(updated_at) from public.invoice where job_id in ${jobs}),
+      (select max(updated_at) from public.estimate where job_id in ${jobs} or customer_id in ${customers}),
+      (select max(updated_at) from public.job_line where job_id in ${jobs}),
+      (select max(updated_at) from public.task),
       (select max(updated_at) from public.service_report where visit_id in ${visits}),
       (select max(f.updated_at) from public.service_report_field f
          join public.service_report r on r.id = f.report_id where r.visit_id in ${visits}),
@@ -889,6 +927,9 @@ async function computeRevision(tx: Database, visitIds: string[], jobIds: string[
       (select max(updated_at) from public.inspection_program)
     ))::bigint, 0)
     + (select count(*) from public.inspection where visit_id in ${visits})
+    + (select count(*) from public.estimate where job_id in ${jobs} or customer_id in ${customers})
+    + (select count(*) from public.job_line where job_id in ${jobs})
+    + (select count(*) from public.task where status in ('open', 'in_progress'))
     + (select count(*) from public.visit where id in ${visits})
     + (select count(*) from public.job_line where visit_id in ${visits})
     + (select count(*) from public.service_report_field f

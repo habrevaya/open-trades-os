@@ -833,7 +833,7 @@ run("every operation does something", () => {
   const SIDE_EFFECT_TABLES = [
     "visit", "job_line", "equipment", "timeclock_entry",
     "service_report", "service_report_field", "field_upload", "portal_event", "payment",
-    "inspection",
+    "inspection", "estimate", "invoice", "task", "cash_tip",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -857,6 +857,13 @@ run("every operation does something", () => {
     const [program] = await raw`insert into public.inspection_program (organization_id, name, checkpoints)
       values (${ORG}, 'Annual test', ${raw.json([{ key: "valve", label: "Valve holds", severityOnFail: "major" }])})
       returning id`;
+    /** For selling and closing on site: an estimate written on the phone, one the office wrote, a part and a task. */
+    const estimateId = uuid();
+    const optionId = uuid();
+    const lineId = uuid();
+    const [offered] = await raw`insert into public.estimate (organization_id, number, customer_id, property_id, status)
+      values (${ORG}, ${Math.floor(Math.random() * 1e6)}, ${customerId}, ${propertyId}, 'sent') returning id`;
+    const [task] = await raw`insert into public.task (organization_id, title) values (${ORG}, 'Call the customer back') returning id`;
 
     const cases: Array<{
       kind: (typeof field.OPERATION_KINDS)[number];
@@ -874,7 +881,7 @@ run("every operation does something", () => {
         payload: { field: "ambient_temp", value: 94, unit: "F" } },
       { kind: "visit.checklist_item", subjectId: visitId, payload: { itemId: "x", done: true } },
       { kind: "visit.add_line", subjectId: visitId,
-        payload: { name: "Filter", quantity: "1", unitPrice: "24.00" } },
+        payload: { lineId, name: "Filter", quantity: "1", unitPrice: "24.00" } },
       { kind: "equipment.record",
         payload: { propertyId, category: "air_handler", serialNumber: `E-${uuid().slice(0, 8)}` } },
       { kind: "attachment.attach", subjectId: visitId,
@@ -887,6 +894,17 @@ run("every operation does something", () => {
         visitId, programId: program!.id, signedByName: "Ray Nunez",
         answers: [{ itemKey: "valve", value: { kind: "pass_fail", passed: true }, at: new Date().toISOString(), by: "Ray Nunez" }],
       } },
+      { kind: "estimate.create", subjectId: estimateId, payload: {
+        visitId, options: [{ id: optionId, name: "Repair", lines: [{ id: uuid(), name: "Capacitor", quantity: "1", unitPrice: "45.00", taxable: false }] }],
+      } },
+      { kind: "estimate.approve", subjectId: estimateId, payload: {
+        visitId, optionId, selectedLineIds: [], signerName: "Pat Doe", signatureUploadId: uuid(), shownTotal: "45.00",
+      } },
+      { kind: "estimate.decline", subjectId: offered!.id, payload: { visitId, reason: "Too dear" } },
+      { kind: "invoice.raise", subjectId: uuid(), payload: { visitId, source: "work", jobLineIds: [lineId], shownTotal: "24.00" } },
+      { kind: "task.claim", subjectId: task!.id, payload: {} },
+      { kind: "task.close", subjectId: task!.id, payload: { outcome: "Called them" } },
+      { kind: "tip.record", subjectId: visitId, payload: { amount: "10.00" } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 
@@ -898,6 +916,7 @@ run("every operation does something", () => {
 
     const device = await freshDevice();
     const inert: string[] = [];
+    const landed = new Map<string, string>();
 
     for (const [i, testCase] of cases.entries()) {
       const before = await fingerprint();
@@ -915,6 +934,7 @@ run("every operation does something", () => {
       });
 
       const status = result.results[0]!.status;
+      landed.set(testCase.kind, `${status}${result.results[0]!.rejection ? `: ${result.results[0]!.rejection}` : ""}`);
       if (status !== "applied" && status !== "conflicted") continue;
 
       if ((await fingerprint()) === before) inert.push(testCase.kind);
@@ -922,6 +942,11 @@ run("every operation does something", () => {
 
     const logOnly = new Set<string>(fieldOps.LOG_ONLY_OPERATIONS);
     const silent = inert.filter((k) => !logOnly.has(k));
+
+    /** The selling and closing kinds really land here, so their effect is what is being watched. */
+    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.close", "tip.record"]) {
+      expect(landed.get(kind), kind).toBe("applied");
+    }
 
     expect(
       silent,

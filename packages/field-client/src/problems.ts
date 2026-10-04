@@ -50,6 +50,13 @@ const DID: Record<string, string> = {
   "timeclock.punch_out": "Clocking out",
   "payment.collect": "A payment taken at",
   "inspection.record": "An inspection at",
+  "estimate.create": "The estimate you built for",
+  "estimate.approve": "The customer's signature on the estimate for",
+  "estimate.decline": "The customer saying no to the estimate for",
+  "invoice.raise": "The invoice you raised for",
+  "task.claim": "Taking a task",
+  "task.close": "Finishing a task",
+  "tip.record": "A cash tip at",
 };
 
 /**
@@ -74,7 +81,8 @@ const STATE: Record<string, string> = {
 /** "You arrived at Nina Patel's" or "Clocking in", depending on the kind. */
 function whatYouDid(op: QueuedOperation, name: string | undefined): string {
   const lead = DID[op.kind] ?? "Something you recorded";
-  if (op.kind === "timeclock.punch_in" || op.kind === "timeclock.punch_out") return lead;
+  if (op.kind === "timeclock.punch_in" || op.kind === "timeclock.punch_out"
+    || op.kind === "task.claim" || op.kind === "task.close") return lead;
   return `${lead} ${name ? `${name}'s job` : "a job"}`;
 }
 
@@ -89,6 +97,19 @@ export function describeOperation(
   const base = { id: op.clientId, source: "operation" as const, visitId };
 
   if (op.status === "conflicted") {
+    /**
+     * The office's own sentence when it is already one for the person on
+     * site: an invoice kept as a draft says what the customer was shown and
+     * what the prices make it.
+     */
+    if (op.kind === "invoice.raise" && op.conflict) {
+      return {
+        ...base,
+        title: "Recorded, and the office has been told",
+        detail: `${did} is with the office. ${op.conflict} Nothing for you to do.`,
+        action: "acknowledge",
+      };
+    }
     const state = /was (\w+) by the time/.exec(op.conflict ?? "")?.[1];
     const why = state && STATE[state]
       ? `the office ${STATE[state]} before it reached them`

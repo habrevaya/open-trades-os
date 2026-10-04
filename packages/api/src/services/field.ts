@@ -11,6 +11,7 @@ import { freezeRate } from "./labor";
 import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
 import * as location from "./location";
+import * as fieldSales from "./field-sales";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
@@ -331,23 +332,33 @@ async function applyOne(
    * that is actually there. Both can refuse and they refuse for different
    * reasons, so the log records which.
    */
-  const failure = verdict.apply
+  const outcome = verdict.apply
     ? await effect(tx, ctx, op, subjectState, row.id)
     : null;
 
-  const status = failure ? "rejected" as const : verdictStatus;
+  /**
+   * AND WHAT IT LANDED AS. A refusal is a sentence and the operation is
+   * rejected; a conflict is applied work the office has to look at (an
+   * invoice kept as a draft because the customer was shown another figure),
+   * recorded as conflicted so it reaches the office's list and the phone
+   * says "recorded, and the office has been told".
+   */
+  const failure = typeof outcome === "string" ? outcome : null;
+  const raised = outcome !== null && typeof outcome === "object" ? outcome.conflict : null;
+  const status = failure ? "rejected" as const : raised ? "conflicted" as const : verdictStatus;
   const rejection = failure ?? (verdict.apply ? null : verdict.conflict);
+  const conflict = raised ?? verdict.conflict;
 
-  if (failure) {
+  if (failure || raised) {
     await tx.update(schema.fieldOperation)
-      .set({ status, rejection, updatedAt: new Date() })
+      .set({ status, rejection, conflict, updatedAt: new Date() })
       .where(eq(schema.fieldOperation.id, row.id));
   }
 
   return {
     clientId: op.clientId,
     status,
-    conflict: verdict.conflict,
+    conflict,
     rejection,
     occurredAt: op.occurredAt.toISOString(),
     clamped: meta.clamped,
@@ -543,6 +554,14 @@ async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperati
     ))
     .orderBy(asc(schema.invoice.issuedOn), asc(schema.invoice.number));
 
+  /**
+   * The invoice raised on site with this payment, first, when the phone
+   * names it: the customer is paying the bill they just signed for, and an
+   * older one on the same job is the office's to chase.
+   */
+  const named = typeof op.payload["invoiceId"] === "string" ? op.payload["invoiceId"] : null;
+  if (named) open.sort((a, b) => Number(b.id === named) - Number(a.id === named));
+
   const allocations: Array<{ invoiceId: string; amount: string }> = [];
   let remaining = amount;
   for (const invoice of open) {
@@ -562,17 +581,31 @@ async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperati
   if (method === "check" && !checkNumber) return "A check needs its number, so the office can match it to the bank.";
   const note = typeof op.payload["note"] === "string" ? op.payload["note"].trim().slice(0, 500) : "";
 
+  /**
+   * A tip handed over with the payment, on top of it: the company's money
+   * to pass on, held in Tips payable and split between everybody on the
+   * job's visits, exactly as a tip added on the portal is.
+   */
+  const tip = await fieldSales.tipFor(tx, ctx, { typed: op.payload["tipAmount"], paying: amount });
+  if (!tip.ok) return tip.reason;
+
   try {
-    await billing.pay({ ...ctx, db: tx, idempotencyKey: `field-payment:${op.clientId}` }, {
+    const paid = await billing.pay({ ...ctx, db: tx, idempotencyKey: `field-payment:${op.clientId}` }, {
       customerId: visit.customerId,
       method,
       amount: m.toString(amount),
-      tipAmount: "0",
+      tipAmount: m.toString(tip.tip),
       receivedAt: op.occurredAt.toISOString(),
       ...(checkNumber ? { checkNumber } : {}),
       notes: [`Taken on site, job ${visit.jobNumber}.`, note].filter(Boolean).join(" ").slice(0, 1000),
       allocations,
     });
+    if (m.isPositive(tip.tip)) {
+      await fieldSales.writeTipShares(tx, ctx, {
+        paymentId: paid.id, invoiceId: allocations[0]?.invoiceId ?? null, jobId: visit.jobId,
+        tip: tip.tip, occurredAt: op.occurredAt,
+      });
+    }
     return null;
   } catch (error) {
     /**
@@ -665,13 +698,15 @@ async function fileInspection(tx: Database, ctx: ServiceContext, op: field.Field
 
 const RecordedAnswerList = z.array(RecordedAnswer);
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function effect(
   tx: Database,
   ctx: ServiceContext,
   op: field.FieldOperation,
   currentState: string | null,
   operationId: string,
-): Promise<string | null> {
+): Promise<fieldSales.Outcome> {
   const org = ctx.actor.organizationId;
   const nextState = field.stateAfter(op.kind, (currentState ?? undefined) as field.VisitState | undefined);
 
@@ -958,7 +993,14 @@ async function effect(
 
       const technicianId = await technicianForDevice(tx, op.deviceId);
 
-      await tx.insert(schema.jobLine).values({
+      /**
+       * The line's id when the phone made one, so an invoice raised on the
+       * same phone before it found a signal can name the part it bills.
+       */
+      const lineId = typeof op.payload["lineId"] === "string" && UUID.test(op.payload["lineId"])
+        ? op.payload["lineId"] : undefined;
+      const [written] = await tx.insert(schema.jobLine).values({
+        ...(lineId ? { id: lineId } : {}),
         organizationId: org,
         jobId: visit.jobId,
         visitId: op.subjectId,
@@ -974,7 +1016,13 @@ async function effect(
         technicianId,
         nonBillableReason: (op.payload["nonBillableReason"] as string) ?? null,
         occurredAt: op.occurredAt,
-      });
+      }).onConflictDoNothing().returning({ id: schema.jobLine.id });
+      if (!written && lineId) {
+        /** Only a replay of the same line may find its id taken; anything else is somebody else's row. */
+        const [mine] = await tx.select({ jobId: schema.jobLine.jobId }).from(schema.jobLine)
+          .where(eq(schema.jobLine.id, lineId)).limit(1);
+        if (mine?.jobId !== visit.jobId) return "That part's id is already in use, so it was not recorded.";
+      }
       return null;
     }
 
@@ -1030,6 +1078,25 @@ async function effect(
 
     case "inspection.record":
       return fileInspection(tx, ctx, op);
+
+    case "estimate.create":
+      return fieldSales.writeEstimate(tx, ctx, op);
+
+    case "estimate.approve":
+      return fieldSales.approveEstimate(tx, ctx, op);
+
+    case "estimate.decline":
+      return fieldSales.declineEstimate(tx, ctx, op);
+
+    case "invoice.raise":
+      return fieldSales.raiseInvoice(tx, ctx, op);
+
+    case "task.claim":
+    case "task.close":
+      return fieldSales.taskOperation(tx, ctx, op);
+
+    case "tip.record":
+      return fieldSales.recordCashTip(tx, ctx, op);
 
     default:
       /**

@@ -3,7 +3,7 @@ import {
 } from "./queue";
 import type { Storage } from "./storage";
 import type { UploadQueue, UploadTransport } from "./uploads";
-import type { FieldInspectionProgram, FieldSnapshot, PriceBookEntry } from "./wire";
+import type { FieldAbilities, FieldInspectionProgram, FieldSnapshot, PriceBookEntry } from "./wire";
 import { projectDay, todayIn, type DayView } from "./day";
 import { describeOperation, describeUpload, type Problem } from "./problems";
 import { sharingFor, type PositionBuffer, type SharingState } from "./positions";
@@ -200,7 +200,12 @@ export class SyncEngine {
      * their day.
      */
     const snapshot = fresh.unchanged && cached
-      ? { ...cached.snapshot, ...(fresh.locationSharing ? { locationSharing: fresh.locationSharing } : {}) }
+      ? {
+          ...cached.snapshot,
+          ...(fresh.locationSharing ? { locationSharing: fresh.locationSharing } : {}),
+          /** What the person may do can change without the day changing: a role edited in the office. */
+          ...(fresh.abilities ? { abilities: fresh.abilities } : {}),
+        }
       : fresh;
 
     const entry: CachedSnapshot = { snapshot, from, fetchedAt: this.now().toISOString() };
@@ -253,6 +258,8 @@ export class SyncEngine {
     lastSyncedAt: string | null;
     /** Whether the phone should be sharing where its person is now, and the sentence that says so. */
     location: SharingState;
+    /** What this person may do on site, as the server last said. Nothing new from an older server. */
+    abilities: FieldAbilities;
   }> {
     const { queue, uploads } = this.options;
     const cached = await this.cached();
@@ -284,9 +291,20 @@ export class SyncEngine {
       backoffUntil: await queue.backoffUntil(),
       lastSyncedAt: await this.lastSyncedAt(),
       location: sharingFor(day, cached?.snapshot.locationSharing),
+      abilities: cached?.snapshot.abilities ?? NO_ABILITIES,
     };
   }
 }
+
+/**
+ * What a phone offers when the server has not said: nothing new. A server
+ * older than selling on site would refuse every one of these, and a button
+ * that is always refused is worse than no button.
+ */
+export const NO_ABILITIES: FieldAbilities = {
+  writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
+  tipping: { enabled: false, presets: [] }, financing: false, assistant: false,
+};
 
 async function readJson<T>(storage: Storage, key: string): Promise<T | null> {
   const raw = await storage.get(key);

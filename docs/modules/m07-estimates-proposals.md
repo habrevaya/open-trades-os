@@ -183,6 +183,24 @@ They open `/e/{token}`, pick an option, tick or untick the optional lines, and
 approve or decline. `POST /v1/portal/estimate/approve` is the same action from
 the customer's side and takes no permission: the token is the authority.
 
+### On the technician's phone
+
+A technician builds good, better and best on the phone or on `/my-day` from
+the price book it carries, with the member's discount taken off as they
+build, turns the screen to the customer, and the customer chooses, ticks the
+extras they want and signs on the glass. It travels through the field queue
+(M11), so it works with no signal: the estimate is written with the ids the
+phone made and the price book versions it priced from, and the approval
+names the option, the extras and the total the customer was shown. The
+server works the option out again and records the approval only when the two
+agree to the cent, through the same decision the customer's own link makes,
+recorded as given in person, with the drawn signature's id and the moment it
+was drawn. A no is recorded with the customer's reason.
+
+Taking the customer's signature this way is `estimate:present`, which the
+technician preset holds, and only for a visit on the technician's own day.
+It records the customer's own yes, which is why it is not `estimate:approve`.
+
 ### Record a yes that happened elsewhere
 
 `POST /v1/estimates/{id}/approve` with `estimate:approve`, which is a narrower
@@ -265,7 +283,7 @@ customer's account and applied when the work is invoiced.
 | Office manager | Writes, sends, discounts within the cap, approves on a customer's behalf |
 | Dispatcher | Neither |
 | CSR | Reads, writes and sends |
-| Technician | Reads, writes and sends, and hands over a link. Does not approve |
+| Technician | Reads, writes and sends, hands over a link, and has the customer choose and sign on their own screen (`estimate:present`). Does not approve on the customer's behalf |
 | Accountant | Reads |
 
 Cost and margin on an option are redacted by `job.cost:read`, which is the
@@ -311,7 +329,9 @@ for one hands back a `/pay/{token}` link, and a card taken there is held as a
 liability until Stripe confirms it. M13 covers deposits.
 
 **Why can a technician send but not approve?** Because approving on somebody
-else's behalf is a decision about their money. Handing them a link is not.
+else's behalf is a decision about their money. Handing them a link is not,
+and neither is turning the phone round so the customer chooses and signs for
+themselves, which is what `estimate:present` allows.
 
 ## What is not built
 

@@ -51,7 +51,8 @@ export default async function PortalSettingsPage() {
       <section className="mt-8">
         <h2 className="text-base font-semibold">Tips</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
-          When this is on, a customer paying an invoice online can add a tip. It is split evenly
+          When this is on, a customer paying an invoice online can add a tip, and so can one paying
+          your technician cash or a check on site, with the same suggestions. It is split evenly
           between the technicians on the job&apos;s visits, held for them (it is not your income),
           and shows on their pay register and payroll export for the period it arrived in. Pay it
           out from the pay period once it is closed.

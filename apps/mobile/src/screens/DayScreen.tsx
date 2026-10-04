@@ -100,6 +100,8 @@ export function DayScreen({ nav }: { nav: Navigate }) {
 
       <TimeClock />
 
+      <OnSiteTools nav={nav} />
+
       {view === null ? null : visits.length === 0 ? (
         <Text style={[type.soft, styles.empty]}>
           {view.lastSyncedAt ? "Nothing on today." : "Your day has not reached this phone yet. Pull down to try again."}
@@ -116,6 +118,32 @@ export function DayScreen({ nav }: { nav: Navigate }) {
         <Button label="Sign out" kind="secondary" onPress={signOut} />
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * The office's queue and the assistant, from the day: the tasks waiting for
+ * this person or for anybody, and a question that is not about one visit.
+ * Each shown only when the server says this person may use it.
+ */
+function OnSiteTools({ nav }: { nav: Navigate }) {
+  const field = useField();
+  const abilities = field.view?.abilities;
+  const open = (field.view?.day.tasks ?? []).filter((t) => !t.done);
+  if (!abilities?.tasks && !abilities?.assistant) return null;
+  return (
+    <View style={styles.tools}>
+      {abilities.tasks ? (
+        <View style={{ flex: 1 }}>
+          <Button label={open.length > 0 ? `Tasks (${open.length})` : "Tasks"} kind="secondary" onPress={() => nav.push({ name: "tasks" })} />
+        </View>
+      ) : null}
+      {abilities.assistant ? (
+        <View style={{ flex: 1 }}>
+          <Button label="Ask" kind="secondary" onPress={() => nav.push({ name: "assistant", visitId: null })} />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -205,4 +233,5 @@ const styles = StyleSheet.create({
   waiting: { color: color.amber, fontSize: 13, marginTop: space.xs, textAlign: "right" },
   footer: { marginTop: space.xl },
   location: { marginBottom: space.sm },
+  tools: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
 });

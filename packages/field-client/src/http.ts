@@ -1,7 +1,7 @@
 import { OfflineError, type Transport, type SyncResponse } from "./queue";
 import type {
-  ArrivalNoticeResult, CodeRequestResult, FieldSnapshot, OwedUpload, PaymentLinkResult, RegisterResult,
-  SignInResult, StoreUploadResult,
+  ArrivalNoticeResult, AssistantAnswer, CodeRequestResult, FieldSnapshot, FinancingLinkResult, OwedUpload,
+  PaymentLinkResult, RegisterResult, SignInResult, StoreUploadResult,
 } from "./wire";
 
 /**
@@ -145,6 +145,27 @@ export class FieldApi {
   paymentLink(visitId: string, text: boolean, idempotencyKey: string): Promise<PaymentLinkResult> {
     return this.request(
       "POST", `/v1/visits/${encodeURIComponent(visitId)}/payment-link`, { text }, { idempotencyKey },
+    );
+  }
+
+  /**
+   * The lender's application link for the job on a visit, texted to the
+   * customer when asked. Online only, for the same reason as the card link.
+   */
+  financingLink(visitId: string, text: boolean, idempotencyKey: string): Promise<FinancingLinkResult> {
+    return this.request(
+      "POST", `/v1/visits/${encodeURIComponent(visitId)}/financing-link`, { text }, { idempotencyKey },
+    );
+  }
+
+  /**
+   * A question for the field assistant, answered from the company's own
+   * records. Online only: it asks a model. The key makes a retry answer from
+   * the record rather than ask, and pay, twice.
+   */
+  askAssistant(question: string, visitId: string | null, idempotencyKey: string): Promise<AssistantAnswer> {
+    return this.request(
+      "POST", "/v1/ai/field-assistant", { question, ...(visitId ? { visitId } : {}) }, { idempotencyKey },
     );
   }
 

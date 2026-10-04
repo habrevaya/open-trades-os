@@ -69,6 +69,12 @@ export interface CreateOptions {
   applyCeiling?: boolean;
   /** False to leave member pricing off: a split prices every line once, before it is cut. */
   memberPricing?: boolean;
+  /**
+   * The invoice's id when a phone made it: an invoice raised on site is
+   * named by the phone before the server has it, so the payment and the
+   * signature queued behind it can name it too.
+   */
+  id?: string;
 }
 
 export interface PreparedLine {
@@ -155,6 +161,7 @@ export async function createIn(
   const number = await claimNumber(tx, ctx, "invoice", input.number);
 
   const [invoice] = await tx.insert(schema.invoice).values({
+    ...(options.id ? { id: options.id } : {}),
     organizationId: ctx.actor.organizationId,
     number,
     customerId: input.customerId,
@@ -533,7 +540,16 @@ async function propertyOfJob(tx: Database, jobId: string): Promise<string | null
 }
 
 export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvoice.input>) {
-  return guardedWrite(ctx, "invoice:write", async (tx) => {
+  return guardedWrite(ctx, "invoice:write", (tx) => issueIn(tx, ctx, input));
+}
+
+/**
+ * Issuing a draft inside a caller's transaction. The office's route is this
+ * with its permission; an invoice raised on site (`field-invoices`) issues
+ * the copy of the option the customer signed for with it.
+ */
+export async function issueIn(tx: Database, ctx: ServiceContext, input: z.infer<typeof issueInvoice.input>) {
+  {
     const draft = await loadDraft(tx, input.id);
     const now = new Date();
     const admitted = input.issuedOn
@@ -581,7 +597,7 @@ export async function issue(ctx: ServiceContext, input: z.infer<typeof issueInvo
     await audit(tx, ctx, "invoice.issued", "invoice", draft.id, { status: "draft" },
       admitted.historical ? { ...after!, historical: true } : after!);
     return loadInvoice(tx, ctx, draft.id);
-  });
+  }
 }
 
 export async function deleteDraft(ctx: ServiceContext, input: z.infer<typeof deleteInvoice.input>) {

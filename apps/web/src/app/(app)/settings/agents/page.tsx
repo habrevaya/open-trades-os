@@ -37,6 +37,8 @@ const ACTION_WORDS: Record<string, string> = {
   take_message: "Take messages for the office",
   transfer: "Put callers through to a person",
   end_call: "Say goodbye when the caller is done",
+  answer: "Answer technicians from your records and notes",
+  not_in_records: "Say when your records do not answer it",
 };
 
 const KIND_WORDS: Record<string, string> = {
@@ -108,6 +110,12 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
             </div>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-ink-700">{agent.description}</p>
+          {agent.agent === "field" ? (
+            <p className="mt-2 text-sm text-ink-700">
+              It answers how your company does a job only from your{" "}
+              <a href="/settings/agents/notes" className="underline underline-offset-4">how-to notes</a>.
+            </p>
+          ) : null}
           {agent.runAs ? (
             <p className="mt-2 text-sm text-ink-700">
               Acts as {agent.runAs.name ?? "a former member"}
@@ -132,7 +140,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
               <div className="grid gap-3 sm:grid-cols-2">
                 <Select label="Acts as" name="runAsUserId" defaultValue={agent.settings.runAsUserId ?? ""}
                         options={[
-                          { value: "", label: agent.agent === "estimate" || agent.agent === "dispatch" ? "Whoever asks it" : "Nobody yet" },
+                          { value: "", label: agent.agent === "estimate" || agent.agent === "dispatch" || agent.agent === "field" ? "Whoever asks it" : "Nobody yet" },
                           ...people.map((p) => ({ value: p.userId, label: `${p.name ?? p.email} (${p.roleLabel})` })),
                         ]} />
                 {agent.autoAllowed ? (

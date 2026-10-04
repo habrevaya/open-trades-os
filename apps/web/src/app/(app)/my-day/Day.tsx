@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
+  projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordInvoice, recordPayment, tipChoices,
+  type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptSignature, type PriceBookEntry, type QueuedOperation,
   type UploadTransport,
 } from "@opentradesos/field-client";
 import type { dispatch } from "@opentradesos/api/services";
-import { sync, onMyWay, paymentLink } from "./actions";
+import { sync, onMyWay, paymentLink, financingLink, askAssistant } from "./actions";
 import { punchNotice } from "@/lib/punch-notice";
-import { preparePhoto } from "@/lib/photo";
+import { preparePhoto, prepareSignature } from "@/lib/photo";
+import { Ask, CashTip, InvoicePanel, SellPanel, TasksPanel, type SellHandlers } from "./Sell";
 import { InspectionRun, type VisitInspection } from "./InspectionRun";
 import { inspectionPayload, type FieldInspectionProgram } from "@opentradesos/field-client";
 
@@ -31,6 +34,7 @@ type Visit = Snapshot["visits"][number];
  */
 export function Day({
   date, deviceId, lastSequence, visits, openTimeEntry, technicianName, timezone, inspectionPrograms = [],
+  priceBook = [], abilities, tasks = [],
 }: {
   date: string;
   deviceId: string;
@@ -42,6 +46,12 @@ export function Day({
   timezone: string;
   /** What this person may run an inspection against. Empty for somebody who may not file one. */
   inspectionPrograms?: FieldInspectionProgram[];
+  /** What an estimate is built from, prices and never a cost. */
+  priceBook?: PriceBookEntry[];
+  /** What this person may do on site, so the page offers only what the server would accept. */
+  abilities?: FieldAbilities;
+  /** The office's queue: this person's tasks and the ones nobody has taken. */
+  tasks?: Snapshot["tasks"];
 }) {
   const queueRef = useRef<FieldQueue | null>(null);
   /**
@@ -76,6 +86,24 @@ export function Day({
   // Optimistic, keyed by visit. The server is the truth and the queue is what
   // the technician has done since it last agreed.
   const [localStatus, setLocalStatus] = useState<Record<string, string>>({});
+  /**
+   * What is still on this page's queue, for the sale: an estimate built, a
+   * signature, an invoice raised, laid over what the server sent by the
+   * field client's own `projectDay`, so the page shows what the phone app
+   * would and keeps showing it with no signal.
+   */
+  const [pendingOps, setPendingOps] = useState<QueuedOperation[]>([]);
+  /**
+   * What the server has just applied, kept on the page until the day it
+   * sends back has it. The queue lets go of an operation the moment it is
+   * applied, and the refreshed day arrives a beat later; without this an
+   * estimate the customer is looking at would vanish and come back in that
+   * gap, losing their choice. Kept against the day it was laid over, so it
+   * is never counted twice once the fresh day is here.
+   */
+  const [landed, setLanded] = useState<{ basis: Visit[]; operations: QueuedOperation[] } | null>(null);
+  const visitsRef = useRef(visits);
+  useEffect(() => { visitsRef.current = visits; }, [visits]);
 
   useEffect(() => {
     if (!WebStorage.available()) {
@@ -107,6 +135,7 @@ export function Day({
 
   async function refresh(queue: FieldQueue) {
     const pending = await queue.pending();
+    setPendingOps(pending);
     setQueued(pending.length);
     setPendingIds(new Set(pending.map((op) => op.clientId)));
     const uploads = uploadsRef.current;
@@ -159,11 +188,26 @@ export function Day({
     void flush();
   }
 
+  /**
+   * One send at a time. Work recorded while one is going out is not left for
+   * the half minute timer: it goes in a second send the moment the first is
+   * done, so a payment taken just after a signature is not sat waiting.
+   */
+  const sendingRef = useRef(false);
+  const againRef = useRef(false);
   async function flush() {
     const queue = queueRef.current;
-    if (!queue || syncing) return;
+    if (!queue) return;
+    if (sendingRef.current) {
+      againRef.current = true;
+      return;
+    }
+    sendingRef.current = true;
     setSyncing(true);
     try {
+      const basis = visitsRef.current;
+      const before = new Map((await queue.pending()).map((op) => [op.clientId, op]));
+      const applied: QueuedOperation[] = [];
       await queue.flush({
         async send(input) {
           let result: Awaited<ReturnType<typeof sync>>;
@@ -185,9 +229,19 @@ export function Day({
             throw new Error(result.message);
           }
           refusalRef.current = null;
+          for (const outcome of result.results as Array<{ clientId: string; status: string }>) {
+            const op = before.get(outcome.clientId);
+            if (op && (outcome.status === "applied" || outcome.status === "conflicted")) applied.push(op);
+          }
           return { results: result.results as never, awaiting: [], snapshotRevision: 0 };
         },
       });
+      if (applied.length > 0) {
+        setLanded((kept) => ({
+          basis,
+          operations: kept && kept.basis === basis ? [...kept.operations, ...applied] : applied,
+        }));
+      }
       /**
        * Then the bytes of any photograph whose record has just landed, which
        * is the order the server needs them in. Over the API with this page's
@@ -200,7 +254,12 @@ export function Day({
       }
       await refresh(queue);
     } finally {
+      sendingRef.current = false;
       setSyncing(false);
+    }
+    if (againRef.current) {
+      againRef.current = false;
+      await flush();
     }
   }
 
@@ -277,6 +336,72 @@ export function Day({
     [visits],
   );
 
+  const projected = useMemo(() => projectDay({
+    snapshot: { revision: 0, unchanged: false, visits, priceBook, openTimeEntry, tasks } as FieldSnapshot,
+    operations: pendingOps,
+    applied: landed && landed.basis === visits ? landed.operations : [],
+  }), [visits, priceBook, openTimeEntry, tasks, pendingOps, landed]);
+  const projectedVisit = (id: string) => projected.visits.find((v) => v.id === id);
+  const can: FieldAbilities = abilities ?? {
+    writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
+    tipping: { enabled: false, presets: [] }, financing: false, assistant: false,
+  };
+
+  /** A step of the sale into the queue, then the page redrawn from it and a send tried. */
+  async function perform(step: (phone: { queue: FieldQueue; uploads: UploadQueue }) => Promise<unknown>): Promise<string | null> {
+    const queue = queueRef.current;
+    const uploads = uploadsRef.current;
+    if (!queue || !uploads) {
+      return "This browser cannot keep work while there is no signal. Use the phone app, or turn off private browsing.";
+    }
+    await step({ queue, uploads });
+    await refresh(queue);
+    void flush();
+    return null;
+  }
+
+  /** The customer's drawn signature, kept in this browser and hashed, ready for the queue. */
+  async function keepSignature(dataUrl: string): Promise<KeptSignature | { problem: string }> {
+    const files = filesRef.current;
+    if (!files) return { problem: "This browser cannot keep a signature. Use the phone app, or turn off private browsing." };
+    const uploadId = crypto.randomUUID();
+    try {
+      const prepared = await prepareSignature(dataUrl);
+      const localUri = await files.keep(uploadId, prepared.base64);
+      return { uploadId, localUri, byteSize: prepared.byteSize, contentHash: prepared.contentHash };
+    } catch {
+      return { problem: "The signature could not be kept in this browser. Ask them to sign again." };
+    }
+  }
+
+  function sellHandlers(visitId: string): SellHandlers {
+    return {
+      saveEstimate: async (builder) => {
+        const estimateId = crypto.randomUUID();
+        const failed = await perform((phone) => recordEstimate(phone, { visitId, estimateId, builder }));
+        return failed ? { problem: failed } : { estimateId };
+      },
+      approve: async ({ estimateId, option, ticked, signerName, signature }) => {
+        const kept = await keepSignature(signature);
+        if ("problem" in kept) return kept.problem;
+        return perform((phone) => recordApproval(phone, { visitId, estimateId, option, ticked, signerName, signature: kept }));
+      },
+      decline: async (estimateId, reason) => {
+        await perform((phone) => recordDecline(phone, { visitId, estimateId, reason }));
+      },
+      raiseInvoice: async (input) => {
+        let signature: KeptSignature | null = null;
+        if (input.signature) {
+          const kept = await keepSignature(input.signature);
+          if ("problem" in kept) return kept.problem;
+          signature = kept;
+        }
+        const invoiceId = crypto.randomUUID();
+        return perform((phone) => recordInvoice(phone, { ...input, visitId, invoiceId, signature }));
+      },
+    };
+  }
+
   const statusOf = (v: Visit) => localStatus[v.id] ?? v.status;
   const done = ordered.filter((v) => statusOf(v) === "completed").length;
 
@@ -326,6 +451,16 @@ export function Day({
                    problem={punchProblem} />
       </div>
 
+      {can.tasks && (
+        <div className="px-4 pb-4">
+          <TasksPanel tasks={projected.tasks} zone={timezone}
+                      onClaim={(taskId) => void perform((phone) => phone.queue.enqueue({ kind: "task.claim", subjectId: taskId }))}
+                      onDone={(taskId, outcome) => void perform((phone) => phone.queue.enqueue({
+                        kind: "task.close", subjectId: taskId, payload: outcome.trim() ? { outcome: outcome.trim() } : {},
+                      }))} />
+        </div>
+      )}
+
       {ordered.length === 0 ? (
         <p className="px-4 py-10 text-center text-ink-500">Nothing on today.</p>
       ) : (
@@ -357,6 +492,32 @@ export function Day({
                 photos={photos[v.id] ?? { waiting: 0, sent: 0, failed: 0 }}
                 payments={(payments[v.id] ?? []).map((p) => ({ ...p, waiting: pendingIds.has(p.clientId) }))}
                 timezone={timezone}
+                projected={projectedVisit(v.id)}
+                abilities={can}
+                onPay={async (payload) => {
+                  let queued: QueuedOperation | null = null;
+                  const failed = await perform(async (phone) => { queued = await recordPayment(phone, { visitId: v.id, ...payload }); });
+                  if (failed || !queued) return failed ?? "It could not be kept on this page.";
+                  const entry: RecordedPayment = {
+                    clientId: (queued as QueuedOperation).clientId, method: payload.method, amount: payload.amount, tip: payload.tip,
+                  };
+                  setPayments((all) => ({ ...all, [v.id]: [...(all[v.id] ?? []), entry] }));
+                  return null;
+                }}
+                sale={projectedVisit(v.id) ? (
+                  <>
+                    {can.assistant && (
+                      <Ask onAsk={(question) => askAssistant({ question, visitId: v.id })} />
+                    )}
+                    <SellPanel visit={projectedVisit(v.id)!} priceBook={priceBook} abilities={can} handlers={sellHandlers(v.id)} />
+                    <InvoicePanel visit={projectedVisit(v.id)!} abilities={can} handlers={sellHandlers(v.id)} />
+                  </>
+                ) : null}
+                cashTip={projectedVisit(v.id) ? (
+                  <CashTip visit={projectedVisit(v.id)!} onRecord={async (amount) => {
+                    await perform((phone) => recordCashTip(phone, { visitId: v.id, amount, tipId: crypto.randomUUID() }));
+                  }} />
+                ) : null}
               />
             </li>
           ))}
@@ -453,6 +614,7 @@ const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "v
 
 function VisitCard({
   visit, index, status, expanded, onToggle, onRecord, onPhoto, photos, payments, timezone, inspection,
+  projected, abilities, onPay, sale, cashTip,
 }: {
   visit: Visit;
   index: number;
@@ -470,6 +632,14 @@ function VisitCard({
   payments: Array<RecordedPayment & { waiting: boolean }>;
   /** Running an inspection on this visit, when the person may. */
   inspection?: React.ReactNode;
+  /** The visit with what this page has queued laid over it: estimates, invoices, tips. */
+  projected?: DayVisit | undefined;
+  abilities: FieldAbilities;
+  /** Cash or a check, with a tip, against the invoice it pays, into the queue. */
+  onPay: (payload: { method: "cash" | "check"; amount: string; tip: string | null; checkNumber: string | null; invoiceId: string | null }) => Promise<string | null>;
+  /** Selling and closing: the assistant, the estimates and the invoice. */
+  sale?: React.ReactNode;
+  cashTip?: React.ReactNode;
 }) {
   const [note, setNote] = useState("");
   const [sendingEta, setSendingEta] = useState(false);
@@ -632,7 +802,11 @@ function VisitCard({
 
           {inspection}
 
-          <Payment visit={visit} payments={payments} onRecord={(payload) => onRecord("payment.collect", payload)} />
+          {sale}
+
+          <Payment visit={visit} projected={projected} abilities={abilities} payments={payments} onPay={onPay} />
+
+          {cashTip}
 
           {next && (
             <button
@@ -653,6 +827,8 @@ interface RecordedPayment {
   clientId: string;
   method: "cash" | "check";
   amount: string;
+  /** The tip on top, for the crew. */
+  tip?: string | null;
 }
 
 /**
@@ -709,37 +885,61 @@ function Photos({ photos, onPhoto }: {
  *
  * Cash and checks go into the queue like everything else, because the money
  * is in the technician's hand whether or not there is a signal, and they land
- * in the books dated when they were handed over. A card goes through the
- * invoice's own payment link, which needs a signal and the customer stood
- * there: texted to them, or shown here to open on their phone.
+ * in the books dated when they were handed over, against the invoice raised
+ * here first. A tip on top, when the company takes tips, is split between
+ * everybody on the job the way a tip on the portal is. A card goes through
+ * the invoice's own payment link (where the customer can add a tip), and
+ * financing through the lender's: both need a signal and the customer stood
+ * there, texted to them or shown here to open on their phone.
  */
-function Payment({ visit, payments, onRecord }: {
+function Payment({ visit, projected, abilities, payments, onPay }: {
   visit: Visit;
+  projected: DayVisit | undefined;
+  abilities: FieldAbilities;
   payments: Array<RecordedPayment & { waiting: boolean }>;
-  onRecord: (payload: Record<string, unknown>) => void;
+  onPay: (payload: { method: "cash" | "check"; amount: string; tip: string | null; checkNumber: string | null; invoiceId: string | null }) => Promise<string | null>;
 }) {
-  const owing = isOwing(visit.amountDue);
-  const [method, setMethod] = useState<"cash" | "check" | "card">("cash");
-  const [amount, setAmount] = useState(owing ? formatAmount(visit.amountDue!).replace(/[$,]/g, "") : "");
+  const due = projected?.amountDue ?? visit.amountDue;
+  const owing = isOwing(due);
+  const invoice = (projected?.invoices ?? []).find((i) => i.status !== "paid" && i.status !== "draft" && isOwing(i.balance)) ?? null;
+  const [method, setMethod] = useState<"cash" | "check" | "card" | "finance">("cash");
+  const [amount, setAmount] = useState(owing ? formatAmount(due!).replace(/[$,]/g, "") : "");
+  const [tip, setTip] = useState("");
   const [checkNumber, setCheckNumber] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [link, setLink] = useState<{ url: string; said: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const name = `method-${visit.id}`;
+  const tipping = abilities.tipping.enabled;
 
-  const recordMoney = () => {
-    const parsed = parseAmount(amount);
+  /** The amount follows an invoice raised on this page, until somebody types their own. */
+  const [typed, setTyped] = useState(false);
+  const shown = typed ? amount : owing ? formatAmount(due!).replace(/[$,]/g, "") : amount;
+  /** Tips suggested on what is in the box, so an invoice raised a moment ago gets them too. */
+  const paying = parseAmount(shown);
+  const suggested = tipping && paying ? tipChoices(paying, abilities.tipping.presets) : [];
+
+  const recordMoney = async () => {
+    const parsed = parseAmount(shown);
     if (!parsed) {
       setProblem("Enter the amount they paid, like 120 or 120.50.");
+      return;
+    }
+    const tipAmount = tip.trim() === "" ? null : parseAmount(tip);
+    if (tip.trim() !== "" && !tipAmount) {
+      setProblem("Enter the tip in dollars and cents, like 15 or 12.50.");
       return;
     }
     if (method === "check" && checkNumber.trim() === "") {
       setProblem("Enter the check number, so the office can match it to the bank.");
       return;
     }
-    setProblem(null);
-    onRecord({ method, amount: parsed, ...(method === "check" ? { checkNumber: checkNumber.trim() } : {}) });
+    setProblem(await onPay({
+      method: method === "check" ? "check" : "cash", amount: parsed, tip: tipAmount,
+      checkNumber: method === "check" ? checkNumber.trim() : null, invoiceId: invoice?.id ?? null,
+    }));
     setCheckNumber("");
+    setTip("");
   };
 
   const askForLink = async (text: boolean) => {
@@ -747,6 +947,17 @@ function Payment({ visit, payments, onRecord }: {
     setProblem(null);
     setLink(null);
     try {
+      if (method === "finance") {
+        const result = await financingLink({ visitId: visit.id, text });
+        if (!result.ok) setProblem(result.message);
+        else setLink({
+          url: result.url,
+          said: text && result.texted
+            ? `Texted them a link to apply with ${result.lender} for ${formatAmount(result.amount)}.`
+            : result.message ?? `A link to apply with ${result.lender} for ${formatAmount(result.amount)}. Open it on their phone.`,
+        });
+        return;
+      }
       const result = await paymentLink({ visitId: visit.id, text });
       if (!result.ok) {
         setProblem(result.message);
@@ -765,33 +976,34 @@ function Payment({ visit, payments, onRecord }: {
     }
   };
 
+  const methods = ["cash", "check", "card", ...(abilities.financing ? ["finance"] : [])] as Array<"cash" | "check" | "card" | "finance">;
   return (
     <div className="space-y-2">
       <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Payment</p>
       <p className="text-sm text-ink-700">
-        {visit.amountDue === null
+        {due === null
           ? "Nothing invoiced for this job yet. Cash or a check is held for the customer until the office applies it."
-          : owing ? `Owed on this job: ${formatAmount(visit.amountDue)}` : "Nothing owed on this job."}
+          : owing ? `Owed on this job: ${formatAmount(due)}` : "Nothing owed on this job."}
       </p>
 
       <fieldset className="flex gap-2">
         <legend className="sr-only">How they paid</legend>
-        {(["cash", "check", "card"] as const).map((m) => (
+        {methods.map((m) => (
           <label key={m}
                  className={`flex h-12 flex-1 cursor-pointer items-center justify-center rounded border text-base font-medium ${
                    method === m ? "border-ink-900 bg-ink-900 text-white" : "border-steel-300"}`}>
             <input type="radio" name={name} value={m} checked={method === m} className="sr-only"
-                   onChange={() => { setMethod(m); setProblem(null); }} />
-            {m === "cash" ? "Cash" : m === "check" ? "Check" : "Card"}
+                   onChange={() => { setMethod(m); setProblem(null); setLink(null); }} />
+            {m === "cash" ? "Cash" : m === "check" ? "Check" : m === "card" ? "Card" : "Finance"}
           </label>
         ))}
       </fieldset>
 
-      {method === "card" ? (
+      {method === "card" || method === "finance" ? (
         <div className="flex gap-2">
           <button type="button" disabled={busy} onClick={() => void askForLink(true)}
                   className="h-12 flex-1 rounded border border-steel-300 text-base font-medium disabled:opacity-60">
-            {busy ? "Asking" : "Text them a card link"}
+            {busy ? "Asking" : method === "card" ? "Text them a card link" : "Text them a financing link"}
           </button>
           <button type="button" disabled={busy} onClick={() => void askForLink(false)}
                   className="h-12 flex-1 rounded border border-steel-300 text-base font-medium disabled:opacity-60">
@@ -803,7 +1015,7 @@ function Payment({ visit, payments, onRecord }: {
           <div className="flex gap-2">
             <label className="flex h-12 flex-1 items-center gap-2 rounded border border-steel-300 px-3">
               <span className="text-sm text-ink-500">Amount</span>
-              <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
+              <input value={shown} onChange={(e) => { setTyped(true); setAmount(e.target.value); }} inputMode="decimal"
                      aria-label="Amount" className="w-full bg-transparent text-base" placeholder="0.00" />
             </label>
             {method === "check" && (
@@ -814,7 +1026,26 @@ function Payment({ visit, payments, onRecord }: {
               </label>
             )}
           </div>
-          <button type="button" onClick={recordMoney}
+          {tipping && (
+            <div className="space-y-2">
+              <p className="text-sm text-ink-500">A tip on top, for everybody on this job:</p>
+              <div className="flex gap-2">
+                {suggested.map((choice) => (
+                  <button key={choice.percent} type="button" aria-label={`Tip ${choice.percent} per cent`}
+                          onClick={() => setTip(formatAmount(choice.amount).replace(/[$,]/g, ""))}
+                          className="h-12 flex-1 rounded border border-steel-300 text-base font-medium">
+                    {choice.percent}%
+                  </button>
+                ))}
+              </div>
+              <label className="flex h-12 items-center gap-2 rounded border border-steel-300 px-3">
+                <span className="text-sm text-ink-500">Tip</span>
+                <input value={tip} onChange={(e) => setTip(e.target.value)} inputMode="decimal" aria-label="Tip"
+                       className="w-full bg-transparent text-base" placeholder="None" />
+              </label>
+            </div>
+          )}
+          <button type="button" onClick={() => void recordMoney()}
                   className="h-12 w-full rounded border border-steel-300 text-base font-medium">
             {method === "cash" ? "Record cash payment" : "Record check payment"}
           </button>
@@ -832,7 +1063,7 @@ function Payment({ visit, payments, onRecord }: {
         <ul className="space-y-1 text-sm">
           {payments.map((p) => (
             <li key={p.clientId} className="text-ink-700">
-              {p.method === "cash" ? "Cash" : "Check"} {formatAmount(p.amount)},{" "}
+              {p.method === "cash" ? "Cash" : "Check"} {formatAmount(p.amount)}{p.tip ? `, tip ${formatAmount(p.tip)}` : ""},{" "}
               {p.waiting ? <span className="text-amber-700">waiting to send</span> : "sent"}
             </li>
           ))}
