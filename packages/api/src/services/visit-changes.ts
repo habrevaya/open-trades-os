@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, InvalidGrantError, NotFoundError,
   type RequestMeta, type ServiceContext,
 } from "./context";
+import { announce, sideOf } from "./visit-notices";
 import { consume, inGrant, peek, type ResolvedGrant } from "./portal";
 import { openSlots, windowStart, type OpenSlot } from "./booking";
 import { refusingDuplicate } from "./duplicates";
@@ -556,6 +557,8 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
     let body: string;
     let subject: string;
     let assignmentsRemoved = 0;
+    /** Who was on it and when, so the technicians it moves or cancels are told. */
+    const before = await sideOf(tx, visit.id);
 
     if (req.kind === "reschedule") {
       const [service] = req.bookableServiceId
@@ -621,6 +624,7 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
       .returning();
     if (!after) throw new ConflictError("Somebody else has just answered this request.");
 
+    if (before) await announce(tx, ctx, visit.id, before);
     await closeTask(tx, ctx, req.taskId, req.kind === "cancel" ? "Cancelled the visit" : "Moved the visit");
     await audit(tx, ctx, req.kind === "cancel" ? "visit.cancelled_on_request" : "visit.moved_on_request",
       "visit", visit.id,

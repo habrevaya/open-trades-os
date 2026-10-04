@@ -7,7 +7,8 @@ import { Button, Field, Notice } from "../components/ui";
 import { color, space, type } from "../components/theme";
 
 /**
- * Two steps: which server, then who. The server is whatever address the
+ * Two steps: which server, then who, with a password or with a one time
+ * code sent by text or email for somebody who has no password or forgot it. The server is whatever address the
  * company runs this on, so it is asked for first and on its own, and a
  * mistyped address is caught there rather than reported as a wrong password.
  *
@@ -20,6 +21,10 @@ export function SignInScreen({ again = false, onDone }: { again?: boolean; onDon
   const [server, setServer] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  /** A password, or a one time code by text or email for somebody who has none or forgot it. */
+  const [mode, setMode] = useState<"password" | "code">("password");
+  const [code, setCode] = useState("");
+  const [codeSent, setCodeSent] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ text: string; field?: string | undefined } | null>(null);
 
@@ -47,7 +52,9 @@ export function SignInScreen({ again = false, onDone }: { again?: boolean; onDon
   const submit = async () => {
     setBusy(true);
     setError(null);
-    const outcome = await field.signIn({ server, email, password });
+    const outcome = mode === "password"
+      ? await field.signIn({ server, email, password })
+      : await field.signInWithCode({ server, email, code });
     setBusy(false);
     if (!outcome.ok) {
       setError({ text: outcome.error, field: outcome.field });
@@ -55,7 +62,27 @@ export function SignInScreen({ again = false, onDone }: { again?: boolean; onDon
       return;
     }
     setPassword("");
+    setCode("");
     onDone?.();
+  };
+
+  const askForCode = async (channel: "sms" | "email") => {
+    setBusy(true);
+    setError(null);
+    const sent = await field.requestCode({ server, email, channel });
+    setBusy(false);
+    if (!sent.ok) {
+      setError({ text: sent.error, field: sent.field });
+      if (sent.field === "server") setStep("server");
+      return;
+    }
+    setCodeSent(sent.message);
+  };
+
+  const switchTo = (next: "password" | "code") => {
+    setMode(next);
+    setError(null);
+    setCodeSent(null);
   };
 
   return (
@@ -106,19 +133,61 @@ export function SignInScreen({ again = false, onDone }: { again?: boolean; onDon
               textContentType="username"
               error={error?.field === "email" ? error.text : null}
             />
-            <Field
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="current-password"
-              textContentType="password"
-              returnKeyType="go"
-              onSubmitEditing={() => void submit()}
-              error={error?.field === "password" ? error.text : null}
-            />
-            {error && !error.field ? <Notice tone="red">{error.text}</Notice> : null}
-            <Button label="Sign in" onPress={() => void submit()} busy={busy} />
+            {mode === "password" ? (
+              <>
+                <Field
+                  label="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  autoComplete="current-password"
+                  textContentType="password"
+                  returnKeyType="go"
+                  onSubmitEditing={() => void submit()}
+                  error={error?.field === "password" ? error.text : null}
+                />
+                {error && !error.field ? <Notice tone="red">{error.text}</Notice> : null}
+                <Button label="Sign in" onPress={() => void submit()} busy={busy} />
+                <View style={styles.secondary}>
+                  <Button label="Sign in with a code instead" kind="secondary" onPress={() => switchTo("code")} />
+                </View>
+              </>
+            ) : codeSent === null ? (
+              <>
+                <Text style={[type.soft, styles.lead]}>
+                  We send a six digit code to the mobile number the office has for you, or to your email.
+                </Text>
+                {error && !error.field ? <Notice tone="red">{error.text}</Notice> : null}
+                <Button label="Text me a code" onPress={() => void askForCode("sms")} busy={busy} />
+                <View style={styles.secondary}>
+                  <Button label="Email me a code" kind="secondary" onPress={() => void askForCode("email")} disabled={busy} />
+                </View>
+                <View style={styles.secondary}>
+                  <Button label="Use my password" kind="secondary" onPress={() => switchTo("password")} />
+                </View>
+              </>
+            ) : (
+              <>
+                <Notice tone="green">{codeSent}</Notice>
+                <Field
+                  label="Code"
+                  value={code}
+                  onChangeText={setCode}
+                  keyboardType="number-pad"
+                  autoComplete="one-time-code"
+                  textContentType="oneTimeCode"
+                  maxLength={9}
+                  returnKeyType="go"
+                  onSubmitEditing={() => void submit()}
+                  error={error?.field === "code" ? error.text : null}
+                />
+                {error && !error.field ? <Notice tone="red">{error.text}</Notice> : null}
+                <Button label="Sign in" onPress={() => void submit()} busy={busy} />
+                <View style={styles.secondary}>
+                  <Button label="Send another code" kind="secondary" onPress={() => setCodeSent(null)} />
+                </View>
+              </>
+            )}
             {!again ? (
               <View style={styles.secondary}>
                 <Button label="Use a different server" kind="secondary" onPress={() => { setStep("server"); setError(null); }} />

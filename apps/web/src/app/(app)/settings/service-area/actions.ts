@@ -2,7 +2,7 @@
 
 import { attempt, field, fields, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
-import { requireSetupUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { company } from "@opentradesos/api/services";
 
@@ -18,7 +18,8 @@ export type ServiceAreaState = FormState;
  * rather than in a validator either caller could skip.
  */
 export async function act(_previous: ServiceAreaState, form: FormData): Promise<ServiceAreaState> {
-  const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
+  // `requireUser`: the setup wizard's service area step posts here too.
+  const ctx = { actor: (await requireUser()).actor, db: getDb() };
   const op = String(form.get("op") ?? "");
 
   const state = await attempt(form, async () => {
@@ -52,7 +53,10 @@ export async function act(_previous: ServiceAreaState, form: FormData): Promise<
     }
   });
 
-  if (state?.done) revalidatePath("/settings/service-area");
+  if (state?.done) {
+    revalidatePath("/settings/service-area");
+    revalidatePath("/setup/service-area");
+  }
   return state;
 }
 

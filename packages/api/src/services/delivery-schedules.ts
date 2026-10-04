@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, permissionsFor, reporting, type Actor } from "@opentradesos/core";
@@ -13,6 +14,7 @@ import {
 } from "./report-delivery";
 import { deliverStatements, type StatementRunResult } from "./statement-delivery";
 import { within } from "./workflow-schedule";
+import { replayed, remember } from "./once";
 
 /**
  * SCHEDULED DELIVERY: THE SETTINGS, AND THE CLOCK THAT FIRES THEM
@@ -270,6 +272,76 @@ export function setReportSchedulePaused(ctx: ServiceContext, input: { id: string
     await audit(tx, ctx, input.paused ? "report_schedule.paused" : "report_schedule.resumed",
       "delivery_schedule", input.id, before, after);
     return after!;
+  });
+}
+
+/**
+ * SEND IT NOW, rather than at the next occurrence.
+ *
+ * Somebody setting up a Monday report wants to see what Monday's email will
+ * look like on the Thursday they set it up, and somebody whose accountant
+ * asks "can you send me that again" wants a button rather than an edit to the
+ * schedule. So: the same delivery a scheduled occurrence makes, to the same
+ * people, over the same days measured back from now, through the same
+ * `deliverReport`, so every recipient is still checked the same way and sent
+ * the report as themselves.
+ *
+ * AS THE PERSON PRESSING IT, not as whoever set the schedule up. A schedule
+ * runs under the authority of the person who vouched for its recipients; a
+ * send now is a new decision to send, made by somebody else, and the delivery
+ * row records whose run it was. Somebody who could not run the report
+ * themselves is refused by the same check the schedule form makes.
+ *
+ * The clock is not touched: the next scheduled one still goes when it was
+ * going to. A paused schedule can still be sent by hand, because pausing is
+ * about the clock and this is not the clock.
+ *
+ * Once per press. The delivery's key is the request's idempotency key when it
+ * has one, so a retried request finds the first delivery rather than emailing
+ * everybody twice, and a fresh one otherwise, so a second press is a second
+ * send, which is what pressing it twice means.
+ */
+export function sendReportScheduleNow(
+  ctx: ServiceContext, input: { id: string },
+): Promise<LastDelivery & { scheduleId: string }> {
+  return guardedWrite(ctx, "report:build", async (tx) => {
+    const seen = await replayed<LastDelivery & { scheduleId: string }>(tx, ctx, "report_schedule_send");
+    if (seen) return seen;
+
+    const row = await loadReportSchedule(tx, input.id);
+    const source: ReportSource = row.builtInReport ? { builtIn: row.builtInReport } : { reportId: row.reportId ?? "" };
+    const named = await sourceOf(tx, source);
+    if (!named) throw new ConflictError("The report this schedule sends has been deleted, so there is nothing to send.");
+    const decision = reporting.resolveReport(named.definition, CATALOGUE, permissionsFor(ctx.actor));
+    if (!decision.ok) {
+      throw new ConflictError(`You cannot send a report you cannot run yourself. ${reporting.explainRefusal(decision)}`);
+    }
+
+    const timezone = await timezoneOf(tx, ctx.actor.organizationId);
+    const result = await deliverReport(tx, {
+      organizationId: ctx.actor.organizationId,
+      ownerUserId: ctx.actor.userId,
+      source,
+      recipients: { userIds: row.recipientUserIds, addresses: row.externalAddresses },
+      period: periodOf(row.period),
+      at: new Date(),
+      timezone,
+      key: `schedule:${row.id}:now:${ctx.idempotencyKey ?? randomUUID()}`,
+      scheduleId: row.id,
+    });
+
+    const [delivery] = result.deliveryId
+      ? await tx.select().from(schema.reportDelivery).where(eq(schema.reportDelivery.id, result.deliveryId)).limit(1)
+      : [];
+    if (!delivery) throw new ConflictError("That was not sent. Nothing was recorded, so try again.");
+    await audit(tx, ctx, "report_schedule.sent_now", "delivery_schedule", row.id, null,
+      { deliveryId: delivery.id, status: delivery.status });
+
+    const statuses = await messageStatuses(tx,
+      delivery.recipients.flatMap((r) => (r.messageId ? [r.messageId] : [])));
+    const answer = { ...shapeDelivery(delivery, statuses), scheduleId: row.id };
+    await remember(tx, ctx, "report_schedule_send", delivery.id, answer);
+    return answer;
   });
 }
 
@@ -663,6 +735,7 @@ export const handlers = {
   setReportSchedulePaused: (ctx: ServiceContext, input: { id: string; paused: boolean }) =>
     setReportSchedulePaused(ctx, input),
   deleteReportSchedule: (ctx: ServiceContext, input: { id: string }) => removeReportSchedule(ctx, input),
+  sendReportScheduleNow: (ctx: ServiceContext, input: { id: string }) => sendReportScheduleNow(ctx, input),
   listReportDeliveries: async (ctx: ServiceContext, input: { scheduleId?: string | undefined; limit?: number | undefined }) =>
     ({ deliveries: await reportDeliveries(ctx, input) }),
   getStatementSchedule: (ctx: ServiceContext) => statementSchedule(ctx),

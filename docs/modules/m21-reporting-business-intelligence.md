@@ -237,6 +237,39 @@ different lists rather than the same list with half of it erroring.
 range, and the range lives in the URL, so a report sent to a bookkeeper opens
 on the same months.
 
+### See it as a chart
+
+Every report grouped by a date or a category is drawn above its table, from
+the same rows. Grouped by a date, it is a line, oldest on the left, and "Columns"
+draws the same numbers as columns; grouped by anything else, it is bars in the
+report's own order (biggest first, or the aging buckets in age order). A loss
+is drawn below the axis in red, and every bar and point opens the records
+behind it, as the numbers in the table do. A report counting several things
+draws the first and offers the others ("Draw"). A report grouped by two things
+is drawn by one of them with the other added up, and says so, unless what it
+counts cannot be added up (an average), in which case it says why there is no
+chart. Twenty five bars at most, and four hundred points; the table always
+has every row. The chart is SVG drawn on the server: no chart library, it
+prints, and it works with JavaScript off.
+
+### Print it, or save it as a PDF
+
+"Print or save as PDF" on any report opens `/reports/print`: the company's
+name, the report, its dates, filters and branch in words, who printed it and
+when, the chart and every row, with nothing else on the page. The browser's
+own print dialog makes the PDF.
+
+### Narrow a report to one branch
+
+For somebody who sees the whole company in a company with branches, every
+report has a Branch choice beside its dates, and the builder has it under
+"Narrow it down". The records behind a number and the print view keep it. It
+narrows the jobs, invoices, estimates, visits and job profitability datasets
+to the branch's jobs and what hangs off them; the tasks and calls datasets do
+not belong to branches, and a branch on them is refused rather than ignored.
+Those same datasets can be grouped by Branch. A branch manager's reports are
+their branch's already, through their scope.
+
 ### Build your own
 
 `/reports/new`. Choose what it is about, tick what to group by, tick what to
@@ -270,6 +303,12 @@ month before, this month so far, or everything) and who gets it. The email is a
 summary of the first twenty rows and the whole report as a CSV attached; people
 in the company also get a link back to it in the app. The first one goes at the
 next occurrence, not straight away.
+
+"Send now" beside each schedule sends it straight away, to the same people and
+covering the same days measured back from now, run as the person pressing it
+(it is their decision to send it) and refused if they could not run the report
+themselves. The schedule's clock does not move, and a paused schedule can still
+be sent by hand.
 
 `/reports/schedules` lists every schedule with when it next goes, and its last
 delivery: when, which dates, how many rows, and for each recipient the
@@ -315,6 +354,7 @@ caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
 | `POST /v1/report-schedules` | `report:build` |
 | `PATCH /v1/report-schedules/{id}` | `report:build` |
 | `POST /v1/report-schedules/{id}/paused` | `report:build` |
+| `POST /v1/report-schedules/{id}/send` | `report:build` |
 | `DELETE /v1/report-schedules/{id}` | `report:build` |
 | `GET /v1/report-deliveries` | `report:read` |
 
@@ -359,8 +399,11 @@ not open the records behind them. A task opens the queue at `/tasks` rather than
 the task, and a visit opens its job, because neither has a screen of its own. A
 drill lists at most a thousand records (its totals still cover all of them).
 
-A scheduled report has no "send it now" button, attaches a CSV and nothing else
-(no PDF, no chart), and an emailed report appears as a thread in the inbox like
-every other email this product sends. Nothing is emailed until an email provider
-is connected. No charts: every report is a table. No cross company report other
-than the four network aggregates, which are `docs/concepts/networks.md`.
+An emailed report attaches a CSV and nothing else: no PDF and no chart, which
+are on the screen and the print view only. An emailed report appears as a
+thread in the inbox like every other email this product sends, and "send now"
+queues it for the worker's next pass rather than sending it in the request.
+Nothing is emailed until an email provider is connected. Dashboard tiles keep
+their own bars and columns rather than the report chart. A chart draws one
+measure at a time and does not stack a second grouping. No cross company report
+other than the four network aggregates, which are `docs/concepts/networks.md`.

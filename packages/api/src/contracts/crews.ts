@@ -527,6 +527,31 @@ export const scheduleOnCall = defineRoute({
   }),
 });
 
+export const fillOnCallWeeks = defineRoute({
+  method: "post",
+  path: "/v1/on-call/weeks",
+  summary: "Fill the on call rota a week at a time",
+  description:
+    "The people listed take a week each, in turn, from firstDay, the phone changing hands at handoverAt on the company's own clock every week, including the weeks the clocks change. Every week goes through the same overlap refusal a single shift does, all in one go, so a rota that collides with somebody already on adds nothing at all and the refusal names the week. A handover at a time the clocks skip is refused.",
+  module: "M09",
+  permissions: ["visit:dispatch"],
+  idempotent: true,
+  input: z.object({
+    technicianIds: z.array(Uuid).min(1).max(20),
+    /** The first handover day, YYYY-MM-DD, in the company's zone. */
+    firstDay: z.string().date(),
+    /** The time of day the phone changes hands, as HH:MM. */
+    handoverAt: z.string().regex(/^\d{1,2}:\d{2}$/),
+    weeks: z.number().int().min(1).max(52),
+    businessUnitId: Uuid.nullable().optional(),
+  }),
+  output: z.object({
+    shifts: z.array(z.object({
+      id: Uuid, technicianId: Uuid, startsAt: z.string().datetime(), endsAt: z.string().datetime(),
+    })),
+  }),
+});
+
 export const handOverOnCall = defineRoute({
   method: "post",
   path: "/v1/on-call/handover",
@@ -555,5 +580,5 @@ export const crewRoutes = {
   listServiceRoutes, createServiceRoute, listServiceRouteStops,
   addServiceRouteStop, reorderServiceRouteStops, setServiceRouteStopActive,
   recordServiceRouteStopServiced, materialiseServiceRoute, getServiceRouteDensity,
-  getOnCallNow, listOnCallRotations, scheduleOnCall, handOverOnCall,
+  getOnCallNow, listOnCallRotations, scheduleOnCall, fillOnCallWeeks, handOverOnCall,
 } as const;

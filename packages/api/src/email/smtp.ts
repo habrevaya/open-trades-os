@@ -211,6 +211,14 @@ export function createSmtpProvider(
         + "setting to switch on.",
     },
 
+    inbound: {
+      kind: "none",
+      because:
+        "SMTP sends and does not receive. A reply to mail sent this way lands in whatever mailbox "
+        + "the From address is, as it always has, and not in the inbox here. Replies reach the inbox "
+        + "through a provider that receives mail and posts it on, such as Resend.",
+    },
+
     async send(message: OutboundEmail): Promise<SendResult> {
       try {
         const info = await open().sendMail({

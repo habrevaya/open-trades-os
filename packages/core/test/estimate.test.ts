@@ -4,6 +4,7 @@ import {
   computeOption, computeDeposit, applicableDeposit, presentationOrder,
   DepositError, type EstimateLineInput,
 } from "../src/estimate/index.js";
+import * as estimate from "../src/estimate/index.js";
 import {
   postDeposit, postDepositApplication, postDepositRefund, postDepositForfeiture,
   ACCOUNTS,
@@ -268,5 +269,48 @@ describe("deposits in the ledger", () => {
       .reduce((acc, e) => acc + (e.direction === "debit" ? 1 : -1) * Number(toString(e.amount)), 0);
 
     expect(net).toBe(0);
+  });
+});
+
+describe("good, better and best on the proposal", () => {
+  it("names three options by price, whatever order they are drawn in", () => {
+    expect(estimate.tierLabels([money("9800"), money("4200"), money("6500")]))
+      .toEqual(["Best", "Good", "Better"]);
+  });
+
+  it("calls two options Good and Better, never Good and Best", () => {
+    expect(estimate.tierLabels([money("200"), money("100")])).toEqual(["Better", "Good"]);
+  });
+
+  it("labels nothing when it is not a ladder", () => {
+    expect(estimate.tierLabels([money("100")])).toEqual([null]);
+    expect(estimate.tierLabels([money("1"), money("2"), money("3"), money("4")])).toEqual([null, null, null, null]);
+    expect(estimate.tierLabels([money("100"), money("100")])).toEqual([null, null]);
+  });
+});
+
+describe("an estimate's outcome from another system", () => {
+  const context = { optionCount: 2, issuedOn: "2024-03-01", today: "2026-10-01" };
+
+  it("accepts a win with its option, a loss and an expiry, each with a date", () => {
+    expect(estimate.checkHistory({ status: "approved", on: "2024-03-09", chosenOption: 1 }, context)).toEqual({ ok: true });
+    expect(estimate.checkHistory({ status: "declined", on: "2024-03-09" }, context)).toEqual({ ok: true });
+    expect(estimate.checkHistory({ status: "expired", on: "2024-04-01" }, context)).toEqual({ ok: true });
+  });
+
+  it("refuses a win that does not say which option won", () => {
+    const verdict = estimate.checkHistory({ status: "approved", on: "2024-03-09" }, context);
+    expect(verdict.ok).toBe(false);
+    expect(estimate.checkHistory({ status: "approved", on: "2024-03-09", chosenOption: 2 }, context).ok).toBe(false);
+  });
+
+  it("refuses a date in the future or before the estimate was written", () => {
+    expect(estimate.checkHistory({ status: "declined", on: "2027-01-01" }, context).ok).toBe(false);
+    expect(estimate.checkHistory({ status: "declined", on: "2024-02-01" }, context).ok).toBe(false);
+    expect(estimate.checkHistory({ status: "declined", on: "March 9" }, context).ok).toBe(false);
+  });
+
+  it("refuses a chosen option on a loss", () => {
+    expect(estimate.checkHistory({ status: "declined", on: "2024-03-09", chosenOption: 0 }, context).ok).toBe(false);
   });
 });

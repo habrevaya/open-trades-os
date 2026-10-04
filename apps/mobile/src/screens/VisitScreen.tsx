@@ -3,7 +3,8 @@ import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, Text
 import { addressOf, arrivalWindow, mapsUrl, nextStep, statusLabel } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { ETA_CHOICES, photoSummary, telUrl } from "../lib/format";
-import { Button, Card, Notice, Section } from "../components/ui";
+import { Button, Notice, Section } from "../components/ui";
+import { ChecklistSection, PartsSection, PaymentSection, ReadingsSection } from "./VisitWork";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -12,7 +13,8 @@ import type { Navigate } from "../shell/App";
  *
  * The gate code and the dog first, before anything else, because they are
  * needed before getting out of the truck. Then what the job is, the notes,
- * photos and a signature, and the one big button that moves the visit on.
+ * photos and a signature, the checklist, the readings, the parts and the
+ * money (see `VisitWork`), and the one big button that moves the visit on.
  */
 export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }) {
   const field = useField();
@@ -174,15 +176,10 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
           </View>
         </Section>
 
-        {visit.checklist.length > 0 ? (
-          <Section title="Checklist">
-            <Card>
-              {visit.checklist.map((item) => (
-                <Text key={item.id} style={type.body}>{item.doneAt ? "Done: " : ""}{item.label}{item.required ? " (required)" : ""}</Text>
-              ))}
-            </Card>
-          </Section>
-        ) : null}
+        <ChecklistSection visit={visit} />
+        <ReadingsSection visit={visit} />
+        <PartsSection visit={visit} />
+        <PaymentSection visit={visit} />
       </ScrollView>
     </View>
   );

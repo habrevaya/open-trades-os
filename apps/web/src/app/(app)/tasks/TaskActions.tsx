@@ -11,8 +11,14 @@ import { claimTask, closeTask } from "./actions";
  * shorter, and the service refuses it anyway.
  */
 export function TaskActions({
-  id, claimable, closable,
-}: { id: string; claimable: boolean; closable: boolean }) {
+  id, claimable, closable, dismissable = true,
+}: {
+  id: string;
+  claimable: boolean;
+  closable: boolean;
+  /** Off for the person a task is assigned to without `task:write`: they finish it, the office dismisses. */
+  dismissable?: boolean;
+}) {
   const [claimState, claimForm, claiming] = useKeptAction(claimTask, null);
   const [closeState, closeForm, closing] = useKeptAction(closeTask, null);
   const error = (claimState && "error" in claimState && claimState.error)
@@ -49,10 +55,12 @@ export function TaskActions({
                     className="inline-flex h-8 items-center rounded bg-ink-900 px-3 text-sm font-medium text-white hover:bg-ink-700 disabled:opacity-60">
               Done
             </button>
-            <button type="submit" name="dismissed" value="1" disabled={closing}
-                    className="inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm text-ink-700 hover:bg-steel-100 disabled:opacity-60">
-              Dismiss
-            </button>
+            {dismissable && (
+              <button type="submit" name="dismissed" value="1" disabled={closing}
+                      className="inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm text-ink-700 hover:bg-steel-100 disabled:opacity-60">
+                Dismiss
+              </button>
+            )}
           </form>
         )}
       </div>

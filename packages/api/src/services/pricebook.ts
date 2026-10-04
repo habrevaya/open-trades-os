@@ -131,6 +131,7 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     description: row.version.description ?? null,
     imageUrl: row.version.imageUrl ?? null,
     categoryId: row.item.categoryId,
+    feeRole: row.item.feeRole,
     price: row.version.price,
     taxable: row.version.taxable,
     taxClass: row.version.taxClass ?? null,
@@ -231,6 +232,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       categoryId: input.categoryId ?? null,
       kind: input.kind,
       code: input.code,
+      feeRole: input.feeRole ?? null,
       ...provenance(input.externalRef),
     }).returning();
 
@@ -291,6 +293,8 @@ export async function revise(ctx: ServiceContext, input: z.infer<typeof revisePr
       ...(input.cost !== undefined ? { cost: input.cost } : {}),
       ...(input.laborMinutes !== undefined ? { laborMinutes: input.laborMinutes } : {}),
       ...(input.taxable !== undefined ? { taxable: input.taxable } : {}),
+      ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}),
+      ...(input.warrantyMonths !== undefined ? { warrantyMonths: input.warrantyMonths } : {}),
     }, effectiveFrom);
 
     if (ctx.idempotencyKey) {
@@ -313,6 +317,13 @@ export interface RevisionChanges {
   cost?: string;
   laborMinutes?: number;
   taxable?: boolean;
+  /**
+   * Null clears it; left out, the current one carries forward. The setup
+   * wizard's tax step and a trade pack upgrade are what change these, through
+   * here, so a tax class or a warranty is versioned exactly like a price.
+   */
+  taxClass?: string | null;
+  warrantyMonths?: number | null;
 }
 
 /**
@@ -349,9 +360,9 @@ export async function reviseWithin(
     cost: changes.cost ?? current.version.cost,
     laborMinutes: changes.laborMinutes ?? current.version.laborMinutes,
     taxable: changes.taxable ?? current.version.taxable,
-    taxClass: current.version.taxClass,
+    taxClass: changes.taxClass !== undefined ? changes.taxClass : current.version.taxClass,
     commissionRate: current.version.commissionRate,
-    warrantyMonths: current.version.warrantyMonths,
+    warrantyMonths: changes.warrantyMonths !== undefined ? changes.warrantyMonths : current.version.warrantyMonths,
     components: current.version.components,
     effectiveFrom,
   }).returning();
@@ -385,6 +396,140 @@ export async function load(tx: Database, itemId: string): Promise<ItemRow | unde
 
 /** Exported for the tests that check version windows never gap or overlap. */
 export const currentVersionFilter = inForceAt;
+
+/* ------------------------------------------------------- one item, whole */
+
+export interface VersionView {
+  id: string;
+  version: number;
+  name: string;
+  price: string;
+  /** Absent rather than null for a reader who may not see cost, as on the item. */
+  cost?: string | null;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  /** In force now, waiting to come into force, or finished. */
+  state: "in_force" | "scheduled" | "past";
+}
+
+/**
+ * ONE ITEM, WITH EVERY PRICE IT HAS EVER HAD.
+ *
+ * The single item editor needs three things the list cannot give it: the
+ * item as it stands, every version in order with when each was in force (so
+ * "what did we charge for this in March" is answered on the screen), and any
+ * revision waiting to come in. A version called off is left out, because it
+ * was never in force and nothing was ever priced from it.
+ *
+ * Cost is taken off each version for a reader without `pricebook.cost:read`
+ * by the same redaction the list uses, on the version, where cost lives.
+ */
+export async function detail(ctx: ServiceContext, input: { id: string }, now: Date = new Date()) {
+  return guardedRead(ctx, "pricebook:read", async (tx) => {
+    const current = await load(tx, input.id);
+    if (!current) {
+      /**
+       * An item with no version in force right now is still an item: one
+       * whose only version is dated ahead. Read it from its latest version
+       * rather than calling it missing.
+       */
+      const [item] = await tx.select().from(schema.priceBookItem)
+        .where(and(eq(schema.priceBookItem.id, input.id), isNull(schema.priceBookItem.deletedAt))).limit(1);
+      if (!item) throw new NotFoundError("Price book item");
+    }
+
+    const [item] = current ? [current.item] : await tx.select().from(schema.priceBookItem)
+      .where(eq(schema.priceBookItem.id, input.id)).limit(1);
+    const versions = await tx.select().from(schema.priceBookItemVersion)
+      .where(and(
+        eq(schema.priceBookItemVersion.itemId, input.id),
+        isNull(schema.priceBookItemVersion.deletedAt),
+      ))
+      .orderBy(desc(schema.priceBookItemVersion.version));
+
+    const shown = current ?? { item: item!, version: versions[0]! };
+    return {
+      ...shape(ctx, shown),
+      inForce: current !== undefined,
+      versions: versions.map((v): VersionView => {
+        const visible = clean(ctx, "priceBookItemVersion", v) as Record<string, unknown>;
+        return {
+          id: v.id,
+          version: v.version,
+          name: v.name,
+          price: v.price,
+          ...("cost" in visible ? { cost: (visible["cost"] ?? null) as string | null } : {}),
+          effectiveFrom: v.effectiveFrom.toISOString(),
+          effectiveTo: v.effectiveTo?.toISOString() ?? null,
+          state: v.effectiveFrom > now ? "scheduled"
+            : v.effectiveTo === null || v.effectiveTo > now ? "in_force" : "past",
+        };
+      }),
+    };
+  });
+}
+
+/**
+ * CHANGE WHAT AN ITEM IS, as opposed to what it costs or is called.
+ *
+ * The kind, the shelf, the code, and which fee it is: properties of the
+ * identity that no document points at, so they change the item in place
+ * rather than writing a version, the same reasoning that moves an item
+ * between categories without one. Anything a customer was charged lives on
+ * the version and is untouched.
+ *
+ * The code is the handle an import and a person both look an item up by, so
+ * a new one that another item already has is refused in words.
+ */
+export async function updateItem(
+  ctx: ServiceContext,
+  input: {
+    id: string;
+    kind?: "service" | "material" | "equipment" | "labor" | "fee" | "discount" | undefined;
+    code?: string | undefined;
+    categoryId?: string | null | undefined;
+    feeRole?: "diagnostic" | "after_hours" | null | undefined;
+  },
+) {
+  return guardedWrite(ctx, "pricebook:write", async (tx) => {
+    const current = await load(tx, input.id);
+    const [before] = current ? [current.item] : await tx.select().from(schema.priceBookItem)
+      .where(and(eq(schema.priceBookItem.id, input.id), isNull(schema.priceBookItem.deletedAt))).limit(1);
+    if (!before) throw new NotFoundError("Price book item");
+
+    const set: Partial<typeof schema.priceBookItem.$inferInsert> = { updatedAt: new Date() };
+    if (input.kind !== undefined) set.kind = input.kind;
+    if (input.categoryId !== undefined) {
+      if (input.categoryId !== null) {
+        const [shelf] = await tx.select({ id: schema.priceBookCategory.id }).from(schema.priceBookCategory)
+          .where(and(eq(schema.priceBookCategory.id, input.categoryId), isNull(schema.priceBookCategory.deletedAt)))
+          .limit(1);
+        if (!shelf) throw new NotFoundError("Category");
+      }
+      set.categoryId = input.categoryId;
+    }
+    if (input.feeRole !== undefined) set.feeRole = input.feeRole;
+    if (input.code !== undefined) {
+      const code = input.code.trim();
+      if (code === "") throw new ConflictError("An item needs a code.");
+      if (code !== before.code) {
+        const [clash] = await tx.select({ id: schema.priceBookItem.id }).from(schema.priceBookItem)
+          .where(and(eq(schema.priceBookItem.code, code), isNull(schema.priceBookItem.deletedAt))).limit(1);
+        if (clash) throw new ConflictError(`A price book item with code "${code}" already exists.`);
+      }
+      set.code = code;
+    }
+
+    const [after] = await tx.update(schema.priceBookItem).set(set)
+      .where(eq(schema.priceBookItem.id, input.id)).returning();
+    await audit(tx, ctx, "pricebook.item_updated", "price_book_item", input.id,
+      { kind: before.kind, code: before.code, categoryId: before.categoryId, feeRole: before.feeRole },
+      { kind: after!.kind, code: after!.code, categoryId: after!.categoryId, feeRole: after!.feeRole });
+
+    const fresh = await load(tx, input.id);
+    return fresh ? shape(ctx, fresh) : null;
+  });
+}
 
 /**
  * RETIRE AN ITEM, OR BRING IT BACK.

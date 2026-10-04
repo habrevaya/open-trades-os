@@ -40,6 +40,8 @@ export const capability = pgEnum("capability", [
   "payments", "telephony", "messaging", "email", "accounting", "maps", "routing",
   "storage", "calendar", "payroll", "financing", "tax", "ai_model", "reviews",
   "ads", "analytics", "lead_source",
+  /** Speech to text, for call recordings and voicemails. */
+  "transcription",
 ]);
 
 export const connectionStatus = pgEnum("connection_status", [

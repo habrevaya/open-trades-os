@@ -8,7 +8,7 @@ import {
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
 import { admitDate, admitInstant, requireImport } from "./history";
-import { invoiceScopeFilter } from "./scope";
+import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
 import { inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
@@ -554,6 +554,7 @@ async function priceInvoice(
         cost: schema.priceBookItemVersion.cost,
         taxable: schema.priceBookItemVersion.taxable,
         kind: schema.priceBookItem.kind,
+        feeRole: schema.priceBookItem.feeRole,
       })
       .from(schema.priceBookItemVersion)
       .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -648,6 +649,8 @@ async function priceInvoice(
           unitPrice: usd(contractPrice ?? version?.price ?? line.unitPrice),
           itemKind: linked?.kind ?? null,
         }),
+      /** The diagnostic fee or the after hours rate, which a plan may waive outright. */
+      feeRole: line.priceAsGiven ? null : linked?.feeRole ?? null,
       memberDiscountAmount: usd("0"),
       memberAgreementId: null as string | null,
     };
@@ -680,7 +683,8 @@ async function priceInvoice(
       unitPrice: r.unitPrice,
       discountAmount: r.discountAmount,
       eligible: r.memberEligible,
-    })), member.rate);
+      feeRole: r.feeRole,
+    })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
     for (const [i, r] of resolved.entries()) {
       const amount = off[i]!;
       if (!m.isPositive(amount)) continue;
@@ -724,6 +728,7 @@ async function priceInvoice(
       origin: "manual",
       jobLineId: null,
       memberEligible: false,
+      feeRole: null,
       memberDiscountAmount: usd("0"),
       memberAgreementId: null,
     });
@@ -884,6 +889,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.customerId ? eq(schema.invoice.customerId, input.customerId) : undefined,
         input.payerCustomerId ? eq(schema.invoice.payerCustomerId, input.payerCustomerId) : undefined,
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
+        input.businessUnitId ? invoiceBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.invoice, input),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))

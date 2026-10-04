@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { fieldOps, dispatch } from "@opentradesos/api/services";
+import { fieldOps, dispatch, fieldPayments } from "@opentradesos/api/services";
 import type { syncOperations } from "@opentradesos/api/contracts";
 import type { z } from "zod";
 import { refusalOf } from "@/lib/actions";
@@ -89,5 +89,33 @@ export async function onMyWay(input: {
     };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Could not send" };
+  }
+}
+
+/**
+ * A card, through the link the customer already gets for their invoice.
+ *
+ * Sent there and then or not at all, like the text that says you are on
+ * your way: the customer is stood beside the technician, and a link that
+ * arrives an hour later from a queue is a payment that did not happen. The
+ * refusal comes back in the service's own words, because "there is no
+ * invoice yet" and "card payments are not connected" each tell the
+ * technician to do something different.
+ */
+export async function paymentLink(input: { visitId: string; text: boolean }): Promise<
+  | { ok: true; url: string; texted: boolean; message: string | null; amountDue: string }
+  | { ok: false; message: string }
+> {
+  const user = await requireSetupUser();
+  try {
+    const result = await fieldPayments.paymentLink(
+      { actor: user.actor, db: getDb() },
+      { id: input.visitId, text: input.text },
+    );
+    return { ok: true, url: result.url, texted: result.texted, message: result.reason, amountDue: result.amountDue };
+  } catch (error) {
+    const refusal = refusalOf(error);
+    if (refusal === null) console.error("payment link failed", error);
+    return { ok: false, message: refusal ?? "The link could not be made. Take cash or a check, or ask the office." };
   }
 }

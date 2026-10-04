@@ -50,6 +50,8 @@ export const OPERATION_KINDS = [
   // Attachments. The blob syncs separately; this is the record that it exists.
   "attachment.attach",
   "signature.capture",
+  // Money taken on site: cash or a check, handed over in a driveway.
+  "payment.collect",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -98,6 +100,15 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
   "equipment.record": "append",
   "attachment.attach": "append",
   "signature.capture": "append",
+
+  /**
+   * Money that changed hands is a fact about money, not about the visit. A
+   * customer who paid cash for a job the office has since cancelled still
+   * paid, and the record of it is a new payment row that nothing else can
+   * contradict, so it always applies and the office sorts out where the
+   * money belongs.
+   */
+  "payment.collect": "append",
 };
 
 export interface FieldOperation {
@@ -449,3 +460,8 @@ export function allowedFrom(kind: OperationKind): readonly string[] | undefined 
   if (kind === "service_report.submit") return REPORT_TRANSITIONS;
   return VISIT_TRANSITIONS[kind];
 }
+
+/** The notice a change to somebody's day becomes, and when it may ring. */
+export * from "./push.js";
+/** Signing the phone in with a one time code. */
+export * from "./codes.js";

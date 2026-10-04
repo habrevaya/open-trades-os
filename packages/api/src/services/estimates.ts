@@ -1,4 +1,4 @@
-import { and, asc, eq, desc, lt, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, desc, lt, inArray, isNull, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { permissionsFor, estimate as est, membership, money as m, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
@@ -8,8 +8,8 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf,
 } from "./context";
-import { admitDate } from "./history";
-import { estimateScopeFilter } from "./scope";
+import { admitDate, requireImport } from "./history";
+import { estimateScopeFilter, estimateBranchFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
@@ -21,6 +21,9 @@ import type {
   approveEstimate, declineEstimate, convertEstimate,
 } from "../contracts/estimates";
 import { portalBase } from "../lib/portal-base";
+import {
+  deliveriesWithin, identityOf, transport, withdraw, type EstimateDeliveryView,
+} from "./estimate-delivery";
 
 const usd = (v: string) => m.money(v, "USD");
 
@@ -68,6 +71,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
           cost: schema.priceBookItemVersion.cost,
           taxable: schema.priceBookItemVersion.taxable,
           kind: schema.priceBookItem.kind,
+          feeRole: schema.priceBookItem.feeRole,
         })
         .from(schema.priceBookItemVersion)
         .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -110,6 +114,36 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
         customerId: input.customerId, propertyId: input.propertyId, on: issuedOn,
       });
 
+    /**
+     * HOW IT ENDED, FOR AN ESTIMATE FROM ANOTHER SYSTEM.
+     *
+     * History, so `data:import`, and checked in core: a date, not in the
+     * future and not before it was written, and a win that names the option
+     * that won. Written straight onto the row and NOT through `decide`: no
+     * signature is recorded because nobody signed anything here, and no
+     * `estimate.approved` is emitted, because a migration loading four
+     * thousand won estimates must not start four thousand automations that
+     * text customers about work finished in 2022.
+     */
+    if (input.outcome) {
+      requireImport(ctx);
+      const verdict = est.checkHistory(input.outcome, {
+        optionCount: input.options.length,
+        issuedOn,
+        today: time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)),
+      });
+      if (!verdict.ok) throw new ConflictError(verdict.message);
+    }
+
+    /**
+     * The small print, copied now. The company's own terms unless the
+     * request brings its own; none for an estimate recorded from another
+     * system, which said whatever it said there and was never shown ours.
+     */
+    const terms = input.terms !== undefined
+      ? (input.terms.trim() === "" ? null : input.terms.trim())
+      : historical || input.externalRef ? null : await termsWithin(tx, ctx.actor.organizationId);
+
     await assertUnclaimed(tx, "estimate", input.externalRef);
     const number = await claimNumber(tx, ctx, "estimate", input.number);
 
@@ -121,12 +155,14 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       jobId: input.jobId ?? null,
       title: input.title ?? null,
       issuedOn,
-      expiresOn: input.expiresOn ?? null,
+      expiresOn: input.expiresOn ?? (input.outcome?.status === "expired" ? input.outcome.on : null),
       status: "draft",
+      terms,
       ...provenance(input.externalRef),
     }).returning({ id: schema.estimate.id });
 
     const estimateId = row!.id;
+    const optionIds: string[] = [];
 
     for (const [index, option] of input.options.entries()) {
       const resolved = option.lines.map((line) => {
@@ -145,6 +181,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
           isSelected: line.isSelected,
           costCode: line.costCode ?? null,
           kind: version?.kind ?? null,
+          feeRole: version?.feeRole ?? null,
           memberDiscountAmount: "0",
           memberAgreementId: null as string | null,
         };
@@ -170,7 +207,8 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
           unitPrice: usd(l.unitPrice),
           discountAmount: usd(l.discountAmount),
           eligible: membership.eligibleForMemberPricing({ unitPrice: usd(l.unitPrice), itemKind: l.kind }),
-        })), member.rate);
+          feeRole: l.feeRole,
+        })), member.rate, { diagnostic: member.waivesDiagnosticFee, afterHours: member.waivesAfterHoursRate });
         for (const [i, line] of resolved.entries()) {
           const amount = off[i]!;
           if (!m.isPositive(amount)) continue;
@@ -234,6 +272,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
         taxTotal: m.toString(computed.totals.taxTotal),
         total: m.toString(computed.totals.total),
       }).returning({ id: schema.estimateOption.id });
+      optionIds.push(optionRow!.id);
 
       await tx.insert(schema.estimateLine).values(resolved.map((line, i) => ({
         organizationId: ctx.actor.organizationId,
@@ -256,6 +295,22 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
         isSelected: line.isSelected,
         costCode: line.costCode,
       })));
+    }
+
+    if (input.outcome) {
+      const { start } = time.dayBoundsIn(input.outcome.on, await timezoneOf(tx, ctx.actor.organizationId));
+      await tx.update(schema.estimate).set({
+        status: input.outcome.status,
+        decidedAt: input.outcome.status === "expired" ? null : start,
+        selectedOptionId: input.outcome.status === "approved"
+          ? optionIds[input.outcome.chosenOption!] ?? null : null,
+        signerName: input.outcome.status === "approved" ? input.outcome.signerName ?? null : null,
+        declineReason: input.outcome.status === "declined" ? input.outcome.reason ?? null : null,
+        updatedAt: new Date(),
+      }).where(eq(schema.estimate.id, estimateId));
+      await audit(tx, ctx, "estimate.outcome_imported", "estimate", estimateId, null, {
+        status: input.outcome.status, on: input.outcome.on,
+      });
     }
 
     await recordIdempotency(tx, ctx, "estimate", estimateId);
@@ -302,6 +357,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         input.status ? inArray(schema.estimate.status, input.status) : undefined,
         input.customerId ? eq(schema.estimate.customerId, input.customerId) : undefined,
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,
+        input.businessUnitId ? estimateBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.estimate, input),
         after ? lt(schema.estimate.id, after) : undefined,
       ))
@@ -454,6 +510,22 @@ export async function unsoldHandler(
  */
 export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstimate.input>) {
   return guardedWrite(ctx, "estimate:send", async (tx) => {
+    /**
+     * A retry is the same send, not a second message to the customer. It
+     * gets the attempt back WITHOUT the link: only the link's hash was ever
+     * stored, and minting another for a retry would put two live links to
+     * one document into the world.
+     */
+    if (ctx.idempotencyKey) {
+      const seen = await seenBefore(tx, ctx.idempotencyKey, "estimate_delivery");
+      if (seen) {
+        const delivery = (await deliveriesWithin(tx, input.id)).find((d) => d.id === seen);
+        if (delivery) {
+          return { estimate: await loadEstimate(tx, ctx, input.id), approvalUrl: null, expiresAt: null, delivery };
+        }
+      }
+    }
+
     const current = await loadEstimate(tx, ctx, input.id);
 
     if (current.status === "approved" || current.status === "converted") {
@@ -462,25 +534,32 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       );
     }
 
+    const [customer] = await tx.select({
+      name: schema.customer.name, email: schema.customer.email, phone: schema.customer.phone,
+    }).from(schema.customer).where(eq(schema.customer.id, current.customerId)).limit(1);
+
+    /**
+     * WHERE IT GOES. The address or number typed for this send, otherwise the
+     * one on the customer. No address is thrown rather than recorded: there is
+     * no attempt to record, and the fix is a detail on the customer.
+     */
+    const channel = input.channel;
+    let to: string | null = null;
+    if (channel !== "link") {
+      to = (input.to ?? (channel === "email" ? customer?.email : customer?.phone) ?? "").trim();
+      if (to === "") {
+        throw new ConflictError(
+          `${customer?.name ?? "This customer"} has no ${channel === "email" ? "email address" : "mobile number"} `
+          + "on file and none was given. Add one to the customer, or hand them the link another way.",
+        );
+      }
+    }
+
     const token = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const expiresAt = new Date(Date.now() + input.expiresInDays * 864e5);
 
-    /**
-     * Any grant already outstanding on this estimate is withdrawn first. A
-     * revised estimate sent twice would otherwise leave the first link live,
-     * and a customer approving through it would be approving numbers that no
-     * longer exist.
-     */
-    await tx.update(schema.portalGrant)
-      .set({ revokedAt: new Date() })
-      .where(and(
-        eq(schema.portalGrant.scope, "estimate"),
-        eq(schema.portalGrant.subjectId, input.id),
-        isNull(schema.portalGrant.revokedAt),
-      ));
-
-    await tx.insert(schema.portalGrant).values({
+    const [grant] = await tx.insert(schema.portalGrant).values({
       organizationId: ctx.actor.organizationId,
       customerId: current.customerId,
       scope: "estimate",
@@ -490,7 +569,87 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       // One approval per link. A forwarded link cannot approve a second time
       // or switch the chosen option after the fact.
       maxUses: 1,
-    });
+    }).returning({ id: schema.portalGrant.id });
+    const url = approvalUrl(token);
+
+    /**
+     * The attempt is written before the transport is called, in the same
+     * transaction, so there is no ordering in which a message exists and the
+     * row that says which estimate it carried does not.
+     */
+    const [delivery] = await tx.insert(schema.estimateDelivery).values({
+      organizationId: ctx.actor.organizationId,
+      estimateId: input.id,
+      channel,
+      destination: to,
+      portalGrantId: grant!.id,
+      sentByUserId: ctx.portalGrantId ? null : ctx.actor.userId,
+    }).returning({ id: schema.estimateDelivery.id });
+    const deliveryId = delivery!.id;
+
+    if (channel !== "link") {
+      const outcome = await transport(tx, ctx, {
+        channel,
+        to: to!,
+        customerId: current.customerId,
+        identity: await identityOf(tx, ctx.actor.organizationId),
+        estimate: {
+          number: current.number,
+          title: current.title,
+          customerName: customer?.name ?? "",
+          totals: current.options.map((o) => o.total as string),
+        },
+        url,
+        note: input.message?.trim() ? input.message.trim() : null,
+      });
+
+      if (!outcome.sent) {
+        /**
+         * NOT SENT IS RECORDED, NOT THROWN, AND CHANGES NOTHING ELSE.
+         *
+         * The link this send minted is withdrawn, the estimate keeps the
+         * status it had, any link the customer already holds still works,
+         * and nothing is emitted: an estimate the customer never received
+         * must not start the clock an "unanswered estimate" follow up waits
+         * on. What remains is the attempt with the reason in words, on the
+         * estimate's own screen.
+         */
+        await withdraw(tx, grant!.id);
+        await tx.update(schema.estimateDelivery)
+          .set({ error: outcome.explanation, updatedAt: new Date() })
+          .where(eq(schema.estimateDelivery.id, deliveryId));
+        await audit(tx, ctx, "estimate.delivery_refused", "estimate", input.id, null, {
+          deliveryId, channel, to, reason: outcome.reason,
+        });
+        await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
+        return {
+          estimate: current,
+          approvalUrl: null,
+          expiresAt: null,
+          delivery: (await deliveriesWithin(tx, input.id)).find((d) => d.id === deliveryId)!,
+        };
+      }
+
+      await tx.update(schema.estimateDelivery)
+        .set({ messageId: outcome.messageId, updatedAt: new Date() })
+        .where(eq(schema.estimateDelivery.id, deliveryId));
+    }
+
+    /**
+     * Any other link outstanding on this estimate is withdrawn, now that this
+     * one has gone. A revised estimate sent twice would otherwise leave the
+     * first link live, and a customer approving through it would be
+     * approving numbers that no longer exist. After the transport rather than
+     * before it, so a send that was refused takes nothing away.
+     */
+    await tx.update(schema.portalGrant)
+      .set({ revokedAt: new Date() })
+      .where(and(
+        eq(schema.portalGrant.scope, "estimate"),
+        eq(schema.portalGrant.subjectId, input.id),
+        isNull(schema.portalGrant.revokedAt),
+        ne(schema.portalGrant.id, grant!.id),
+      ));
 
     const sentAt = new Date();
     await tx.update(schema.estimate)
@@ -503,7 +662,8 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       estimateId: input.id,
       kind: "estimate_sent",
       headline: `Estimate #${current.number} sent`,
-      detail: input.message ?? null,
+      detail: input.message
+        ?? (channel === "email" ? `By email to ${to}` : channel === "sms" ? `By text to ${to}` : null),
     });
 
     /**
@@ -519,8 +679,6 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
      * value, and the event log is not the place for a working credential; an
      * automation that sends the link again mints its own.
      */
-    const [customer] = await tx.select({ name: schema.customer.name })
-      .from(schema.customer).where(eq(schema.customer.id, current.customerId)).limit(1);
     await emit(tx, ctx, {
       name: "estimate.sent",
       entityType: "estimate",
@@ -537,19 +695,29 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
           }))),
         },
         customer: { id: current.customerId, name: customer?.name ?? "" },
-        channel: input.channel,
+        channel,
       },
       previous: { estimate: { status: current.status } },
     });
 
     await audit(tx, ctx, "estimate.sent", "estimate", input.id,
-      { status: current.status }, { status: "sent", channel: input.channel });
+      { status: current.status }, { status: "sent", channel, deliveryId });
+    await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
 
     return {
       estimate: await loadEstimate(tx, ctx, input.id),
-      approvalUrl: approvalUrl(token),
+      approvalUrl: url,
       expiresAt: expiresAt.toISOString(),
+      delivery: (await deliveriesWithin(tx, input.id)).find((d) => d.id === deliveryId)!,
     };
+  });
+}
+
+/** Every attempt to send this estimate, with what became of each. */
+export async function deliveries(ctx: ServiceContext, input: { id: string }): Promise<EstimateDeliveryView[]> {
+  return guardedRead(ctx, "estimate:read", async (tx) => {
+    await loadEstimate(tx, ctx, input.id);
+    return deliveriesWithin(tx, input.id);
   });
 }
 
@@ -603,9 +771,48 @@ export async function decline(ctx: ServiceContext, input: z.infer<typeof decline
       isCustomerVisible: false,
     });
 
+    await emitDeclined(tx, ctx, {
+      estimateId: input.id, previousStatus: current.status, reason: input.reason ?? null, by: "office",
+    });
+
     await audit(tx, ctx, "estimate.declined", "estimate", input.id,
       { status: current.status }, { status: "declined", reason: input.reason ?? null });
     return loadEstimate(tx, ctx, input.id);
+  });
+}
+
+/**
+ * `estimate.declined`, from the office or from the customer's own link.
+ *
+ * One function for both, so an automation built on "when an estimate is
+ * declined" fires the same way whichever side said no, and its payload says
+ * which side it was. The reason rides along because it is the whole of what
+ * a win back step would say.
+ */
+export async function emitDeclined(
+  tx: Database, ctx: ServiceContext,
+  input: { estimateId: string; previousStatus: string; reason: string | null; by: "office" | "customer" },
+): Promise<void> {
+  const [row] = await tx.select({
+    number: schema.estimate.number, title: schema.estimate.title,
+    customerId: schema.estimate.customerId, customerName: schema.customer.name,
+  }).from(schema.estimate)
+    .innerJoin(schema.customer, eq(schema.customer.id, schema.estimate.customerId))
+    .where(eq(schema.estimate.id, input.estimateId)).limit(1);
+  if (!row) throw new NotFoundError("Estimate");
+  await emit(tx, ctx, {
+    name: "estimate.declined",
+    entityType: "estimate",
+    entityId: input.estimateId,
+    payload: {
+      estimate: {
+        id: input.estimateId, number: row.number, title: row.title, customerId: row.customerId,
+        reason: input.reason,
+      },
+      customer: { id: row.customerId, name: row.customerName },
+      declinedBy: input.by,
+    },
+    previous: { estimate: { status: input.previousStatus } },
   });
 }
 
@@ -877,6 +1084,38 @@ export async function decide(
     detail: `${option.name}, ${m.toString(totals.total)}`,
   });
 
+  /**
+   * `estimate.approved`, from the office and from the portal alike, since
+   * both arrive here. The catalogue had it as owed with "the portal records
+   * the signature; nothing emits", so the commonest automation a sales team
+   * wants (a yes books the job, texts a thank you, tells the installer) could
+   * not be built. The total is what they approved, after the optional lines
+   * they ticked, and `capturedVia` says whether the customer clicked it or
+   * somebody recorded a yes given on the phone.
+   */
+  const [customer] = await tx.select({ name: schema.customer.name })
+    .from(schema.customer).where(eq(schema.customer.id, current.customerId)).limit(1);
+  await emit(tx, ctx, {
+    name: "estimate.approved",
+    entityType: "estimate",
+    entityId: input.estimateId,
+    payload: {
+      estimate: {
+        id: input.estimateId,
+        number: current.number,
+        title: current.title,
+        customerId: current.customerId,
+        optionId: input.optionId,
+        optionName: option.name,
+        total: m.toString(totals.total),
+        signerName: input.signerName,
+      },
+      customer: { id: current.customerId, name: customer?.name ?? "" },
+      capturedVia: input.capturedVia,
+    },
+    previous: { estimate: { status: current.status } },
+  });
+
   await audit(tx, ctx, "estimate.approved", "estimate", input.estimateId,
     { status: current.status },
     {
@@ -1020,6 +1259,51 @@ async function recordIdempotency(tx: Database, ctx: ServiceContext, entityType: 
     direction: "outbound",
     provider: "internal",
     eventType: `${entityType}.created`,
+  });
+}
+
+/* ------------------------------------------------------- proposal terms */
+
+/**
+ * THE COMPANY'S OWN SMALL PRINT, printed under the options on every
+ * proposal: what the price includes, how long it holds, the warranty, the
+ * payment terms. Kept in the company's settings and COPIED onto each estimate
+ * when it is written, because a change in March must not change what a
+ * customer signed in February. See `estimate.terms`.
+ */
+const MAX_TERMS = 10_000;
+
+export async function termsWithin(tx: Database, organizationId: string): Promise<string | null> {
+  const [row] = await tx.execute<{ terms: string | null }>(sql`
+    select settings ->> 'proposalTerms' as terms from public.organization where id = ${organizationId} limit 1`);
+  const terms = row?.terms?.trim();
+  return terms ? terms : null;
+}
+
+export async function proposalTerms(ctx: ServiceContext): Promise<{ terms: string | null }> {
+  return guardedRead(ctx, "estimate:read", async (tx) => ({ terms: await termsWithin(tx, ctx.actor.organizationId) }));
+}
+
+/**
+ * `settings:write`, like the discount limit beside it: what every proposal
+ * the company sends promises is a company decision, not something everybody
+ * who writes an estimate gets to rewrite for everybody else. One estimate's
+ * own terms can still be given when it is written.
+ */
+export async function setProposalTerms(ctx: ServiceContext, input: { terms: string }): Promise<{ terms: string | null }> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const terms = input.terms.trim();
+    if (terms.length > MAX_TERMS) {
+      throw new ConflictError(`Terms are at most ${MAX_TERMS.toLocaleString("en-US")} characters. Link to a longer document instead.`);
+    }
+    const before = await termsWithin(tx, ctx.actor.organizationId);
+    await tx.execute(sql`
+      update public.organization
+      set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{proposalTerms}', to_jsonb(${terms}::text))
+      where id = ${ctx.actor.organizationId}`);
+    await audit(tx, ctx, "proposal_terms.set", "organization", ctx.actor.organizationId,
+      { terms: before }, { terms: terms === "" ? null : terms });
+    return { terms: terms === "" ? null : terms };
   });
 }
 

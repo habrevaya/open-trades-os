@@ -34,6 +34,12 @@ export const ReportDefinition = z.object({
   to: z.string().date().optional(),
   orderBy: z.string().optional(),
   limit: z.number().int().min(1).max(1000).optional(),
+  /**
+   * One branch's records: its jobs and what hangs off them. Narrows what the
+   * reader's own scope lets them see. Refused on a dataset whose records do
+   * not belong to branches (tasks, calls).
+   */
+  branchId: Uuid.optional(),
 });
 
 export const drillReport = defineRoute({
@@ -212,6 +218,19 @@ export const setReportSchedulePaused = defineRoute({
   output: StoredSchedule,
 });
 
+export const sendReportScheduleNow = defineRoute({
+  method: "post",
+  path: "/v1/report-schedules/{id}/send",
+  summary: "Send a scheduled report now",
+  description:
+    "The same delivery a scheduled occurrence makes, to the same people, covering the same days measured back from now, but run as the person sending it rather than whoever set the schedule up, and refused if they could not run the report themselves. Every recipient is checked and sent their own run as on a schedule. The schedule's clock does not move, and a paused schedule can still be sent by hand. The email goes out with the worker's next pass over the outbox.",
+  module: "M21",
+  permissions: ["report:build"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: ReportDeliveryRecord.extend({ scheduleId: Uuid }),
+});
+
 export const deleteReportSchedule = defineRoute({
   method: "delete",
   path: "/v1/report-schedules/{id}",
@@ -247,5 +266,5 @@ export const listReportDeliveries = defineRoute({
 export const reportRoutes = {
   drillReport,
   listReportSchedules, createReportSchedule, updateReportSchedule,
-  setReportSchedulePaused, deleteReportSchedule, listReportDeliveries,
+  setReportSchedulePaused, sendReportScheduleNow, deleteReportSchedule, listReportDeliveries,
 } as const;

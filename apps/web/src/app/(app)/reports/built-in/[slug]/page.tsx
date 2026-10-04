@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { reports } from "@opentradesos/api/services";
+import { reports, branches } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
 import { queryFor, rangeQuery } from "@/lib/report-params";
-import { RunView } from "../../RunView";
+import { RunView, PrintLink, printHref } from "../../RunView";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export default async function BuiltInReportPage({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; branch?: string; chart?: string; measure?: string }>;
 }) {
   const user = await requireSetupUser();
   const { slug } = await params;
@@ -45,7 +45,10 @@ export default async function BuiltInReportPage({
     ...report.definition,
     ...(range.from ? { from: range.from } : {}),
     ...(range.to ? { to: range.to } : {}),
+    ...(range.branch ? { branchId: range.branch } : {}),
   };
+  const view = { chart: range.chart, measure: range.measure };
+  const branchOptions = await branches.options(ctx);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -53,8 +56,10 @@ export default async function BuiltInReportPage({
       <div className="mt-2">
         <PageHeader
           title={report.name}
-          action={can(user.actor, "report:build") ? (
+          action={
             <div className="flex flex-wrap gap-2">
+              <PrintLink href={printHref(queryFor(definition), report.name, view, `/reports/built-in/${slug}${rangeQuery(definition)}`)} />
+              {can(user.actor, "report:build") ? (<>
               {/*
                 Beside the report it sends, because "send me this every
                 Monday" is a thought somebody has while looking at it.
@@ -71,8 +76,9 @@ export default async function BuiltInReportPage({
               >
                 Edit a copy
               </a>
+              </>) : null}
             </div>
-          ) : null}
+          }
         />
       </div>
       <p className="mt-1 text-sm text-ink-700">{report.question}</p>
@@ -84,6 +90,8 @@ export default async function BuiltInReportPage({
         timezone={user.organizationTimezone}
         title={report.name}
         back={`/reports/built-in/${slug}${rangeQuery(definition)}`}
+        view={view}
+        branchOptions={branchOptions}
       />
     </div>
   );

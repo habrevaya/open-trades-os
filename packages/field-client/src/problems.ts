@@ -1,4 +1,5 @@
 import type { QueuedOperation } from "./queue";
+import { visitOf } from "./day";
 import type { UploadRecord } from "./uploads";
 
 /**
@@ -47,6 +48,7 @@ const DID: Record<string, string> = {
   "equipment.record": "Equipment recorded at",
   "timeclock.punch_in": "Clocking in",
   "timeclock.punch_out": "Clocking out",
+  "payment.collect": "A payment taken at",
 };
 
 /**
@@ -80,9 +82,10 @@ export function describeOperation(
   nameOf: (visitId: string) => string | undefined = () => undefined,
   maxAttempts = 5,
 ): Problem | null {
-  const name = op.subjectId ? nameOf(op.subjectId) : undefined;
+  const visitId = visitOf(op);
+  const name = visitId ? nameOf(visitId) : undefined;
   const did = whatYouDid(op, name);
-  const base = { id: op.clientId, source: "operation" as const, visitId: op.subjectId };
+  const base = { id: op.clientId, source: "operation" as const, visitId };
 
   if (op.status === "conflicted") {
     const state = /was (\w+) by the time/.exec(op.conflict ?? "")?.[1];

@@ -80,6 +80,39 @@ export const EVENTS = {
     emitted: true,
   },
 
+  /**
+   * WHAT CHANGED ON SOMEBODY'S DAY, one event per kind of change.
+   *
+   * Emitted beside the write by every path that moves a visit onto, off or
+   * around a technician's day: the board, booking a job with people on it,
+   * adding a visit, cancelling a job, and the office answering a customer's
+   * request to move or cancel. The worker reads them to push a notice to the
+   * technician's phone, and the payload names the technicians each one is
+   * about (`technicianIds`), because who needs telling is decided at the
+   * moment of the change and not reconstructed later from whoever is on the
+   * visit by then.
+   */
+  "visit.assigned": {
+    summary: "A visit was put on a technician's day",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.unassigned": {
+    summary: "A visit was taken off a technician's day",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.rescheduled": {
+    summary: "A visit moved to a different time",
+    entity: "visit",
+    emitted: true,
+  },
+  "visit.cancelled": {
+    summary: "A visit was cancelled",
+    entity: "visit",
+    emitted: true,
+  },
+
   /* ----------------------------------------------------------------- money */
 
   "invoice.issued": { summary: "An invoice was raised", entity: "invoice", emitted: true },
@@ -139,8 +172,29 @@ export const EVENTS = {
     entity: "estimate",
     emitted: true,
   },
+  /**
+   * A decision, from the customer's own link or recorded by the office
+   * (`capturedVia` says which and how). Not emitted for an outcome loaded
+   * from another system's history, so a migration starts no automation.
+   */
+  "estimate.approved": {
+    summary: "A customer approved an estimate",
+    entity: "estimate",
+    emitted: true,
+  },
+  "estimate.declined": {
+    summary: "A customer declined an estimate",
+    entity: "estimate",
+    emitted: true,
+  },
+  /**
+   * A text, a picture message or a reply to an email. The channel rides on
+   * the payload, so a workflow that texts back can leave an email alone. An
+   * automatic reply (an out of office) is stored and does not emit this, so
+   * two autoresponders never answer each other all weekend.
+   */
   "message.received": {
-    summary: "A customer texted in",
+    summary: "A customer texted or emailed in",
     entity: "conversation",
     emitted: true,
   },
@@ -155,6 +209,25 @@ export const EVENTS = {
    */
   "call.missed": {
     summary: "A call came in and nobody answered it",
+    entity: "call",
+    emitted: true,
+  },
+  /**
+   * A recording was kept for a call the recording check allowed. Emitted
+   * when the audio is stored here, not when the call ends, because a
+   * recording the check refused is never kept and never announced.
+   */
+  "call.recorded": {
+    summary: "A call's recording was kept",
+    entity: "call",
+    emitted: true,
+  },
+  /**
+   * The words of a call's recording or voicemail were written down, redacted.
+   * The transcript is on the call; the payload says which audio it was of.
+   */
+  "call.transcribed": {
+    summary: "A call's recording or voicemail was written out",
     entity: "call",
     emitted: true,
   },
@@ -199,18 +272,6 @@ export const EVENTS = {
     entity: "visit",
     emitted: false,
     owedBy: "M09. Dispatch writes the visit and emits nothing.",
-  },
-  "estimate.approved": {
-    summary: "A customer approved an estimate",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07. The portal records the signature; nothing emits.",
-  },
-  "estimate.declined": {
-    summary: "A customer declined an estimate",
-    entity: "estimate",
-    emitted: false,
-    owedBy: "M07.",
   },
   "invoice.sent": {
     summary: "An invoice was delivered to the customer",

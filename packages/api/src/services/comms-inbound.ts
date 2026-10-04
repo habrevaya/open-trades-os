@@ -1,7 +1,8 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms, type Actor, SYSTEM_USER_ID } from "@opentradesos/core";
-import { inTenant, type ServiceContext } from "./context";
+import { inTenant, ConflictError, type ServiceContext } from "./context";
+import * as files from "./files";
 import { emit } from "./events";
 import type { InboundMessage, MessagingProvider, WebhookRequest } from "../comms/provider";
 import { recordDelivery } from "./comms-outbox";
@@ -69,13 +70,43 @@ export async function receive(
   const inbound = provider.parseInbound(request);
   if (!inbound) return { kind: "rejected", reason: "unparseable" };
 
-  return store(db, organizationId, inbound);
+  return store(db, organizationId, inbound, await fetchPictures(provider, inbound));
+}
+
+/**
+ * What came with a picture message, fetched from the carrier.
+ *
+ * Before the transaction opens, for the reason the call recordings give: a
+ * transaction held across a download is a connection held for as long as the
+ * carrier takes. Ten at most, which is the most a carrier will put in one
+ * message. A failed fetch is not a failed message: the words are stored
+ * either way, and the thread says the picture could not be fetched.
+ */
+export type FetchedMedia =
+  | { url: string; ok: true; bytes: Uint8Array; contentType: string }
+  | { url: string; ok: false; contentType: string; why: string };
+
+async function fetchPictures(provider: MessagingProvider, inbound: InboundMessage): Promise<FetchedMedia[] | null> {
+  if (inbound.media.length === 0 || !provider.fetchMedia) return null;
+  const fetched: FetchedMedia[] = [];
+  for (const item of inbound.media.slice(0, 10)) {
+    const result = await provider.fetchMedia(item.url);
+    fetched.push(result.ok
+      ? { url: item.url, ok: true, bytes: result.bytes, contentType: result.contentType }
+      : { url: item.url, ok: false, contentType: item.contentType, why: result.message });
+  }
+  return fetched;
 }
 
 export async function store(
   db: Database,
   organizationId: string,
   inbound: InboundMessage,
+  /**
+   * The pictures, fetched. Null when the carrier cannot hand them over, in
+   * which case they are kept by the carrier's link only, as they always were.
+   */
+  pictures: readonly FetchedMedia[] | null = null,
 ): Promise<InboundOutcome> {
   const ctx: ServiceContext = { actor: inboundActor(organizationId), db };
   const intent = comms.inboundIntent(inbound.body);
@@ -163,6 +194,37 @@ export async function store(
       phoneNumberId: number.id,
     });
 
+    /**
+     * Each picture kept as a stored file, which is what lets the inbox show
+     * it to somebody with no login at the carrier. Kept by what the bytes
+     * ARE: a file that is not a picture or a document this product keeps
+     * (a video, a contact card) is named in the thread and not stored,
+     * rather than served from this product's own address as whatever it
+     * claimed to be.
+     */
+    const media: (typeof schema.message.$inferInsert)["media"] = [];
+    const keptFiles: { storageKey: string; contentType: string; sizeBytes: number }[] = [];
+    for (const item of pictures ?? inbound.media.map((m) => ({ url: m.url, ok: false as const, contentType: m.contentType, why: "" }))) {
+      if (!item.ok) {
+        media.push({
+          url: item.url, contentType: item.contentType,
+          ...(pictures ? { refused: `The picture could not be fetched from the carrier: ${item.why}` } : {}),
+        });
+        continue;
+      }
+      try {
+        const { file } = await files.put(tx, organizationId, { bytes: item.bytes, claimedType: item.contentType });
+        media.push({ url: item.url, contentType: file.contentType, bytes: file.sizeBytes, storageKey: file.storageKey });
+        keptFiles.push({ storageKey: file.storageKey, contentType: file.contentType, sizeBytes: file.sizeBytes });
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error;
+        media.push({
+          url: item.url, contentType: item.contentType,
+          refused: `A ${describeType(item.contentType)} came with this text, and only pictures and PDFs are kept here.`,
+        });
+      }
+    }
+
     const [stored] = await tx.insert(schema.message).values({
       organizationId,
       conversationId,
@@ -172,14 +234,21 @@ export async function store(
       fromAddress: inbound.from,
       toAddress: inbound.to,
       body: inbound.body,
-      media: inbound.media.map((m) => ({ url: m.url, contentType: m.contentType })),
+      media,
       status: "received",
       providerMessageId: inbound.providerMessageId,
     }).returning({ id: schema.message.id });
 
+    for (const file of keptFiles) {
+      await files.attach(tx, organizationId, {
+        entityType: "message", entityId: stored!.id, storageKey: file.storageKey,
+        contentType: file.contentType, sizeBytes: file.sizeBytes,
+      });
+    }
+
     await tx.update(schema.conversation).set({
       lastMessageAt: new Date(),
-      lastMessagePreview: inbound.body.slice(0, 200),
+      lastMessagePreview: (inbound.body.trim() || (inbound.media.length > 0 ? "Picture" : "")).slice(0, 200),
       /**
        * Reopened. A customer replying to a closed thread is not starting an
        * unrelated conversation, and a reply that lands in a closed thread is
@@ -209,6 +278,7 @@ export async function store(
         from: inbound.from,
         body: inbound.body,
         intent,
+        channel: inbound.media.length > 0 ? "mms" : "sms",
       },
     });
 
@@ -217,6 +287,53 @@ export async function store(
 }
 
 
+
+/** "video", "contact card", or the type as given, for the sentence in the thread. */
+function describeType(contentType: string): string {
+  const type = contentType.toLowerCase();
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "sound recording";
+  if (type.includes("vcard")) return "contact card";
+  if (type.startsWith("image/")) return "picture in a format this product does not keep";
+  return `file (${contentType})`;
+}
+
+/**
+ * A picture this company is sending, for the carrier to fetch.
+ *
+ * Public, with no session, because the carrier fetching it has none. What
+ * admits the request is two secrets in its address: the messaging
+ * connection's webhook token, which names the company, and the picture's own
+ * random key, which names one picture on one outgoing message. Only outgoing
+ * pictures are served this way, and only for a week after they were queued.
+ */
+export async function publicPicture(db: Database, token: string, key: string) {
+  if (!/^[A-Za-z0-9_-]{24,64}$/.test(key)) return null;
+  const rows = await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.messaging_webhook_connection(${token})`,
+  );
+  const organizationId = rows[0]?.organization_id;
+  if (!organizationId) return null;
+  const ctx: ServiceContext = { actor: inboundActor(organizationId), db };
+  return inTenant(ctx, async (tx) => {
+    const [message] = await tx.select({ media: schema.message.media }).from(schema.message)
+      .where(and(
+        eq(schema.message.organizationId, organizationId),
+        eq(schema.message.direction, "outbound"),
+        sql`${schema.message.createdAt} > now() - interval '7 days'`,
+        sql`${schema.message.media} @> ${JSON.stringify([{ publicKey: key }])}::jsonb`,
+      )).limit(1);
+    const item = message?.media.find((m) => m.publicKey === key);
+    if (!item?.storageKey) return null;
+    const [file] = await tx.select().from(schema.storedFile)
+      .where(and(
+        eq(schema.storedFile.organizationId, organizationId),
+        eq(schema.storedFile.storageKey, item.storageKey),
+        isNull(schema.storedFile.deletedAt),
+      )).limit(1);
+    return file ? { bytes: file.bytes, contentType: file.contentType } : null;
+  });
+}
 
 export interface WebhookConnection {
   connectionId: string;

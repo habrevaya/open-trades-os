@@ -26,6 +26,17 @@ module.exports = {
   // app compiles them itself.
   transpilePackages: ["@opentradesos/ui", "@opentradesos/api", "@opentradesos/core", "@opentradesos/db"],
 
+  /**
+   * A picture sent from the inbox goes through a server action, and Next
+   * refuses a server action body over one megabyte by default, which is
+   * smaller than a single photograph from any current phone. Six, because a
+   * carrier delivers five megabytes of pictures in one message and the form
+   * carries the words beside them.
+   */
+  experimental: {
+    serverActions: { bodySizeLimit: "6mb" },
+  },
+
   webpack: (config) => {
     /**
      * Those packages are ESM and therefore import with explicit `.js`

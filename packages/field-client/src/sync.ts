@@ -3,7 +3,7 @@ import {
 } from "./queue";
 import type { Storage } from "./storage";
 import type { UploadQueue, UploadTransport } from "./uploads";
-import type { FieldSnapshot } from "./wire";
+import type { FieldSnapshot, PriceBookEntry } from "./wire";
 import { projectDay, todayIn, type DayView } from "./day";
 import { describeOperation, describeUpload, type Problem } from "./problems";
 
@@ -222,6 +222,8 @@ export class SyncEngine {
    */
   async view(): Promise<{
     day: DayView;
+    /** What a part can be picked from, as the server last sent it. */
+    priceBook: PriceBookEntry[];
     from: string | null;
     waiting: number;
     uploadsWaiting: number;
@@ -249,6 +251,7 @@ export class SyncEngine {
 
     return {
       day,
+      priceBook: cached?.snapshot.priceBook ?? [],
       from: cached?.from ?? null,
       // Conflicted operations are recorded; only what has not landed is waiting.
       waiting: pending.filter((o) => o.status !== "conflicted" && o.status !== "rejected").length,

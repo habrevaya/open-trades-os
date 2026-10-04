@@ -1,10 +1,11 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { estimates } from "@opentradesos/api/services";
+import { estimates, branches } from "@opentradesos/api/services";
 import { Chip, Money } from "@opentradesos/ui";
 import { money } from "@opentradesos/core";
 import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
+import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +16,16 @@ export const dynamic = "force-dynamic";
 export default async function EstimatesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string }>;
+  searchParams: Promise<{ sort?: string; branch?: string }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
-  const sort = (await searchParams).sort === "value" ? "value" as const : "age" as const;
+  const params = await searchParams;
+  const sort = params.sort === "value" ? "value" as const : "age" as const;
+  const options = await branches.options(ctx);
+  const branch = chosenBranch(options, params.branch);
   const [page, waiting] = await Promise.all([
-    estimates.list(ctx, { limit: 100 }),
+    estimates.list(ctx, { limit: 100, ...(branch ? { businessUnitId: branch } : {}) }),
     estimates.unsold(ctx, { sort, limit: 50 }),
   ]);
   const waitingTotal = money.toString(money.sum(waiting.map((e) => money.money(e.value)), "USD"));
@@ -83,10 +87,22 @@ export default async function EstimatesPage({
       </section>
 
       <h2 className="mt-10 text-base font-semibold">Every estimate</h2>
+      {/*
+        Under this heading rather than the page's, because it narrows this
+        list: an estimate belongs to a branch through its job, and the unsold
+        pipeline above is the company's follow up list.
+      */}
+      <BranchFilter options={options} action="/estimates" current={branch} keep={{ sort: params.sort }} />
       {page.data.length === 0 ? (
-        <Empty title="No estimates yet">
-          Write one from a customer&apos;s page: good, better and best, and the customer chooses.
-        </Empty>
+        branch ? (
+          <Empty title="No estimates in that branch">
+            An estimate belongs to a branch through its job. One written before there was a job is in none.
+          </Empty>
+        ) : (
+          <Empty title="No estimates yet">
+            Write one from a customer&apos;s page: good, better and best, and the customer chooses.
+          </Empty>
+        )
       ) : (
         <Table head={<><Th className="w-20">Number</Th><Th>Title</Th><Th>Customer</Th><Th>Status</Th><Th className="text-right">Up to</Th></>}>
           {page.data.map((e) => (

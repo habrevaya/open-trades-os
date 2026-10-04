@@ -87,8 +87,54 @@ readable as the record of what was authorised when an old estimate was written.
 ### Build and send
 
 `POST /v1/estimates` with the options and lines. `/estimates/new` is the office
-form. `POST /v1/estimates/{id}/send` freezes it and hands back the link, and
-needs `estimate:send` with `portal:grant`, because it is both.
+form. `POST /v1/estimates/{id}/send` freezes it, issues the approval link and
+puts it in front of the customer, and needs `estimate:send` with
+`portal:grant`, because it is both.
+
+Sending takes a channel. `email` composes an email in the company's colour
+with the link and a line from whoever is sending, and `sms` a short text that
+opens with the company's name; both go through the same consent, suppression
+and sending number checks as every other message, and both land in the
+customer's conversation in `/inbox`, so a reply arrives beside the estimate
+it answers. `link` only issues the link, for handing over another way. A send
+the transport refuses (they replied STOP, no consent, no email sender
+connected) is recorded with the reason in words and changes nothing else: the
+estimate keeps its status, the link the customer already holds still works,
+no `estimate.sent` is emitted, and the screen says "not sent" in red. A send
+that goes withdraws every earlier link. Each attempt is a row with what
+became of it (queued, sent, delivered, bounced, refused), read from the
+message rather than stored: `GET /v1/estimates/{id}/deliveries`, and the
+"Sent" list on the estimate's screen. The send form on `/estimates/{id}`
+offers all three, defaulting to the customer's email, and takes a different
+address or number for one send.
+
+### The proposal
+
+Every estimate is a branded proposal the customer can read and print:
+`/estimates/{id}/proposal` in the office and `/e/{token}/proposal` from the
+customer's own link, both drawn from one function so they cannot disagree.
+The company's logo, colour and name come from Branding; the options sit side
+by side, the recommended one first and edged in the company's colour; with two
+or three options each is named Good, Better or Best by its price (never by
+its position, and not at all when two cost the same or there are four or
+more); each line says any member discount and the plan that gave it, and a
+waived fee says it was waived; optional extras are listed under the option
+with whether they were taken; the terms are printed below; and there is a
+line to sign, or who signed and when once it is approved. Printing is
+reading: the customer's copy peeks at the link rather than spending it. No
+cost or margin can appear, because the document is built from what a
+customer may see rather than by removing what they may not.
+`GET /v1/estimates/{id}/proposal` is the same document.
+
+### Terms
+
+`/estimates/terms` holds the company's own small print, and every estimate
+copies it when it is written, so changing it never changes what a customer
+already signed; the approval hash covers the copy. The approval page shows
+the terms beside the approve button. Reading them is `estimate:read`;
+changing them is `settings:write`, like the discount limit.
+`GET /v1/proposal-terms` and `PUT /v1/proposal-terms` are the same, and an
+estimate written with `POST /v1/estimates` can carry its own terms or none.
 
 ### Let the customer decide
 
@@ -100,6 +146,25 @@ the customer's side and takes no permission: the token is the authority.
 
 `POST /v1/estimates/{id}/approve` with `estimate:approve`, which is a narrower
 permission than writing an estimate.
+
+### Start an automation on a decision
+
+Approving emits `estimate.approved`, from the customer's link and from a yes
+the office records alike, carrying the option chosen, the total approved and
+`capturedVia` (the portal, in person, the phone). Declining emits
+`estimate.declined` from either side, carrying the reason and which side said
+no. Both are triggers on the `/automations` canvas and events a webhook can
+subscribe to.
+
+### Bring in history
+
+`POST /v1/estimates` with an `outcome` records how an estimate from another
+system ended: approved on a day with the option that won, declined on a day
+with the reason, or expired on a day. It needs `data:import`, the date is
+checked (not in the future, not before the estimate was written), and a win
+must name its option. Nothing is emitted and no signature is recorded,
+because loading history must not start automations or claim a signature
+nobody gave. An imported win converts like any other.
 
 ### Turn it into work
 
@@ -162,6 +227,10 @@ read their screen.
 | `GET /v1/estimates/{id}` | `estimate:read` |
 | `POST /v1/estimates` | `estimate:write` |
 | `POST /v1/estimates/{id}/send` | `estimate:send`, `portal:grant` |
+| `GET /v1/estimates/{id}/deliveries` | `estimate:read` |
+| `GET /v1/estimates/{id}/proposal` | `estimate:read` |
+| `GET /v1/proposal-terms` | `estimate:read` |
+| `PUT /v1/proposal-terms` | `settings:write` |
 | `POST /v1/estimates/{id}/approve` | `estimate:approve` |
 | `POST /v1/estimates/{id}/decline` | `estimate:write` |
 | `POST /v1/estimates/{id}/convert` | `estimate:write`, `job:write` |
@@ -184,11 +253,12 @@ else's behalf is a decision about their money. Handing them a link is not.
 
 ## What is not built
 
-An estimate's historical status is not accepted on import, so a migration brings
-estimates in as current rather than as won or lost. There is no proposal
-template or branded PDF: the customer reads the estimate as a web page.
-Following up is an automation the company turns on rather than something
-that happens unless switched off. Sending an estimate still only issues the
-link: the office hands it over, and only the follow up sends one itself.
-`estimate.approved` and `estimate.declined` are not emitted, so an automation
-cannot start on a decision; the follow up asks again after its wait instead.
+There is no PDF file: the proposal is a page laid out for printing, and a PDF
+is the browser's "save as PDF". It carries no company phone number or address,
+because the company record has neither yet. A proposal template (sections,
+photos, a cover page) is not built; the layout is fixed. An estimate is sent by
+email or text one at a time; the same send cannot go by both at once.
+Following up is an automation the company turns on rather than something that
+happens unless switched off. Nothing marks an estimate expired on its own: an
+expiry date stops it counting as open pipeline, and `expired` is a status only
+history brings in.

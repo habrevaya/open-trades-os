@@ -9,6 +9,7 @@ export const OperationKind = z.enum([
   "service_report.set_field", "service_report.submit", "visit.checklist_item",
   "visit.add_line", "equipment.record",
   "attachment.attach", "signature.capture",
+  "payment.collect",
 ]);
 
 export const OperationStatus = z.enum([
@@ -164,6 +165,40 @@ export const VisitForField = z.object({
     required: z.boolean(),
     doneAt: z.string().datetime().nullable(),
   })),
+  /**
+   * What is still owed on the job's issued invoices, so the person collecting
+   * on site knows the number before the customer asks. Null when nothing has
+   * been invoiced yet, and for a caller who may not read invoices.
+   */
+  amountDue: MoneyString.nullable(),
+  /**
+   * The service report for this visit as the phone fills it in: the fields
+   * the job type's template asks for, each with the last value recorded, and
+   * the report's id once one exists. A phone that has not started one makes
+   * its own id, the way it does for every other record it creates offline.
+   */
+  report: z.object({
+    id: Uuid.nullable(),
+    submitted: z.boolean(),
+    fields: z.array(z.object({
+      key: z.string(),
+      label: z.string(),
+      kind: z.string(),
+      unit: z.string().nullable(),
+      options: z.array(z.string()),
+      required: z.boolean(),
+      min: z.number().nullable(),
+      max: z.number().nullable(),
+      /** The newest value recorded, as text, or null when nothing has been. */
+      value: z.string().nullable(),
+    })),
+  }),
+  /** Parts and charges already recorded on this visit, from any phone or the office. */
+  parts: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    quantity: z.string(),
+  })),
 });
 
 /**
@@ -262,6 +297,12 @@ export const getDispatchBoard = defineRoute({
       customerName: z.string(),
       addressLine1: z.string(),
       postalCode: z.string(),
+      /**
+       * The plan that promised this customer priority, when one covers this
+       * job. The pile comes sorted with these first and is otherwise in the
+       * order it always had.
+       */
+      priorityPlan: z.string().nullable(),
     })),
   }),
 });
@@ -479,8 +520,134 @@ export const revokeDevice = defineRoute({
   output: z.object({ ok: z.literal(true), revokedAt: z.string().datetime() }),
 });
 
+/**
+ * A CODE INSTEAD OF A PASSWORD
+ *
+ * Two public calls, like the password sign in beside them. The first sends a
+ * six digit code to the technician's mobile number on file, or to their email,
+ * and answers the same sentence whether or not the address belongs to anybody,
+ * so it cannot be used to find out who works where. The second trades the code
+ * for the same device token a password gets.
+ */
+export const requestSignInCode = defineRoute({
+  method: "post",
+  path: "/v1/field/sign-in/code",
+  summary: "Send the phone a sign in code",
+  description:
+    "Sends a six digit code by text to the mobile number the office recorded for the technician, or by email. The answer is the same whether or not the address belongs to anybody. A code lives ten minutes, dies after five wrong guesses, and only the newest one works; a person may ask three times in fifteen minutes, and an address is limited per minute.",
+  module: "M11",
+  permissions: [],
+  authorization: "public",
+  input: z.object({
+    email: z.string().email().max(320),
+    channel: z.enum(["sms", "email"]),
+  }),
+  output: z.object({
+    ok: z.literal(true),
+    /** What to tell the person, which never says whether the address exists. */
+    message: z.string(),
+  }),
+});
+
+export const signInWithCode = defineRoute({
+  method: "post",
+  path: "/v1/field/sign-in/verify",
+  summary: "Sign the phone app in with a code",
+  description:
+    "The email and the code in, the same device token the password sign in gives out. Spends the code. Refused with one sentence for a wrong, expired, spent or never sent code alike, and only an account with a technician record is let in.",
+  module: "M11",
+  permissions: [],
+  authorization: "public",
+  input: z.object({
+    email: z.string().email().max(320),
+    code: z.string().min(1).max(20),
+  }),
+  output: signInDevice.output,
+});
+
+/**
+ * The number a code is texted to, set by the office. Never by the person
+ * asking for a code, because a sign in sent to a number the asker chose is
+ * not a sign in.
+ */
+export const setTechnicianMobile = defineRoute({
+  method: "post",
+  path: "/v1/field/technicians/{id}/mobile",
+  summary: "Set the number sign in codes are texted to",
+  module: "M11",
+  permissions: ["user:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    /** Null clears it, and the person can then only get a code by email. */
+    mobilePhone: z.string().trim().min(7).max(40).nullable(),
+  }),
+  output: z.object({ id: Uuid, mobilePhone: z.string().nullable() }),
+});
+
+/**
+ * THE PHONES, AS THE OFFICE SEES THEM
+ *
+ * Each technician with the phones they have signed in on, and the number a
+ * code goes to. The screen behind it is `/settings/phones`.
+ */
+export const listFieldPeople = defineRoute({
+  method: "get",
+  path: "/v1/field/technicians",
+  summary: "Technicians and their phones",
+  module: "M11",
+  permissions: ["user:read"],
+  input: z.object({}),
+  output: z.object({
+    technicians: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      active: z.boolean(),
+      mobilePhone: z.string().nullable(),
+      devices: z.array(FieldDevice.extend({
+        /** A push token is registered, so changes to their day reach this phone. */
+        notifications: z.boolean(),
+      })),
+    })),
+  }),
+});
+
+/**
+ * CARD, ON SITE, THROUGH THE LINK THE CUSTOMER ALREADY GETS
+ *
+ * The phone never touches a card number. It asks for the job's invoice link,
+ * the same one an emailed invoice carries, and either texts it to the
+ * customer or hands it to the phone's share sheet so the customer pays on
+ * their own phone. The payment lands when the card processor says it did,
+ * exactly as it does for an emailed invoice.
+ */
+export const visitPaymentLink = defineRoute({
+  method: "post",
+  path: "/v1/visits/{id}/payment-link",
+  summary: "A card payment link for the job on this visit",
+  description:
+    "For the technician on the visit, or anybody who may send invoices. Refused with a sentence when the job has no issued invoice with money owing, or the company has not connected card payments. With `text: true` the link is also texted to the customer's number on file, subject to the same consent rules as every other text.",
+  module: "M13",
+  permissions: ["payment:collect"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    text: z.boolean().default(false),
+  }),
+  output: z.object({
+    url: z.string(),
+    invoiceId: Uuid,
+    invoiceNumber: z.number().int(),
+    amountDue: MoneyString,
+    texted: z.boolean(),
+    /** Why it was not texted, in words for the person on site. Null when it was, or was not asked. */
+    reason: z.string().nullable(),
+  }),
+});
+
 export const fieldRoutes = {
   signInDevice, listDevices, signOutDevice, revokeDevice,
+  requestSignInCode, signInWithCode, setTechnicianMobile, listFieldPeople, visitPaymentLink,
   syncOperations, registerDevice, getFieldSnapshot,
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice,
   listConflicts, resolveConflict,

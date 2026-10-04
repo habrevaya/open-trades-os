@@ -69,6 +69,7 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `justcall` | messaging | The second carrier on the same seam. Their signature covers the URL, the type and a timestamp, and not the message, so the replay window is five minutes rather than a day. |
 | `nominatim` | maps | OpenStreetMap's geocoder, public or self hosted. No key; one request a second against the public server, and a contact address on every request as its usage policy asks. |
 | `mapbox` | maps | The commercial geocoder, always on the permanent tier because every answer is stored. Google is not offered: its terms forbid keeping the coordinates. |
+| `whisper` | transcription | Speech to text for kept recordings and voicemails, over the Whisper API: OpenAI's, or a server the company runs itself so calls never leave the building. Card numbers are removed before the words are stored. |
 | `xero` | accounting | The second adapter on the accounting seam. No change feed on their side, so inbound is a modified-since boundary; refresh tokens rotate with no grace period at all. |
 
 ---

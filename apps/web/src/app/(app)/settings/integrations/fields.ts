@@ -89,7 +89,18 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "verifiedDomains", label: "Domains verified with Resend, comma separated", kind: "list" },
       { key: "webhookSecretRef", label: "Webhook signing secret, as the name of the secret holding it",
         kind: "secret_name", placeholder: "RESEND_WEBHOOK_SECRET", secretLabel: "Webhook signing secret",
-        hint: "Without it bounces and complaints are never heard." },
+        hint: "Without it bounces, complaints and replies are never heard." },
+      { key: "replyDomain", label: "Domain Resend receives replies on (optional)", kind: "text",
+        placeholder: "replies.yourcompany.com",
+        hint: "Set up as a receiving domain in Resend. Every email then carries a reply address on it, and a customer's reply lands in the right thread in the inbox." },
+    ],
+  },
+  whisper: {
+    credential: "API key, as the name of the secret holding it",
+    credentialSecret: "API key",
+    fields: [
+      { key: "model", label: "Model (optional)", kind: "text", placeholder: "whisper-1" },
+      { key: "language", label: "Language spoken, two letters (optional)", kind: "text", placeholder: "en" },
     ],
   },
   smtp: {

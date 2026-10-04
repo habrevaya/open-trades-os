@@ -410,6 +410,15 @@ export const technician = pgTable("technician", {
    * and the reconstruction it exists to avoid was the only option available.
    */
   wageClassification: text("wage_classification"),
+  /**
+   * The mobile number a sign in code for the field app is texted to.
+   *
+   * On the technician rather than on `user.phone`, because a person can work
+   * for two companies and each one decides for itself which number it texts
+   * a code to. And set by the office, never by whoever is asking for a code,
+   * because a sign in sent to a number the asker chose is not a sign in.
+   */
+  mobilePhone: text("mobile_phone"),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({ orgIdx: index("technician_org_idx").on(t.organizationId) }));

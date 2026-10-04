@@ -824,7 +824,7 @@ run("every operation does something", () => {
    */
   const SIDE_EFFECT_TABLES = [
     "visit", "job_line", "equipment", "timeclock_entry",
-    "service_report", "service_report_field", "field_upload", "portal_event",
+    "service_report", "service_report_field", "field_upload", "portal_event", "payment",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -870,6 +870,7 @@ run("every operation does something", () => {
       { kind: "signature.capture", subjectId: visitId,
         payload: { uploadId: uuid(), contentType: "image/png" } },
       { kind: "service_report.submit", subjectId: report!.id, payload: {} },
+      { kind: "payment.collect", subjectId: visitId, payload: { method: "cash", amount: "50.00" } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 

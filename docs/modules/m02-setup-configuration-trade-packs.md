@@ -106,29 +106,84 @@ Ten steps, in this order. The four marked essential are what stops a booking.
 | Phone and email | No, and start early | `integration:write` |
 | Accounting | No | `integration:write` |
 
-The wizard lives at `/setup`, and the trade step at `/setup/trade`. A step
-whose permission the signed in person does not hold is shown and not clickable,
-rather than hidden, because an office manager needs to be able to see that
-somebody else has to do the payments step.
+The wizard lives at `/setup`, and every step has a page of its own that draws
+the real settings form for it rather than a copy: `/setup/company` (the name,
+the legal name, the time zone, the logo and colour), `/setup/trade`,
+`/setup/service-area`, `/setup/hours` (opening hours, arrival windows and what
+may be booked online), `/setup/team` (inviting people, and branches for a
+company with more than one shop), `/setup/pricebook` (every price, or one
+shelf, moved up or down by a percentage, previewed first and undoable from
+`/pricebook/changes`), `/setup/tax`, `/setup/payments`,
+`/setup/communications` (texting and email providers, and the A2P 10DLC brand
+and campaigns written down) and `/setup/integrations`. Each page says what is
+already in place, read from the data, and where the same setting lives after
+setup.
+
+A step whose permission the signed in person does not hold is shown and not
+clickable, rather than hidden, because an office manager needs to be able to
+see that somebody else has to do the payments step.
+
+**Done is said, not inferred.** Each step page ends with "This step is done",
+which records it (`setup_step`), and the list ticks it off and offers "Carry
+on" to the first step still outstanding that this person can do, so somebody
+who closed the tab at step four comes back to step five. Most steps have no
+answer in the data (a price book at national averages looks exactly like one
+somebody checked line by line), so the facts sit beside the button instead of
+behind it. Marking a step needs the step's own permission. Choosing a trade
+marks its step done. `GET /v1/setup` reads the same list, and
+`POST /v1/setup/steps/{key}` marks a step done or not done. The list stays
+open after "Go to the app" (`POST /v1/setup/finish`), and Settings links back
+to it.
 
 Eight packs ship: HVAC, plumbing, electrical, lawn and landscape, pest control,
 cleaning, dumpster rental and trash bin cleaning.
 
 ## Using it
 
-### Change the trade later
+### Change the trade later, and take a newer version of it
 
-Applying a pack is additive against the price book and the job type list. It is
-a service call rather than a screen after setup, because re-applying a pack over
-a company's edited price book is a merge nobody has designed a sensible screen
-for yet.
+Applying a pack is additive against the price book and the job type list:
+an item or job type whose code the company already has is skipped, never
+overwritten, and the rest of the pack (the service report template,
+inspection programmes, retention rules and portal layout) is seeded once, so
+applying a pack again changes nothing. `/setup/trade` applies another pack
+beside the first, and `POST /v1/trade-packs/{id}/apply` does the same.
+
+Each application records what the pack seeded, item by item. When this
+product ships a newer version of a pack a company is running, `/setup/trade`
+shows exactly what it would change before anything is written
+(`GET /v1/trade-packs/{id}/upgrade`), and one button applies it
+(`POST /v1/trade-packs/{id}/upgrade`):
+
+| The company's item | What the upgrade does |
+|---|---|
+| Not in the company's book | Added |
+| Still exactly as the older version seeded it | A new version with the new values, so documents that quoted the old price still say it |
+| Changed here since, by any route (one edit, a bulk re-price, an import) | Kept, and listed with what the new version would have changed |
+| Made by the company, or another pack, under the same code | Kept |
+| Dropped by the new version | Kept, because invoices point at it |
+| A job type the company does not have | Added |
+
+"Changed here" is decided against the recorded snapshot, field by field. A
+company that applied its pack before snapshots were recorded is judged by
+the item's version number instead: anything revised since the seed counts as
+changed and is kept, which is the safe direction to be wrong in. The plan is
+worked out again inside the write, so an item edited after the preview was
+looked at is kept rather than overwritten. Costs in the preview are shown only
+to somebody who may read them. `GET /v1/trade-packs` says which version of each
+pack the company is on.
 
 ### Configure the company
 
-`Settings` holds the four things a company changes after setup: its time zone,
-how it looks (a brand colour and a logo, which appear on the customer portal
-and on documents), the phone numbers it sends from, and its call recording
-policy. All four need `settings:write` to change and `settings:read` to see.
+`Settings` holds what a company changes about itself after setup: its time
+zone, how it looks (a brand colour and a logo, which appear on the customer
+portal and on documents), the phone numbers it sends from, and its call
+recording policy. All of these need `settings:write` to change and
+`settings:read` to see. The name and legal name are changed on
+`/setup/company` or with `PATCH /v1/company`, which items are taxed on
+`/pricebook/tax` (`POST /v1/item-tax`, a new version of each item that
+changes, so old invoices keep what they charged), and who works here on
+`/settings/team`.
 
 The time zone is not cosmetic. Every date boundary in the product is computed
 in it: a container day in M22, quiet hours on a campaign in M19, a pay period
@@ -149,7 +204,7 @@ create. All of them are `settings:read` and `settings:write`.
 |---|---|
 | Owner | Everything, including the steps that connect money and messaging |
 | Administrator | Everything in this module |
-| Office manager | Reads settings. Does not change them |
+| Office manager | Reads settings and does not change them. Invites office staff and marks the team step done |
 | Dispatcher, CSR, technician | Neither |
 | Accountant | Reads settings |
 
@@ -158,9 +213,20 @@ create. All of them are `settings:read` and `settings:write`.
 **Can a company skip the wizard entirely?** Yes. Nothing in it is enforced
 later; it is a checklist, not a gate.
 
-**Does the wizard remember which steps are done?** Not yet. Nothing is stored
-as complete, so every step reads as outstanding each time the list is opened.
-That is the honest state of it and the code says so where a reader would look.
+**Does the wizard remember which steps are done?** Yes. A step is done when
+somebody who may do it says so on its page, and stays done until somebody
+says otherwise; the list resumes at the first step still outstanding.
+
+**Can an office manager invite a technician?** No. Inviting gives the person
+a preset role, and nobody hands out a role carrying permissions they do not
+hold themselves. The technician role carries field permissions (syncing a
+phone, clocking in) the office manager does not, so an owner or an
+administrator invites technicians. An office manager invites office staff.
+
+**Why was my invite refused for an address?** It already has an account with
+another company. Adding an existing account would hand this company to
+whoever controls it, and nothing proves that is the person the address
+belongs to, so an account is only ever added to the company that created it.
 
 **Where do trade specific KPIs show up?** `Reports > Trade scorecard`, which
 is M21. A pack declares them; that module computes the ones it can and names
@@ -168,10 +234,19 @@ the missing datum for the ones it cannot.
 
 ## What is not built
 
-Eight of the ten steps have no dedicated screen behind them: company details,
-service area, hours, team, price book, tax, payments and communications are
-configured elsewhere in the product or through the API, and the wizard links to
-a step page that does not exist for most of them. The trade step is the one
-that is built end to end. Step completion is not persisted, as above. Nothing
-re-applies a newer version of a pack to a company already running on an older
-one.
+An invite link is shown to the person inviting, once, for them to send; this
+product does not email it. A deployment with no `PUBLIC_URL` makes no link at
+all and says so. An address with an account at another company cannot be
+invited.
+
+A trade pack upgrade covers the price book and job types. A newer version's
+changes to a service report template, inspection programmes, retention rules
+or the portal layout are not applied to a company that already has them, and
+the preview does not list them. An item's description or cost that a newer
+version removes is left as it was, because a price book version cannot clear
+either. Every pack ships at version one today, so no company has an upgrade
+waiting yet.
+
+The 10DLC step records a registration made in the carrier's portal; it does
+not submit one to a carrier. Holidays and after hours rates have no step.
+Company licences are compliance documents rather than a setup step.

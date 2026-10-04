@@ -2,12 +2,18 @@
 
 import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
-import { requireSetupUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { branding, telephony, phoneNumbers, voice, websiteTracking, ConflictError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
-const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
+/**
+ * `requireUser`, not the setup gate: the setup wizard draws these same forms
+ * before setup is finished, and the gate is about which page a person lands
+ * on, not about what they may change. What they may change is the service's
+ * question, asked the same way either side of setup.
+ */
+const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
 
 /** Everything under this layout renders the colours, so it all revalidates. */
 const refresh = () => revalidatePath("/", "layout");

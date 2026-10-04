@@ -71,6 +71,11 @@ export const Call = z.object({
   transcript: z.string().nullable(),
   transcriptRedactedAt: z.string().datetime().nullable(),
   transcriptRedactionCounts: z.record(z.string(), z.number().int()).nullable(),
+  /** `pending`, `working`, `done` or `failed`, for a transcript this product is making. */
+  transcriptStatus: z.string().nullable(),
+  /** `recording` or `voicemail`: which audio the words are of. */
+  transcriptSource: z.string().nullable(),
+  transcriptError: z.string().nullable(),
   disposition: z.string().nullable(),
   attributionSource: z.string().nullable(),
 }).merge(Timestamps);
@@ -153,6 +158,8 @@ export const listCalls = defineRoute({
   input: z.object({
     customerId: Uuid.optional(),
     limit: z.number().int().min(1).max(200).default(50),
+    /** Words said on the call, searched in the redacted transcript, or digits of the caller's number. */
+    q: z.string().max(200).optional(),
   }),
   output: z.object({ calls: z.array(Call) }),
 });
@@ -231,6 +238,19 @@ export const deleteRecording = defineRoute({
   output: Call,
 });
 
+export const transcribeCall = defineRoute({
+  method: "post",
+  path: "/v1/calls/{id}/transcribe",
+  summary: "Write out a call's recording or voicemail now",
+  description:
+    "Sends the audio this product kept for the call (the recording, when the recording check allowed one, else the voicemail) to the company's connected speech to text, and stores the words through the same gate as any transcript: malformed output refused, card numbers removed before the write. For a call whose transcript failed or whose audio was kept before speech to text was connected; the worker does the rest on its own.",
+  module: "M18",
+  permissions: ["message:send"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, status: z.string().nullable(), error: z.string().nullable() }),
+});
+
 export const attachTranscript = defineRoute({
   method: "post",
   path: "/v1/calls/{id}/transcript",
@@ -267,5 +287,5 @@ export const attachTranscript = defineRoute({
 export const telephonyRoutes = {
   listRecordingPolicies, setRecordingPolicy, removeRecordingPolicy,
   logCall, listCalls, getCall,
-  decideRecording, attachRecording, deleteRecording, attachTranscript,
+  decideRecording, attachRecording, deleteRecording, attachTranscript, transcribeCall,
 } as const;

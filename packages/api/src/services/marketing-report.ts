@@ -1,7 +1,8 @@
 import { and, eq, gte, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { marketing as mk, money as m, telephony as tel, time } from "@opentradesos/core";
+import { marketing as mk, money as m, telephony as tel, time, transcript as tr } from "@opentradesos/core";
 import { guardedRead, ConflictError, NotFoundError, type ServiceContext } from "./context";
+import { callSearch } from "./telephony";
 import * as acquisition from "./acquisition";
 import { revenueByJob } from "./marketing";
 
@@ -667,6 +668,8 @@ export async function callLog(ctx: ServiceContext, input: {
   from: string; to: string;
   numberId?: string | undefined; campaignId?: string | undefined; channelId?: string | undefined;
   limit?: number | undefined;
+  /** Words said on the call, or digits of the number that rang. */
+  q?: string | undefined;
 }) {
   return guardedRead(ctx, "adspend:read", async (tx) => {
     checkRange(input);
@@ -691,9 +694,11 @@ export async function callLog(ctx: ServiceContext, input: {
         ...(input.numberId ? [eq(schema.call.phoneNumberId, input.numberId)] : []),
         ...(input.campaignId ? [eq(schema.call.acquisitionCampaignId, input.campaignId)] : []),
         ...(input.channelId ? [eq(schema.call.channelId, input.channelId)] : []),
+        callSearch(input.q),
       ))
       .orderBy(sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) desc`)
       .limit(Math.min(input.limit ?? 200, 500));
+    const words = (input.q ?? "").toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
 
     return rows.map(({ call, customerName, channelName, campaignName, numberLabel }) => {
       const verdict = outcomeOf(call);
@@ -716,9 +721,22 @@ export async function callLog(ctx: ServiceContext, input: {
         customerId: call.customerId,
         customerName,
         jobId: call.jobId,
+        transcriptMatch: matchingLine(call.transcriptSegments, words),
       };
     });
   });
+}
+
+/**
+ * The stretch of a transcript a search matched, to show under the call so
+ * the office can see why it came up without opening it. The first segment
+ * holding any of the searched words; Postgres has already decided the call
+ * matches, by stem, so this is the readable half of that answer.
+ */
+function matchingLine(segments: { text: string }[] | null, words: string[]): string | null {
+  if (!segments || words.length === 0) return null;
+  const hit = segments.find((segment) => words.some((word) => segment.text.toLowerCase().includes(word.slice(0, 5))));
+  return hit ? hit.text.slice(0, 240) : null;
 }
 
 /** One call, for the page that turns it into a customer and a job. */
@@ -759,6 +777,19 @@ export async function getCall(ctx: ServiceContext, input: { id: string }) {
       hasVoicemail: row.call.voicemailStorageKey !== null,
       routedBecause: row.call.routedBecause,
       recordingRefusal: row.call.recordingRefusal,
+      menuChoices: (row.call.menuChoices ?? []).map((c) => ({ menu: c.menu, key: c.key, label: c.label, at: c.at })),
+      transcript: (row.call.transcriptSegments ?? []).map((segment) => ({
+        at: tr.formatTimestamp(segment.startMs), speaker: segment.speaker, text: segment.text, startMs: segment.startMs,
+      })),
+      transcriptStatus: row.call.transcriptStatus,
+      transcriptError: row.call.transcriptError,
+      transcriptSource: row.call.transcriptSource,
+      /** Only what was actually removed: "0 card numbers" is a sentence nobody needs. */
+      transcriptRedactions: Object.fromEntries(Object.entries(row.call.transcriptRedactionCounts ?? {})
+        .filter(([, n]) => n > 0)),
+      transcriptReliable: row.call.transcriptSegments && row.call.transcriptSegments.length > 0
+        ? tr.assessQuality(row.call.transcriptSegments).actOnAutomatically
+        : null,
     };
   });
 }
@@ -769,7 +800,7 @@ export const handlers = {
     drill(ctx, input),
   listMarketingCalls: async (ctx: ServiceContext, input: {
     from: string; to: string; numberId?: string | undefined; campaignId?: string | undefined;
-    channelId?: string | undefined; limit?: number | undefined;
+    channelId?: string | undefined; limit?: number | undefined; q?: string | undefined;
   }) => ({ calls: await callLog(ctx, input) }),
   getMarketingCall: (ctx: ServiceContext, input: { id: string }) => getCall(ctx, input),
 } as const;

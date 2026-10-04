@@ -165,6 +165,19 @@ create policy demo_visit_no_direct_access on public.demo_visit
   using (false)
   with check (false);
 
+-- A one time sign in code for the field app sits above the tenant for the same
+-- reason a first-password link does: it exists before anybody is signed in.
+-- Nothing selects it; two functions near the end of this file issue and spend
+-- one, so the limits on how many and how often cannot be skipped by a second
+-- caller that forgot them.
+alter table public.sign_in_code enable row level security;
+alter table public.sign_in_code force row level security;
+drop policy if exists sign_in_code_no_direct_access on public.sign_in_code;
+create policy sign_in_code_no_direct_access on public.sign_in_code
+  to authenticated
+  using (false)
+  with check (false);
+
 -- ---- Ledger is append only ---------------------------------------------
 -- No UPDATE. No DELETE. Ever. A correction is a new reversing entry.
 -- Enforced in the database rather than in application code, because
@@ -2103,3 +2116,331 @@ create or replace function app.operator_set_membership(
 
 revoke all on function app.operator_set_membership(uuid, uuid, text) from public;
 grant execute on function app.operator_set_membership(uuid, uuid, text) to platform_operator;
+
+-- ---- Which branch a new job belongs to ------------------------------------
+-- A branch is a business unit, and `job.business_unit_id` is what a branch
+-- scoped person's job list is filtered on (services/scope.ts). Eight places
+-- in this product insert a job (booking one, confirming an online request,
+-- converting an estimate, accepting a lead, a recurring plan, an agreement
+-- visit, a route, a project phase) and not one of them chose a branch, so a
+-- branch manager who booked a job watched it vanish from their own list the
+-- moment it was saved: it belonged to no branch, and their scope shows one.
+--
+-- So the default lives here, once, under all eight, rather than in eight
+-- services that would each have to remember it. A job saved without a branch
+-- takes the branch of the person saving it, then the branch its job type
+-- belongs to, and otherwise stays with none, which only company wide people
+-- see and Settings > Branches lists for somebody to sort out. A branch that
+-- has been retired is not handed to new work. A job saved WITH a branch keeps
+-- it: whether this person may choose that branch is the service's question,
+-- because it is about their scope rather than about the row.
+--
+-- Security invoker on purpose. It reads the membership and the job type the
+-- request can already see, inside the tenant the request is already in.
+create or replace function app.default_job_branch() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  begin
+    if new.business_unit_id is null then
+      select m.business_unit_id into new.business_unit_id
+        from public.membership m
+        join public.business_unit bu on bu.id = m.business_unit_id and bu.active
+       where m.organization_id = new.organization_id
+         and m.user_id = (select app.current_user_id())
+         and m.active
+       limit 1;
+    end if;
+    if new.business_unit_id is null and new.job_type_id is not null then
+      select jt.business_unit_id into new.business_unit_id
+        from public.job_type jt
+        join public.business_unit bu on bu.id = jt.business_unit_id and bu.active
+       where jt.id = new.job_type_id
+         and jt.organization_id = new.organization_id;
+    end if;
+    return new;
+  end;
+  $$;
+
+drop trigger if exists job_default_branch on public.job;
+create trigger job_default_branch
+  before insert on public.job
+  for each row execute function app.default_job_branch();
+
+-- ---- Inviting somebody to work here ----------------------------------------
+-- The setup wizard's team step, and Settings > Team. Until these two
+-- functions existed the only way a second person got into a company was the
+-- operator API or a row typed into the database, so every company was one
+-- person with a login.
+--
+-- Both run as definer because the `user` table's policy lets a session see
+-- only its own row, which is right and stays right: an office manager must
+-- not be able to list every account on the deployment. They check the
+-- caller's standing themselves rather than trusting the service, the same as
+-- `revoke_sessions_for`, and they act only inside the caller's own company.
+-- The permission (`user:invite`) and whether the role being handed out is
+-- within the inviter's own authority are checked by the service before it
+-- gets here; this is the second lock, not the first.
+--
+-- AN ADDRESS THAT ALREADY HAS AN ACCOUNT IS NOT ADDED, and that is the rule
+-- the whole design rests on. Adding an existing account to this company would
+-- hand this company's records to whoever controls that account, and nothing
+-- here proves that is the person the address belongs to: anybody can sign up
+-- with an address that is not theirs, or be invited somewhere else first and
+-- choose the password. So an invite creates the person or finds them already
+-- in THIS company, and an address in use anywhere else is refused with
+-- `elsewhere` for the service to explain.
+create or replace function app.invite_member(p_email text, p_name text, p_role text)
+  returns table (membership_id uuid, user_id uuid, outcome text, active boolean, has_password boolean)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+    v_email text := lower(trim(p_email));
+    v_user uuid;
+    v_membership uuid;
+    v_active boolean;
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active
+    ) then
+      raise exception 'only an active member of a company may invite somebody to it'
+        using errcode = 'insufficient_privilege';
+    end if;
+
+    select u.id into v_user from public."user" u where u.email = v_email;
+
+    if v_user is null then
+      insert into public."user" (email, name)
+      values (v_email, nullif(trim(coalesce(p_name, '')), ''))
+      returning id into v_user;
+      insert into public.membership (organization_id, user_id, role)
+      values (v_org, v_user, p_role::public.member_role)
+      returning id into v_membership;
+      return query select v_membership, v_user, 'created'::text, true, false;
+      return;
+    end if;
+
+    select m.id, m.active into v_membership, v_active
+      from public.membership m
+     where m.organization_id = v_org and m.user_id = v_user;
+
+    if v_membership is null then
+      return query select null::uuid, null::uuid, 'elsewhere'::text, false, false;
+      return;
+    end if;
+
+    return query select v_membership, v_user, 'member'::text, v_active,
+      exists (select 1 from public.credential c where c.user_id = v_user);
+  end;
+  $$;
+
+-- A first-password link for somebody this company invited.
+--
+-- `issue_setup_token` is the operator's and stays the operator's. This is the
+-- same link with the tenant's narrower rule in front of it: the person must
+-- be a member of the caller's company, of NO other company, and have no
+-- password yet. The middle condition is what stops one company issuing a
+-- link for somebody another company invited and is still waiting on: with it,
+-- a link can only ever open an account whose sole membership is the company
+-- that asked for it, which is the account it created.
+create or replace function app.issue_invite_token(
+  p_user_id uuid, p_token_hash text, p_expires_at timestamptz
+) returns boolean
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active
+    ) then
+      return false;
+    end if;
+    if not exists (
+      select 1 from public.membership m where m.organization_id = v_org and m.user_id = p_user_id
+    ) then
+      return false;
+    end if;
+    if exists (
+      select 1 from public.membership m where m.user_id = p_user_id and m.organization_id <> v_org
+    ) then
+      return false;
+    end if;
+    if exists (select 1 from public.credential c where c.user_id = p_user_id) then
+      return false;
+    end if;
+
+    update public.setup_token
+       set revoked_at = now(), updated_at = now()
+     where user_id = p_user_id and used_at is null and revoked_at is null;
+    insert into public.setup_token (user_id, token_hash, expires_at)
+    values (p_user_id, p_token_hash, p_expires_at);
+    return true;
+  end;
+  $$;
+
+revoke all on function app.invite_member(text, text, text) from public;
+revoke all on function app.issue_invite_token(uuid, text, timestamptz) from public;
+grant execute on function app.invite_member(text, text, text) to authenticated;
+grant execute on function app.issue_invite_token(uuid, text, timestamptz) to authenticated;
+
+-- Which of this company's people have not chosen a password yet: invited,
+-- and not in. Membership ids only, for the team list to say "has not signed
+-- in yet" and offer a fresh link. Whether a colleague has finished signing
+-- up is not a secret inside their own company; their password row is, and
+-- this reads its existence and nothing else.
+create or replace function app.organization_people_waiting()
+  returns table (membership_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select m.id
+    from public.membership m
+    where m.organization_id = (select app.current_organization_id())
+      and not exists (select 1 from public.credential c where c.user_id = m.user_id)
+  $$;
+
+revoke all on function app.organization_people_waiting() from public;
+grant execute on function app.organization_people_waiting() to authenticated;
+-- =========================================================================
+-- THE FIELD APP: ONE TIME SIGN IN CODES AND PUSH NOTICES
+-- =========================================================================
+
+-- The functions that issue and spend a code are under "The field app" near
+-- the end of this file.
+
+-- Issue a code for whoever owns this email, replacing any live one they had.
+-- Returns nothing for an address nobody owns, and `issued = false` for one
+-- that has asked too often lately, so the caller can answer both the same
+-- way and the form never says which addresses exist.
+create or replace function app.issue_sign_in_code(
+  p_email text, p_code_hash text, p_channel text, p_expires_at timestamptz,
+  p_per_window int, p_window_minutes int
+) returns table (user_id uuid, email text, name text, issued boolean)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_user public."user"%rowtype;
+    v_recent int;
+  begin
+    select * into v_user from public."user" u where lower(u.email) = lower(p_email) limit 1;
+    if not found then
+      return;
+    end if;
+
+    -- Serialised per person, so two requests at once cannot both read two
+    -- recent codes and both issue a third.
+    perform pg_advisory_xact_lock(hashtext('sign_in_code:' || v_user.id::text));
+
+    select count(*) into v_recent from public.sign_in_code c
+     where c.user_id = v_user.id
+       and c.created_at > now() - make_interval(mins => p_window_minutes);
+    if v_recent >= p_per_window then
+      return query select v_user.id, v_user.email, v_user.name, false;
+      return;
+    end if;
+
+    -- Only the newest code works. A person asking again usually never got
+    -- the first one, and the first one is then in nobody's hands that
+    -- should be using it.
+    update public.sign_in_code c
+       set revoked_at = now(), updated_at = now()
+     where c.user_id = v_user.id and c.used_at is null and c.revoked_at is null;
+
+    insert into public.sign_in_code (user_id, code_hash, channel, expires_at)
+    values (v_user.id, p_code_hash, p_channel, p_expires_at);
+
+    return query select v_user.id, v_user.email, v_user.name, true;
+  end;
+  $$;
+
+-- Try a code. Returns the person on a match and spends the code in the same
+-- statement, so two phones submitting it together cannot both sign in: the
+-- second waits on the row lock and finds it used. A wrong guess is counted
+-- against the live code, and at the limit the code is revoked, so the five
+-- guesses a code allows cannot become fifty by asking again and again.
+-- Returns null for every refusal alike: wrong, expired, spent or never sent.
+create or replace function app.consume_sign_in_code(
+  p_email text, p_code_hash text, p_max_attempts int
+) returns uuid
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_code public.sign_in_code%rowtype;
+  begin
+    select c.* into v_code
+      from public.sign_in_code c
+      join public."user" u on u.id = c.user_id
+     where lower(u.email) = lower(p_email)
+       and c.used_at is null
+       and c.revoked_at is null
+       and c.expires_at > now()
+     order by c.created_at desc
+     limit 1
+     for update of c;
+
+    if not found then
+      return null;
+    end if;
+
+    if v_code.code_hash = p_code_hash then
+      update public.sign_in_code
+         set used_at = now(), updated_at = now()
+       where id = v_code.id;
+      return v_code.user_id;
+    end if;
+
+    update public.sign_in_code
+       set attempts = attempts + 1,
+           revoked_at = case when attempts + 1 >= p_max_attempts then now() else revoked_at end,
+           updated_at = now()
+     where id = v_code.id;
+    return null;
+  end;
+  $$;
+
+revoke all on function app.issue_sign_in_code(text, text, text, timestamptz, int, int) from public;
+revoke all on function app.consume_sign_in_code(text, text, int) from public;
+grant execute on function app.issue_sign_in_code(text, text, text, timestamptz, int, int) to authenticated;
+grant execute on function app.consume_sign_in_code(text, text, int) to authenticated;
+
+-- ---- Companies with a push to send ----------------------------------------
+-- The push pass reads each company's changes to somebody's day from its own
+-- position in the event log (the `push` consumer) and sends what it writes. The same shape as the functions
+-- above: which companies have a change it has not read, a notice still
+-- waiting to go, or a receipt still owed, as ids and nothing else. Whether
+-- any of it is due is decided per company by the service.
+create or replace function app.push_work_organizations(p_limit int default 50)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select e.organization_id
+        from public.domain_event e
+        left join public.event_cursor c
+          on c.organization_id = e.organization_id and c.consumer = 'push'
+       where e.sequence > coalesce(c.last_sequence, 0)
+         -- Only the changes a phone is told about, so a company busy with
+         -- everything else is not visited on every pass for nothing.
+         and e.name in ('visit.assigned', 'visit.unassigned', 'visit.rescheduled', 'visit.cancelled')
+       group by e.organization_id
+      union
+      select d.organization_id
+        from public.push_delivery d
+       where d.status in ('queued', 'sending')
+          or (d.status = 'sent' and d.ticket_id is not null and d.receipt_checked_at is null)
+       group by d.organization_id
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.push_work_organizations(int) from public;
+grant execute on function app.push_work_organizations(int) to background;

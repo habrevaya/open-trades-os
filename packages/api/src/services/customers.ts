@@ -6,9 +6,9 @@ import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
   decodeCursor, paginate, NotFoundError, ConflictError, scopeOf, audit,
 } from "./context";
-import { enforceWithin } from "./custom-fields";
+import { enforceWithin, filterCondition } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
-import { customerScopeFilter } from "./scope";
+import { customerScopeFilter, customerBranchFilter } from "./scope";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import type { CustomerCreate, listCustomers, getCustomer, updateCustomer } from "../contracts/customers";
@@ -72,6 +72,21 @@ export async function list(ctx: ServiceContext, input: ListInput) {
   return guardedRead(ctx, "customer:read", async (tx) => {
     const cursor = decodeCursor(input.cursor);
     /**
+     * One custom field holding one value, when the list was asked for it.
+     * Both halves or neither: a key with no value is a filter with nothing to
+     * match, and saying so beats returning every customer as though it had
+     * been applied.
+     */
+    if ((input.fieldKey === undefined) !== (input.fieldValue === undefined)) {
+      throw new ConflictError("Filtering by a custom field needs both the field and the value to look for.");
+    }
+    const byField = input.fieldKey !== undefined && input.fieldValue !== undefined
+      ? await filterCondition(
+        tx, ctx.actor.organizationId, "customer", input.fieldKey, input.fieldValue,
+        sql`${schema.customer.customFields}`,
+      )
+      : undefined;
+    /**
      * A technician sees the people they have been sent to, not the company's
      * book. This is the filter the comment on the technician row in
      * `core/access/scopes.ts` has been promising, and until it existed a
@@ -92,6 +107,9 @@ export async function list(ctx: ServiceContext, input: ListInput) {
           )
         : undefined,
       tagFilter(input),
+      byField,
+      // A branch somebody picked: customers that branch has done work for.
+      input.businessUnitId ? customerBranchFilter(input.businessUnitId) : undefined,
       cursor ? lt(schema.customer.createdAt, new Date(cursor)) : undefined,
     );
 

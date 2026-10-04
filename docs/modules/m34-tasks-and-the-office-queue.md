@@ -89,7 +89,8 @@ link rather than the obligation giving up the precision to make linking easier.
 
 Nothing to configure. A company gets the queue, and `task:read` and `task:write` are
 on the office presets from the start. The technician preset holds `task:read` and not
-`task:write`, for the reason above.
+`task:write`: a technician claims work off the queue, ticks its checklist and marks a
+task assigned to them done, and creates none.
 
 ## Using it
 
@@ -194,7 +195,7 @@ them use the task permissions, because an obligation is work in the same queue.
 | Office manager | Reads and writes tasks and obligations |
 | Dispatcher | Reads and writes |
 | CSR | Reads and writes |
-| Technician | Reads tasks assigned to them. Creates none |
+| Technician | Reads tasks, claims one, ticks and finishes their own. Creates and dismisses none |
 | Accountant | Reads and writes |
 
 ## API
@@ -206,7 +207,7 @@ them use the task permissions, because an obligation is work in the same queue.
 | `POST /v1/tasks` | `task:write` |
 | `PATCH /v1/tasks/{id}` | `task:write` |
 | `POST /v1/tasks/{id}/claim` | `task:read` |
-| `POST /v1/tasks/{id}/close` | `task:write` |
+| `POST /v1/tasks/{id}/close` | `task:read` to mark your own task done; `task:write` to dismiss one or close anybody else's |
 | `GET /v1/obligations` | `task:read` |
 | `POST /v1/obligations/{id}/satisfy` | `task:write` |
 | `POST /v1/obligations/{id}/waive` | `task:write` |
@@ -225,10 +226,11 @@ them use the task permissions, because an obligation is work in the same queue.
 | `GET /v1/reporting-lines` | `user:read` |
 | `POST /v1/reporting-lines` | `user:write` |
 
-Claiming needs only `task:read`, and it is the one write in the module guarded by
-a read. Taking an unclaimed task is acting on your own work, which is the same
-class of act as clocking yourself in. It is conditional, so two people opening the
-queue at the same moment cannot both take it and do the work twice.
+Claiming, ticking your own task's checklist and marking your own task done need only
+`task:read`, and they are the writes in the module guarded by a read. Each is acting
+on your own work, which is the same class of act as clocking yourself in. Claiming is
+conditional, so two people opening the queue at the same moment cannot both take it
+and do the work twice.
 
 ## Common questions
 
@@ -246,14 +248,14 @@ cancelled. The primitive is built for more than that and nothing else writes one
 
 ## What is not built
 
-A TECHNICIAN CAN TAKE A TASK AND CANNOT CLOSE IT. Claiming needs `task:read` and
-closing needs `task:write`, which the technician preset does not hold, so a
-technician who picks work off the queue leaves it in progress for the office to
-finish. The service's own header used to say a technician "can be handed a task
-and complete it", which was false in the direction that matters, and the sentence
-is corrected rather than the permission widened: whether a person should be able
-to close a task assigned to them is a product decision, and the right place to
-make it is not a guard in a service file.
+A technician finishes their own task and does not dismiss it. Marking a task assigned
+to you done needs only `task:read`, the same class of act as claiming it and ticking
+its checklist, and `/tasks` and the task's own page offer "Done" to its assignee.
+Dismissing, "we decided not to", is a judgement about whether the work was worth
+raising, so it stays with `task:write`, as does closing anybody else's task. The rule
+is in `tasks.close` rather than a wider grant, so nothing else a technician could do
+changed. The phone app does not show tasks; a technician finishes one on `/tasks` in
+a browser.
 
 Escalation counts hours, not working hours: a task due Friday at five escalates
 on Saturday morning under a twelve hour rule, and a company without weekend

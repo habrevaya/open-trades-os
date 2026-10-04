@@ -20,6 +20,7 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-background-task",
+      "expo-notifications",
       [
         "expo-image-picker",
         {

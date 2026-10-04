@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { deposits, estimates } from "@opentradesos/api/services";
+import { ConflictError, deposits, estimates } from "@opentradesos/api/services";
 import {
   createEstimate, sendEstimate, requestDeposit, convertEstimate, approveEstimate, declineEstimate,
 } from "@opentradesos/api/contracts";
@@ -50,17 +50,26 @@ export async function actOnEstimate(_previous: FormState, form: FormData): Promi
     switch (op) {
       case "send": {
         /**
-         * The link only. `sendEstimate` accepts email and text as channels
-         * and delivers neither (it issues the link and returns it), so
-         * offering "email it" here would be a button that sends nothing.
+         * By email or text through the same consent gate as every message,
+         * or the link alone to hand over. A refusal (they replied STOP, no
+         * sender connected) is not an error: it is recorded on the estimate
+         * and said here in the transport's own words.
          */
+        const channel = field(form, "channel") ?? "email";
         const sent = await estimates.send(c, parsed(sendEstimate.input, {
-          id, channel: "link", expiresInDays: Number(field(form, "expiresInDays") ?? "30"),
+          id, channel, to: field(form, "to"), message: field(form, "message"),
+          expiresInDays: Number(field(form, "expiresInDays") ?? "30"),
         }));
-        return {
-          message: "Here is the link to give them. It opens once to approve and sign, and any earlier link stops working.",
-          link: sent.approvalUrl,
-        };
+        if (sent.delivery.state === "refused") {
+          throw new ConflictError(`Not sent. ${sent.delivery.error ?? ""} Nothing else changed.`);
+        }
+        if (channel === "link") {
+          return {
+            message: "Here is the link to give them. It opens once to approve and sign, and any earlier link stops working.",
+            ...(sent.approvalUrl ? { link: sent.approvalUrl } : {}),
+          };
+        }
+        return { message: `Sent ${channel === "email" ? "by email" : "by text"} to ${sent.delivery.destination}.` };
       }
       case "deposit": {
         const amount = field(form, "amount")?.replace(/[$,\s]/g, "");

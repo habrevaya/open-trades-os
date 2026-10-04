@@ -823,11 +823,11 @@ run("replaying", () => {
     const http = transport();
     await webhooks.deliver(db(), ORG, { send: http.send, now: at(0) });
     /** The log drained, so this company has had no events as far as the next pass knows. */
-    await runPass({ db: db(), schedules: false, geocoding: false, webhooks: { send: http.send } });
+    await runPass({ db: db(), schedules: false, geocoding: false, webhooks: { send: http.send }, push: false });
     expect(http.calls).toHaveLength(1);
 
     const replay = await webhooks.requestReplay(owner(), { id: endpoint.id, fromSequence: 1 });
-    await runPass({ db: db(), schedules: false, geocoding: false, webhooks: { send: http.send } });
+    await runPass({ db: db(), schedules: false, geocoding: false, webhooks: { send: http.send }, push: false });
     expect(http.calls).toHaveLength(2);
     expect(http.calls[1]!.headers[webhooks.REPLAY_HEADER]).toBe(replay.id);
   });

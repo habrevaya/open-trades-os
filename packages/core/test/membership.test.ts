@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { money, toString } from "../src/money/index.js";
 import {
-  memberPricingFor, memberDiscounts, eligibleForMemberPricing, usableRate,
+  memberPricingFor, memberDiscounts, eligibleForMemberPricing, usableRate, priorityFor,
   renewalDue, noticeDue, nextTerm, endingWithin, daysBetween, lastCoveredDay,
   type MemberCandidate, type RenewalState,
 } from "../src/membership/index.js";
@@ -21,7 +21,10 @@ const member = (over: Partial<MemberCandidate> = {}): MemberCandidate => ({
 describe("who is a member on the day", () => {
   it("prices a customer on an active plan at their own address", () => {
     expect(memberPricingFor([member()], { on: "2026-06-01", propertyId: "home" }))
-      .toEqual({ agreementId: "a1", planName: "Comfort Club", rate: "0.15" });
+      .toEqual({
+        agreementId: "a1", planName: "Comfort Club", rate: "0.15",
+        waivesDiagnosticFee: false, waivesAfterHoursRate: false,
+      });
   });
 
   it("does not price work at another address they own as member work", () => {
@@ -55,6 +58,65 @@ describe("who is a member on the day", () => {
     ], { on: "2026-06-01" });
     expect(picked?.agreementId).toBe("a");
     expect(picked?.rate).toBe("0.20");
+  });
+});
+
+describe("the perks a plan carries besides its rate", () => {
+  it("counts a plan whose only benefit is a waived fee as membership", () => {
+    /**
+     * "Members never pay a diagnostic fee" is a whole plan for some
+     * companies. Requiring a rate as well was why the perk was recorded on
+     * every plan and applied by nothing.
+     */
+    const found = memberPricingFor([member({ discountRate: null, waivesDiagnosticFee: true })], { on: "2026-06-01" });
+    expect(found).toEqual({
+      agreementId: "a1", planName: "Comfort Club", rate: "0",
+      waivesDiagnosticFee: true, waivesAfterHoursRate: false,
+    });
+  });
+
+  it("prefers the better rate, then more waivers, and never mixes two plans", () => {
+    const picked = memberPricingFor([
+      member({ agreementId: "rate", discountRate: "0.10" }),
+      member({ agreementId: "waiver", discountRate: "0.10", waivesDiagnosticFee: true, waivesAfterHoursRate: true }),
+    ], { on: "2026-06-01" });
+    expect(picked?.agreementId).toBe("waiver");
+    const higher = memberPricingFor([
+      member({ agreementId: "rate", discountRate: "0.20" }),
+      member({ agreementId: "waiver", discountRate: null, waivesDiagnosticFee: true }),
+    ], { on: "2026-06-01" });
+    expect(higher).toMatchObject({ agreementId: "rate", waivesDiagnosticFee: false });
+  });
+
+  it("waives the whole of a diagnostic or after hours line, and only when the plan says so", () => {
+    const lines = [
+      { quantity: "1", unitPrice: money("89.00"), eligible: true, feeRole: "diagnostic" as const },
+      { quantity: "1", unitPrice: money("150.00"), eligible: true, feeRole: "after_hours" as const },
+      { quantity: "1", unitPrice: money("200.00"), eligible: true },
+    ];
+    expect(memberDiscounts(lines, "0.10", { diagnostic: true }).map(toString))
+      .toEqual(["89.0000", "15.0000", "20.0000"]);
+    expect(memberDiscounts(lines, "0", { afterHours: true }).map(toString))
+      .toEqual(["0.0000", "150.0000", "0.0000"]);
+    expect(memberDiscounts(lines, "0.10").map(toString))
+      .toEqual(["8.9000", "15.0000", "20.0000"]);
+  });
+
+  it("waives what is left after a hand discount, never more", () => {
+    const [off] = memberDiscounts([
+      { quantity: "1", unitPrice: money("89.00"), discountAmount: money("9.00"), eligible: true, feeRole: "diagnostic" },
+    ], "0", { diagnostic: true });
+    expect(toString(off!)).toBe("80.0000");
+  });
+
+  it("puts a member at the front of the queue under the same cover rules as the discount", () => {
+    const priority = member({ priorityDispatch: true });
+    expect(priorityFor([priority], { on: "2026-06-01", propertyId: "home" }))
+      .toEqual({ agreementId: "a1", planName: "Comfort Club" });
+    expect(priorityFor([priority], { on: "2026-06-01", propertyId: "rental" })).toBeNull();
+    expect(priorityFor([priority], { on: "2027-01-15", propertyId: "home" })).toBeNull();
+    expect(priorityFor([member()], { on: "2026-06-01", propertyId: "home" })).toBeNull();
+    expect(priorityFor([member({ priorityDispatch: true, status: "cancelled" })], { on: "2026-06-01" })).toBeNull();
   });
 });
 

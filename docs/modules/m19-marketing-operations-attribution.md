@@ -326,7 +326,9 @@ rather than refused. Every ratio is empty, never zero, when its denominator is.
 - `Marketing > Calls` (`/marketing/calls`): date, caller, number, campaign,
   channel, what the call was (core's outcome), first time or existing caller,
   length, and the customer when matched, with "Create customer and job from
-  this call".
+  this call". A search box finds calls by what was said on them (their
+  redacted transcript) or by the caller's number, and shows the line that
+  matched.
 - `Marketing > Lead offers` (`/marketing/leads`): offers from a connected lead
   source, with who to ring, accepted (a customer, a property and a job,
   credited to the marketplace that sold it) or declined with a reason from a
@@ -632,7 +634,9 @@ Copy it into a new campaign.
 `Spend`, `Conversions`, `Lead forms` and `Referrals`, and `Settings > Website`,
 are described above. The call screen (`/marketing/calls/{id}`) plays a kept
 recording and a voicemail, says why nothing was recorded when recording was
-asked for and refused, and says where the call went. The send half is `Marketing >
+asked for and refused, says what the caller pressed in a phone menu and where
+the call went, and shows the transcript of the recording or voicemail when one
+was written out. The send half is `Marketing >
 Texts and emails`, at `/marketing/campaigns`. Previewing is `campaign:read`; creating and sending is
 `campaign:write`, so a reader who holds only the first sees the campaigns and the
 results and no buttons. That is the right shape for a screen whose buttons spend
@@ -682,18 +686,20 @@ sample and therefore not a test of anything.
   the file each platform accepts.
 - **Direct mail.** Nothing sends or tracks a mailer beyond giving it its own
   tracking number or a referral code, which measure it today.
-- **Voice beyond tracking numbers.** A number bought here forwards, whispers,
-  routes by hours and takes voicemail. There is no IVR menu, ring group, queue,
-  on call rota or call placed from the browser, though core's router models
-  them. Only Twilio has a voice adapter. A number bought elsewhere and typed in
-  is answered wherever its carrier sends it, and its calls arrive here only
-  through CallRail.
+- **Voice beyond menus and ring groups.** A number bought here, or one already
+  on the company's Twilio account and answered here, forwards, whispers,
+  routes by hours, takes voicemail, and can be answered by a phone menu that
+  rings people, ring groups and whoever is on call (M18, `/settings/phone`).
+  There is no waiting line and no call placed from the browser. Only Twilio
+  has a voice adapter. A number with another carrier is answered wherever
+  that carrier sends it, and its calls arrive here only through CallRail.
 - **Recording consent by keypress only.** A caller agrees by pressing 1. There
   is no spoken agreement, and no way to record a caller who says nothing, even
   where the operator believes one party consent applies, because a caller's
   location is never known.
-- **Transcripts of native calls.** Recordings are kept; nothing transcribes
-  them.
+- **Transcripts that tell voices apart.** Kept recordings and voicemails are
+  written out when speech to text is connected (M18) and searched on the call
+  log, as one stream of words rather than caller and answerer.
 - **Number insertion's limits.** The snippet swaps numbers already on the page
   when it loads and when it renews; a number added to the page later by the
   site's own script is swapped at the next renewal, a few minutes on. One pool

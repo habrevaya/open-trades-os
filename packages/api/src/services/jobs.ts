@@ -11,8 +11,10 @@ import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { enforceWithin } from "./custom-fields";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
-import { jobScopeFilter } from "./scope";
+import { jobScopeFilter, jobBranchFilter } from "./scope";
+import { assertPlaceable } from "./branches";
 import { emit } from "./events";
+import { announce, NEW_VISIT } from "./visit-notices";
 import { awayBetween } from "./time-off";
 import { inForceAt } from "./pricebook";
 import { gate as qualificationGate } from "./qualification";
@@ -139,6 +141,13 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.customerId ? eq(schema.job.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.job.propertyId, input.propertyId) : undefined,
         byExternal(schema.job, input),
+        /**
+         * A branch somebody picked, or `none` for the jobs nobody has put in
+         * one. On top of the scope below, never instead of it.
+         */
+        input.businessUnitId !== undefined
+          ? jobBranchFilter(input.businessUnitId === "none" ? null : input.businessUnitId)
+          : undefined,
         cursor ? lt(schema.job.createdAt, new Date(cursor)) : undefined,
         // Every scope, not just `own`. An unhandled one used to fall through
         // to no filter, which turned a role written to be limited into one
@@ -163,8 +172,20 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
 
 export async function get(ctx: ServiceContext, input: z.infer<typeof getJob.input>) {
   return guardedRead(ctx, "job:read", async (tx) => {
+    /**
+     * SCOPED, the same as the list. The list was scoped and this was not, so
+     * a branch manager who could not see Austin's jobs in the list could open
+     * any of them by changing the id in the address bar, and a technician
+     * could read every job in the company the same way. Out of scope is not
+     * found, rather than forbidden, so the answer does not confirm that a job
+     * with that id exists somewhere they may not look.
+     */
     const [job] = await tx.select().from(schema.job)
-      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
+      .where(and(
+        eq(schema.job.id, input.id),
+        isNull(schema.job.deletedAt),
+        jobScopeFilter(scopeOf(ctx, "job"), ctx.actor),
+      )).limit(1);
     if (!job) throw new NotFoundError("Job");
 
     return { ...clean(ctx, "job", job), visits: await visitsOf(tx, input.id) };
@@ -338,6 +359,13 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
     }
     const number = await claimNumber(tx, ctx, "job", input.number);
 
+    /**
+     * A branch named on the job is checked: it has to be live, and somebody
+     * limited to their own branch can only name that one. A job saved with
+     * none takes the booker's branch from the trigger in `sql/after.sql`.
+     */
+    if (input.businessUnitId !== undefined) await assertPlaceable(tx, ctx, input.businessUnitId);
+
     await enforceWithin(
       tx, ctx.actor.organizationId, "job", input.customFields,
     );
@@ -383,6 +411,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       parentJobId: input.parentJobId ?? null,
       isWarranty: input.isWarranty ?? false,
       priceSource: input.priceSource ?? "price_book",
+      ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...provenance(input.externalRef),
     }).returning();
 
@@ -439,6 +468,13 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
           })),
         );
       }
+
+      /**
+       * Booked with people on it, so it is on their day. Not for history
+       * brought in from another system: a job from 2022 is not news to
+       * anybody's phone.
+       */
+      if (!imported) await announce(tx, ctx, visit!.id, NEW_VISIT);
     }
 
     /**
@@ -553,9 +589,18 @@ export function canTransition(from: string, to: string): boolean {
 
 export async function update(ctx: ServiceContext, input: z.infer<typeof updateJob.input>) {
   return guardedWrite(ctx, "job:write", async (tx) => {
+    // Scoped like the read: a job somebody cannot open is not one they can edit.
     const [before] = await tx.select().from(schema.job)
-      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt))).limit(1);
+      .where(and(
+        eq(schema.job.id, input.id),
+        isNull(schema.job.deletedAt),
+        jobScopeFilter(scopeOf(ctx, "job"), ctx.actor),
+      )).limit(1);
     if (!before) throw new NotFoundError("Job");
+
+    if (input.businessUnitId !== undefined && input.businessUnitId !== before.businessUnitId) {
+      await assertPlaceable(tx, ctx, input.businessUnitId);
+    }
 
     if (input.status !== undefined && !canTransition(before.status, input.status)) {
       throw new ConflictError(
@@ -647,6 +692,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       ...(input.parentJobId !== undefined ? { parentJobId: input.parentJobId } : {}),
       ...(input.isWarranty !== undefined ? { isWarranty: input.isWarranty } : {}),
       ...(input.priceSource !== undefined ? { priceSource: input.priceSource } : {}),
+      ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       // Completion is a timestamp as well as a status, and a job that reaches
       // "completed" without one is invisible to every report that asks what
@@ -818,6 +864,9 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
         })),
       );
     }
+
+    /** On their day from now, unless it is history brought in from another system. */
+    if (input.externalRef === undefined) await announce(tx, ctx, visit!.id, NEW_VISIT);
 
     /**
      * A LEAD WITH A VISIT ON THE BOARD IS BOOKED.

@@ -38,6 +38,8 @@ const ORDER = [
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "credit_note_application", "credit_note_line", "credit_note",
+  /** An estimate's send points at the estimate, the message it became and the link it carried. */
+  "estimate_delivery",
   "invoice_delivery", "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   "agreement_billing", "agreement_visit", "agreement", "agreement_plan",
@@ -63,6 +65,8 @@ const ORDER = [
    */
   "referral_reward",
   "customer_property", "contact", "property", "customer",
+  /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
+  "vendor_item",
   "price_change_line", "price_change_batch",
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site", "service_contract",
@@ -73,7 +77,7 @@ const ORDER = [
    * anything.
    */
   "discount_policy",
-  "field_upload", "field_operation", "device_snapshot", "device",
+  "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.
@@ -92,6 +96,11 @@ const ORDER = [
   "dashboard", "report",
   // The company's own logo and favicon, which are bytes rather than a key.
   "brand_asset",
+  /**
+   * What the setup wizard remembers: the steps marked done, and each time a
+   * trade pack was applied with what it seeded. Nothing points at either.
+   */
+  "setup_step", "trade_pack_application",
   "task_escalation", "task_checklist_item",
   "task",
   "task_escalation_rule", "task_template",
@@ -108,7 +117,10 @@ const ORDER = [
   "recording_policy",
   /** A website visitor's lease on a pool number points at the number. */
   "dni_session",
-  "phone_number", "messaging_campaign", "messaging_brand",
+  "phone_number",
+  /** A number points at the menu that answers it; menus and groups point at each other only by id in their options. */
+  "phone_menu", "ring_group", "answering_phone",
+  "messaging_campaign", "messaging_brand",
   /**
    * A saved card points at the customer's processor profile and at the sign
    * in that saved it, and a sign in's session is a grant naming the code

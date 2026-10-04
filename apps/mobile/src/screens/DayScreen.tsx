@@ -4,6 +4,7 @@ import {
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { syncLine } from "../lib/status";
+import { pushLine } from "../lib/push";
 import { dayHeading } from "../lib/format";
 import { Button, Card, Notice } from "../components/ui";
 import { color, space, type } from "../components/theme";
@@ -85,6 +86,8 @@ export function DayScreen({ nav }: { nav: Navigate }) {
           </View>
         </Notice>
       ) : null}
+
+      {pushLine(field.push) ? <Notice tone="amber">{pushLine(field.push)!}</Notice> : null}
 
       {(view?.problems.length ?? 0) > 0 ? (
         <Pressable onPress={() => nav.push({ name: "outbox" })} accessibilityRole="button">

@@ -164,10 +164,57 @@ export type DeliveryFeedback =
       because: string;
     };
 
+/**
+ * AN EMAIL THAT ARRIVED: a customer replying to something this product sent.
+ *
+ * The body may not be in the webhook. Some providers send only who it was
+ * from and to, and hand the words over on a second request, so `text` and
+ * `html` are both null until `fetchBody` has been asked.
+ */
+export interface InboundEmail {
+  providerMessageId: string;
+  /** As written, display name and all: `Jo Customer <jo@example.com>`. */
+  from: string;
+  to: string[];
+  cc: string[];
+  subject: string;
+  text: string | null;
+  html: string | null;
+  headers: Record<string, string>;
+  /** The names of any files that came with it. The files themselves are not fetched. */
+  attachments: { fileName: string; contentType: string }[];
+}
+
+export type InboundBody =
+  | { ok: true; text: string | null; html: string | null; headers: Record<string, string> }
+  | { ok: false; code: string; message: string; retryable: boolean };
+
+/**
+ * Whether this provider can hand an incoming email to us, and how.
+ *
+ * Verified by the same check as delivery callbacks (`delivery.verify`), on
+ * the same endpoint: a provider signs everything it posts with one secret,
+ * and a second secret for the same URL would be a second thing to rotate.
+ */
+export type InboundFeedback =
+  | {
+      kind: "webhook";
+      /** An inbound email, or null when the request is something else (a delivery receipt). */
+      parse(request: WebhookRequest): InboundEmail | null;
+      /** The words, when the webhook carried only the envelope. */
+      fetchBody(providerMessageId: string): Promise<InboundBody>;
+    }
+  | { kind: "none"; because: string };
+
 export interface EmailProvider {
   readonly name: string;
   send(message: OutboundEmail): Promise<SendResult>;
   readonly delivery: DeliveryFeedback;
+  /**
+   * Replies coming back in. Absent on a provider that has no way to hand
+   * one over, which is the same as `none` without the sentence.
+   */
+  readonly inbound?: InboundFeedback;
 }
 
 /**

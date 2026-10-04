@@ -17,9 +17,16 @@ export async function sendReply(_previous: unknown, form: FormData) {
   const user = await requireSetupUser();
   const conversationId = String(form.get("conversationId") ?? "");
   const body = String(form.get("body") ?? "");
+  /**
+   * The bytes only. What a picture is gets decided from them by the
+   * service; the name and type the browser sent are never trusted.
+   */
+  const pictures = await Promise.all(form.getAll("pictures")
+    .filter((value): value is File => value instanceof File && value.size > 0)
+    .map(async (file) => ({ bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name })));
 
   try {
-    await comms.reply({ actor: user.actor, db: getDb() }, { id: conversationId, body });
+    await comms.reply({ actor: user.actor, db: getDb() }, { id: conversationId, body, pictures });
   } catch (error) {
     // A refusal is shown to the person, not thrown at them. The message it
     // carries names what happened rather than saying "forbidden".

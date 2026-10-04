@@ -10,7 +10,7 @@ import {
 
 /** Re-exported so existing importers of this module keep working. */
 export { InvalidGrantError };
-import { decide, loadEstimate } from "./estimates";
+import { decide, emitDeclined, loadEstimate } from "./estimates";
 import type {
   openPortalLink, viewPortalEstimate, approvePortalEstimate,
   declinePortalEstimate, viewPortalJob, issuePortalGrant, revokePortalGrant,
@@ -349,7 +349,7 @@ export async function declineEstimate(db: Database, input: z.infer<typeof declin
   const grant = await consume(db, input.token);
   const estimateId = requireScope(grant, "estimate");
 
-  return inGrant(db, grant, async (tx) => {
+  return inGrant(db, grant, async (tx, ctx) => {
     const [current] = await tx.select({
       number: schema.estimate.number,
       status: schema.estimate.status,
@@ -375,6 +375,11 @@ export async function declineEstimate(db: Database, input: z.infer<typeof declin
       headline: `Estimate #${current.number} declined by the customer`,
       detail: input.reason ?? null,
       isCustomerVisible: false,
+    });
+
+    /** The same event the office's decline emits, saying it was the customer. */
+    await emitDeclined(tx, ctx, {
+      estimateId, previousStatus: current.status, reason: input.reason ?? null, by: "customer",
     });
 
     return { ok: true as const };
@@ -748,7 +753,8 @@ async function shapeForCustomer(
     propertyAddress: [property?.line1, property?.city, property?.state].filter(Boolean).join(", "),
     options,
     depositRequired: null,
-    termsText: null,
+    /** The terms copied onto this estimate when it was written, which the approval hash covers. */
+    termsText: (full.terms ?? null) as string | null,
   };
 }
 

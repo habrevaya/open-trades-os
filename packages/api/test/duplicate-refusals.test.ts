@@ -75,6 +75,8 @@ const REFUSED: Record<string, Refused> = {
   /** A customer asking twice about one visit before the office has answered. */
   visit_change_request_pending_idx: { file: "visit-changes.ts", how: "catch" },
   vendor_name_idx: { file: "inventory.ts", how: "catch" },
+  /** A vendor's part number typed onto a second item, or a catalogue naming it twice. */
+  vendor_item_part_number_idx: { file: "vendor-catalogue.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
   /** Two shelves with one name under one parent, typed into the category manager. */
   price_book_category_name_idx: { file: "price-categories.ts", how: "catch" },
@@ -135,6 +137,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   field_operation_device_seq_idx: "The device's own counter, which the sync protocol orders by.",
   workflow_version_idx: "The next version number, assigned on publish.",
   workflow_step_run_idx: "One row per step of a run, keyed by the run and the step.",
+  vendor_item_vendor_item_idx:
+    "One link per item per vendor: setting a part number updates the item's existing link to that vendor rather than inserting another.",
 
   /* --- idempotency keys, where a collision is the point --- */
   ai_usage_idempotency_idx: "An idempotency key: a repeat is meant to collide and be ignored.",
@@ -145,7 +149,13 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One customer's statement for one month. The monthly run inserts with on conflict do nothing, so a repeat sends nothing.",
   field_operation_client_idx: "The client's own operation id, which makes a retry safe.",
   field_upload_client_idx: "The client's own upload id, which makes a retry safe.",
+  push_delivery_event_device_idx:
+    "One notice per change per phone. The push pass inserts with on conflict do nothing, so reading an event twice buzzes nobody twice.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",
+  answering_phone_person_idx:
+    "One number per person per company, written with on conflict do update: saving a person's number again replaces it.",
+  conversation_reply_token_idx:
+    "A random token the service mints for an email thread's reply address. Nobody types it, and a collision is a 2^-190 event rather than a duplicate somebody entered.",
   dni_session_live_idx:
     "One live lease per pool number. Leasing inserts with on conflict do nothing and the loser "
     + "takes the next free number, so two visitors are never shown one number.",
@@ -205,6 +215,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   /* --- one row per thing, upserted rather than inserted --- */
   ai_budget_org_idx: "One budget per company, upserted.",
   discount_policy_org_idx: "One policy per company, upserted.",
+  setup_step_key_idx: "One row per setup step per company, upserted when a step is marked done or reopened.",
   asset_compliance_kind_idx: "One expiry per asset per kind, upserted by `setAssetObligation`.",
   brand_asset_kind_idx:
     "One asset per kind (a logo, a mark, a favicon), replaced rather than added to on upload.",

@@ -55,6 +55,42 @@ result of ringing the office, the voicemail, the recording) is a path beneath
 the voice URL. Twilio is told each one in the instructions it is given, so
 nothing else needs configuring, and each is signed and checked like the first.
 
+## Answering a number you already have
+
+A number already on your Twilio account (the one your texts go from, usually)
+can be answered here without buying another: Settings, Phone menus, "Answer
+calls here". Its Voice URL and status callback are pointed at this
+installation and what they were before is written down; its SMS URL is left
+alone. "Stop answering here" puts the old ones back, and releasing such a
+number here never releases it at Twilio, because that would give it away.
+
+## Phone menus and ring groups
+
+Menus and ring groups are built on Settings, Phone menus. Each step of a call
+through a menu (the key pressed, the next person in a group that rings one
+after another) comes back to the same voice webhook path with what the step
+needs in its query string, and the query string is part of what Twilio signs,
+so an edited step fails the signature like a forged body. A call is passed
+between at most eight destinations before it goes to voicemail, whatever the
+settings say, so no combination of menus and groups can keep a caller going
+round. People are rung on the number kept for them on that screen.
+
+## Transcripts
+
+Connect speech to text under Settings, Integrations, Call transcripts. It
+speaks the Whisper API: OpenAI's (an API key in the company's own secrets,
+its name on the form, read the same way as the Twilio token above) or a
+Whisper server you run yourself, such as faster-whisper-server, LocalAI or the
+whisper.cpp server. A server of your own is the deployment's to set, as
+`WHISPER_URL` (up to and including `/v1`), and applies to every company here
+that connects speech to text; with it set the key is optional. A company
+cannot point its connection at an address of its choosing, for the reason in
+[secrets.md](secrets.md#provider-addresses-are-fixed): the server would send
+the key it holds, and every customer's voice, wherever it was told. The
+worker sends each kept recording and voicemail to it with no database
+transaction open, and writes the words back through the redaction gate. The
+audio leaves your network only if the server is outside it.
+
 ## What is kept, and where
 
 A permitted recording and every voicemail are fetched from Twilio when it says
@@ -92,6 +128,12 @@ at Twilio (released in their console) is released here too.
   (`OTS_SECRET__<company id>__<name>`); set it and restart, or paste the token
   on **Settings → Integrations** with the database store. An install upgraded
   from a version that read `TWILIO_AUTH_TOKEN` alone has to rename it.
+- **A menu option rings nobody.** The person has no number on Settings, Phone
+  menus, or the group's members have none; the call screen says which under
+  "Where it went", and the call went to voicemail.
+- **Transcripts stay "Being written out".** The worker is not running, or the
+  speech to text server cannot be reached; the reason is on the call once it
+  gives up, and "Write it out now" tries again.
 - **Nothing is ever recorded.** Recording is off for the number, the callers
   are not pressing 1, or your recording declarations do not pass their own
   check. The call screen says which, under "Not recorded".

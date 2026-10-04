@@ -158,7 +158,14 @@ export const NAV: NavGroup[] = [
   {
     label: "Money",
     items: [
-      { href: "/estimates", label: "Estimates", permission: "estimate:read", icon: "estimates" },
+      {
+        href: "/estimates", label: "Estimates", permission: "estimate:read", icon: "estimates",
+        children: [
+          { href: "/estimates", label: "Estimates" },
+          /** The small print copied onto every proposal when it is written. */
+          { href: "/estimates/terms", label: "Proposal terms" },
+        ],
+      },
       {
         href: "/invoices", label: "Invoices", permission: "invoice:read", icon: "invoices",
         children: [
@@ -177,6 +184,10 @@ export const NAV: NavGroup[] = [
         href: "/agreements", label: "Agreements", permission: "membership:read", icon: "agreements",
         children: [
           { href: "/agreements", label: "The book" },
+          /** Selling one to a customer: pick the plan, the address and the start. */
+          { href: "/agreements/new", label: "Sell one" },
+          /** What is on sale: the price, the visits, the discount and the perks. */
+          { href: "/agreements/plans", label: "Plans" },
           /** The renewal conversation starts here: who ends in the next thirty days. */
           { href: "/agreements/renewals", label: "Ending soon" },
         ],
@@ -189,10 +200,18 @@ export const NAV: NavGroup[] = [
           { href: "/pricebook/categories", label: "Categories" },
           /** Many prices at once, previewed, written as new versions and undoable. */
           { href: "/pricebook/changes", label: "Change prices" },
+          { href: "/pricebook/tax", label: "Sales tax" },
         ],
       },
       { href: "/inventory", label: "Inventory", permission: "inventory:read", icon: "inventory" },
-      { href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing" },
+      {
+        href: "/purchasing", label: "Purchasing", permission: "po:read", icon: "purchasing",
+        children: [
+          { href: "/purchasing", label: "Orders" },
+          /** A supplier's spreadsheet, previewed and then applied to the price book and their part numbers. */
+          { href: "/purchasing/catalogue", label: "Supplier catalogue" },
+        ],
+      },
       /** What the company owns and who has it. Under Money, because a van is the biggest thing on the balance sheet. */
       {
         href: "/fleet", label: "Fleet", permission: "asset:read", icon: "fleet",
@@ -320,8 +339,26 @@ export const NAV: NavGroup[] = [
            * else: a property gets its territory when it is created, and the trip
            * charge follows from that rather than from anything on the board.
            */
+          { href: "/settings/team", label: "Team" },
+          { href: "/settings/branches", label: "Branches" },
+          { href: "/settings/roles", label: "Roles" },
+          { href: "/settings/custom-fields", label: "Custom fields" },
           { href: "/settings/service-area", label: "Service area" },
           { href: "/settings/integrations", label: "Integrations" },
+          /**
+           * How the company's own number answers: the menu, the groups of
+           * phones it rings and who answers on which phone. Under Settings
+           * beside Integrations, because it is set up once and read by every
+           * call.
+           */
+          { href: "/settings/phone", label: "Phone menus" },
+          /**
+           * The phones each technician has signed in on, the number a sign in
+           * code is texted to, and taking a lost phone away. It inherits
+           * `settings:read` to be shown and needs `user:read` to be read,
+           * because a phone is part of who somebody is in the company.
+           */
+          { href: "/settings/phones", label: "Phones" },
           /**
            * The snippet a company pastes into its own site and the pool of
            * numbers it swaps in. Under Settings because it is set up once.
