@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { agents as coreAgents, field, PermissionError, type Actor, type Permission } from "@opentradesos/core";
 import * as fieldOps from "../src/services/field";
 import * as fieldPayments from "../src/services/field-payments";
+import * as fieldSales from "../src/services/field-sales";
 import * as dispatchSvc from "../src/services/dispatch";
 import * as tasks from "../src/services/tasks";
 import * as portalSettings from "../src/services/portal-settings";
@@ -328,6 +329,10 @@ run("the customer's choice and signature on the glass", () => {
     const [audit] = await raw`select after->>'capturedVia' as via from public.audit_log
       where entity_id = ${estimateId} and action = 'estimate.approved'`;
     expect(audit!.via).toBe("in_person");
+    // The office sees it was signed on the phone; the drawn image follows once the phone sends its bytes.
+    expect(await fieldSales.signatureOn(owner(), { subject: "estimate", subjectId: estimateId })).toEqual({
+      signerName: "Nina Patel", signedAt: new Date(signature!.signed_at).toISOString(), onSite: true, imageKey: null,
+    });
   });
 
   it("refuses a signature over a figure the customer was not shown, and says so", async () => {

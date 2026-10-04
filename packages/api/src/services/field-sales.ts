@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { schema, type Database } from "@opentradesos/db";
 import { can, customerPortal as cp, field, money as m, time } from "@opentradesos/core";
 import type { z } from "zod";
-import { audit, timezoneOf, type ServiceContext } from "./context";
+import { audit, guardedRead, timezoneOf, type ServiceContext } from "./context";
 import * as estimates from "./estimates";
 import * as billing from "./billing";
 import * as tasks from "./tasks";
@@ -140,7 +140,7 @@ async function onVisit(tx: Database, visitId: string, technicianId: string | nul
  * `estimates.WrittenOnSite`). Member pricing is the server's, by the plan in
  * force on the day, exactly as the phone worked it out.
  */
-export async function createEstimate_(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<Outcome> {
+export async function writeEstimate(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<Outcome> {
   if (!can(ctx.actor, "estimate:write")) return "Your account may not write estimates. Ask the office.";
   const estimateId = uuid(op.subjectId);
   if (!estimateId) return "That estimate has no id.";
@@ -773,4 +773,36 @@ export async function abilitiesFor(tx: Database, ctx: ServiceContext) {
     financing: lender !== null,
     assistant: assistant.enabled,
   };
+}
+
+/* ------------------------------------------------- the office's view of it */
+
+/**
+ * The customer's signature on an invoice or an estimate taken on a phone:
+ * who, when, and the drawn image's storage key once it has arrived, for the
+ * office's screens. The image follows the record over one bar of signal, so
+ * the key is null until it has.
+ */
+export async function signatureOn(ctx: ServiceContext, input: { subject: "invoice" | "estimate"; subjectId: string }) {
+  return guardedRead(ctx, input.subject === "invoice" ? "invoice:read" : "estimate:read", async (tx) => {
+    const [signature] = await tx.select({
+      signerName: schema.documentSignature.signerName,
+      signedAt: schema.documentSignature.signedAt,
+      uploadId: schema.documentSignature.uploadId,
+    }).from(schema.documentSignature)
+      .where(and(
+        eq(schema.documentSignature.subject, input.subject),
+        eq(schema.documentSignature.subjectId, input.subjectId),
+      ))
+      .orderBy(desc(schema.documentSignature.signedAt)).limit(1);
+    if (!signature) return null;
+    const [image] = signature.uploadId ? await tx.select({ storageKey: schema.fieldUpload.storageKey })
+      .from(schema.fieldUpload).where(eq(schema.fieldUpload.clientId, signature.uploadId)).limit(1) : [];
+    return {
+      signerName: signature.signerName,
+      signedAt: signature.signedAt.toISOString(),
+      onSite: signature.uploadId !== null,
+      imageKey: image?.storageKey ?? null,
+    };
+  });
 }

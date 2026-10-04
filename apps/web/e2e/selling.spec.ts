@@ -142,6 +142,7 @@ test("a technician builds options on /my-day, the customer chooses and signs, an
       await db.$close();
     }
     await owner.goto(`/invoices/${invoiceId}`);
+    await expect(owner.getByText(new RegExp(`^${customer}, .*, on the technician's phone`))).toBeVisible();
     const tips = owner.getByRole("region", { name: "Tips" });
     await expect(tips).toContainText("Ray Ortiz");
     await expect(tips).toContainText("$181.60");
