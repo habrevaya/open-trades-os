@@ -104,6 +104,14 @@ export interface Dataset {
   /** The column a date range filters on. */
   dateColumn: string;
   /**
+   * True when `dateColumn` is a calendar date (`invoice.issued_on`) rather
+   * than an instant. A range is whole days in the company's zone either way;
+   * an instant is compared with the instants that bound those days, and a
+   * date with the dates themselves, because a date read as an instant is
+   * midnight in UTC, six hours before the company's day starts.
+   */
+  dateIsDay?: boolean;
+  /**
    * What one row of this dataset is, so an aggregate can be opened into the
    * records behind it. Required: a dataset that can be summed and cannot say
    * what it summed is a number nobody can check. See `drill.ts`.
