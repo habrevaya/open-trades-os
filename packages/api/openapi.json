@@ -12049,6 +12049,217 @@
         ]
       }
     },
+    "/v1/booking/member-hold": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getMemberHold",
+        "summary": "The share of each window online booking holds for members",
+        "description": "The share of each arrival window (of what it holds with nothing booked, to the nearest whole job, a half rounded down) kept from anybody who is not a member whose plan promises priority dispatch, until `releaseHours` before the window opens. Members' own work in a window uses it up first. `plansWithPriority` counts the live plans that promise priority: with none, nothing is held.\n\nRequires a session holding: booking:read.",
+        "tags": [
+          "M08"
+        ],
+        "responses": {
+          "200": {
+            "description": "The share of each window online booking holds for members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMemberHoldOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:read"
+        ]
+      },
+      "put": {
+        "operationId": "setMemberHold",
+        "summary": "Set the share of each window online booking holds for members",
+        "description": "Applies to the public widget, to a customer booking from their own account and to a customer asking to move a visit from their link: a member whose plan covers the address is offered the held share, anybody else is not.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M08"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMemberHoldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set the share of each window online booking holds for members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMemberHoldOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      }
+    },
     "/v1/booking/services": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -32237,6 +32448,135 @@
         ]
       }
     },
+    "/v1/customers/{id}/preferred-days": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setCustomerPreferredDays",
+        "summary": "Record the days of the week that suit a customer",
+        "description": "0 for Sunday through 6 for Saturday; an empty list is any day. The multi day rebalance may move one of their visits to another of these days, and to no other, and tells them when it does.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCustomerPreferredDaysInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record the days of the week that suit a customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCustomerPreferredDaysOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      }
+    },
     "/v1/customers/{id}/referral": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -34569,7 +34909,7 @@
       "get": {
         "operationId": "getRouteProposal",
         "summary": "Propose a better order for one technician's day",
-        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
+        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck, with the runs to the yard it needs, when the yard is on the map. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -35016,6 +35356,256 @@
         ]
       }
     },
+    "/v1/dispatch/rebalance/days": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getMultiDayRebalance",
+        "summary": "Propose several days rebalanced, moving visits between days where the customer agreed",
+        "description": "A proposal, never a change. Each day of the range is rebalanced as `GET /v1/dispatch/rebalance` does, and a visit may also move to another day of the range: only one whose customer agreed (a range of days on the visit, the window of the agreement visit it delivers, or their preferred days of the week), never onto or off today, never onto a day the company is closed, and only when that keeps a window or a limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Each day is shown before and after. Applying it is `POST /v1/dispatch/rebalance/days/apply` with `basis` and `apply`.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 7,
+              "default": 5
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Propose several days rebalanced, moving visits between days where the customer agreed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMultiDayRebalanceOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
+    "/v1/dispatch/rebalance/days/apply": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyMultiDayRebalance",
+        "summary": "Apply several rebalanced days somebody looked at",
+        "description": "Moves each visit to its new day at the same wall clock times and puts it on the person proposed through the assignment a drag uses, so skills and time off are checked again on the new day; tells the people on it through the visit's notices and each customer by text or email through the same path an answer to their own request to move uses, overtaking any request of theirs still waiting; then assigns the visits that change person on their own day and sets each changed day's order. One transaction: a refusal anywhere leaves every day as it was. A move the customer did not agree to is refused, and so is the whole apply once any day of the range has changed since `basis` was taken.\n\nRequires a session holding: visit:dispatch, visit:reschedule.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyMultiDayRebalanceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Apply several rebalanced days somebody looked at",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyMultiDayRebalanceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:dispatch",
+          "visit:reschedule"
+        ]
+      }
+    },
     "/v1/dispatch/route": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -35153,7 +35743,7 @@
       "get": {
         "operationId": "getAssignmentSuggestions",
         "summary": "Suggest who should take each unassigned visit",
-        "description": "For each unassigned visit on the day, the technician it adds the least driving to without breaking a window, among those whose skills and time off allow it. Every technician considered is listed with their figure or the reason they were ruled out. Accepting one is `POST /v1/visits/{id}/assign`.\n\nRequires a session holding: visit:read.",
+        "description": "For each unassigned visit on the day, the technician it adds the least driving to without breaking a window, among those whose skills and time off allow it. Members whose plan promises priority dispatch are placed first, so the cheapest gap on the day goes to them. Every technician considered is listed with their figure or the reason they were ruled out. Accepting one is `POST /v1/visits/{id}/assign`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -70767,7 +71357,7 @@
       "get": {
         "operationId": "getPortalBookingAvailability",
         "summary": "The windows open for a service, from anybody or from one technician",
-        "description": "From a sign in only. The same windows the public widget offers, from the same function; with a technician, only that person's own free time, and only a technician who has been to this customer before.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
+        "description": "From a sign in only. The same windows the public widget offers, from the same function; with a technician, only that person's own free time, and only a technician who has been to this customer before. A member whose plan promises priority is also offered the share of each window the company holds for members, at the address named or, with none named, at any of theirs.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
         ],
@@ -70813,6 +71403,15 @@
           },
           {
             "name": "technicianId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "propertyId",
             "in": "query",
             "required": false,
             "schema": {
@@ -87979,7 +88578,7 @@
       "post": {
         "operationId": "scheduleRentalCollections",
         "summary": "Put hires due back on the board as collections",
-        "description": "Every open hire whose included period ends by `through` (tomorrow when left out) gets a collection stop on the day it is due, or today when it is already late, marked as the pickup leg of that hire. A hire that came with a job gets the stop as a visit on that job; one with no job gets a job of its own at the address, of the company's `pickup` job type when it has one. A hire already given a collection is left alone, so running this twice books nothing twice; one whose collection was cancelled is offered again. A standing hire with no included period, and one with nobody recorded at the address, are skipped with the reason.\n\nRequires a session holding: asset:write, job:write.",
+        "description": "Every open hire whose included period ends by `through` (tomorrow when left out), or whose customer agreed a collection by then, gets a collection stop: in the agreed window on the agreed day when there is one, otherwise on the day it is due in the working day, or today when that has passed, marked as the pickup leg of that hire. A hire that came with a job gets the stop as a visit on that job; one with no job gets a job of its own at the address, of the company's `pickup` job type when it has one. A hire already given a collection is left alone, so running this twice books nothing twice; one whose collection was cancelled is offered again. A standing hire with no included period and no agreed time, and one with nobody recorded at the address, are skipped with the reason. The worker runs the same booking on its own as hires come due, unless the company turned that off (`PUT /v1/rental-dispatch`).\n\nRequires a session holding: asset:write, job:write.",
         "tags": [
           "M22"
         ],
@@ -88098,6 +88697,217 @@
         "x-permissions": [
           "asset:write",
           "job:write"
+        ]
+      }
+    },
+    "/v1/rental-dispatch": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getRentalDispatch",
+        "summary": "How collections are booked and a driver's day is ordered",
+        "description": "Whether the worker books collections on its own as hires come due and how many days ahead, and how many containers a truck carries and how long a run to the yard takes, which `GET /v1/dispatch/optimise` uses to order a driver's day by what is on the truck.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "responses": {
+          "200": {
+            "description": "How collections are booked and a driver's day is ordered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRentalDispatchOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      },
+      "put": {
+        "operationId": "setRentalDispatch",
+        "summary": "Set how collections are booked and a driver's day is ordered",
+        "description": "Any field left out keeps its value. A company setting, so `settings:write`.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M22"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRentalDispatchInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set how collections are booked and a driver's day is ordered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetRentalDispatchOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -88538,6 +89348,135 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RecordRentalChargeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
+    "/v1/rentals/{id}/collection-time": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setRentalCollectionTime",
+        "summary": "Record when the customer agreed the container should be collected",
+        "description": "The window the customer agreed, as instants, or `start: null` to clear it. It beats the end of the price, early or late: the collection is booked into it. A collection already on the board and not under way moves to it, kept with its driver on the same day and back to the board for the dispatcher on another day; the driver is told through the visit's notices.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRentalCollectionTimeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record when the customer agreed the container should be collected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetRentalCollectionTimeOutput"
                 }
               }
             }
@@ -97498,7 +98437,7 @@
       "get": {
         "operationId": "getServiceRouteDensity",
         "summary": "Will this day fit",
-        "description": "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. Travel is the figure the operator declared and nothing else, because there is no geocoding here; undeclared, the total is reported as a floor and says so rather than claiming a fifteen stop day fits. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.\n\nRequires a session holding: job:read.",
+        "description": "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.\n\nRequires a session holding: job:read.",
         "tags": [
           "M09"
         ],
@@ -109545,6 +110484,135 @@
         ]
       }
     },
+    "/v1/visits/{id}/movable": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setVisitMovable",
+        "summary": "Record the days the customer agreed a visit may happen on",
+        "description": "Inclusive, in the company's calendar; null at an end is open at that end, and both null clears it. Read by the multi day rebalance, which may move the visit to another day inside it (and inside the customer's preferred days of the week, when they have named any). Setting it moves nothing.\n\nRequires a session holding: visit:reschedule.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVisitMovableInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record the days the customer agreed a visit may happen on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetVisitMovableOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:reschedule"
+        ]
+      }
+    },
     "/v1/visits/{id}/on-my-way": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -115433,6 +116501,156 @@
         "required": [
           "order",
           "conflict"
+        ]
+      },
+      "ApplyMultiDayRebalanceInput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 7
+          },
+          "basis": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "dayMoves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "toDate": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "visitId",
+                "toDate",
+                "technicianId"
+              ]
+            },
+            "maxItems": 200
+          },
+          "moves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "visitId",
+                "technicianId"
+              ]
+            },
+            "maxItems": 400
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "visitIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "maxItems": 60
+                }
+              },
+              "required": [
+                "date",
+                "technicianId",
+                "visitIds"
+              ]
+            },
+            "maxItems": 400
+          }
+        },
+        "required": [
+          "from",
+          "days",
+          "basis",
+          "dayMoves",
+          "moves",
+          "orders"
+        ]
+      },
+      "ApplyMultiDayRebalanceOutput": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "movedDays": {
+            "type": "integer"
+          },
+          "moved": {
+            "type": "integer"
+          },
+          "reordered": {
+            "type": "integer"
+          },
+          "told": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "notified": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "visitId",
+                "notified"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "movedDays",
+          "moved",
+          "reordered",
+          "told"
         ]
       },
       "ApplyPaymentInput": {
@@ -134990,6 +136208,20 @@
             ],
             "format": "uuid"
           },
+          "collectionAgreedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "collectionAgreedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "invoiceId": {
             "type": [
               "string",
@@ -135022,6 +136254,8 @@
           "disposalFee",
           "previousRentalId",
           "collectionVisitId",
+          "collectionAgreedStart",
+          "collectionAgreedEnd",
           "invoiceId"
         ]
       },
@@ -138530,6 +139764,12 @@
                 "customerName": {
                   "type": "string"
                 },
+                "member": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "technicianId": {
                   "type": [
                     "string",
@@ -138621,6 +139861,7 @@
               "required": [
                 "visitId",
                 "customerName",
+                "member",
                 "technicianId",
                 "technicianName",
                 "position",
@@ -150311,6 +151552,29 @@
           "requireLeadSource"
         ]
       },
+      "GetMemberHoldOutput": {
+        "type": "object",
+        "properties": {
+          "reservePercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 90
+          },
+          "releaseHours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 336
+          },
+          "plansWithPriority": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reservePercent",
+          "releaseHours",
+          "plansWithPriority"
+        ]
+      },
       "GetMemberPricingOutput": {
         "type": "object",
         "properties": {
@@ -150358,6 +151622,633 @@
           "percent",
           "waivesDiagnosticFee",
           "waivesAfterHoursRate"
+        ]
+      },
+      "GetMultiDayRebalanceOutput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "days": {
+            "type": "integer"
+          },
+          "basis": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "movable": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "because": {
+                  "type": "string",
+                  "enum": [
+                    "range",
+                    "weekdays"
+                  ]
+                }
+              },
+              "required": [
+                "visitId",
+                "customerName",
+                "because"
+              ]
+            }
+          },
+          "dayMoves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "fromDate": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "toDate": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "fromTechnicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "fromName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "toTechnicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "toName": {
+                  "type": "string"
+                },
+                "windowStart": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "windowEnd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "because": {
+                  "type": "string",
+                  "enum": [
+                    "range",
+                    "weekdays"
+                  ]
+                }
+              },
+              "required": [
+                "visitId",
+                "customerName",
+                "fromDate",
+                "toDate",
+                "fromTechnicianId",
+                "fromName",
+                "toTechnicianId",
+                "toName",
+                "windowStart",
+                "windowEnd",
+                "because"
+              ]
+            }
+          },
+          "moves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "fromTechnicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "fromName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "toTechnicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "toName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "visitId",
+                "customerName",
+                "date",
+                "fromTechnicianId",
+                "fromName",
+                "toTechnicianId",
+                "toName"
+              ]
+            }
+          },
+          "perDay": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "visitsBefore": {
+                  "type": "integer"
+                },
+                "visitsAfter": {
+                  "type": "integer"
+                },
+                "driveBeforeMinutes": {
+                  "type": "integer"
+                },
+                "driveAfterMinutes": {
+                  "type": "integer"
+                },
+                "overtimeBeforeMinutes": {
+                  "type": "integer"
+                },
+                "overtimeAfterMinutes": {
+                  "type": "integer"
+                },
+                "technicians": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "color": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "timeOff": {
+                        "type": "boolean"
+                      },
+                      "before": {
+                        "type": "object",
+                        "properties": {
+                          "order": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          },
+                          "driveMinutes": {
+                            "type": "integer"
+                          },
+                          "finishAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "overtimeMinutes": {
+                            "type": "integer"
+                          },
+                          "overLimitMinutes": {
+                            "type": "integer"
+                          },
+                          "lunchAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lunchLateMinutes": {
+                            "type": "integer"
+                          },
+                          "late": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "visitId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "lateByMinutes": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "visitId",
+                                "lateByMinutes"
+                              ]
+                            }
+                          },
+                          "refused": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          }
+                        },
+                        "required": [
+                          "order",
+                          "driveMinutes",
+                          "finishAt",
+                          "overtimeMinutes",
+                          "overLimitMinutes",
+                          "lunchAt",
+                          "lunchLateMinutes",
+                          "late",
+                          "refused"
+                        ]
+                      },
+                      "after": {
+                        "type": "object",
+                        "properties": {
+                          "order": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          },
+                          "driveMinutes": {
+                            "type": "integer"
+                          },
+                          "finishAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "overtimeMinutes": {
+                            "type": "integer"
+                          },
+                          "overLimitMinutes": {
+                            "type": "integer"
+                          },
+                          "lunchAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "lunchLateMinutes": {
+                            "type": "integer"
+                          },
+                          "late": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "visitId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "lateByMinutes": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "visitId",
+                                "lateByMinutes"
+                              ]
+                            }
+                          },
+                          "refused": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          }
+                        },
+                        "required": [
+                          "order",
+                          "driveMinutes",
+                          "finishAt",
+                          "overtimeMinutes",
+                          "overLimitMinutes",
+                          "lunchAt",
+                          "lunchLateMinutes",
+                          "late",
+                          "refused"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "displayName",
+                      "color",
+                      "timeOff",
+                      "before",
+                      "after"
+                    ]
+                  }
+                },
+                "unplaced": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "visitId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "customerName": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "visitId",
+                      "customerName",
+                      "reason"
+                    ]
+                  }
+                },
+                "leftOut": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "displayName",
+                      "reason"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "date",
+                "visitsBefore",
+                "visitsAfter",
+                "driveBeforeMinutes",
+                "driveAfterMinutes",
+                "overtimeBeforeMinutes",
+                "overtimeAfterMinutes",
+                "technicians",
+                "unplaced",
+                "leftOut"
+              ]
+            }
+          },
+          "visits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "windowStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "windowEnd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "visitId",
+                "customerName",
+                "date",
+                "locked",
+                "windowStart",
+                "windowEnd"
+              ]
+            }
+          },
+          "driveBeforeMinutes": {
+            "type": "integer"
+          },
+          "driveAfterMinutes": {
+            "type": "integer"
+          },
+          "overtimeBeforeMinutes": {
+            "type": "integer"
+          },
+          "overtimeAfterMinutes": {
+            "type": "integer"
+          },
+          "apply": {
+            "type": "object",
+            "properties": {
+              "dayMoves": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "visitId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "toDate": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "technicianId": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "visitId",
+                    "toDate",
+                    "technicianId"
+                  ]
+                }
+              },
+              "moves": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "visitId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "technicianId": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "visitId",
+                    "technicianId"
+                  ]
+                }
+              },
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "technicianId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "visitIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "technicianId",
+                    "visitIds"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "dayMoves",
+              "moves",
+              "orders"
+            ]
+          },
+          "workday": {
+            "type": "object",
+            "properties": {
+              "dayEndsAt": {
+                "type": "string"
+              },
+              "lunchMinutes": {
+                "type": "integer"
+              },
+              "lunchEarliest": {
+                "type": "string"
+              },
+              "lunchLatest": {
+                "type": "string"
+              },
+              "maxOvertimeMinutes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "dayEndsAt",
+              "lunchMinutes",
+              "lunchEarliest",
+              "lunchLatest",
+              "maxOvertimeMinutes"
+            ]
+          },
+          "driveSource": {
+            "type": "string",
+            "enum": [
+              "road",
+              "estimate",
+              "mixed"
+            ]
+          },
+          "driveNote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "days",
+          "basis",
+          "changed",
+          "movable",
+          "dayMoves",
+          "moves",
+          "perDay",
+          "visits",
+          "driveBeforeMinutes",
+          "driveAfterMinutes",
+          "overtimeBeforeMinutes",
+          "overtimeAfterMinutes",
+          "apply",
+          "workday",
+          "driveSource",
+          "driveNote"
         ]
       },
       "GetMyTimeclockOutput": {
@@ -155766,6 +157657,20 @@
             ],
             "format": "uuid"
           },
+          "collectionAgreedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "collectionAgreedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "invoiceId": {
             "type": [
               "string",
@@ -155798,7 +157703,38 @@
           "disposalFee",
           "previousRentalId",
           "collectionVisitId",
+          "collectionAgreedStart",
+          "collectionAgreedEnd",
           "invoiceId"
+        ]
+      },
+      "GetRentalDispatchOutput": {
+        "type": "object",
+        "properties": {
+          "automaticCollections": {
+            "type": "boolean"
+          },
+          "collectionLeadDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "containersPerTruck": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          }
+        },
+        "required": [
+          "automaticCollections",
+          "collectionLeadDays",
+          "containersPerTruck",
+          "yardMinutes"
         ]
       },
       "GetRentalOverageOutput": {
@@ -156110,6 +158046,98 @@
               "dayStartsAt"
             ]
           },
+          "truck": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "byTruck": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string"
+              },
+              "containersPerTruck": {
+                "type": "integer"
+              },
+              "yardMinutes": {
+                "type": "integer"
+              },
+              "currentYardRuns": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "yardRuns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "afterVisitId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "beforeVisitId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "tipped": {
+                      "type": "integer"
+                    },
+                    "loaded": {
+                      "type": "integer"
+                    },
+                    "arriveAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "afterVisitId",
+                    "beforeVisitId",
+                    "tipped",
+                    "loaded",
+                    "arriveAt"
+                  ]
+                }
+              },
+              "startLoad": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "empties": {
+                    "type": "integer"
+                  },
+                  "fulls": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "empties",
+                  "fulls"
+                ]
+              }
+            },
+            "required": [
+              "byTruck",
+              "note",
+              "containersPerTruck",
+              "yardMinutes",
+              "currentYardRuns",
+              "yardRuns",
+              "startLoad"
+            ]
+          },
           "driveSource": {
             "type": "string",
             "enum": [
@@ -156137,6 +158165,7 @@
           "applyOrder",
           "declaredLegs",
           "travel",
+          "truck",
           "driveSource",
           "driveNote"
         ]
@@ -156714,6 +158743,20 @@
           "travelDeclared": {
             "type": "boolean"
           },
+          "travelSource": {
+            "type": "string",
+            "enum": [
+              "declared",
+              "road",
+              "none"
+            ]
+          },
+          "travelComplete": {
+            "type": "boolean"
+          },
+          "travelNote": {
+            "type": "string"
+          },
           "overtimeAfterMinutes": {
             "type": [
               "integer",
@@ -156755,6 +158798,9 @@
           "travelMinutes",
           "totalMinutes",
           "travelDeclared",
+          "travelSource",
+          "travelComplete",
+          "travelNote",
           "overtimeAfterMinutes",
           "dayBasis",
           "minutesOverThreshold",
@@ -157754,6 +159800,20 @@
               "null"
             ]
           },
+          "movableFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "movableUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
           "job": {
             "type": "object",
             "properties": {
@@ -158197,6 +160257,8 @@
           "checklist",
           "signed",
           "rentalEvent",
+          "movableFrom",
+          "movableUntil",
           "job",
           "customer",
           "property",
@@ -175945,6 +178007,20 @@
                   ],
                   "format": "uuid"
                 },
+                "collectionAgreedStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "collectionAgreedEnd": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "invoiceId": {
                   "type": [
                     "string",
@@ -175977,6 +178053,8 @@
                 "disposalFee",
                 "previousRentalId",
                 "collectionVisitId",
+                "collectionAgreedStart",
+                "collectionAgreedEnd",
                 "invoiceId"
               ]
             }
@@ -183729,6 +185807,20 @@
             ],
             "format": "uuid"
           },
+          "collectionAgreedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "collectionAgreedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "invoiceId": {
             "type": [
               "string",
@@ -183761,6 +185853,8 @@
           "disposalFee",
           "previousRentalId",
           "collectionVisitId",
+          "collectionAgreedStart",
+          "collectionAgreedEnd",
           "invoiceId"
         ]
       },
@@ -196976,13 +199070,19 @@
                   ]
                 },
                 "dueOn": {
-                  "type": "string"
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "collectOn": {
                   "type": "string"
                 },
                 "daysLate": {
                   "type": "integer"
+                },
+                "agreed": {
+                  "type": "boolean"
                 },
                 "jobId": {
                   "type": "string",
@@ -197003,6 +199103,7 @@
                 "dueOn",
                 "collectOn",
                 "daysLate",
+                "agreed",
                 "jobId",
                 "jobNumber",
                 "visitId"
@@ -199625,6 +201726,42 @@
           "history"
         ]
       },
+      "SetCustomerPreferredDaysInput": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "maxItems": 7
+          }
+        },
+        "required": [
+          "days"
+        ]
+      },
+      "SetCustomerPreferredDaysOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "preferredDays": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "preferredDays"
+        ]
+      },
       "SetCustomerReferrerInput": {
         "type": "object",
         "properties": {
@@ -200495,6 +202632,48 @@
         "required": [
           "membershipId",
           "businessUnitId"
+        ]
+      },
+      "SetMemberHoldInput": {
+        "type": "object",
+        "properties": {
+          "reservePercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 90
+          },
+          "releaseHours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 336
+          }
+        },
+        "required": [
+          "reservePercent",
+          "releaseHours"
+        ]
+      },
+      "SetMemberHoldOutput": {
+        "type": "object",
+        "properties": {
+          "reservePercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 90
+          },
+          "releaseHours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 336
+          },
+          "plansWithPriority": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reservePercent",
+          "releaseHours",
+          "plansWithPriority"
         ]
       },
       "SetMemberRoleInput": {
@@ -201861,6 +204040,127 @@
           "amount"
         ]
       },
+      "SetRentalCollectionTimeInput": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "start"
+        ]
+      },
+      "SetRentalCollectionTimeOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "collectionAgreedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "collectionAgreedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "collectionVisitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "moved": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "kept",
+              "returned_to_board"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "collectionAgreedStart",
+          "collectionAgreedEnd",
+          "collectionVisitId",
+          "moved"
+        ]
+      },
+      "SetRentalDispatchInput": {
+        "type": "object",
+        "properties": {
+          "automaticCollections": {
+            "type": "boolean"
+          },
+          "collectionLeadDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "containersPerTruck": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          }
+        }
+      },
+      "SetRentalDispatchOutput": {
+        "type": "object",
+        "properties": {
+          "automaticCollections": {
+            "type": "boolean"
+          },
+          "collectionLeadDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "containersPerTruck": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "yardMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          }
+        },
+        "required": [
+          "automaticCollections",
+          "collectionLeadDays",
+          "containersPerTruck",
+          "yardMinutes"
+        ]
+      },
       "SetReorderPolicyInput": {
         "type": "object",
         "properties": {
@@ -202965,6 +205265,57 @@
         "required": [
           "id",
           "customFields"
+        ]
+      },
+      "SetVisitMovableInput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "from",
+          "until"
+        ]
+      },
+      "SetVisitMovableOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "movableFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "movableUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "id",
+          "movableFrom",
+          "movableUntil"
         ]
       },
       "SetWageClassificationInput": {
@@ -204567,6 +206918,20 @@
                 ],
                 "format": "uuid"
               },
+              "collectionAgreedStart": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "collectionAgreedEnd": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "invoiceId": {
                 "type": [
                   "string",
@@ -204599,6 +206964,8 @@
               "disposalFee",
               "previousRentalId",
               "collectionVisitId",
+              "collectionAgreedStart",
+              "collectionAgreedEnd",
               "invoiceId"
             ]
           },
@@ -204743,6 +207110,20 @@
                 ],
                 "format": "uuid"
               },
+              "collectionAgreedStart": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "collectionAgreedEnd": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "invoiceId": {
                 "type": [
                   "string",
@@ -204775,6 +207156,8 @@
               "disposalFee",
               "previousRentalId",
               "collectionVisitId",
+              "collectionAgreedStart",
+              "collectionAgreedEnd",
               "invoiceId"
             ]
           }

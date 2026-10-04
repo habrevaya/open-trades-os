@@ -179,7 +179,7 @@ export const getPortalBookingAvailability = defineRoute({
   path: "/v1/portal/booking/availability",
   summary: "The windows open for a service, from anybody or from one technician",
   description:
-    "From a sign in only. The same windows the public widget offers, from the same function; with a technician, only that person's own free time, and only a technician who has been to this customer before.",
+    "From a sign in only. The same windows the public widget offers, from the same function; with a technician, only that person's own free time, and only a technician who has been to this customer before. A member whose plan promises priority is also offered the share of each window the company holds for members, at the address named or, with none named, at any of theirs.",
   module: "M05",
   permissions: [],
   authorization: "grant",
@@ -189,6 +189,8 @@ export const getPortalBookingAvailability = defineRoute({
     from: z.string().date().optional(),
     days: z.number().int().min(1).max(60).default(14),
     technicianId: Uuid.optional(),
+    /** The address the visit is for, which decides whether a member's plan covers it. */
+    propertyId: Uuid.optional(),
   }),
   output: z.object({ slots: z.array(AvailableSlot) }),
 });

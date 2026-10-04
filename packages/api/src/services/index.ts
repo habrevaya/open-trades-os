@@ -143,6 +143,7 @@ export * as dataExport from "./export";
 export * as externalWork from "./external-work";
 export * as kpis from "./kpis";
 export * as dispatchMap from "./dispatch-map";
+export * as dispatchDays from "./dispatch-days";
 export * as liveLocation from "./location";
 export * as travelTimes from "./travel-times";
 export * as geocoding from "./geocoding";

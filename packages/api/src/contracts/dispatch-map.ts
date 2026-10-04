@@ -33,7 +33,7 @@ const Travel = z.object({
 });
 
 /** Where drive times came from, said on every figure built from them. */
-const DriveSource = {
+export const DriveSource = {
   /** `road` from the connected routing service, `estimate` from the straight line, `mixed` when some of each. */
   driveSource: z.enum(["road", "estimate", "mixed"]),
   /** The same in a sentence for the screen, including why a connected service was not used. */
@@ -153,7 +153,7 @@ export const getRouteProposal = defineRoute({
   path: "/v1/dispatch/optimise",
   summary: "Propose a better order for one technician's day",
   description:
-    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
+    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck, with the runs to the yard it needs, when the yard is on the map. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({ date: z.string().date(), technicianId: Uuid }),
@@ -184,6 +184,33 @@ export const getRouteProposal = defineRoute({
     /** How many legs used the drive time the company declared on a route rather than an estimate. */
     declaredLegs: z.number().int(),
     travel: Travel,
+    /**
+     * A driver's day with containers on it, ordered by what is on the truck:
+     * a drop needs an empty on board, a collection needs room. Null for a day
+     * with none.
+     */
+    truck: z.object({
+      /** False when the yard (where the day starts) is not on the map, so the day was ordered as any other. */
+      byTruck: z.boolean(),
+      note: z.string(),
+      containersPerTruck: z.number().int(),
+      yardMinutes: z.number().int(),
+      /** Runs to the yard in the middle of the day in the order it has now (not the one at the end). */
+      currentYardRuns: z.number().int().nullable(),
+      /** The runs to the yard the proposed order takes, in order: after which stop, before which, and what is done there. */
+      yardRuns: z.array(z.object({
+        /** Null when the run is the first thing the truck does. */
+        afterVisitId: Uuid.nullable(),
+        /** Null for the run at the end of the day. */
+        beforeVisitId: Uuid.nullable(),
+        tipped: z.number().int(),
+        /** Empties loaded, or left at the yard when negative. */
+        loaded: z.number().int(),
+        arriveAt: z.string().datetime(),
+      })),
+      /** What the truck leaves with. */
+      startLoad: z.object({ empties: z.number().int(), fulls: z.number().int() }).nullable(),
+    }).nullable(),
     ...DriveSource,
   }),
 });
@@ -193,7 +220,7 @@ export const getAssignmentSuggestions = defineRoute({
   path: "/v1/dispatch/suggestions",
   summary: "Suggest who should take each unassigned visit",
   description:
-    "For each unassigned visit on the day, the technician it adds the least driving to without breaking a window, among those whose skills and time off allow it. Every technician considered is listed with their figure or the reason they were ruled out. Accepting one is `POST /v1/visits/{id}/assign`.",
+    "For each unassigned visit on the day, the technician it adds the least driving to without breaking a window, among those whose skills and time off allow it. Members whose plan promises priority dispatch are placed first, so the cheapest gap on the day goes to them. Every technician considered is listed with their figure or the reason they were ruled out. Accepting one is `POST /v1/visits/{id}/assign`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({ date: z.string().date() }),
@@ -202,6 +229,8 @@ export const getAssignmentSuggestions = defineRoute({
     suggestions: z.array(z.object({
       visitId: Uuid,
       customerName: z.string(),
+      /** The plan whose priority dispatch put this visit first, when one did. */
+      member: z.string().nullable(),
       technicianId: Uuid.nullable(),
       technicianName: z.string().nullable(),
       /** Where in their day, counted from one, as the board numbers it. */
@@ -227,7 +256,7 @@ export const getAssignmentSuggestions = defineRoute({
 
 /* ------------------------------------------------------------ rebalance */
 
-const Workday = z.object({
+export const Workday = z.object({
   /** When the working day ends, local time, HH:MM. */
   dayEndsAt: z.string(),
   /** Minutes of break; zero plans none. */
@@ -239,7 +268,7 @@ const Workday = z.object({
   maxOvertimeMinutes: z.number().int(),
 });
 
-const RebalancedDay = z.object({
+export const RebalancedDay = z.object({
   order: z.array(Uuid),
   driveMinutes: z.number().int(),
   /** Back where the day ends. */

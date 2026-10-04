@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { time } from "@opentradesos/core";
+import { field, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
 } from "./context";
@@ -49,11 +49,10 @@ export type MoveReason = (typeof MOVE_REASONS)[number];
  * The same plate is typed "ab-1234 x", "AB1234X" and "AB 1234X" by three
  * people on three days, and a comparison of the strings as typed finds none
  * of them. Punctuation and spacing on a rating plate are never what tells two
- * units apart; the characters are.
+ * units apart; the characters are. In core, because the phone's sync and
+ * the field app match on the same key.
  */
-export function serialKey(serial: string): string {
-  return serial.toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
+export const serialKey = field.serialKey;
 
 const SERIAL_KEY_SQL = sql`regexp_replace(upper(coalesce(${schema.equipment.serialNumber}, '')), '[^A-Z0-9]', '', 'g')`;
 
@@ -101,7 +100,7 @@ async function customersAt(tx: Database, propertyIds: string[]): Promise<Map<str
   return out;
 }
 
-async function serialMatchesWithin(
+export async function serialMatchesWithin(
   tx: Database, organizationId: string, serial: string, excludeId?: string,
 ): Promise<SerialMatch[]> {
   const key = serialKey(serial);
@@ -153,7 +152,7 @@ export function matchSerial(
 }
 
 /** The matches as one sentence, for a refusal a person reads. */
-function describeMatches(serial: string, matches: SerialMatch[]): string {
+export function describeMatches(serial: string, matches: SerialMatch[]): string {
   const said = matches.slice(0, 3).map((m) => {
     const what = [m.tag, m.manufacturer, m.model].filter(Boolean).join(" ") || m.category;
     return `${what} at ${m.address}${m.retired ? " (taken off the register)" : ""}`;
@@ -216,16 +215,17 @@ export async function register(ctx: ServiceContext, input: EquipmentInput) {
        * the same plate, which happens with some makers' short serials.
        */
       const matches = await serialMatchesWithin(tx, ctx.actor.organizationId, serial);
-      const twin = matches.find((m) => m.propertyId === input.propertyId && !m.retired);
-      if (twin) {
+      const decision = field.decideSerial({
+        serial, propertyId: input.propertyId, matches, confirmedDifferent: input.serialElsewhereConfirmed,
+      });
+      if (decision.action === "update") {
+        const twin = matches.find((m) => m.id === decision.equipmentId)!;
         throw new ConflictError(
           `Serial ${serial} is already on file at this property${twin.tag ? ` as ${twin.tag}` : ""}. `
           + "Two records for one unit split its history down the middle. Edit the existing one instead.",
         );
       }
-      if (matches.length > 0 && !input.serialElsewhereConfirmed) {
-        throw new ConflictError(describeMatches(serial, matches));
-      }
+      if (decision.action === "ask") throw new ConflictError(describeMatches(serial, matches));
     }
 
     if (input.parentEquipmentId) await assertParent(tx, ctx, input.parentEquipmentId, input.propertyId);

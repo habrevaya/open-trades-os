@@ -35,6 +35,9 @@ export const getVisit = defineRoute({
     checklist: z.array(z.object({ id: z.string(), label: z.string(), required: z.boolean(), doneAt: z.string().nullable() })),
     signed: z.boolean(),
     rentalEvent: z.string().nullable(),
+    /** The days the customer agreed this visit may happen on, inclusive. Set with `PUT /v1/visits/{id}/movable`. */
+    movableFrom: z.string().date().nullable(),
+    movableUntil: z.string().date().nullable(),
     job: z.object({
       id: Uuid, number: z.number().int(), summary: z.string(), status: z.string(),
       customerId: Uuid, propertyId: Uuid.nullable(), equipmentId: Uuid.nullable(),

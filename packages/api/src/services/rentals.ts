@@ -638,6 +638,9 @@ async function rentalViewWithin(
     previousRentalId: row.previousRentalId,
     /** The stop that will collect it, once the collection scheduler has booked one. */
     collectionVisitId: row.collectionVisitId,
+    /** When the customer agreed the collection should happen, when they agreed a time. */
+    collectionAgreedStart: row.collectionAgreedStart?.toISOString() ?? null,
+    collectionAgreedEnd: row.collectionAgreedEnd?.toISOString() ?? null,
     /** The invoice its period and meters went on, once raised. */
     invoiceId: row.invoiceId,
   };
