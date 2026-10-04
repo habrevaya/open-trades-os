@@ -200,10 +200,10 @@ run("waiting in line", () => {
       select routed_because, queue_result from public.call where provider_call_id = ${`twilio:${caller.sid}`}`;
     expect(row!.queue_result).toBe("leave");
     expect(row!.routed_because).toContain("Waited 2 minutes 5 seconds in line");
-    const [{ n }] = await raw<{ n: number }[]>`
+    const [missed] = await raw<{ n: number }[]>`
       select count(*)::int as n from public.domain_event e join public.call c on c.id = e.entity_id
       where e.name = 'call.missed' and c.provider_call_id = ${`twilio:${caller.sid}`}`;
-    expect(n).toBe(1);
+    expect(missed!.n).toBe(1);
   });
 
   it("counts a caller who hangs up while waiting as a missed call", async () => {

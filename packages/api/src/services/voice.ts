@@ -1142,11 +1142,16 @@ async function queueAnswer(
   return inTenant(ctx, async (tx) => {
     const queue = await callQueues.loadQueue(tx, org, query.get("q") ?? "");
     if (!queue) return reply([{ verb: "say", text: "That waiting line no longer exists." }, { verb: "hangup" }]);
+    /**
+     * Still waiting: in this line and not yet taken off hold. Read off the
+     * line's own result rather than whether the call was ever answered,
+     * because a caller the phone assistant spoke to first was answered
+     * before they ever joined the line.
+     */
     const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.call).where(and(
       eq(schema.call.queueId, queue.id),
       isNull(schema.call.queueResult),
       sql`${schema.call.queuedAt} is not null`,
-      sql`${schema.call.answeredAt} is null`,
     ));
     if (!waiting || waiting.n === 0) {
       return reply([{ verb: "say", text: "Thanks. The caller has already been answered." }, { verb: "hangup" }]);
@@ -1170,6 +1175,8 @@ async function queueConnect(
     await tx.update(schema.call).set({
       status: voice.laterStatus(call.status, "in_progress"),
       answeredAt: call.answeredAt ?? now,
+      /** Off hold: the carrier's own word for how they left the line follows when the call ends. */
+      queueResult: "bridged",
       ...(user && /^[0-9a-f-]{36}$/i.test(user) && !call.answeredByUserId ? { answeredByUserId: user } : {}),
       updatedAt: now,
     }).where(eq(schema.call.id, call.id));

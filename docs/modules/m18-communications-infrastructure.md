@@ -402,7 +402,9 @@ colleague, no hold, no conference and no second call while on one (a second
 call to the browser is declined and rings the rest of the group). A browser
 whose page was closed without switching off may be rung for up to two and a
 half minutes before its owner's phone is rung again. The technician app has no
-browser phone.
+browser phone. Nothing here limits which countries a browser may ring beyond
+refusing emergency numbers: the geographic permissions on the company's Twilio
+account are what stop a call to a premium rate number abroad.
 
 The phone assistant: see M27's "What is not built". The audio of its part of a
 call is never recorded; what it heard is kept as text.

@@ -36,10 +36,11 @@ const NUMBER = "+15125550146";
 const CALLER = `+1737${String(Date.now()).slice(-7)}`;
 const WINDOW = /"bookableServiceId": "([^"]+)",\s*"date": "([^"]+)",\s*"arrivalWindowId": "([^"]+)"/g;
 
-interface Fakes { baseUrl: string; close(): Promise<void> }
+interface Fakes { baseUrl: string; placed: URLSearchParams[]; close(): Promise<void> }
 
-/** Twilio's number settings and Anthropic's Messages API, on localhost. */
+/** Twilio's REST API for placing calls, and Anthropic's Messages API, on localhost. */
 async function fakes(): Promise<Fakes> {
+  const placed: URLSearchParams[] = [];
   const server: Server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); });
@@ -48,6 +49,10 @@ async function fakes(): Promise<Fakes> {
         response.writeHead(status, { "content-type": "application/json" });
         response.end(JSON.stringify(value));
       };
+      if (request.method === "POST" && request.url?.endsWith("/Calls.json")) {
+        placed.push(new URLSearchParams(body));
+        return json(201, { sid: `CAleg${placed.length}` });
+      }
       if (request.method === "POST" && request.url === "/v1/messages") {
         const sent = JSON.parse(body) as { model: string; messages: { content: { text?: string }[] }[] };
         const prompt = sent.messages.flatMap((m) => m.content).map((c) => c.text ?? "").join("\n");
@@ -74,7 +79,7 @@ async function fakes(): Promise<Fakes> {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
-  return { baseUrl: `http://127.0.0.1:${port}`, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  return { baseUrl: `http://127.0.0.1:${port}`, placed, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
 
 async function organizationId(): Promise<string> {
@@ -259,6 +264,64 @@ test("a menu option sends callers to the phone assistant, and its call is on the
   } finally {
     await relay?.close();
     await db.$close();
+    await disconnect();
+    await fake.close();
+  }
+});
+
+test("a waiting line made on the settings screen holds a caller with their place and rings the group", async ({ owner }) => {
+  const fake = await fakes();
+  const token = await connect(fake.baseUrl);
+  const ownerPhone = `+1737${String(Date.now() + 7).slice(-7)}`;
+  try {
+    await owner.goto("/settings/phone");
+
+    // The owner answers on their phone, in a group of one.
+    const me = owner.locator("li").filter({ has: owner.getByRole("textbox", { name: /'s number$/ }) }).first();
+    await me.getByRole("textbox").fill(ownerPhone);
+    await me.getByRole("button", { name: "Save" }).click();
+    await expect(me.getByRole("status")).toHaveText("Saved.");
+    const ownerName = (await me.locator("span").first().textContent())!.trim();
+    const group = owner.locator("div").filter({ has: owner.getByRole("heading", { name: "Make a ring group" }) }).last();
+    await group.getByLabel("Name", { exact: true }).fill(`Line team ${run}`);
+    await group.getByLabel("Member 1", { exact: true }).selectOption({ label: ownerName });
+    await group.getByRole("button", { name: "Make group" }).click();
+    await expect(owner.getByRole("heading", { name: `Line team ${run}` })).toBeVisible();
+
+    // The line, answered by that group, keeping callers two minutes at most.
+    const line = owner.locator("div").filter({ has: owner.getByRole("heading", { name: "Make a waiting line" }) }).last();
+    await line.getByLabel("Name", { exact: true }).fill(`Service ${run}`);
+    await line.getByLabel("Answered by the ring group").selectOption({ label: `Line team ${run}` });
+    await line.getByLabel("Longest a caller waits").selectOption({ label: "2 minutes" });
+    await line.getByRole("button", { name: "Make line" }).click();
+    await expect(owner.getByText(`Answered by the Line team ${run} ring group. Callers wait up to 2 minutes, told their place in line.`)).toBeVisible();
+
+    // A menu whose first option is the line, on the number.
+    const build = owner.locator("div").filter({ has: owner.getByRole("heading", { name: "Build a menu" }) }).last();
+    await build.getByLabel("Name").fill(`Lines ${run}`);
+    await build.getByLabel("What callers hear first").fill("Thanks for calling Ridgeline.");
+    await build.getByLabel("Option 1 key").selectOption("1");
+    await build.getByLabel("Option 1 is for").fill("Service");
+    await build.locator('select[name="optionTo"]').nth(0).selectOption({ label: `Service ${run}` });
+    await build.getByRole("button", { name: "Build menu" }).click();
+    await expect(owner.getByRole("heading", { name: `Lines ${run}` })).toBeVisible();
+    const number = owner.locator("li").filter({ hasText: /555.?0146/ }).first();
+    await number.getByLabel("Answered by").selectOption({ label: `The Lines ${run} menu` });
+    await number.getByRole("button", { name: "Save" }).click();
+    await expect(number.getByText(`Lines ${run} menu`, { exact: true })).toBeVisible();
+
+    // A caller presses 1, is held with their place, and the owner's phone is rung.
+    const sid = `CA${randomBytes(8).toString("hex")}`;
+    const answered = await carrier(token, null, { CallSid: sid, From: CALLER, To: NUMBER });
+    const menu = attribute(answered, "Gather", "action");
+    const pressed = await carrier(token, "menu", { CallSid: sid, Digits: "1" }, menu.slice(menu.indexOf("?")));
+    const wait = attribute(pressed, "Enqueue", "waitUrl");
+    const held = await carrier(token, "queue-wait", { CallSid: sid, QueuePosition: "1", QueueTime: "0" }, wait.slice(wait.indexOf("?")));
+    expect(held).toContain("<Say>You are next in line. Thanks for waiting.</Say>");
+    expect(held).toContain("<Play>");
+    expect(fake.placed.map((p) => p.get("To"))).toEqual([ownerPhone]);
+    expect(fake.placed[0]!.get("From")).toBe(NUMBER);
+  } finally {
     await disconnect();
     await fake.close();
   }

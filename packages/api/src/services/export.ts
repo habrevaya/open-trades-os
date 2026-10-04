@@ -129,6 +129,10 @@ export const REDACTED: Record<string, Record<string, string>> = {
     token_hash: "The hash of a website visitor's live chat link. The chat itself is exported with the "
       + "conversation it belongs to; the link cannot be reconstructed and should not be.",
   },
+  voice_agent_session: {
+    token_hash: "The hash of the address the carrier opened one phone assistant conversation on. "
+      + "It is dead once the call ends; what was said and done on the call is exported.",
+  },
   device: {
     push_token:
       "A live push credential for a specific phone. It identifies a device to a notification "

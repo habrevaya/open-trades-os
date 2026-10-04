@@ -185,9 +185,9 @@ const activity = (kind: string) => raw<{ detail: string; agent: string }[]>`
 /* ============================================================ settings === */
 
 run("setting an agent up", () => {
-  it("lists all five agents, off, with what each could do", async () => {
+  it("lists all six agents, off, with what each could do", async () => {
     const listed = await agents.list(owner());
-    expect(listed.agents.map((a) => a.agent)).toEqual(["intake", "chat", "estimate", "collections", "dispatch"]);
+    expect(listed.agents.map((a) => a.agent)).toEqual(["intake", "chat", "voice", "estimate", "collections", "dispatch"]);
     expect(listed.agents.every((a) => !a.settings.enabled)).toBe(true);
   });
 

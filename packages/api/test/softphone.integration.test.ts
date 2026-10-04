@@ -238,9 +238,9 @@ run("a call placed from the browser", () => {
     expect(emergency.twiml).toContain("Emergency calls cannot be made from the browser");
     const forged = await webhook("softphone", { CallSid: "CAforged", From: from, To: "5125556199" }, "", "not-the-token");
     expect(forged.status).toBe(403);
-    const [{ n }] = await raw<{ n: number }[]>`
+    const [missed] = await raw<{ n: number }[]>`
       select count(*)::int as n from public.call where provider_call_id in ('twilio:CAtech', 'twilio:CA911', 'twilio:CAforged')`;
-    expect(n).toBe(0);
+    expect(missed!.n).toBe(0);
   });
 
   it("asks the person called before recording, and records only on their yes", async () => {
