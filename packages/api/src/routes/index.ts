@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, backups, restore, externalWork, kpis,
   dispatchMap, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
@@ -819,6 +819,15 @@ export const handlers = {
   // Export (M30): the portability the comparison pages promise
   getExportManifest: dataExport.handlers.getExportManifest,
   getExportPage: dataExport.handlers.getExportPage,
+  getExportFile: dataExport.handlers.getExportFile,
+  getBackupDestination: backups.handlers.getBackupDestination,
+  putBackupDestination: backups.handlers.putBackupDestination,
+  deleteBackupDestination: backups.handlers.deleteBackupDestination,
+  listBackups: backups.handlers.listBackups,
+  startBackup: backups.handlers.startBackup,
+  listRestorableCopies: backups.handlers.listRestorableCopies,
+  restoreCopy: backups.handlers.restoreCopy,
+  listRestores: restore.handlers.listRestores,
 
   // External work orders (M31): the last table nothing touched
   receiveExternalWorkOrder: externalWork.handlers.receiveExternalWorkOrder,

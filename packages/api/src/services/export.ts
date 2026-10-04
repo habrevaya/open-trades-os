@@ -1,6 +1,8 @@
-import { sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { audit, guardedRead, ConflictError, NotFoundError, type ServiceContext } from "./context";
+import { assertCan } from "@opentradesos/core";
+import { audit, guardedRead, inTenant, ConflictError, NotFoundError, type ServiceContext } from "./context";
+import { bytesOf, HELD } from "./files";
 
 /**
  * TAKING A COPY OF EVERYTHING, WHICH THE PITCH HAS ALWAYS PROMISED
@@ -212,6 +214,18 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   stored_file: {
     storage_key: "Where the bytes are in object storage. Without it an export cannot be matched "
       + "to the files it describes.",
+    object_key: "The name of the file's object in this deployment's bucket, when it is kept in one. "
+      + "A location, not a credential: reading it needs the deployment's own keys.",
+  },
+  backup_destination: {
+    access_key_id: "The identifier half of the bucket's key pair, which says whose key it is and opens "
+      + "nothing on its own. The secret half is held by name, below.",
+    secret_key_ref: "The NAME of the secret holding the bucket's secret key in the deployment's own store, "
+      + "never the key. A company moving away needs it to know which secret to go and find.",
+  },
+  backup_run: {
+    object_key: "The name a copy was written under in the company's own bucket, so each copy can be found. "
+      + "Not a credential.",
   },
   call: {
     recording_storage_key: "Which stored file holds the call's recording, kept here because the "
@@ -286,6 +300,25 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
 };
 
 /**
+ * Columns that leave, but not inside the table's rows.
+ *
+ * A stored file's bytes are a photograph, a signature, a call recording: a
+ * thousand of them inside one page of JSON would be gigabytes in one response,
+ * and the first version of this export did exactly that, as an array of
+ * numbers. So the bytes travel beside the rows instead, one file at a time:
+ * under `files/` in the archive, as `file` lines in the newline delimited copy,
+ * and through `GET /v1/export-files/{id}` for a program walking the API. Named
+ * here, with where to find them, for the reason every redaction is named.
+ */
+export const HELD_APART: Record<string, Record<string, string>> = {
+  stored_file: {
+    bytes: "The file itself, carried beside the rows rather than inside them: in the archive at "
+      + "files/ followed by the storage key, in the newline delimited copy as a `file` line, and "
+      + "through GET /v1/export-files/{id}. Each one is checked against `sha256` on the way back in.",
+  },
+};
+
+/**
  * What a company can take away.
  *
  * Read off the catalogue, so this is the truth about the database rather than a
@@ -293,19 +326,58 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
  * makes an export checkable: somebody who pulls 14,812 customers and had 14,900
  * has a problem they can see.
  */
+export interface ManifestColumn {
+  name: string;
+  /** Postgres's own name for the type, such as `uuid`, `numeric(14,4)` or `jsonb`. */
+  type: string;
+  nullable: boolean;
+  /** The table a foreign key on this column points at, when it has one. */
+  references: string | null;
+}
+
 export interface ManifestTable {
   table: string;
   rows: number;
   /** The primary key columns, in order. What pagination walks. */
   key: string[];
   redacted: { column: string; reason: string }[];
+  /** Columns that leave beside the rows rather than in them. */
+  apart: { column: string; reason: string }[];
+  /** Every column that is in the rows, in order, which is also the order of the archive's CSV. */
+  columns: ManifestColumn[];
+}
+
+/** Somebody who works here, as the copy carries them: who, not how they sign in. */
+export interface ManifestPerson {
+  userId: string;
+  email: string;
+  name: string | null;
 }
 
 export interface Manifest {
+  /** What this file is, so a reader can tell it from any other JSON. */
+  format: "opentradesos-export";
+  /** The shape of the file. Bumped when a reader would need to change. */
+  version: 1;
   organizationId: string;
   generatedAt: string;
   tables: ManifestTable[];
   totalRows: number;
+  /**
+   * The company's own row: its name, its address, its timezone, its settings.
+   * Outside the tenant like every company's row, and carried here because a
+   * copy restored into a new company should come back as the same business,
+   * not as the new company's defaults.
+   */
+  company: Record<string, unknown>;
+  /**
+   * Who works here, by name and address. A person sits above the company (one
+   * person can work for two), so their row is not a tenant table; without this
+   * a copy would hold memberships naming nobody. Never a password or a sign in.
+   */
+  people: ManifestPerson[];
+  /** The stored files carried beside the rows, and how many bytes they come to. */
+  files: { count: number; bytes: number };
   /**
    * Tables outside the tenant, named so the absence is a statement rather than
    * an omission a reader has to notice.
@@ -317,7 +389,8 @@ const OUTSIDE: { table: string; reason: string }[] = [
   {
     table: "user",
     reason: "A person can belong to more than one company, so they sit above the tenant. The name "
-      + "and address of everybody who works here are exported through `membership`.",
+      + "and address of everybody with a `membership` here are in the manifest's `people`, which is "
+      + "how a restore knows who they are; nothing about how they sign in is.",
   },
   {
     table: "credential",
@@ -338,8 +411,9 @@ const OUTSIDE: { table: string; reason: string }[] = [
   },
   {
     table: "organization",
-    reason: "This company's own row. Its name, timezone, currency and settings, which a new "
-      + "deployment is configured with rather than restored from.",
+    reason: "Every company's own row. This company's name, address, timezone, currency and settings "
+      + "are in the manifest's `company`; its address on this deployment and anything the operator "
+      + "set are not, because they belong to the deployment rather than the business.",
   },
   {
     table: "public_rate_limit",
@@ -359,10 +433,29 @@ const OUTSIDE: { table: string; reason: string }[] = [
   },
 ];
 
-interface Catalogued {
+/** The company row's columns a copy carries. Not its id, its address here, or what the operator set. */
+const COMPANY_COLUMNS = [
+  "name", "legal_name", "ein", "timezone", "currency", "logo_url", "brand_color", "primary_trade",
+  "setup_completed_at", "settings", "phone", "email", "address_line1", "address_line2", "city",
+  "state", "postal_code", "created_at",
+] as const;
+export const CARRIED_COMPANY_COLUMNS: readonly string[] = COMPANY_COLUMNS;
+
+export interface CatalogColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  /** Computed by the database from other columns, so a restore never writes it. */
+  generated: boolean;
+  references: string | null;
+}
+
+export interface Catalogued {
   table: string;
   key: { column: string; type: string }[];
-  columns: string[];
+  columns: CatalogColumn[];
+  /** Whether a trigger runs before each insert, which can change what is written. */
+  insertTrigger: boolean;
 }
 
 /**
@@ -372,16 +465,28 @@ interface Catalogued {
  * checked against this rather than against a literal list, which is what makes
  * the export complete by construction, and the check is also what makes it safe
  * to put the name into an identifier position below.
+ *
+ * Exported for the restore, which loads by the same catalogue: what one side
+ * writes is exactly what the other side can read.
  */
-async function catalogue(tx: Database): Promise<Map<string, Catalogued>> {
+export async function catalogue(tx: Database): Promise<Map<string, Catalogued>> {
   const rows = await tx.execute<{
-    table_name: string; column_name: string; data_type: string;
-    key_position: number | null;
+    table_name: string; column_name: string; data_type: string; not_null: boolean;
+    generated: boolean; key_position: number | null; references_table: string | null;
+    insert_trigger: boolean;
   }>(sql`
     select c.relname as table_name,
            a.attname as column_name,
            format_type(a.atttypid, a.atttypmod) as data_type,
-           array_position(i.indkey::int[], a.attnum::int) as key_position
+           a.attnotnull as not_null,
+           a.attgenerated <> '' as generated,
+           array_position(i.indkey::int[], a.attnum::int) as key_position,
+           (select r.relname from pg_constraint f join pg_class r on r.oid = f.confrelid
+             where f.conrelid = c.oid and f.contype = 'f' and f.conkey = array[a.attnum]::smallint[]
+             limit 1) as references_table,
+           exists (select 1 from pg_trigger t
+             where t.tgrelid = c.oid and not t.tgisinternal
+               and (t.tgtype & 2) <> 0 and (t.tgtype & 4) <> 0) as insert_trigger
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
     join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
@@ -396,12 +501,17 @@ async function catalogue(tx: Database): Promise<Map<string, Catalogued>> {
   `);
 
   const out = new Map<string, Catalogued>();
+  const positions = new Map<string, number>();
   for (const row of rows) {
     const entry = out.get(row.table_name)
-      ?? { table: row.table_name, key: [], columns: [] };
-    entry.columns.push(row.column_name);
+      ?? { table: row.table_name, key: [], columns: [], insertTrigger: row.insert_trigger };
+    entry.columns.push({
+      name: row.column_name, type: row.data_type, nullable: !row.not_null,
+      generated: row.generated, references: row.references_table,
+    });
     if (row.key_position !== null) {
       entry.key.push({ column: row.column_name, type: row.data_type });
+      positions.set(`${row.table_name}.${row.column_name}`, row.key_position);
     }
     out.set(row.table_name, entry);
   }
@@ -413,6 +523,8 @@ async function catalogue(tx: Database): Promise<Map<string, Catalogued>> {
    * is for.
    */
   for (const entry of out.values()) {
+    entry.key.sort((a, b) =>
+      (positions.get(`${entry.table}.${a.column}`) ?? 0) - (positions.get(`${entry.table}.${b.column}`) ?? 0));
     if (entry.key.length === 0) {
       /**
        * A tenant table with no primary key cannot be paginated stably, and
@@ -443,69 +555,139 @@ async function catalogue(tx: Database): Promise<Map<string, Catalogued>> {
  *   The cursor is a row comparison with plain bind parameters, whose types
  *   Postgres infers from the columns on the left.
  *   The count query is assembled with `sql.join` rather than with `sql.raw`.
+ *   Type names decide which of three fixed expressions a column is read with;
+ *   they are compared, never interpolated.
  *
  * An unreachable guard in front of a raw fragment is worse than no fragment at
  * all, because it reads as the reason the fragment is acceptable.
  */
 
+/** The columns a page carries: everything but what is redacted or held apart. */
+function carried(entry: Catalogued): CatalogColumn[] {
+  const redactions = REDACTED[entry.table] ?? {};
+  const apart = HELD_APART[entry.table] ?? {};
+  return entry.columns.filter((column) => !(column.name in redactions) && !(column.name in apart));
+}
+
+const isTimestamp = (type: string) => type.startsWith("timestamp");
+const NATIVE = new Set(["jsonb", "json", "boolean", "integer", "smallint", "bigint", "double precision", "real"]);
+
+/**
+ * How one column is read, so a value survives the trip out and back exactly.
+ *
+ * The driver's own parsing was not good enough for a copy, and three things
+ * were wrong in the first version: a timestamp came back as a JavaScript date,
+ * which keeps milliseconds and Postgres keeps microseconds; a `date` came back
+ * as midnight in the server's zone, a day early for anybody west of it; and a
+ * `bytea` came back as an array of numbers. Now:
+ *
+ *   A timestamp is ISO 8601 with every digit Postgres holds, in UTC.
+ *   jsonb, booleans and integers are themselves.
+ *   An array is a JSON array.
+ *   Everything else is Postgres's own text for it: a date is `2026-10-04`, a
+ *   decimal keeps its trailing zeros, and bytes are `\x` and hex.
+ *
+ * `textual` is the archive's CSV, where every value is Postgres's text except a
+ * timestamp, which is the same ISO form. Each of them loads back through
+ * Postgres's own input functions, which is what the restore relies on and what
+ * lets `\copy` load the CSV with nothing written here.
+ */
+function readAs(column: CatalogColumn, textual: boolean) {
+  const id = sql.identifier(column.name);
+  if (isTimestamp(column.type)) return sql`(to_jsonb(${id}) #>> '{}') as ${id}`;
+  if (textual) return sql`${id}::text as ${id}`;
+  if (column.type.endsWith("[]")) return sql`to_jsonb(${id}) as ${id}`;
+  if (NATIVE.has(column.type)) return id;
+  return sql`${id}::text as ${id}`;
+}
+
+/** Inside a transaction already in the tenant, without the audit line the API's call writes. */
+async function manifestWithin(
+  tx: Database, ctx: ServiceContext, tables: Map<string, Catalogued>,
+): Promise<Manifest> {
+  /**
+   * Counted in one statement rather than one per table, because 158 round
+   * trips to count rows is a manifest that takes a minute to build and an
+   * operator who stops asking for it.
+   */
+  const counts = new Map<string, number>();
+  const names = [...tables.keys()].sort();
+  if (names.length > 0) {
+    const parts = names.map((name) =>
+      sql`select ${name} as t, count(*)::text as n from ${sql.identifier(name)}`);
+    const rows = await tx.execute<{ t: string; n: string }>(
+      sql.join(parts, sql` union all `),
+    );
+    for (const row of rows) counts.set(row.t, Number(row.n));
+  }
+
+  const result: ManifestTable[] = names.map((name) => {
+    const entry = tables.get(name)!;
+    const redactions = REDACTED[name] ?? {};
+    const apart = HELD_APART[name] ?? {};
+    return {
+      table: name,
+      rows: counts.get(name) ?? 0,
+      key: entry.key.map((column) => column.column),
+      /**
+       * Reported as written, with no filter against the live columns.
+       *
+       * There was one, and the sweep showed it could not matter: every name in
+       * `REDACTED` is a real column, so filtering changed nothing, and the
+       * failure it looked like it was guarding against is a different one that
+       * it would not have caught. If a secret column were renamed, the stale
+       * entry here would be cosmetic noise, and the REAL consequence would be
+       * that the column under its new name started being exported, which no
+       * filter in this function prevents.
+       *
+       * What prevents it is a test: `export.integration.test.ts` reads every
+       * column on every tenant table whose name looks like a credential and
+       * requires each one to be either redacted or listed as deliberately
+       * exported, with a reason. That is the guard, and it lives where it can
+       * see the whole database rather than one table at a time.
+       */
+      redacted: Object.entries(redactions).map(([column, reason]) => ({ column, reason })),
+      apart: Object.entries(apart).map(([column, reason]) => ({ column, reason })),
+      columns: carried(entry).map(({ name: column, type, nullable, references }) =>
+        ({ name: column, type, nullable, references })),
+    };
+  });
+
+  const columns = sql.join(COMPANY_COLUMNS.map((column) => sql.identifier(column)), sql`, `);
+  const [company] = await tx.execute<{ company: Record<string, unknown> }>(sql`
+    select to_jsonb(c) as company from (
+      select ${columns} from public.organization where id = ${ctx.actor.organizationId}
+    ) c
+  `);
+  const people = await tx.execute<{ user_id: string; name: string | null; email: string }>(
+    sql`select distinct user_id, name, email from app.organization_people() order by email`,
+  );
+  const [files] = await tx.execute<{ count: string; bytes: string }>(sql`
+    select count(*)::text as count, coalesce(sum(size_bytes), 0)::text as bytes
+    from public.stored_file where deleted_at is null
+  `);
+
+  return {
+    format: "opentradesos-export",
+    version: 1,
+    organizationId: ctx.actor.organizationId,
+    generatedAt: new Date().toISOString(),
+    tables: result,
+    totalRows: result.reduce((total, table) => total + table.rows, 0),
+    company: company?.company ?? {},
+    people: people.map((person) => ({ userId: person.user_id, email: person.email, name: person.name })),
+    files: { count: Number(files?.count ?? 0), bytes: Number(files?.bytes ?? 0) },
+    outsideTheTenant: OUTSIDE,
+  };
+}
+
 export function manifest(ctx: ServiceContext) {
   return guardedRead(ctx, "data:export", async (tx): Promise<Manifest> => {
-    const tables = await catalogue(tx);
-
-    /**
-     * Counted in one statement rather than one per table, because 158 round
-     * trips to count rows is a manifest that takes a minute to build and an
-     * operator who stops asking for it.
-     */
-    const counts = new Map<string, number>();
-    const names = [...tables.keys()].sort();
-    if (names.length > 0) {
-      const parts = names.map((name) =>
-        sql`select ${name} as t, count(*)::text as n from ${sql.identifier(name)}`);
-      const rows = await tx.execute<{ t: string; n: string }>(
-        sql.join(parts, sql` union all `),
-      );
-      for (const row of rows) counts.set(row.t, Number(row.n));
-    }
-
-    const result: ManifestTable[] = names.map((name) => {
-      const entry = tables.get(name)!;
-      const redactions = REDACTED[name] ?? {};
-      return {
-        table: name,
-        rows: counts.get(name) ?? 0,
-        key: entry.key.map((column) => column.column),
-        /**
-         * Reported as written, with no filter against the live columns.
-         *
-         * There was one, and the sweep showed it could not matter: every name in
-         * `REDACTED` is a real column, so filtering changed nothing, and the
-         * failure it looked like it was guarding against is a different one that
-         * it would not have caught. If a secret column were renamed, the stale
-         * entry here would be cosmetic noise, and the REAL consequence would be
-         * that the column under its new name started being exported, which no
-         * filter in this function prevents.
-         *
-         * What prevents it is a test: `export.integration.test.ts` reads every
-         * column on every tenant table whose name looks like a credential and
-         * requires each one to be either redacted or listed as deliberately
-         * exported, with a reason. That is the guard, and it lives where it can
-         * see the whole database rather than one table at a time.
-         */
-        redacted: Object.entries(redactions).map(([column, reason]) => ({ column, reason })),
-      };
-    });
-
+    await tx.execute(sql`set local time zone 'UTC'`);
+    const result = await manifestWithin(tx, ctx, await catalogue(tx));
     await audit(tx, ctx, "data.export.manifest", "organization", ctx.actor.organizationId,
-      null, { tables: result.length });
-
-    return {
-      organizationId: ctx.actor.organizationId,
-      generatedAt: new Date().toISOString(),
-      tables: result,
-      totalRows: result.reduce((total, table) => total + table.rows, 0),
-      outsideTheTenant: OUTSIDE,
-    };
+      null, { tables: result.tables.length });
+    return result;
   });
 }
 
@@ -522,7 +704,7 @@ export interface Page {
 }
 
 /**
- * One page of one table.
+ * One page of one table, inside a transaction already in the tenant.
  *
  * KEYSET PAGINATION ON THE PRIMARY KEY, not an offset. An offset over a table
  * somebody is still working in repeats and skips rows, and an export that
@@ -536,99 +718,116 @@ export interface Page {
  * simpler and wrong the day somebody adds an integer key, because '10' sorts
  * before '9'.
  */
+async function pageWithin(tx: Database, tables: Map<string, Catalogued>, input: {
+  table: string;
+  after?: string[] | undefined;
+  limit?: number | undefined;
+  textual?: boolean | undefined;
+}): Promise<Page> {
+  const entry = tables.get(input.table);
+  if (!entry) {
+    /**
+     * NOT FOUND rather than forbidden, and the name is not echoed back. A
+     * caller probing table names gets the same answer for a table that does
+     * not exist and one that exists but is not a tenant table.
+     */
+    throw new NotFoundError("Table");
+  }
+
+  const limit = Math.min(Math.max(input.limit ?? MAX_PAGE, 1), MAX_PAGE);
+  const redactions = REDACTED[input.table] ?? {};
+  const selected = carried(entry);
+
+  const columns = sql.join(selected.map((column) => readAs(column, input.textual === true)), sql`, `);
+  const keyColumns = sql.join(
+    entry.key.map((column) => sql.identifier(column.column)), sql`, `,
+  );
+  const orderBy = sql.join(
+    entry.key.map((column) => sql`${sql.identifier(column.column)} asc`), sql`, `,
+  );
+  /** The key as the cursor needs it, whatever the columns above made of it. */
+  const keyText = sql.join(
+    entry.key.map((column, i) => sql`${sql.identifier(column.column)}::text as ${sql.identifier(`__key${i}`)}`), sql`, `,
+  );
+
+  const after = input.after ?? [];
+  if (after.length > 0 && after.length !== entry.key.length) {
+    throw new ConflictError(
+      `This table's key has ${entry.key.length} `
+      + `${entry.key.length === 1 ? "column" : "columns"} and the cursor has ${after.length}. `
+      + "Pass back the cursor the previous page returned.",
+    );
+  }
+
+  /**
+   * THE CURSOR IS A ROW COMPARISON WITH PLAIN BIND PARAMETERS.
+   *
+   * `(a, b) > ($1, $2)`, and Postgres resolves each parameter's type from the
+   * column it is compared against. An earlier version cast each one to the type
+   * the catalogue reported, which worked and needed a raw fragment for the type
+   * name; inference does the same job with nothing to escape.
+   *
+   * What matters either way is that this is a row comparison on the real key
+   * columns rather than a comparison of the key rendered as text. Text would be
+   * simpler and wrong the day somebody adds an integer key, because '10' sorts
+   * before '9' and the export would skip most of the table.
+   */
+  const where = after.length === 0
+    ? sql``
+    : sql`where (${keyColumns}) > (${sql.join(after.map((value) => sql`${value}`), sql`, `)})`;
+
+  const fetched = await tx.execute<Record<string, unknown>>(sql`
+    select ${columns}, ${keyText}
+    from ${sql.identifier(input.table)}
+    ${where}
+    order by ${orderBy}
+    limit ${limit + 1}
+  `).catch(malformedCursor);
+
+  const more = fetched.length > limit;
+  const data = more ? fetched.slice(0, limit) : fetched;
+  const last = data[data.length - 1];
+  const cursor = last ? entry.key.map((_, i) => String(last[`__key${i}`])) : null;
+  for (const row of data) {
+    for (let i = 0; i < entry.key.length; i++) delete row[`__key${i}`];
+  }
+
+  return {
+    table: input.table,
+    rows: data,
+    /**
+     * The key of the last row, as strings. Null when the page came back empty,
+     * which is the only case where there is nothing to resume from.
+     */
+    cursor,
+    more,
+    redacted: Object.keys(redactions).filter((column) => entry.columns.some((c) => c.name === column)),
+  };
+}
+
+/**
+ * One page of one table, for the API.
+ *
+ * ONE AUDIT LINE PER PAGE, with the table and the row count. "When did
+ * somebody take a copy of our entire customer list, and how much of it" is the
+ * question an export has to be able to answer, and it is the single most
+ * sensitive read in this product. Per page rather than per row because per row
+ * would bury the log, and per export is not a thing here: through the API an
+ * export is a sequence of calls and there is no moment it finishes.
+ */
 export function page(ctx: ServiceContext, input: {
   table: string;
   after?: string[] | undefined;
   limit?: number | undefined;
 }) {
   return guardedRead(ctx, "data:export", async (tx): Promise<Page> => {
-    const tables = await catalogue(tx);
-    const entry = tables.get(input.table);
-    if (!entry) {
-      /**
-       * NOT FOUND rather than forbidden, and the name is not echoed back. A
-       * caller probing table names gets the same answer for a table that does
-       * not exist and one that exists but is not a tenant table.
-       */
-      throw new NotFoundError("Table");
-    }
-
-    const limit = Math.min(Math.max(input.limit ?? MAX_PAGE, 1), MAX_PAGE);
-    const redactions = REDACTED[input.table] ?? {};
-    const selected = entry.columns.filter((column) => !(column in redactions));
-
-    const columns = sql.join(
-      selected.map((column) => sql.identifier(column)), sql`, `,
-    );
-    const keyColumns = sql.join(
-      entry.key.map((column) => sql.identifier(column.column)), sql`, `,
-    );
-    const orderBy = sql.join(
-      entry.key.map((column) => sql`${sql.identifier(column.column)} asc`), sql`, `,
-    );
-
+    await tx.execute(sql`set local time zone 'UTC'`);
+    const result = await pageWithin(tx, await catalogue(tx), input);
     const after = input.after ?? [];
-    if (after.length > 0 && after.length !== entry.key.length) {
-      throw new ConflictError(
-        `This table's key has ${entry.key.length} `
-        + `${entry.key.length === 1 ? "column" : "columns"} and the cursor has ${after.length}. `
-        + "Pass back the cursor the previous page returned.",
-      );
-    }
-
-    /**
-     * THE CURSOR IS A ROW COMPARISON WITH PLAIN BIND PARAMETERS.
-     *
-     * `(a, b) > ($1, $2)`, and Postgres resolves each parameter's type from the
-     * column it is compared against. An earlier version cast each one to the type
-     * the catalogue reported, which worked and needed a raw fragment for the type
-     * name; inference does the same job with nothing to escape.
-     *
-     * What matters either way is that this is a row comparison on the real key
-     * columns rather than a comparison of the key rendered as text. Text would be
-     * simpler and wrong the day somebody adds an integer key, because '10' sorts
-     * before '9' and the export would skip most of the table.
-     */
-    const where = after.length === 0
-      ? sql``
-      : sql`where (${keyColumns}) > (${sql.join(after.map((value) => sql`${value}`), sql`, `)})`;
-
-    const fetched = await tx.execute<Record<string, unknown>>(sql`
-      select ${columns}
-      from ${sql.identifier(input.table)}
-      ${where}
-      order by ${orderBy}
-      limit ${limit + 1}
-    `).catch(malformedCursor);
-
-    const more = fetched.length > limit;
-    const data = more ? fetched.slice(0, limit) : fetched;
-    const last = data[data.length - 1];
-
-    /**
-     * ONE AUDIT LINE PER PAGE, with the table and the row count.
-     *
-     * "When did somebody take a copy of our entire customer list, and how much
-     * of it" is the question an export has to be able to answer, and it is the
-     * single most sensitive read in this product. Per page rather than per row
-     * because per row would bury the log, and per export is not a thing: an
-     * export is a sequence of calls and there is no moment it finishes.
-     */
     await audit(tx, ctx, "data.export.page", "organization", ctx.actor.organizationId, null, {
-      table: input.table, rows: data.length, resumed: after.length > 0,
+      table: input.table, rows: result.rows.length, resumed: after.length > 0,
     });
-
-    return {
-      table: input.table,
-      rows: data,
-      /**
-       * The key of the last row, as strings. Null when the page came back empty,
-       * which is the only case where there is nothing to resume from.
-       */
-      cursor: last ? entry.key.map((column) => String(last[column.column])) : null,
-      more,
-      redacted: Object.keys(redactions).filter((column) => entry.columns.includes(column)),
-    };
+    return result;
   });
 }
 
@@ -653,6 +852,135 @@ function malformedCursor(error: unknown): never {
   throw error;
 }
 
+/* ------------------------------------------------------------- the files */
+
+/** A stored file as the copy carries it, without its bytes. */
+export interface ExportedFile {
+  id: string;
+  storageKey: string;
+  sha256: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+async function filesWithin(tx: Database, after: string | undefined, limit: number) {
+  const rows = await tx.select({
+    id: schema.storedFile.id, storageKey: schema.storedFile.storageKey, sha256: schema.storedFile.sha256,
+    contentType: schema.storedFile.contentType, sizeBytes: schema.storedFile.sizeBytes,
+  }).from(schema.storedFile)
+    .where(and(isNull(schema.storedFile.deletedAt), after ? gt(schema.storedFile.id, after) : undefined))
+    .orderBy(asc(schema.storedFile.id))
+    .limit(limit + 1);
+  const more = rows.length > limit;
+  const files = more ? rows.slice(0, limit) : rows;
+  return { files, cursor: files[files.length - 1]?.id ?? null, more };
+}
+
+async function bytesWithin(tx: Database, id: string): Promise<Buffer> {
+  const [row] = await tx.select(HELD).from(schema.storedFile)
+    .where(and(eq(schema.storedFile.id, id), isNull(schema.storedFile.deletedAt))).limit(1);
+  if (!row) throw new NotFoundError("File");
+  return bytesOf(row);
+}
+
+/**
+ * One stored file with its bytes, for a program taking a copy through the API.
+ *
+ * The one place this product hands bytes back inside JSON. Everywhere else a
+ * file is served from its own address so an image tag can point at it; an
+ * export is read by a program that wants the file and its checksum in one
+ * answer, and checks the one against the other.
+ */
+export function file(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "data:export", async (tx) => {
+    const [row] = await tx.select().from(schema.storedFile)
+      .where(and(eq(schema.storedFile.id, input.id), isNull(schema.storedFile.deletedAt))).limit(1);
+    if (!row) throw new NotFoundError("File");
+    const bytes = await bytesOf(row);
+    await audit(tx, ctx, "data.export.file", "stored_file", row.id, null, { sizeBytes: row.sizeBytes });
+    return {
+      id: row.id, storageKey: row.storageKey, sha256: row.sha256, contentType: row.contentType,
+      sizeBytes: row.sizeBytes, bytes: bytes.toString("base64"),
+    };
+  });
+}
+
+/* ---------------------------------------------------------- one moment */
+
+/**
+ * The whole company as it stood at one moment, for a writer to walk.
+ *
+ * What the archive, the newline delimited file and the scheduled copy are all
+ * written from. Injected into the writers rather than imported by them, so
+ * their failures can be staged in a test without a database.
+ */
+export interface ExportSource {
+  manifest: Manifest;
+  page(table: string, after: string[] | undefined, textual: boolean): Promise<Page>;
+  files(after: string | undefined): Promise<{ files: ExportedFile[]; cursor: string | null; more: boolean }>;
+  bytes(file: ExportedFile): Promise<Buffer>;
+}
+
+/**
+ * Read the whole company in ONE transaction, at one moment.
+ *
+ * The first version read each page in a transaction of its own, which is right
+ * for the API and wrong for a copy: a customer and their first job added while
+ * the export was between the `customer` table and the `job` table left a job in
+ * the file pointing at a customer who was not, and the copy could not be loaded
+ * back. `repeatable read` makes every table the same instant, so a copy is
+ * always one the database could have held, and the manifest's counts are
+ * exactly what follows them.
+ *
+ * THE AUDIT TRAIL IS WRITTEN OUTSIDE IT, before and after, each in its own
+ * transaction. A line written inside would vanish with a download that broke
+ * halfway, which is exactly the export somebody will later ask about. So the
+ * start is recorded before the first row is read, and the end, finished or
+ * stopped, with how many rows of each table were read, whatever happened.
+ */
+export async function withSnapshot<T>(
+  ctx: ServiceContext,
+  purpose: "download" | "archive" | "backup",
+  fn: (source: ExportSource) => Promise<T>,
+): Promise<T> {
+  assertCan(ctx.actor, "data:export");
+  await inTenant(ctx, (tx) => audit(tx, ctx, "data.export.started", "organization", ctx.actor.organizationId,
+    null, { purpose }));
+
+  const read = new Map<string, number>();
+  let files = 0;
+  let finished = false;
+  try {
+    const result = await inTenant(ctx, async (tx) => {
+      await tx.execute(sql`set local time zone 'UTC'`);
+      const tables = await catalogue(tx);
+      const source: ExportSource = {
+        manifest: await manifestWithin(tx, ctx, tables),
+        page: async (table, after, textual) => {
+          const result = await pageWithin(tx, tables, { table, after, textual });
+          read.set(table, (read.get(table) ?? 0) + result.rows.length);
+          return result;
+        },
+        files: (after) => filesWithin(tx, after, 500),
+        bytes: async (exported) => {
+          files += 1;
+          return bytesWithin(tx, exported.id);
+        },
+      };
+      return fn(source);
+    }, { isolationLevel: "repeatable read" });
+    finished = true;
+    return result;
+  } finally {
+    await inTenant(ctx, (tx) => audit(tx, ctx, finished ? "data.export.finished" : "data.export.stopped",
+      "organization", ctx.actor.organizationId, null, {
+        purpose, rows: [...read.values()].reduce((a, b) => a + b, 0), tables: Object.fromEntries(read), files,
+      })).catch((error: unknown) => {
+      console.error("[export] could not record the end of an export:", (error as Error).message);
+    });
+  }
+}
+
 export const handlers = {
   getExportManifest: (ctx: ServiceContext, _input: Record<string, never>) => {
     void _input;
@@ -661,4 +989,5 @@ export const handlers = {
   getExportPage: (ctx: ServiceContext, input: {
     table: string; after?: string[] | undefined; limit?: number | undefined;
   }) => page(ctx, input),
+  getExportFile: (ctx: ServiceContext, input: { id: string }) => file(ctx, input),
 } as const;

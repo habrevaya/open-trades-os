@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
 import * as marketingService from "./marketing";
+import { bytesOf, emptied } from "./files";
 
 /**
  * CALLS, RECORDING PERMISSION, AND WHAT A TRANSCRIPT IS ALLOWED TO CONTAIN
@@ -428,9 +429,7 @@ export async function deleteRecordingIn(tx: Database, ctx: ServiceContext, callI
   }).where(eq(schema.call.id, call.id)).returning();
 
   if (call.recordingStorageKey) {
-    await tx.update(schema.storedFile).set({
-      bytes: Buffer.alloc(0), sizeBytes: 0, deletedAt: new Date(), updatedAt: new Date(),
-    }).where(and(
+    await tx.update(schema.storedFile).set(emptied()).where(and(
       eq(schema.storedFile.organizationId, ctx.actor.organizationId),
       eq(schema.storedFile.storageKey, call.recordingStorageKey),
       eq(schema.storedFile.references, 0),
@@ -462,7 +461,7 @@ export async function recordingAudio(ctx: ServiceContext, callId: string, which:
         isNull(schema.storedFile.deletedAt),
       )).limit(1);
     if (!file) throw new NotFoundError("Recording");
-    return { bytes: file.bytes, contentType: file.contentType, sizeBytes: file.sizeBytes };
+    return { bytes: await bytesOf(file), contentType: file.contentType, sizeBytes: file.sizeBytes };
   });
 }
 

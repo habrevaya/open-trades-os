@@ -623,3 +623,92 @@ describe("refusal types", () => {
     expect(new ConflictError("x")).toBeInstanceOf(Error);
   });
 });
+
+/* ===================================================== what a copy carries */
+
+run("what a copy carries besides the rows", () => {
+  it("names the people who work here and the company's own row, never how anybody signs in", async () => {
+    const manifest = await dataExport.manifest(owner());
+    expect(manifest.format).toBe("opentradesos-export");
+    expect(manifest.people).toEqual([{ userId: USER, email: "export-co@test.local", name: null }]);
+    expect(manifest.company["name"]).toBe("Export Co");
+    expect(Object.keys(manifest.company)).not.toContain("slug");
+    expect(Object.keys(manifest.company)).not.toContain("suspended_at");
+    for (const person of manifest.people) expect(Object.keys(person).sort()).toEqual(["email", "name", "userId"]);
+  });
+
+  it("lists each table's columns with their types, which is what the README explains", async () => {
+    const manifest = await dataExport.manifest(owner());
+    const customer = manifest.tables.find((table) => table.table === "customer")!;
+    expect(customer.columns.find((c) => c.name === "id")).toEqual({ name: "id", type: "uuid", nullable: false, references: null });
+    expect(customer.columns.find((c) => c.name === "organization_id")?.references).toBe("organization");
+    const app = manifest.tables.find((table) => table.table === "app_token")!;
+    expect(app.columns.map((c) => c.name)).not.toContain("token_hash");
+  });
+
+  it("keeps a stored file's bytes out of the rows and says where they are", async () => {
+    await raw`insert into public.stored_file (organization_id, storage_key, content_type, sha256, size_bytes, bytes)
+              values (${ORG}, ${`${ORG}/aa/bb/x.png`}, 'image/png', ${"a".repeat(64)}, 3, '\\x010203'::bytea)`;
+    const manifest = await dataExport.manifest(owner());
+    const table = manifest.tables.find((t) => t.table === "stored_file")!;
+    expect(table.apart.map((a) => a.column)).toEqual(["bytes"]);
+    expect(manifest.files).toEqual({ count: 1, bytes: 3 });
+    const page = await dataExport.page(owner(), { table: "stored_file" });
+    expect(Object.keys(page.rows[0]!)).not.toContain("bytes");
+    const [file] = await raw<{ id: string }[]>`select id from public.stored_file where organization_id = ${ORG}`;
+    const fetched = await dataExport.file(owner(), { id: file!.id });
+    expect(Buffer.from(fetched.bytes, "base64")).toEqual(Buffer.from([1, 2, 3]));
+    await expect(dataExport.file(granted("document:read"), { id: file!.id })).rejects.toThrow(/permission/);
+  });
+
+  it("writes a moment with every digit Postgres holds, and a day as a day", async () => {
+    /**
+     * A JavaScript date keeps milliseconds and Postgres keeps microseconds, so
+     * the first version lost three digits of every timestamp on the way out; and
+     * a `date` came back as midnight in the server's zone. A restore can only
+     * put back what the export kept.
+     */
+    const [row] = await raw<{ id: string }[]>`
+      insert into public.customer (organization_id, type, name, payment_terms_days, created_at)
+      values (${ORG}, 'residential', 'Precise', 0, '2026-10-04 12:34:56.123456+00') returning id`;
+    const page = await dataExport.page(owner(), { table: "customer" });
+    const exported = page.rows.find((r) => r["id"] === row!.id)!;
+    expect(exported["created_at"]).toBe("2026-10-04T12:34:56.123456+00:00");
+  });
+});
+
+run("one moment", () => {
+  it("reads every table at the same instant, so a row added halfway is not half in the copy", async () => {
+    await customers(["Before"]);
+    const seen = await dataExport.withSnapshot(owner(), "download", async (source) => {
+      await raw`insert into public.customer (organization_id, type, name, payment_terms_days)
+                values (${ORG}, 'residential', 'During', 0)`;
+      const page = await source.page("customer", undefined, false);
+      return { counted: source.manifest.tables.find((t) => t.table === "customer")!.rows, names: page.rows.map((r) => r["name"]) };
+    });
+    expect(seen).toEqual({ counted: 1, names: ["Before"] });
+  });
+
+  it("records the start and the end of a copy, and a copy that stopped as stopped", async () => {
+    await customers(["A"]);
+    await dataExport.withSnapshot(owner(), "archive", async (source) => {
+      await source.page("customer", undefined, true);
+    });
+    await expect(dataExport.withSnapshot(owner(), "download", async () => {
+      throw new Error("the browser went away");
+    })).rejects.toThrow(/browser/);
+    const lines = await raw<{ action: string; after: Record<string, unknown> }[]>`
+      select action, "after" from public.audit_log
+      where organization_id = ${ORG} and action like 'data.export.%' and action <> 'data.export.manifest'
+      order by created_at asc`;
+    expect(lines.map((line) => line.action)).toEqual([
+      "data.export.started", "data.export.finished", "data.export.started", "data.export.stopped",
+    ]);
+    expect(lines[1]!.after["rows"]).toBe(1);
+  });
+
+  it("is refused without data:export, before anything is read", async () => {
+    await expect(dataExport.withSnapshot(granted("customer:read"), "download", async () => 1))
+      .rejects.toThrow(/permission/);
+  });
+});

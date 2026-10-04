@@ -15,6 +15,8 @@ import { createClient, type Database } from "@opentradesos/db";
  * So: scoped deletes, in foreign key order, in one place.
  */
 const ORDER = [
+  /** A copy's runs point at their destination, so they go first. Nothing else points at any of the three. */
+  "backup_run", "backup_destination", "restore_run",
   /**
    * Payroll first. A commission event points at an invoice and a job, an entry
    * points at the event and at a pay period, and an export points at a close.

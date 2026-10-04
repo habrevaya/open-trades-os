@@ -330,7 +330,7 @@ export async function publicPicture(db: Database, token: string, key: string) {
         eq(schema.storedFile.storageKey, item.storageKey),
         isNull(schema.storedFile.deletedAt),
       )).limit(1);
-    return file ? { bytes: file.bytes, contentType: file.contentType } : null;
+    return file ? { bytes: await files.bytesOf(file), contentType: file.contentType } : null;
   });
 }
 

@@ -2678,3 +2678,158 @@ returns table (organization_id uuid, purchase_order_id uuid)
 
 revoke all on function app.purchase_order_link(text) from public;
 grant execute on function app.purchase_order_link(text) to authenticated;
+
+-- ---- Loading a copy into an empty company --------------------------------
+-- A restore names the people who worked in the company by their address, and
+-- a person sits above the tenant, so "is there already an account for this
+-- address" cannot be answered from inside one. This answers it for each
+-- person in the copy and makes an account, with no password, for an address
+-- nobody has yet: the same thing an invitation does.
+--
+-- An address that already has an account is linked to the restored company
+-- only when it is the caller's own, or when that account works for a company
+-- the caller runs as an active owner, which is the case of restoring a copy
+-- beside the company it was taken from. Any other account is answered
+-- `elsewhere` and left alone: a file is not allowed to add somebody's existing
+-- account to a company, for the reason an invitation is not.
+--
+-- Only an active owner of the current company may ask, so a restore cannot be
+-- the way somebody without that standing mints accounts.
+create or replace function app.restore_people(p_people jsonb)
+  returns table (old_user_id uuid, email text, user_id uuid, outcome text)
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_actor uuid := (select app.current_user_id());
+    v_actor_email text;
+    v_person jsonb;
+    v_old uuid;
+    v_email text;
+    v_name text;
+    v_user uuid;
+  begin
+    if v_org is null or v_actor is null or not exists (
+      select 1 from public.membership m
+       where m.organization_id = v_org and m.user_id = v_actor and m.active and m.role = 'owner'
+    ) then
+      raise exception 'only an active owner of a company may restore people into it'
+        using errcode = 'insufficient_privilege';
+    end if;
+
+    select lower(u.email) into v_actor_email from public."user" u where u.id = v_actor;
+
+    for v_person in select * from jsonb_array_elements(coalesce(p_people, '[]'::jsonb)) loop
+      v_old := (v_person->>'userId')::uuid;
+      v_email := lower(trim(coalesce(v_person->>'email', '')));
+      v_name := nullif(trim(coalesce(v_person->>'name', '')), '');
+
+      if v_email = '' then
+        return query select v_old, v_email, null::uuid, 'no_address'::text;
+        continue;
+      end if;
+
+      if v_email = v_actor_email then
+        return query select v_old, v_email, v_actor, 'you'::text;
+        continue;
+      end if;
+
+      select u.id into v_user from public."user" u where u.email = v_email;
+
+      if v_user is null then
+        insert into public."user" (id, email, name)
+        values (
+          case when v_old is not null and not exists (select 1 from public."user" x where x.id = v_old)
+               then v_old else gen_random_uuid() end,
+          v_email, v_name)
+        returning id into v_user;
+        return query select v_old, v_email, v_user, 'new'::text;
+        continue;
+      end if;
+
+      if exists (
+        select 1 from public.membership mine
+          join public.membership theirs on theirs.organization_id = mine.organization_id
+         where mine.user_id = v_actor and mine.role = 'owner' and mine.active
+           and theirs.user_id = v_user
+      ) then
+        return query select v_old, v_email, v_user, 'linked'::text;
+      else
+        return query select v_old, v_email, null::uuid, 'elsewhere'::text;
+      end if;
+    end loop;
+  end;
+  $$;
+
+revoke all on function app.restore_people(jsonb) from public;
+grant execute on function app.restore_people(jsonb) to authenticated;
+
+-- Whether the company a copy was taken from is on this deployment. When it
+-- is, every id in the copy is already taken by the original, so the restore
+-- gives every record a new one; when it is not, the ids are kept, which is
+-- what lets links, integrations and anything else that remembered an id keep
+-- working after a move. A yes or no about an id the caller already holds in
+-- their file, asked only by an active member of a company.
+create or replace function app.restore_source_present(p_organization_id uuid)
+  returns boolean
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select exists (
+      select 1 from public.membership m
+       where m.organization_id = (select app.current_organization_id())
+         and m.user_id = (select app.current_user_id()) and m.active
+    ) and exists (
+      select 1 from public.organization o where o.id = p_organization_id
+    )
+  $$;
+
+revoke all on function app.restore_source_present(uuid) from public;
+grant execute on function app.restore_source_present(uuid) to authenticated;
+
+-- ---- Copies due on a clock -------------------------------------------------
+-- The same shape as the delivery schedules: which companies have a copy due,
+-- across every tenant, as ids and nothing else. A suspended company takes no
+-- copies; its destination waits.
+create or replace function app.due_backups(p_limit int default 20)
+returns table (organization_id uuid, destination_id uuid, next_run_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select d.organization_id, d.id, d.next_run_at
+    from public.backup_destination d
+    where d.next_run_at is not null
+      and d.next_run_at <= now()
+      and not exists (
+        select 1 from public.organization o
+         where o.id = d.organization_id and o.suspended_at is not null
+      )
+    order by d.next_run_at
+    limit p_limit
+  $$;
+
+revoke all on function app.due_backups(int) from public;
+grant execute on function app.due_backups(int) to background;
+
+-- ---- Where each company's files are ----------------------------------------
+-- The companies with files in Postgres (`postgres`), files in the bucket
+-- (`object`), or deleted files whose object the worker has still to delete
+-- (`sweep`). For the command that moves files between the two and for the
+-- worker's sweep, both of which work a company at a time inside its tenant.
+create or replace function app.file_store_organizations(p_kind text, p_limit int default 100)
+returns table (organization_id uuid, files bigint)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select f.organization_id, count(*)::bigint
+    from public.stored_file f
+    where case p_kind
+      when 'postgres' then f.stored_in = 'postgres' and f.deleted_at is null
+      when 'object' then f.stored_in = 'object' and f.deleted_at is null
+      when 'sweep' then f.stored_in = 'object' and f.deleted_at is not null
+      else false
+    end
+    group by f.organization_id
+    order by f.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.file_store_organizations(text, int) from public;
+grant execute on function app.file_store_organizations(text, int) to background;

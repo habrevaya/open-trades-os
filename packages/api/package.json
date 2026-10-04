@@ -29,6 +29,7 @@
     "test": "vitest run",
     "openapi": "tsx src/lib/generate-openapi.ts && pnpm --filter @opentradesos/sdk run generate",
     "worker": "tsx src/bin/worker.ts",
+    "files:move": "tsx src/bin/files-move.ts",
     "voice-relay": "tsx src/bin/voice-relay.ts",
     "seed": "tsx src/seed/index.ts",
     "mcp": "tsx src/bin/mcp-stdio.ts"

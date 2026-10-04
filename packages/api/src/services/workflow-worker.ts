@@ -19,6 +19,8 @@ import { purgePass } from "./retention";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import { purgePositions } from "./location";
+import { startBackups } from "./backups";
+import { sweepPass } from "./file-storage";
 import type { PushProvider } from "../push/provider";
 
 /**
@@ -275,9 +277,18 @@ export interface PassOptions {
    * needs a delete every five seconds.
    */
   positions?: false;
+  /**
+   * Scheduled copies to each company's bucket. Started beside the pass rather
+   * than inside it, because writing out a large company takes minutes and a
+   * text waiting behind it must not. `false` in tests that are about something
+   * else.
+   */
+  backups?: false;
 }
 
 let positionsPurgedAt = 0;
+let filesSweptAt = 0;
+const FILE_SWEEP_INTERVAL_MS = 10 * 60_000;
 const POSITION_PURGE_INTERVAL_MS = 10 * 60_000;
 
 /**
@@ -524,6 +535,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       });
     } catch (error) {
       console.error("[worker] webhooks:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Copies due to buckets, and the objects of removed files still to delete.
+   * Both their own try: a bucket that is down must not hold up anything else,
+   * and both are picked up again on a later pass.
+   */
+  if (options.backups !== false) startBackups(options.db);
+  if (Date.now() - filesSweptAt >= FILE_SWEEP_INTERVAL_MS) {
+    try {
+      await sweepPass(options.db);
+      filesSweptAt = Date.now();
+    } catch (error) {
+      console.error("[worker] file sweep:", (error as Error).message);
     }
   }
 

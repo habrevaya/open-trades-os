@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { geo, location as loc, time } from "@opentradesos/core";
 import {
@@ -532,10 +533,10 @@ export async function trackingPhoto(db: Database, token: string): Promise<{ byte
     const picked = pickVisit(visits);
     const fileId = visits.find((v) => v.id === picked?.id)?.photoFileId ?? null;
     if (!fileId) return null;
-    const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+    const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
       .from(schema.storedFile).where(eq(schema.storedFile.id, fileId)).limit(1);
     if (!file || !file.contentType.startsWith("image/")) return null;
-    return { bytes: file.bytes, contentType: file.contentType };
+    return { bytes: await bytesOf(file), contentType: file.contentType };
   });
 }
 
