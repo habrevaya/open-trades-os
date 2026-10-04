@@ -123,6 +123,20 @@ endpoints refuse that client with a 401 unless it sends the secret, in the
 `Authorization` header or in the form but not both. PKCE is required of it too,
 because the secret proves which client is calling and PKCE proves the code was
 asked for by the same one.
+
+A confidential client rotates its own secret at `POST /api/oauth/client-secret`,
+proving itself with the current secret (either way it may send one) and
+optionally `overlap_seconds`, from 0 to 86400, an hour unless it says. The answer
+carries the new `client_secret`, shown once and kept only as a hash, and
+`previous_secret_expires_at`: until then the old secret works too, at every
+endpoint, so the maker can roll the new one out to each of its servers. Nought
+ends the old one at once, which is the answer when it leaked. Only the current
+secret can rotate, never the one in its overlap, so a leaked old secret cannot be
+used to keep a working one; a second rotation during an overlap retires the
+oldest, so two at most ever work. Every company that has connected the client
+gets `app.oauth_secret_rotated` in its audit log, naming the client and when the
+old secret stops, and never the secret. A company's administrator cannot rotate
+it: the secret lives on the client maker's server, not with any one company.
 A code lives ten minutes, works once and is bound to the client, its redirect
 address and the PKCE challenge. Presenting a code twice revokes everything the
 first exchange produced. Access tokens are ordinary app tokens an hour long;
@@ -149,8 +163,12 @@ alone. The answer is the same 200 whether or not the token existed, and a token
 another client holds is refused. `/api/oauth/introspect` (RFC 7662) tells a
 client whether one of its own tokens is still live, with its scope and expiry;
 anything else, another client's token included, is `active: false` and nothing
-more. Neither ends the connected app, which stays under Settings, Applications
-for the company to turn off. A registration no company has approved a week after
+more. Introspection never ends the connected app. Revocation does when the client
+adds `end_connection=true`: the app is turned off as well, with every token and
+refresh token it holds, and Settings, Applications says the application
+disconnected itself (`app.revoked` in the audit log); a retry finds it already off
+and succeeds. Without it the app stays under Settings, Applications, with nothing
+live, for the company to turn off. A registration no company has approved a week after
 it was made is removed by the worker; one any company approved is kept.
 
 ## Using it
@@ -212,8 +230,8 @@ an expired or revoked token says `invalid_token` so the client refreshes.
 
 OAuth lives beside it: `/.well-known/oauth-authorization-server`,
 `/.well-known/oauth-protected-resource`, `POST /api/oauth/register`,
-`/oauth/authorize`, `POST /api/oauth/token`, `POST /api/oauth/revoke` and
-`POST /api/oauth/introspect`. Over HTTP a dry run is the
+`/oauth/authorize`, `POST /api/oauth/token`, `POST /api/oauth/revoke`,
+`POST /api/oauth/introspect` and `POST /api/oauth/client-secret`. Over HTTP a dry run is the
 `x-otos-dry-run: true` header on a route the OpenAPI document marks
 `x-dry-run`.
 
@@ -266,12 +284,17 @@ token issued there.
 
 OAuth introspection answers a client about its own tokens only; there is no
 resource server here other than this instance, so nothing else is authorised to
-ask about somebody else's. A confidential client's secret does not expire and
-cannot be rotated: a client whose secret leaked registers again and is approved
-again. Clients authenticate with a secret or not at all; signed JWT assertions
-(`private_key_jwt`) and mutual TLS are not supported. A revoked token ends the
-token, not the connection: the app stays active with nothing live until the
-company turns it off or the client is approved again. The stdio
+ask about somebody else's. A confidential client's secret does not expire on its
+own; it is replaced only when the client rotates it, and a client that has lost
+its current secret cannot rotate and registers again. A secret that leaked can be
+used by whoever holds it to rotate before the maker does, which locks the maker
+out until it registers again; the audit line in each company is how that is seen.
+There is no registration access token (RFC 7592) and no way to change a
+registration's name or addresses. Clients authenticate with a secret or not at
+all; signed JWT assertions (`private_key_jwt`) and mutual TLS are not supported.
+Ending the connection on revocation is this product's own `end_connection`
+parameter, not part of RFC 7009, so a client written only to the RFC ends the
+token and leaves the app for the company to turn off. The stdio
 transports read their token once at start and check it on every message, so a
 new token means restarting the client. A dry run is offered on seventeen bulk routes:
 the bulk changes and the routes that change how the company is set up, and on no

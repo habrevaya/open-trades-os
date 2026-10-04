@@ -4,7 +4,7 @@ import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import * as oauth from "../src/services/oauth";
 import * as apps from "../src/services/apps";
-import { handleToken, handleRegister, handleRevoke, handleIntrospect, mcpUnauthorized } from "../src/http/oauth";
+import { handleToken, handleRegister, handleRevoke, handleIntrospect, handleRotateSecret, mcpUnauthorized } from "../src/http/oauth";
 import { handleMcp } from "../src/mcp/server";
 import { authenticate } from "../src/http/authenticate";
 import type { ServiceContext } from "../src/services/context";
@@ -606,5 +606,170 @@ run("clearing out registrations nobody used", () => {
     expect(await oauth.findClient(db(), unused)).toBeNull();
     expect(await oauth.findClient(db(), used)).not.toBeNull();
     expect(await oauth.findClient(db(), fresh)).not.toBeNull();
+  });
+});
+
+run("rotating a confidential client's secret", () => {
+  /**
+   * The refusals first, because a rotation is a way to obtain a working
+   * secret. Only the client may rotate, only with the secret that is current,
+   * and the overlap is short and the caller's to choose, down to none.
+   */
+  const rotate = (form: Record<string, string>, credentials: oauth.ClientCredentials = {}) =>
+    oauth.rotateClientSecret(db(), form, "198.51.100.7", credentials);
+  const confidential = () => oauth.registerClient(db(), {
+    client_name: "Rotating Assistant", redirect_uris: [REDIRECT], token_endpoint_auth_method: "client_secret_post",
+  });
+  const refreshWith = async (client: oauth.RegisteredClient, secret: string, refreshToken: string) =>
+    exchange({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: client.client_id, client_secret: secret });
+
+  it("refuses a public client, a wrong secret, a missing secret and an overlap out of bounds", async () => {
+    await expect(rotate({ client_id: clientId })).rejects.toMatchObject({ error: "invalid_client", status: 401 });
+    const client = await confidential();
+    await expect(rotate({ client_id: client.client_id })).rejects.toMatchObject({ error: "invalid_client" });
+    await expect(rotate({ client_id: client.client_id, client_secret: "ocs_guess" }))
+      .rejects.toMatchObject({ error: "invalid_client", status: 401 });
+    for (const overlap of ["-1", "86401", "1.5", "an hour"]) {
+      await expect(rotate({ client_id: client.client_id, client_secret: client.client_secret!, overlap_seconds: overlap }))
+        .rejects.toMatchObject({ error: "invalid_request" });
+    }
+    // Nothing above changed the secret.
+    const { verifier, challenge } = verifierPair();
+    const { code } = await authorize(challenge, "read", client.client_id);
+    await expect(exchange({
+      grant_type: "authorization_code", code, client_id: client.client_id, redirect_uri: REDIRECT,
+      code_verifier: verifier, client_secret: client.client_secret!,
+    })).resolves.toMatchObject({ token_type: "Bearer" });
+  });
+
+  it("refuses a rotation asked for with the old secret during its overlap", async () => {
+    /** A leaked old secret that could rotate would let whoever holds it keep a working secret for good. */
+    const client = await confidential();
+    const first = await rotate({ client_id: client.client_id, client_secret: client.client_secret! });
+    await expect(rotate({ client_id: client.client_id, client_secret: client.client_secret! }))
+      .rejects.toMatchObject({ error: "invalid_client" });
+    // The new one may rotate again, and that retires the oldest at once.
+    const second = await rotate({ client_id: client.client_id, client_secret: first.client_secret });
+    await expect(oauth.authenticateClient(db(), { client_id: client.client_id, client_secret: client.client_secret! }))
+      .rejects.toMatchObject({ error: "invalid_client" });
+    await expect(oauth.authenticateClient(db(), { client_id: client.client_id, client_secret: first.client_secret }))
+      .resolves.toMatchObject({ confidential: true });
+    await expect(oauth.authenticateClient(db(), { client_id: client.client_id, client_secret: second.client_secret }))
+      .resolves.toMatchObject({ confidential: true });
+  });
+
+  it("shows the new secret once, keeps only its hash, and lets both work during the overlap", async () => {
+    const client = await confidential();
+    const { verifier, challenge } = verifierPair();
+    const { code, appId } = await authorize(challenge, "read", client.client_id);
+    const pair = await exchange({
+      grant_type: "authorization_code", code, client_id: client.client_id, redirect_uri: REDIRECT,
+      code_verifier: verifier, client_secret: client.client_secret!,
+    });
+
+    const rotated = await rotate({ client_id: client.client_id, client_secret: client.client_secret!, overlap_seconds: "600" });
+    expect(rotated.client_secret).toMatch(/^ocs_/);
+    expect(rotated.client_secret).not.toBe(client.client_secret);
+    expect(rotated.previous_secret_expires_at! - Math.floor(Date.now() / 1000)).toBeGreaterThan(500);
+    expect(rotated.previous_secret_expires_at! - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(600);
+
+    const [row] = await raw<{ secret_hash: string; previous_secret_hash: string; secret_rotated_at: Date | null }[]>`
+      select secret_hash, previous_secret_hash, secret_rotated_at from public.oauth_client where client_id = ${client.client_id}`;
+    expect(row!.secret_hash).toBe(createHash("sha256").update(rotated.client_secret).digest("hex"));
+    expect(row!.previous_secret_hash).toBe(createHash("sha256").update(client.client_secret!).digest("hex"));
+    expect(JSON.stringify(row)).not.toContain(rotated.client_secret);
+    expect(row!.secret_rotated_at).not.toBeNull();
+
+    // Both work while the overlap runs: the old on one server, the new on the next.
+    const next = await refreshWith(client, client.client_secret!, pair.refresh_token);
+    await refreshWith(client, rotated.client_secret, next.refresh_token);
+
+    // The company that connected it sees the rotation in its own log, and never the secret.
+    const lines = await raw<{ after: Record<string, unknown> }[]>`select after from public.audit_log
+      where organization_id = ${ORG} and action = 'app.oauth_secret_rotated' and entity_id = ${appId}`;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.after).toMatchObject({ clientId: client.client_id });
+    expect(JSON.stringify(lines[0]!.after)).not.toContain(rotated.client_secret);
+  });
+
+  it("stops the old secret once the overlap is over, and at once when no overlap was asked for", async () => {
+    const leaked = await confidential();
+    const fresh = await rotate({ client_id: leaked.client_id, client_secret: leaked.client_secret!, overlap_seconds: "0" });
+    expect(fresh.previous_secret_expires_at).toBeNull();
+    await expect(oauth.authenticateClient(db(), { client_id: leaked.client_id, client_secret: leaked.client_secret! }))
+      .rejects.toMatchObject({ error: "invalid_client" });
+
+    const rolling = await confidential();
+    await rotate({ client_id: rolling.client_id, client_secret: rolling.client_secret! });
+    await raw`update public.oauth_client set previous_secret_expires_at = now() - interval '1 second'
+      where client_id = ${rolling.client_id}`;
+    await expect(oauth.authenticateClient(db(), { client_id: rolling.client_id, client_secret: rolling.client_secret! }))
+      .rejects.toMatchObject({ error: "invalid_client" });
+  });
+
+  it("answers over HTTP with the new secret, never cached", async () => {
+    const client = await confidential();
+    const response = await handleRotateSecret(new Request("http://x/api/oauth/client-secret", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: client.client_id, client_secret: client.client_secret! }).toString(),
+    }), db());
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json() as oauth.RotatedSecret;
+    expect(body.client_secret).toMatch(/^ocs_/);
+    expect(body.client_id).toBe(client.client_id);
+  });
+});
+
+run("handing a token back and ending the connection", () => {
+  const revoke = (form: Record<string, string>) => oauth.revoke(db(), form, "198.51.100.8");
+
+  it("refuses an end_connection that is not true or false, and changes nothing", async () => {
+    const client = await register();
+    const pair = await connect(client);
+    await expect(revoke({ token: pair.refresh_token, client_id: client, end_connection: "yes" }))
+      .rejects.toMatchObject({ error: "invalid_request" });
+    expect(await apps.resolveToken(db(), pair.access_token)).not.toBeNull();
+  });
+
+  it("will not end another client's connection", async () => {
+    const mine = await register();
+    const theirs = await register();
+    const pair = await connect(mine);
+    await expect(revoke({ token: pair.refresh_token, client_id: theirs, end_connection: "true" }))
+      .rejects.toMatchObject({ error: "unauthorized_client" });
+    expect((await apps.list(owner())).find((a) => a.id === pair.appId)).toMatchObject({ status: "active" });
+  });
+
+  it("turns the app off with every token it holds, and says the app did it", async () => {
+    const client = await register();
+    const pair = await connect(client);
+    const again = await exchange({ grant_type: "refresh_token", refresh_token: pair.refresh_token, client_id: client });
+    await revoke({ token: again.access_token, client_id: client, end_connection: "true" });
+
+    const app = (await apps.list(owner())).find((a) => a.id === pair.appId)!;
+    expect(app.status).toBe("revoked");
+    expect(app.revokedReason).toMatch(/disconnected itself/);
+    expect(app.live).toBe(false);
+    expect(await apps.resolveToken(db(), again.access_token)).toBeNull();
+    await expect(exchange({ grant_type: "refresh_token", refresh_token: again.refresh_token, client_id: client }))
+      .rejects.toMatchObject({ error: "invalid_grant" });
+    const [line] = await raw<{ n: number }[]>`select count(*)::int as n from public.audit_log
+      where organization_id = ${ORG} and action = 'app.revoked' and entity_id = ${pair.appId}`;
+    expect(line!.n).toBe(1);
+
+    // A retry after a lost answer succeeds and writes nothing more.
+    await revoke({ token: again.access_token, client_id: client, end_connection: "true" });
+    const [after] = await raw<{ n: number }[]>`select count(*)::int as n from public.audit_log
+      where organization_id = ${ORG} and action = 'app.revoked' and entity_id = ${pair.appId}`;
+    expect(after!.n).toBe(1);
+  });
+
+  it("leaves the connection alone when end_connection is false or absent", async () => {
+    const client = await register();
+    const pair = await connect(client);
+    await revoke({ token: pair.access_token, client_id: client, end_connection: "false" });
+    expect((await apps.list(owner())).find((a) => a.id === pair.appId)).toMatchObject({ status: "active" });
   });
 });

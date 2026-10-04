@@ -695,6 +695,14 @@ export const connectedApp = pgTable("connected_app", {
   status: connectedAppStatus("status").notNull().default("pending"),
   /** Permission keys from the catalogue in @opentradesos/core. */
   permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  /**
+   * What a request ASKED for, kept beside what was granted, because an
+   * approval can give part of it. Null for an app an operator installed by
+   * hand or one connected through OAuth, which never asked in this form. The
+   * difference between the two lists is what the app and the person who
+   * approved it are both shown as left out.
+   */
+  requestedPermissions: jsonb("requested_permissions").$type<string[]>(),
   /** Per resource scope, same shape and meaning as on a membership. */
   scopes: jsonb("scopes").$type<Record<string, string>>().notNull().default({}),
   requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
@@ -752,6 +760,12 @@ export const connectedApp = pgTable("connected_app", {
 }, (t) => ({
   orgIdx: index("connected_app_org_idx").on(t.organizationId, t.status),
   oauthIdx: index("connected_app_oauth_idx").on(t.organizationId, t.oauthClientId),
+  /**
+   * One request per claim secret per company. An app that retries a request
+   * whose answer it lost sends the same secret, and is handed the first
+   * request back rather than leaving a second one waiting.
+   */
+  claimIdx: uniqueIndex("connected_app_claim_idx").on(t.organizationId, t.claimHash),
 }));
 
 /**
@@ -827,6 +841,17 @@ export const oauthClient = pgTable("oauth_client", {
    * be a list of every assistant's password. Null for a public client.
    */
   secretHash: text("secret_hash"),
+  /**
+   * The secret before the last rotation, for a short overlap only, so the
+   * client's maker can roll the new one out to every server it runs on
+   * without a minute in which none of them can connect. Null outside an
+   * overlap, and null at once after a rotation asked for none, which is the
+   * answer when the old one leaked.
+   */
+  previousSecretHash: text("previous_secret_hash"),
+  previousSecretExpiresAt: timestamp("previous_secret_expires_at", { withTimezone: true }),
+  /** When the secret was last rotated. Null for one never rotated. */
+  secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

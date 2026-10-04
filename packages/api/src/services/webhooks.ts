@@ -1622,7 +1622,7 @@ export interface Replay {
   fromSequence: number;
   throughSequence: number;
   position: number;
-  status: "pending" | "done" | "failed";
+  status: "pending" | "done" | "failed" | "cancelled";
   failureCount: number;
   lastError: string | null;
   createdAt: string;

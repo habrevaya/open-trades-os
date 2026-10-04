@@ -125,6 +125,11 @@ export const webhookReplayStatus = pgEnum("webhook_replay_status", [
   "done",
   /** The receiver kept refusing and the replay stopped trying. See `last_error`. */
   "failed",
+  /**
+   * Somebody stopped it before it finished. What had already gone stays
+   * gone, and `position` says how far it got.
+   */
+  "cancelled",
 ]);
 
 export const webhookReplay = pgTable("webhook_replay", {
@@ -145,6 +150,8 @@ export const webhookReplay = pgTable("webhook_replay", {
   lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
   lastError: text("last_error"),
   requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Who stopped it, when somebody did. */
+  cancelledByUserId: uuid("cancelled_by_user_id").references(() => user.id, { onDelete: "set null" }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
