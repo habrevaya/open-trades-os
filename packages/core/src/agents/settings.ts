@@ -73,6 +73,9 @@ export interface AgentSettings {
 
 export const DEFAULT_TONE = "Friendly, plain and brief. No jargon.";
 
+/** The agents that only ever run when a person asks, as that person. */
+export const ASKED_ONLY: readonly AgentKind[] = ["estimate", "dispatch", "field"];
+
 export const DEFAULT_STEPS: readonly CollectionsStep[] = [
   { afterDays: 3, tone: "A friendly nudge. They have probably just forgotten.", channel: "email" },
   { afterDays: 14, tone: "Polite and clear that it is now overdue.", channel: "email" },
@@ -88,7 +91,7 @@ export function defaultSettings(kind: AgentKind): AgentSettings {
     provider: null,
     model: null,
     limits: {
-      runsPerDay: kind === "chat" ? 500 : 100,
+      runsPerDay: kind === "chat" ? 500 : kind === "field" ? 300 : 100,
       maxOutputTokens: kind === "dispatch" || kind === "estimate" ? 4000 : 1500,
       messagesPerChat: 20,
     },
@@ -209,11 +212,12 @@ export function checkSettings(kind: AgentKind, input: AgentSettings): SettingsVe
       reason: `The ${def.label.toLowerCase()} always waits for a person. It cannot be set to act on its own.`,
     };
   }
-  if (input.enabled && input.runAsUserId === null && kind !== "estimate" && kind !== "dispatch") {
+  if (input.enabled && input.runAsUserId === null && !ASKED_ONLY.includes(kind)) {
     /**
-     * Estimates and the copilot only ever run when somebody presses a button,
-     * and then they run as that somebody. The other three run on their own,
-     * so they need a person to run as before they can be turned on.
+     * Estimates, the copilot and the field assistant only ever run when
+     * somebody asks, and then they run as that somebody. The other three run
+     * on their own, so they need a person to run as before they can be
+     * turned on.
      */
     return { ok: false, reason: "Choose who this agent acts as before turning it on. It never has more access than that person." };
   }

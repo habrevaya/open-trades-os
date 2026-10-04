@@ -67,7 +67,18 @@ const TECHNICIAN_BASE: Permission[] = [
   "visit:read",
   "servicereport:read", "servicereport:write",
   "estimate:read", "estimate:write", "estimate:send",
+  /**
+   * The sale at the kitchen table: the customer chooses and signs on the
+   * technician's screen. Not `estimate:approve`, which records a yes on the
+   * customer's behalf; here the customer gives it themselves.
+   */
+  "estimate:present",
   "invoice:read", "payment:collect",
+  /**
+   * The bill for their own visit's work, raised and signed for on site.
+   * Not `invoice:write`, which would let them raise and edit any invoice.
+   */
+  "invoice:raise_on_site",
   "deposit:collect",
   // Hands the customer a link to approve on their own phone. A technician
   // approving on the customer's behalf is a different thing, and is not here.
@@ -131,6 +142,8 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "workflow:read",
       "job.cost:read", "pricebook.cost:read",
       "safety:read", "safety:write",
+      /** The service manager writes down how the company does things, for the field assistant. */
+      "knowledge:write",
     ],
   },
 

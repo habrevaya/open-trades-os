@@ -125,7 +125,7 @@ export interface FinancingDeps {
   provider?: FinancingProvider | undefined;
 }
 
-const DEFAULT_DEPS: FinancingDeps = { readSecret: secretFromEnvironment };
+export const DEFAULT_DEPS: FinancingDeps = { readSecret: secretFromEnvironment };
 
 async function providerFor(connection: Connection, deps: FinancingDeps): Promise<FinancingProvider> {
   if (deps.provider) return deps.provider;

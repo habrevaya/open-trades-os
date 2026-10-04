@@ -76,6 +76,15 @@ export const PERMISSIONS = {
   "estimate:discount": "Apply a discount",
   "estimate.discount.unlimited": "Apply a discount above the configured cap",
   "estimate:approve": "Approve or decline an estimate on the customer's behalf",
+  /**
+   * The customer choosing and signing on the technician's own screen, at the
+   * kitchen table, rather than on their phone through a link. Narrower than
+   * `estimate:approve` and different in kind: the person holding it records
+   * nothing on the customer's behalf. The customer picks the option and
+   * draws the signature, and the phone only carries it, for a visit on the
+   * technician's own day. A technician holds this and not `estimate:approve`.
+   */
+  "estimate:present": "Show a customer an estimate on your screen and take their choice and signature",
   "booking:read": "View booking requests from the website",
   "booking:decide": "Confirm or decline a booking request",
   "booking:configure": "Choose what the public may book, and on what terms",
@@ -102,6 +111,14 @@ export const PERMISSIONS = {
   // --- Money ---------------------------------------------------------------
   "invoice:read": "View invoices",
   "invoice:write": "Create and edit invoices",
+  /**
+   * Raising the bill for the work in front of you, on site, and nothing
+   * else. `invoice:write` raises, edits and issues any invoice for any job,
+   * which is the office's power; this raises and issues ONE invoice, from
+   * the work recorded on a visit on the holder's own day or the option the
+   * customer signed for, priced by the same rules the office's would be.
+   */
+  "invoice:raise_on_site": "Raise and issue the invoice for the work on your own visit",
   "invoice:send": "Send an invoice",
   "invoice:void": "Void an invoice",
   "invoice:writeoff": "Write off a balance",
@@ -137,6 +154,13 @@ export const PERMISSIONS = {
 
   // --- Workforce -----------------------------------------------------------
   "field:sync": "Use the field app and submit work from it",
+  /**
+   * The company's own how-to notes (how this company bleeds a boiler, which
+   * filter the Johnsons' unit takes), which the field assistant answers from.
+   * Separate from settings because the person who knows the procedure is a
+   * lead technician or a service manager, not whoever runs the system.
+   */
+  "knowledge:write": "Write the company's how-to notes the field assistant answers from",
   "timeclock:own": "Clock in and out",
   "timesheet:read": "View timesheets",
   "timesheet:approve": "Approve timesheets",

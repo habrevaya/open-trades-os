@@ -898,6 +898,20 @@ export interface ApproveVisitChangeRequestOutput {
   assignmentsRemoved: number;
 }
 
+export interface AskFieldAssistantInput {
+  question: string;
+  visitId?: string;
+}
+
+export interface AskFieldAssistantOutput {
+  answered: boolean;
+  text: string;
+  sources: Array<{
+    kind: string;
+    title: string;
+  }>;
+}
+
 export interface AssignCrewToVisitInput {
   crewId: string;
 }
@@ -2549,6 +2563,21 @@ export interface CreateJournalEntryOutput {
     amount: string;
     memo: string | null;
   }>;
+}
+
+export interface CreateKnowledgeNoteInput {
+  title: string;
+  body: string;
+  tags?: string[];
+}
+
+export interface CreateKnowledgeNoteOutput {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  updatedAt: string;
+  updatedByName: string | null;
 }
 
 export interface CreateLeadConnectorInput {
@@ -5721,6 +5750,58 @@ export interface GetFieldSnapshotOutput {
       result: string | null;
       performedOn: string | null;
     }>;
+    member: {
+      planName: string;
+      rate: string;
+      waivesDiagnosticFee: boolean;
+      waivesAfterHoursRate: boolean;
+    } | null;
+    estimates: Array<{
+      id: string;
+      number: number;
+      status: string;
+      title: string | null;
+      jobId: string | null;
+      selectedOptionId: string | null;
+      signerName: string | null;
+      terms: string | null;
+      options: Array<{
+        id: string;
+        name: string;
+        description: string | null;
+        isRecommended: boolean;
+        total: string;
+        lines: Array<{
+          id: string;
+          name: string;
+          description: string | null;
+          quantity: string;
+          unitPrice: string;
+          discountAmount: string;
+          memberDiscountAmount: string;
+          taxable: boolean;
+          taxRate: string;
+          isOptional: boolean;
+          isSelected: boolean;
+        }>;
+      }>;
+    }>;
+    billable: Array<{
+      id: string;
+      name: string;
+      quantity: string;
+      unitPrice: string;
+      taxable: boolean;
+      itemKind: string | null;
+      feeRole: string | null;
+    }>;
+    invoices: Array<{
+      id: string;
+      number: number;
+      status: string;
+      total: string;
+      balance: string;
+    }>;
   }>;
   priceBook: Array<{
     id: string;
@@ -5729,6 +5810,13 @@ export interface GetFieldSnapshotOutput {
     name: string;
     unitPrice: string;
     taxable: boolean;
+    description: string | null;
+    kind: string;
+    feeRole: string | null;
+    components: Array<{
+      name: string;
+      quantity: number;
+    }>;
   }>;
   openTimeEntry: {
     id: string;
@@ -5754,6 +5842,31 @@ export interface GetFieldSnapshotOutput {
     personEnabled: boolean;
     intervalSeconds: number;
     retentionDays: number;
+  };
+  tasks: Array<{
+    id: string;
+    title: string;
+    body: string | null;
+    priority: string;
+    status: string;
+    mine: boolean;
+    dueAt: string | null;
+    overdue: boolean;
+    checklistTotal: number;
+    checklistDone: number;
+  }>;
+  abilities: {
+    writeEstimates: boolean;
+    presentEstimates: boolean;
+    raiseInvoices: boolean;
+    takePayments: boolean;
+    tasks: boolean;
+    tipping: {
+      enabled: boolean;
+      presets: number[];
+    };
+    financing: boolean;
+    assistant: boolean;
   };
 }
 
@@ -9121,7 +9234,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -10144,6 +10257,17 @@ export interface ListJournalOutput {
     }>;
     totalDebits: string;
     totalCredits: string;
+  }>;
+}
+
+export interface ListKnowledgeNotesOutput {
+  notes: Array<{
+    id: string;
+    title: string;
+    body: string;
+    tags: string[];
+    updatedAt: string;
+    updatedByName: string | null;
   }>;
 }
 
@@ -14048,6 +14172,13 @@ export interface RemoveEmergencyContactOutput {
   }>;
 }
 
+export type RemoveKnowledgeNoteInput = Record<string, unknown>;
+
+export interface RemoveKnowledgeNoteOutput {
+  id: string;
+  removed: boolean;
+}
+
 export type RemoveOnboardingTemplateItemInput = Record<string, unknown>;
 
 export interface RemoveOnboardingTemplateItemOutput {
@@ -16835,7 +16966,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "tip.record";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -17659,6 +17790,21 @@ export interface UpdateJobOutput {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface UpdateKnowledgeNoteInput {
+  title?: string;
+  body?: string;
+  tags?: string[];
+}
+
+export interface UpdateKnowledgeNoteOutput {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  updatedAt: string;
+  updatedByName: string | null;
 }
 
 export interface UpdateLeadConnectorInput {
@@ -18857,6 +19003,20 @@ export interface ViewPortalReferralOutput {
     firstName: string;
     rewarded: boolean;
   }>;
+}
+
+export interface VisitFinancingLinkInput {
+  text?: boolean;
+}
+
+export interface VisitFinancingLinkOutput {
+  url: string;
+  invoiceId: string;
+  invoiceNumber: number;
+  amount: string;
+  lender: string;
+  texted: boolean;
+  reason: string | null;
 }
 
 export interface VisitPaymentLinkInput {
@@ -20528,6 +20688,8 @@ export interface ListJournalEntriesInput {
   limit?: number;
 }
 
+export type ListKnowledgeNotesInput = Record<string, never>;
+
 export type ListKpiCatalogueInput = Record<string, never>;
 
 export type ListLeadConnectorsInput = Record<string, never>;
@@ -21175,6 +21337,10 @@ export interface RemoveEmergencyContactParams {
   id: string;
 }
 
+export interface RemoveKnowledgeNoteParams {
+  id: string;
+}
+
 export interface RemoveOnboardingTemplateItemParams {
   id: string;
 }
@@ -21691,6 +21857,10 @@ export interface UpdateJobParams {
   id: string;
 }
 
+export interface UpdateKnowledgeNoteParams {
+  id: string;
+}
+
 export interface UpdateLeadConnectorParams {
   id: string;
 }
@@ -21811,6 +21981,10 @@ export interface ViewPortalReferralInput {
   token: string;
 }
 
+export interface VisitFinancingLinkParams {
+  id: string;
+}
+
 export interface VisitPaymentLinkParams {
   id: string;
 }
@@ -21883,6 +22057,7 @@ export interface OperationTypes {
   approveTimeEntries: { input: ApproveTimeEntriesInput; output: ApproveTimeEntriesOutput };
   approveTimeOff: { input: ApproveTimeOffParams & ApproveTimeOffInput; output: ApproveTimeOffOutput };
   approveVisitChangeRequest: { input: ApproveVisitChangeRequestParams & ApproveVisitChangeRequestInput; output: ApproveVisitChangeRequestOutput };
+  askFieldAssistant: { input: AskFieldAssistantInput; output: AskFieldAssistantOutput };
   assignCrewToVisit: { input: AssignCrewToVisitParams & AssignCrewToVisitInput; output: AssignCrewToVisitOutput };
   assignJobsToBranch: { input: AssignJobsToBranchInput; output: AssignJobsToBranchOutput };
   assignTrackingNumber: { input: AssignTrackingNumberParams & AssignTrackingNumberInput; output: AssignTrackingNumberOutput };
@@ -21942,6 +22117,7 @@ export interface OperationTypes {
   createInvoice: { input: CreateInvoiceInput; output: CreateInvoiceOutput };
   createJob: { input: CreateJobInput; output: CreateJobOutput };
   createJournalEntry: { input: CreateJournalEntryInput; output: CreateJournalEntryOutput };
+  createKnowledgeNote: { input: CreateKnowledgeNoteInput; output: CreateKnowledgeNoteOutput };
   createLeadConnector: { input: CreateLeadConnectorInput; output: CreateLeadConnectorOutput };
   createLocation: { input: CreateLocationInput; output: CreateLocationOutput };
   createPaymentIntent: { input: CreatePaymentIntentInput; output: CreatePaymentIntentOutput };
@@ -22260,6 +22436,7 @@ export interface OperationTypes {
   listJobs: { input: ListJobsInput; output: ListJobsOutput };
   listJournal: { input: ListJournalInput; output: ListJournalOutput };
   listJournalEntries: { input: ListJournalEntriesInput; output: ListJournalEntriesOutput };
+  listKnowledgeNotes: { input: ListKnowledgeNotesInput; output: ListKnowledgeNotesOutput };
   listKpiCatalogue: { input: ListKpiCatalogueInput; output: ListKpiCatalogueOutput };
   listLeadConnectors: { input: ListLeadConnectorsInput; output: ListLeadConnectorsOutput };
   listLeadFieldTargets: { input: ListLeadFieldTargetsInput; output: ListLeadFieldTargetsOutput };
@@ -22458,6 +22635,7 @@ export interface OperationTypes {
   removeCostingRate: { input: RemoveCostingRateParams & RemoveCostingRateInput; output: RemoveCostingRateOutput };
   removeCustomer: { input: RemoveCustomerParams & RemoveCustomerInput; output: RemoveCustomerOutput };
   removeEmergencyContact: { input: RemoveEmergencyContactParams & RemoveEmergencyContactInput; output: RemoveEmergencyContactOutput };
+  removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
@@ -22652,6 +22830,7 @@ export interface OperationTypes {
   updateEquipment: { input: UpdateEquipmentParams & UpdateEquipmentInput; output: UpdateEquipmentOutput };
   updateInvoice: { input: UpdateInvoiceParams & UpdateInvoiceInput; output: UpdateInvoiceOutput };
   updateJob: { input: UpdateJobParams & UpdateJobInput; output: UpdateJobOutput };
+  updateKnowledgeNote: { input: UpdateKnowledgeNoteParams & UpdateKnowledgeNoteInput; output: UpdateKnowledgeNoteOutput };
   updateLeadConnector: { input: UpdateLeadConnectorParams & UpdateLeadConnectorInput; output: UpdateLeadConnectorOutput };
   updateLocation: { input: UpdateLocationParams & UpdateLocationInput; output: UpdateLocationOutput };
   updateMessageTemplate: { input: UpdateMessageTemplateParams & UpdateMessageTemplateInput; output: UpdateMessageTemplateOutput };
@@ -22684,6 +22863,7 @@ export interface OperationTypes {
   viewPortalInvoice: { input: ViewPortalInvoiceInput; output: ViewPortalInvoiceOutput };
   viewPortalJob: { input: ViewPortalJobInput; output: ViewPortalJobOutput };
   viewPortalReferral: { input: ViewPortalReferralInput; output: ViewPortalReferralOutput };
+  visitFinancingLink: { input: VisitFinancingLinkParams & VisitFinancingLinkInput; output: VisitFinancingLinkOutput };
   visitPaymentLink: { input: VisitPaymentLinkParams & VisitPaymentLinkInput; output: VisitPaymentLinkOutput };
   voidCreditNote: { input: VoidCreditNoteParams & VoidCreditNoteInput; output: VoidCreditNoteOutput };
   voidInvoice: { input: VoidInvoiceParams & VoidInvoiceInput; output: VoidInvoiceOutput };
@@ -22736,6 +22916,7 @@ export const OPERATIONS = {
   approveTimeEntries: { method: "POST", path: "/v1/timesheets/approvals", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:approve"] },
   approveTimeOff: { method: "POST", path: "/v1/time-off/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:approve"] },
   approveVisitChangeRequest: { method: "POST", path: "/v1/visit-change-requests/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
+  askFieldAssistant: { method: "POST", path: "/v1/ai/field-assistant", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   assignCrewToVisit: { method: "POST", path: "/v1/visits/{id}/crew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   assignJobsToBranch: { method: "POST", path: "/v1/branch-assignments", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["job:write"] },
   assignTrackingNumber: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -22795,6 +22976,7 @@ export const OPERATIONS = {
   createInvoice: { method: "POST", path: "/v1/invoices", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   createJob: { method: "POST", path: "/v1/jobs", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   createJournalEntry: { method: "POST", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post"] },
+  createKnowledgeNote: { method: "POST", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   createLeadConnector: { method: "POST", path: "/v1/lead-connectors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   createLocation: { method: "POST", path: "/v1/locations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createPaymentIntent: { method: "POST", path: "/v1/payments/intents", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
@@ -23113,6 +23295,7 @@ export const OPERATIONS = {
   listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
   listJournal: { method: "GET", path: "/v1/ledger/journal", pathParams: [], queryParams: ["from","to","jobId","customerId","accountCode","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listJournalEntries: { method: "GET", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
+  listKnowledgeNotes: { method: "GET", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listKpiCatalogue: { method: "GET", path: "/v1/kpi-catalogue", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listLeadConnectors: { method: "GET", path: "/v1/lead-connectors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   listLeadFieldTargets: { method: "GET", path: "/v1/lead-connectors/fields", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -23311,6 +23494,7 @@ export const OPERATIONS = {
   removeCostingRate: { method: "DELETE", path: "/v1/costing/rates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeCustomer: { method: "POST", path: "/v1/customers/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:delete"] },
   removeEmergencyContact: { method: "POST", path: "/v1/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -23505,6 +23689,7 @@ export const OPERATIONS = {
   updateEquipment: { method: "PATCH", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   updateInvoice: { method: "PATCH", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   updateJob: { method: "PATCH", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  updateKnowledgeNote: { method: "PATCH", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   updateLeadConnector: { method: "PATCH", path: "/v1/lead-connectors/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   updateLocation: { method: "PATCH", path: "/v1/locations/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateMessageTemplate: { method: "PATCH", path: "/v1/message-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -23537,6 +23722,7 @@ export const OPERATIONS = {
   viewPortalInvoice: { method: "GET", path: "/v1/portal/invoice", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   viewPortalJob: { method: "GET", path: "/v1/portal/job", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   viewPortalReferral: { method: "GET", path: "/v1/portal/referral", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  visitFinancingLink: { method: "POST", path: "/v1/visits/{id}/financing-link", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   visitPaymentLink: { method: "POST", path: "/v1/visits/{id}/payment-link", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   voidCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   voidInvoice: { method: "POST", path: "/v1/invoices/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:void"] },
@@ -23903,6 +24089,15 @@ export abstract class GeneratedOperations {
    */
   approveVisitChangeRequest(input: ApproveVisitChangeRequestParams & ApproveVisitChangeRequestInput, options?: CallOptions): Promise<ApproveVisitChangeRequestOutput> {
     return this.call("approveVisitChangeRequest", input, options);
+  }
+
+  /**
+   * Ask the field assistant.
+   *
+   * POST /v1/ai/field-assistant. Needs field:sync.
+   */
+  askFieldAssistant(input: AskFieldAssistantInput, options?: CallOptions): Promise<AskFieldAssistantOutput> {
+    return this.call("askFieldAssistant", input, options);
   }
 
   /**
@@ -24434,6 +24629,15 @@ export abstract class GeneratedOperations {
    */
   createJournalEntry(input: CreateJournalEntryInput, options?: CallOptions): Promise<CreateJournalEntryOutput> {
     return this.call("createJournalEntry", input, options);
+  }
+
+  /**
+   * Write a how-to note.
+   *
+   * POST /v1/knowledge-notes. Needs knowledge:write.
+   */
+  createKnowledgeNote(input: CreateKnowledgeNoteInput, options?: CallOptions): Promise<CreateKnowledgeNoteOutput> {
+    return this.call("createKnowledgeNote", input, options);
   }
 
   /**
@@ -27299,6 +27503,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The company's how-to notes.
+   *
+   * GET /v1/knowledge-notes. Needs job:read.
+   */
+  listKnowledgeNotes(input: ListKnowledgeNotesInput = {} as ListKnowledgeNotesInput, options?: CallOptions): Promise<ListKnowledgeNotesOutput> {
+    return this.call("listKnowledgeNotes", input, options);
+  }
+
+  /**
    * Every KPI every trade pack declares, and what we can do about each.
    *
    * GET /v1/kpi-catalogue. Needs report:read.
@@ -29081,6 +29294,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Stop answering from a how-to note.
+   *
+   * DELETE /v1/knowledge-notes/{id}. Needs knowledge:write.
+   */
+  removeKnowledgeNote(input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput, options?: CallOptions): Promise<RemoveKnowledgeNoteOutput> {
+    return this.call("removeKnowledgeNote", input, options);
+  }
+
+  /**
    * Take a line off a role's checklist.
    *
    * POST /v1/onboarding-checklist/{id}/remove. Needs user:write.
@@ -30827,6 +31049,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Change a how-to note.
+   *
+   * PATCH /v1/knowledge-notes/{id}. Needs knowledge:write.
+   */
+  updateKnowledgeNote(input: UpdateKnowledgeNoteParams & UpdateKnowledgeNoteInput, options?: CallOptions): Promise<UpdateKnowledgeNoteOutput> {
+    return this.call("updateKnowledgeNote", input, options);
+  }
+
+  /**
    * Change the mapping, the name, or whether it is on.
    *
    * PATCH /v1/lead-connectors/{id}. Needs integration:write.
@@ -31112,6 +31343,15 @@ export abstract class GeneratedOperations {
    */
   viewPortalReferral(input: ViewPortalReferralInput, options?: CallOptions): Promise<ViewPortalReferralOutput> {
     return this.call("viewPortalReferral", input, options);
+  }
+
+  /**
+   * A financing application link for the job on this visit.
+   *
+   * POST /v1/visits/{id}/financing-link. Needs payment:collect.
+   */
+  visitFinancingLink(input: VisitFinancingLinkParams & VisitFinancingLinkInput, options?: CallOptions): Promise<VisitFinancingLinkOutput> {
+    return this.call("visitFinancingLink", input, options);
   }
 
   /**

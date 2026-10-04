@@ -194,7 +194,7 @@ export const aiBudget = pgTable("ai_budget", {
  */
 
 /** The five agents. `core/agents` holds what each one may do. */
-export const aiAgentKind = pgEnum("ai_agent_kind", ["intake", "chat", "estimate", "collections", "dispatch"]);
+export const aiAgentKind = pgEnum("ai_agent_kind", ["intake", "chat", "estimate", "collections", "dispatch", "field"]);
 
 /**
  * How a company has set up one agent.

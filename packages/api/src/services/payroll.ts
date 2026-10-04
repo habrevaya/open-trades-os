@@ -745,10 +745,20 @@ async function fingerprintOf(
       lt(schema.tipShare.occurredAt, bounds.end),
     ));
 
+  /** And the cash tips people kept, which are on the file as `cash_tip`. */
+  const kept = await tx.select({ id: schema.cashTip.id, amount: schema.cashTip.amount })
+    .from(schema.cashTip)
+    .where(and(
+      eq(schema.cashTip.organizationId, organizationId),
+      gte(schema.cashTip.receivedAt, bounds.start),
+      lt(schema.cashTip.receivedAt, bounds.end),
+    ));
+
   const lines = [
     ...punches.map((row) => `t:${row.id}:${row.updatedAt.toISOString()}`),
     ...commissions.map((row) => `c:${row.id}:${row.amount}`),
     ...tipped.map((row) => `p:${row.id}:${row.amount}`),
+    ...kept.map((row) => `k:${row.id}:${row.amount}`),
   ].sort();
 
   return createHash("sha256").update(lines.join("\n"), "utf8").digest("hex");
@@ -867,11 +877,31 @@ async function assemble(
     ))
     .orderBy(asc(schema.tipShare.occurredAt), asc(schema.tipShare.id));
 
+  /**
+   * Cash tips people kept and recorded on the phone, for the `cash_tip` line:
+   * reported pay the company never held, so it is on the statement and paid
+   * by nobody.
+   */
+  const cashRows = await tx.select({
+    tip: schema.cashTip,
+    technicianName: schema.technician.displayName,
+    jobNumber: schema.job.number,
+  }).from(schema.cashTip)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.cashTip.technicianId))
+    .leftJoin(schema.job, eq(schema.job.id, schema.cashTip.jobId))
+    .where(and(
+      eq(schema.cashTip.organizationId, ctx.actor.organizationId),
+      gte(schema.cashTip.receivedAt, bounds.start),
+      lt(schema.cashTip.receivedAt, bounds.end),
+    ))
+    .orderBy(asc(schema.cashTip.receivedAt), asc(schema.cashTip.id));
+
   const names = new Map<string, string>();
   for (const row of punches) names.set(row.entry.technicianId, row.technicianName);
   for (const row of commissionRows) names.set(row.entry.technicianId, row.technicianName);
   /** Somebody tipped and not on the clock this period is still somebody to pay. */
   for (const row of tipRows) names.set(row.share.technicianId, row.technicianName);
+  for (const row of cashRows) names.set(row.tip.technicianId, row.technicianName);
 
   const rows: RegisterRow[] = [];
   const problems: Assembled["problems"] = [];
@@ -962,6 +992,15 @@ async function assemble(
           amount: usd(row.share.amount),
           label: row.invoiceNumber ? `Tip, invoice ${row.invoiceNumber}` : "Tip",
           occurredAt: row.share.occurredAt,
+        })),
+      cashTips: cashRows
+        .filter((row) => row.tip.technicianId === technicianId)
+        .map((row) => ({
+          tipId: row.tip.id,
+          personId: technicianId,
+          amount: usd(row.tip.amount),
+          label: row.jobNumber ? `Cash tip kept, job ${row.jobNumber}` : "Cash tip kept",
+          occurredAt: row.tip.receivedAt,
         })),
       currency: "USD",
       now,

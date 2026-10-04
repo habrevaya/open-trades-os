@@ -57,6 +57,56 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       const seen = await seenBefore(tx, ctx.idempotencyKey, "estimate");
       if (seen) return loadEstimate(tx, ctx, seen);
     }
+    return createIn(tx, ctx, input);
+  });
+}
+
+/**
+ * AN ESTIMATE WRITTEN ON A PHONE, which brings two things an office estimate
+ * does not.
+ *
+ * Its ids. The phone made the estimate's, each option's and each line's, so
+ * that the customer's choice and signature, taken on the same phone with no
+ * signal, can name the option they chose before the server has heard of it.
+ *
+ * The prices it was shown at. The phone priced each line from the price book
+ * it carries, which can be a day old, and the customer may sign on that
+ * figure before the phone finds a signal. So each line names the version it
+ * was priced from, and that version is used when it was in force at some
+ * point in the week before the estimate was written: a price rise the phone
+ * had not heard of does not change what the customer was shown. A version
+ * older than that is refused, because a week old quote is the line the rest
+ * of this product draws between late entry and history.
+ */
+export interface WrittenOnSite {
+  estimateId: string;
+  /** By option, in the order sent. */
+  optionIds: string[];
+  /** By option, then by line. */
+  lineIds: string[][];
+  /** The price book version each line was priced from on the phone, or null for a line typed by hand. */
+  versionIds: Array<Array<string | null>>;
+  /** When the phone wrote it, which is the day it was issued and the instant it was priced at. */
+  pricedAt: Date;
+}
+
+/** How stale the phone's price book may be. The same week `admitDate` calls late entry rather than history. */
+const STALE_PRICES_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Creating an estimate inside a caller's transaction: the office's route
+ * (`create`, with its permission and idempotency key) and a phone's sync
+ * (`field.ts`, with the ids and prices it brings) are the same estimate.
+ */
+export async function createIn(
+  tx: Database, ctx: ServiceContext, input: z.infer<typeof createEstimate.input>, onSite?: WrittenOnSite,
+) {
+  {
+    if (onSite) {
+      const [already] = await tx.select({ id: schema.estimate.id }).from(schema.estimate)
+        .where(eq(schema.estimate.id, onSite.estimateId)).limit(1);
+      if (already) return loadEstimate(tx, ctx, already.id);
+    }
 
     const itemIds = input.options
       .flatMap((o) => o.lines.map((l) => l.priceBookItemId))
@@ -83,10 +133,46 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
            * next month applied today and the price actually in force became
            * invisible. The reasoning is on `inForceAt`.
            */
-          inForceAt(),
+          inForceAt(onSite?.pricedAt),
         ))
       : [];
     const byItem = new Map(versions.map((v) => [v.itemId, v]));
+
+    /** The versions the phone priced from, held to the week before it wrote the estimate. */
+    const pinnedIds = (onSite?.versionIds ?? []).flat().filter((x): x is string => Boolean(x));
+    const pinned = pinnedIds.length
+      ? await tx.select({
+          itemId: schema.priceBookItemVersion.itemId,
+          versionId: schema.priceBookItemVersion.id,
+          name: schema.priceBookItemVersion.name,
+          price: schema.priceBookItemVersion.price,
+          cost: schema.priceBookItemVersion.cost,
+          taxable: schema.priceBookItemVersion.taxable,
+          kind: schema.priceBookItem.kind,
+          feeRole: schema.priceBookItem.feeRole,
+          effectiveFrom: schema.priceBookItemVersion.effectiveFrom,
+          effectiveTo: schema.priceBookItemVersion.effectiveTo,
+        })
+        .from(schema.priceBookItemVersion)
+        .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
+        .where(inArray(schema.priceBookItemVersion.id, pinnedIds))
+      : [];
+    const byVersion = new Map(pinned.map((v) => [v.versionId, v]));
+    const versionFor = (optionIndex: number, lineIndex: number, itemId: string | undefined) => {
+      const pin = onSite?.versionIds[optionIndex]?.[lineIndex] ?? null;
+      if (!pin || !itemId) return itemId ? byItem.get(itemId) : undefined;
+      const version = byVersion.get(pin);
+      const at = onSite!.pricedAt.getTime();
+      if (!version || version.itemId !== itemId
+        || version.effectiveFrom.getTime() > at
+        || (version.effectiveTo !== null && version.effectiveTo.getTime() <= at - STALE_PRICES_MS)) {
+        throw new ConflictError(
+          "A price on this estimate came from a price book more than a week old, so it was not written. "
+          + "Open the day with a signal to fetch the prices, and build it again.",
+        );
+      }
+      return version;
+    };
 
     /**
      * The day it was written. A migrated estimate from 2021 written on the
@@ -94,7 +180,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
      * month before it.
      */
     const issuedOn = input.issuedOn
-      ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+      ?? time.dateIn(onSite?.pricedAt ?? new Date(), await timezoneOf(tx, ctx.actor.organizationId));
     const historical = input.issuedOn
       ? (await admitDate(tx, ctx, input.issuedOn, "issuedOn")).historical
       : false;
@@ -148,6 +234,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
     const number = await claimNumber(tx, ctx, "estimate", input.number);
 
     const [row] = await tx.insert(schema.estimate).values({
+      ...(onSite ? { id: onSite.estimateId } : {}),
       organizationId: ctx.actor.organizationId,
       number,
       customerId: input.customerId,
@@ -165,8 +252,8 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
     const optionIds: string[] = [];
 
     for (const [index, option] of input.options.entries()) {
-      const resolved = option.lines.map((line) => {
-        const version = line.priceBookItemId ? byItem.get(line.priceBookItemId) : undefined;
+      const resolved = option.lines.map((line, lineIndex) => {
+        const version = versionFor(index, lineIndex, line.priceBookItemId);
         return {
           versionId: version?.versionId ?? null,
           name: version?.name ?? line.name,
@@ -262,6 +349,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       });
 
       const [optionRow] = await tx.insert(schema.estimateOption).values({
+        ...(onSite?.optionIds[index] ? { id: onSite.optionIds[index] } : {}),
         organizationId: ctx.actor.organizationId,
         estimateId,
         name: option.name,
@@ -275,6 +363,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       optionIds.push(optionRow!.id);
 
       await tx.insert(schema.estimateLine).values(resolved.map((line, i) => ({
+        ...(onSite?.lineIds[index]?.[i] ? { id: onSite.lineIds[index]![i]! } : {}),
         organizationId: ctx.actor.organizationId,
         optionId: optionRow!.id,
         priceBookItemVersionId: line.versionId,
@@ -314,9 +403,10 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
     }
 
     await recordIdempotency(tx, ctx, "estimate", estimateId);
-    await audit(tx, ctx, "estimate.created", "estimate", estimateId, null, { number });
+    await audit(tx, ctx, "estimate.created", "estimate", estimateId, null,
+      onSite ? { number, writtenOnSite: true } : { number });
     return loadEstimate(tx, ctx, estimateId);
-  });
+  }
 }
 
 export async function get(ctx: ServiceContext, input: z.infer<typeof getEstimate.input>) {
@@ -849,7 +939,21 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
       const seen = await seenBefore(tx, ctx.idempotencyKey, "estimate_conversion");
       if (seen) return loadConversion(tx, ctx, input.id);
     }
+    return convertIn(tx, ctx, input);
+  });
+}
 
+/**
+ * The conversion inside a caller's transaction. The office's route is this
+ * with its permissions and key; an invoice raised on site (`field-invoices`)
+ * is this, onto the visit's job, with the invoice's id the phone made, and
+ * then issued.
+ */
+export async function convertIn(
+  tx: Database, ctx: ServiceContext, input: z.infer<typeof convertEstimate.input>,
+  options: { invoiceId?: string | undefined } = {},
+) {
+  {
     const current = await loadEstimate(tx, ctx, input.id);
 
     if (current.status === "converted") return loadConversion(tx, ctx, input.id);
@@ -901,6 +1005,7 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
     if (input.createInvoice) {
       const number = await nextNumber(tx, ctx.actor.organizationId, "invoice");
       const [invoice] = await tx.insert(schema.invoice).values({
+        ...(options.invoiceId ? { id: options.invoiceId } : {}),
         organizationId: ctx.actor.organizationId,
         number,
         customerId: current.customerId as string,
@@ -981,7 +1086,7 @@ export async function convert(ctx: ServiceContext, input: z.infer<typeof convert
       invoiceId,
       depositId: deposit?.id ?? null,
     };
-  });
+  }
 }
 
 /** The result of a conversion that already happened, for a retry. */
@@ -1024,6 +1129,14 @@ export async function decide(
     signatureImage?: string | undefined;
     ipAddress?: string | undefined;
     userAgent?: string | undefined;
+    /**
+     * When the customer signed, for a signature taken on a phone that synced
+     * later. The signature is evidence of a moment, and the moment is when
+     * the finger left the glass, not when the van found a signal.
+     */
+    signedAt?: Date | undefined;
+    /** The drawn signature's id on the phone, which its image arrives under. */
+    uploadId?: string | undefined;
   },
 ) {
   const current = await loadEstimate(tx, ctx, input.estimateId);
@@ -1079,11 +1192,13 @@ export async function decide(
     selectedOptionId: input.optionId,
     ipAddress: input.ipAddress ?? null,
     userAgent: input.userAgent ?? null,
+    uploadId: input.uploadId ?? null,
+    ...(input.signedAt ? { signedAt: input.signedAt } : {}),
   });
 
   await tx.update(schema.estimate).set({
     status: "approved",
-    decidedAt: new Date(),
+    decidedAt: input.signedAt ?? new Date(),
     selectedOptionId: input.optionId,
     signerName: input.signerName,
     updatedAt: new Date(),

@@ -4,8 +4,10 @@ import { assertCan, can, money as m, type Actor } from "@opentradesos/core";
 import type { z } from "zod";
 import { guardedWrite, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import * as invoiceDelivery from "./invoice-delivery";
+import * as financing from "./financing";
 import { sendTransactional } from "./comms-send";
 import type { visitPaymentLink } from "../contracts/field";
+import type { visitFinancingLink } from "../contracts/field-sales";
 
 /**
  * A CARD, TAKEN ON SITE, WITHOUT THE PHONE EVER SEEING IT
@@ -152,6 +154,74 @@ export async function paymentLink(
       amountDue,
       texted,
       reason,
+    };
+  });
+}
+
+/**
+ * SPREADING THE COST, OFFERED ON SITE
+ *
+ * The lender's application for what is owing on the job, opened by the same
+ * `financing.send` the office uses, reused when one is already open for that
+ * amount, and texted to the customer or handed over as a link to open on
+ * their own phone. The customer applies on the lender's page; the phone sees
+ * nothing about their credit, and the payment lands, as every financed
+ * payment does, when the lender's signed webhook says it was funded.
+ *
+ * The same narrow rule as the card link: the technician on this visit, or
+ * somebody who may send invoices.
+ */
+export async function financingLink(
+  ctx: ServiceContext,
+  input: z.infer<typeof visitFinancingLink.input>,
+  deps?: financing.FinancingDeps,
+): Promise<z.infer<typeof visitFinancingLink.output>> {
+  return guardedWrite(ctx, "payment:collect", async (tx) => {
+    const [visit] = await tx.select({ id: schema.visit.id, jobId: schema.visit.jobId })
+      .from(schema.visit).where(eq(schema.visit.id, input.id)).limit(1);
+    if (!visit) throw new NotFoundError("Visit");
+
+    const onIt = ctx.actor.technicianId
+      ? (await tx.select({ id: schema.visitAssignment.id }).from(schema.visitAssignment)
+        .where(and(
+          eq(schema.visitAssignment.visitId, visit.id),
+          eq(schema.visitAssignment.technicianId, ctx.actor.technicianId),
+        )).limit(1)).length > 0
+      : false;
+    if (!onIt) assertCan(ctx.actor, "invoice:send");
+
+    const lender = await financing.connectionWithin(tx, ctx.actor.organizationId);
+    if (!lender) {
+      throw new ConflictError("This company has not connected a lender, so there is no financing to offer. Take a card, cash or a check.");
+    }
+
+    const [invoice] = await tx.select({
+      id: schema.invoice.id, number: schema.invoice.number, balance: schema.invoice.balance,
+    }).from(schema.invoice)
+      .where(and(
+        eq(schema.invoice.jobId, visit.jobId),
+        inArray(schema.invoice.status, ["open", "partially_paid"]),
+      ))
+      .orderBy(asc(schema.invoice.issuedOn), asc(schema.invoice.number));
+    if (!invoice || !m.isPositive(m.money(invoice.balance))) {
+      throw new ConflictError(
+        "There is no invoice with money owing on this job yet, so there is nothing to finance. Raise the invoice first.",
+      );
+    }
+
+    const sent = await financing.send({ ...ctx, db: tx }, {
+      invoiceId: invoice.id,
+      channel: input.text ? "sms" : "link",
+    }, deps);
+
+    return {
+      url: sent.application.applicationUrl,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.number,
+      amount: sent.application.amount,
+      lender: sent.application.provider === "wisetack" ? "Wisetack" : sent.application.provider,
+      texted: sent.delivery?.sent === true,
+      reason: sent.delivery && !sent.delivery.sent ? sent.delivery.reason : null,
     };
   });
 }

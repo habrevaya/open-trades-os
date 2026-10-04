@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, PageRequest, pageOf, Timestamps } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "./common";
 
 export const OperationKind = z.enum([
   "visit.en_route", "visit.arrive", "visit.start", "visit.complete",
@@ -11,6 +11,10 @@ export const OperationKind = z.enum([
   "attachment.attach", "signature.capture",
   "payment.collect",
   "inspection.record",
+  "estimate.create", "estimate.approve", "estimate.decline",
+  "invoice.raise",
+  "task.claim", "task.close",
+  "tip.record",
 ]);
 
 export const OperationStatus = z.enum([
@@ -146,6 +150,44 @@ export const registerDevice = defineRoute({
   }),
 });
 
+/**
+ * An estimate as the phone presents it to a customer: the options and their
+ * lines at the prices on the document, member discounts included, the terms,
+ * and how it was decided. Built from what a customer may see rather than by
+ * removing what they may not.
+ */
+export const FieldEstimate = z.object({
+  id: Uuid,
+  number: z.number().int(),
+  status: z.string(),
+  title: z.string().nullable(),
+  jobId: Uuid.nullable(),
+  selectedOptionId: Uuid.nullable(),
+  signerName: z.string().nullable(),
+  terms: z.string().nullable(),
+  options: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    description: z.string().nullable(),
+    isRecommended: z.boolean(),
+    total: MoneyString,
+    lines: z.array(z.object({
+      id: Uuid,
+      name: z.string(),
+      description: z.string().nullable(),
+      quantity: MoneyString,
+      unitPrice: MoneyString,
+      /** Every discount on the line, the member's included. */
+      discountAmount: MoneyString,
+      memberDiscountAmount: MoneyString,
+      taxable: z.boolean(),
+      taxRate: RateString,
+      isOptional: z.boolean(),
+      isSelected: z.boolean(),
+    })),
+  })),
+});
+
 export const VisitForField = z.object({
   id: Uuid,
   jobId: Uuid,
@@ -237,6 +279,46 @@ export const VisitForField = z.object({
     result: z.string().nullable(),
     performedOn: z.string().date().nullable(),
   })),
+  /**
+   * The plan this customer is a member on at this address today, which the
+   * phone prices an estimate and an invoice with, the way the server will.
+   * Null for a customer who is not a member.
+   */
+  member: z.object({
+    planName: z.string(),
+    /** The discount as a fraction, "0.15". "0" for a plan that only waives a fee. */
+    rate: RateString,
+    waivesDiagnosticFee: z.boolean(),
+    waivesAfterHoursRate: z.boolean(),
+  }).nullable(),
+  /**
+   * Estimates the technician can show the customer: the ones on this visit's
+   * job, and the customer's undecided ones at this address that belong to no
+   * job yet. Prices only. No cost and no margin, because this is what is
+   * turned round to face the customer. Empty for a caller who may not read
+   * estimates.
+   */
+  estimates: z.array(FieldEstimate),
+  /** Parts and charges on the job not yet billed, which an invoice raised on site can bill. */
+  billable: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    quantity: MoneyString,
+    unitPrice: MoneyString,
+    taxable: z.boolean(),
+    /** The price book item's kind, which decides whether a member's rate touches it. */
+    itemKind: z.string().nullable(),
+    /** A fee a plan may waive: "diagnostic" or "after_hours". */
+    feeRole: z.string().nullable(),
+  })),
+  /** The job's invoices, other than void ones. Empty for a caller who may not read invoices. */
+  invoices: z.array(z.object({
+    id: Uuid,
+    number: z.number().int(),
+    status: z.string(),
+    total: MoneyString,
+    balance: MoneyString,
+  })),
 });
 
 /**
@@ -293,6 +375,14 @@ export const getFieldSnapshot = defineRoute({
       name: z.string(),
       unitPrice: MoneyString,
       taxable: z.boolean(),
+      /** What the customer reads under the line on a proposal. */
+      description: z.string().nullable(),
+      /** service, material, equipment, labor, fee or discount: whether a member's rate touches it. */
+      kind: z.string(),
+      /** A fee a plan may waive: "diagnostic" or "after_hours". */
+      feeRole: z.string().nullable(),
+      /** What a kit includes, by name, so the technician can say what the price covers. */
+      components: z.array(z.object({ name: z.string(), quantity: z.number() })),
     })),
     openTimeEntry: z.object({
       id: Uuid,
@@ -315,6 +405,41 @@ export const getFieldSnapshot = defineRoute({
       personEnabled: z.boolean(),
       intervalSeconds: z.number().int(),
       retentionDays: z.number().int(),
+    }),
+    /**
+     * The office queue as the phone shows it: this person's tasks and the
+     * ones nobody has taken, open first by when they are due. Empty for
+     * somebody who may not read tasks.
+     */
+    tasks: z.array(z.object({
+      id: Uuid,
+      title: z.string(),
+      body: z.string().nullable(),
+      priority: z.string(),
+      status: z.string(),
+      /** Taken by this person, as opposed to waiting for somebody to take it. */
+      mine: z.boolean(),
+      dueAt: z.string().datetime().nullable(),
+      overdue: z.boolean(),
+      checklistTotal: z.number().int(),
+      checklistDone: z.number().int(),
+    })),
+    /**
+     * What this person may do on site, so the phone offers only what the
+     * server would accept, and what selling on site needs to know about the
+     * company: whether it takes tips with a payment (and the suggested
+     * percentages), whether a lender is connected, and whether the field
+     * assistant is on.
+     */
+    abilities: z.object({
+      writeEstimates: z.boolean(),
+      presentEstimates: z.boolean(),
+      raiseInvoices: z.boolean(),
+      takePayments: z.boolean(),
+      tasks: z.boolean(),
+      tipping: z.object({ enabled: z.boolean(), presets: z.array(z.number().int()) }),
+      financing: z.boolean(),
+      assistant: z.boolean(),
     }),
   }),
 });

@@ -54,6 +54,18 @@ export const OPERATION_KINDS = [
   "payment.collect",
   // An inspection against a programme, filed whole: answers, findings, signature.
   "inspection.record",
+  // Selling on site: good, better and best built on the phone, and the
+  // customer's choice and signature taken on its glass.
+  "estimate.create",
+  "estimate.approve",
+  "estimate.decline",
+  // The invoice raised from the visit's work and signed for on site.
+  "invoice.raise",
+  // The office queue, from the phone: taking a task and finishing it.
+  "task.claim",
+  "task.close",
+  // A cash tip handed to the technician and kept, recorded for payroll.
+  "tip.record",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -119,6 +131,47 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * same one twice is a replay of its id and files it once.
    */
   "inspection.record": "append",
+
+  /**
+   * An estimate written on the phone adds rows nothing else has seen yet:
+   * its id was made on the phone, so a retry is a replay of that id and
+   * writes it once. Nothing the office did meanwhile can contradict it.
+   */
+  "estimate.create": "append",
+
+  /**
+   * A decision on an estimate MOVES it, and only makes sense from a state
+   * where it can still be decided: approved on another option by the
+   * customer's own link, declined by the office, or already turned into
+   * work, and the phone's yes is refused and said in words rather than
+   * forced over the top. The state is the estimate's, which this module does
+   * not model, so `allowedFrom` names nothing and the estimate service's own
+   * check refuses, in the sentence the office would read.
+   */
+  "estimate.approve": "transition",
+  "estimate.decline": "transition",
+
+  /**
+   * Raising an invoice moves the work to invoiced and the approved estimate
+   * to converted. Two phones invoicing the same parts would bill the customer
+   * twice, so the second is refused by the billing rules (a job line bills
+   * once) rather than recorded.
+   */
+  "invoice.raise": "transition",
+
+  /**
+   * A task is claimed only while nobody has it, and closed only while it is
+   * open. Two people taking the same task offline is the case this refuses:
+   * the second is told somebody else has it, rather than both doing the work.
+   */
+  "task.claim": "transition",
+  "task.close": "transition",
+
+  /**
+   * Money a customer handed the technician for themselves. It happened, it
+   * adds a row, and nothing anybody did meanwhile makes it not have.
+   */
+  "tip.record": "append",
 };
 
 export interface FieldOperation {
@@ -475,3 +528,5 @@ export function allowedFrom(kind: OperationKind): readonly string[] | undefined 
 export * from "./push.js";
 /** Signing the phone in with a one time code. */
 export * from "./codes.js";
+/** What a customer is shown on the phone, priced the way the server prices it. */
+export * from "./pricing.js";

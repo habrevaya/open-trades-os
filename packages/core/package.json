@@ -4,7 +4,7 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./access": "./src/access/index.ts", "./location": "./src/location/index.ts" },
+  "exports": { ".": "./src/index.ts", "./access": "./src/access/index.ts", "./location": "./src/location/index.ts", "./field-pricing": "./src/field/pricing.ts" },
   "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
   "devDependencies": { "typescript": "^5.7.2", "vitest": "^2.1.8", "@types/node": "^22.10.1" }
 }

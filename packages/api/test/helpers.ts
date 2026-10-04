@@ -27,6 +27,8 @@ const ORDER = [
    * for and the pay period that paid it, so it goes before all three.
    */
   "tip_share",
+  /** A cash tip a technician kept points at the technician, the job and the visit. */
+  "cash_tip",
   "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
   "commission_event", "commission_plan", "pay_period",
   /**
@@ -137,6 +139,7 @@ const ORDER = [
   "task_escalation", "task_checklist_item",
   "task",
   "task_escalation_rule", "task_template",
+  "knowledge_note",
   "workflow_step_run", "workflow_run", "workflow_schedule", "workflow_version", "workflow",
   "event_cursor", "domain_event",
   // Communications, in dependency order: a message points at a conversation
