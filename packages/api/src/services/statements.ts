@@ -3,7 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { ledger, money as m, time } from "@opentradesos/core";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, NotFoundError, UnprocessableError, timezoneOf,
+  type ServiceContext, contactOf, guardedRead, NotFoundError, UnprocessableError, timezoneOf,
 } from "./context";
 import type { getCustomerStatement, StatementLineKind } from "../contracts/statements";
 
@@ -136,6 +136,7 @@ export async function buildStatement(
       customerId: customer.id,
       customerName: customer.name,
       organizationName: org?.name ?? "",
+      organizationContact: await contactOf(tx, organizationId),
       from, to,
       openingBalance: text(opening),
       closingBalance: text(running),

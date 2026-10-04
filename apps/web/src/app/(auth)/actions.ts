@@ -6,7 +6,7 @@ import { safeNext } from "@/lib/safe-next";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { organizations, setupTokens, passwords } from "@opentradesos/api/services";
+import { organizations, setupTokens, passwords, workflows } from "@opentradesos/api/services";
 import { hashPassword, issueToken, SESSION_COOKIE, SESSION_TTL_DAYS, sessionCookieOptions } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { keptValues } from "@/lib/kept-values";
@@ -76,6 +76,16 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
       name: companyName,
       timezone,
       ownerUserId: userId,
+    });
+
+    /**
+     * The recommended automations a new company starts with switched on (the
+     * follow up on an unanswered estimate), installed by the owner exactly as
+     * pressing "Turn on" would. The operator API does the same.
+     */
+    await workflows.installStarters({
+      actor: { userId, organizationId: org.organizationId, roles: ["owner"] },
+      db: tx,
     });
 
     const { token, tokenHash } = issueToken();

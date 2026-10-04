@@ -150,7 +150,7 @@ export const sendMailCampaign = defineRoute({
   path: "/v1/marketing/mail/{id}/send",
   summary: "Send a mailing: freeze who it goes to and hand the first hundred pieces to the printer",
   description:
-    "The first press writes one piece per customer the rules select, a customer with no postable address skipped with the reason, and hands the first hundred to the mail house, each under its own id as the printer's idempotency key; the worker sends the rest. Safe to repeat. Needs a mail house connected, the office's address under Settings, Locations (the return address) and PUBLIC_URL (each piece's own address is on this installation).",
+    "The first press writes one piece per customer the rules select, a customer with no postable address skipped with the reason, and hands the first hundred to the mail house, each under its own id as the printer's idempotency key; the worker sends the rest. Safe to repeat. Needs a mail house connected, the company's address under Settings, Company (or an office location; the return address) and PUBLIC_URL (each piece's own address is on this installation).",
   module: "M19",
   permissions: ["campaign:write"],
   idempotent: true,

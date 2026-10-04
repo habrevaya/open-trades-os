@@ -13,6 +13,8 @@
  * runs from the day a row was written.
  */
 
+import { dateIn } from "../time/index.js";
+
 export type ClockStart =
   | "record_created"
   | "calendar_year_end"
@@ -135,6 +137,8 @@ export function judge(
   facts: ClockFacts,
   now: Date,
   held: boolean,
+  /** The company's zone, for the day the sentence names. UTC when a caller has none. */
+  timeZone = "UTC",
 ): Verdict {
   const start = clockStartsAt(policy.clockStart, facts);
   if (!start) {
@@ -144,7 +148,7 @@ export function judge(
     };
   }
   const from = purgeableFrom(start, policy.retainMonths);
-  const day = from.toISOString().slice(0, 10);
+  const day = dateIn(from, timeZone);
   if (from.getTime() > now.getTime()) {
     return { state: "not_yet", clockStart: start, purgeableFrom: from, why: `Kept until ${day}.` };
   }

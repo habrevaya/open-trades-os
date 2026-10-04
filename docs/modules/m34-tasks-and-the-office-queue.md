@@ -270,9 +270,12 @@ A change to a template applies to the tasks it raises from then on, and a missed
 occurrence is not backfilled, deliberately.
 
 Reporting lines are recorded only for escalation, on the escalation screen;
-nothing else in the product reads them, and there is no people screen they
-belong on yet.
+nothing else in the product reads them, and the person's own page at
+`/people/{membershipId}` (M24) does not show who they report to.
 
-The obligation primitive has one writer, so the SLA clocks, acknowledge by and
-claim windows the schema describes are a shape waiting for the modules that would
-use it.
+Obligations are raised by work finished on a cancelled visit, by a contract's
+clocks on a job (respond by, on site by, finished by, invoice by and claim by,
+M31), by an invoice carrying an item the customer's rate card does not price or
+going over a contract's not to exceed amount, and by compliance documents running out and filings falling due
+(M23). A warranty registration deadline, which the obligation kinds name, is
+raised by nothing.

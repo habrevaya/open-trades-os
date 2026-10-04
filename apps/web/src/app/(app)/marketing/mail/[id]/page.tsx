@@ -62,7 +62,7 @@ export default async function MailingPage({ params }: { params: Promise<{ id: st
             <Fact label="Return address">
               {preview.returnAddress
                 ? [preview.returnAddress.line1, preview.returnAddress.city, preview.returnAddress.state, preview.returnAddress.postalCode].join(", ")
-                : "None. Add the office's address under Settings, Locations."}
+                : "None. Add the company's address under Settings, Company."}
             </Fact>
           </Facts>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">

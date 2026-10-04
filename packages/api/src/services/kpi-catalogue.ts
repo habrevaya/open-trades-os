@@ -119,11 +119,25 @@ const REVENUE_ON_JOB = `(
   where le.job_id = j.id and le.account_code in ('4000', '4100', '4900')
 )`;
 
-/** A job as a row of a records query, adding `value`. */
-const jobRow = (value: string) => `
+/** A job as a row of a records query, adding `value`, dated by the company's calendar. */
+const jobRow = (value: string, zone: string) => sql`
   'job'::text as kind, j.id::text as id, concat('#', j.number, ' ', j.summary) as label,
-  to_char(j.completed_at at time zone 'UTC', 'YYYY-MM-DD') as on_day,
-  (${value})::numeric as value, '/jobs/' || j.id as href`;
+  to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+  (${sql.raw(value)})::numeric as value, '/jobs/' || j.id as href`;
+
+/**
+ * THE WINDOW'S EDGES, IN THE COMPANY'S CALENDAR.
+ *
+ * A window is whole days where the company is, so a job finished at eight in
+ * the evening in Chicago on the 31st, which is 01:00 UTC on the 1st, belongs
+ * to the 31st. Compared against `${from}::date` it fell into the next day, the
+ * next month and the next scorecard, which is how a good month ended a job
+ * short. Instants are compared with the instants these return, so an index on
+ * the column still serves the comparison; a date column needs neither and
+ * keeps comparing with the date.
+ */
+const dayStart = (day: string, zone: string) => sql`((${day}::date)::timestamp at time zone ${zone})`;
+const dayAfter = (day: string, zone: string) => sql`((${day}::date + 1)::timestamp at time zone ${zone})`;
 
 /**
  * Jobs completed in the window, of these revenue classes.
@@ -132,25 +146,25 @@ const jobRow = (value: string) => `
  * made a third of these computable. Without it "install revenue" and "completed
  * service calls" are phrases with no query behind them.
  */
-const completed = (classes: readonly string[]): Records => (from, to) => sql`
-  select ${sql.raw(jobRow("1"))}
+const completed = (classes: readonly string[]): Records => (from, to, zone) => sql`
+  select ${jobRow("1", zone)}
   from public.job j
   join public.job_type jt on jt.id = j.job_type_id
   where j.deleted_at is null
     and j.completed_at is not null
-    and j.completed_at >= ${from}::date
-    and j.completed_at < (${to}::date + 1)
+    and j.completed_at >= ${dayStart(from, zone)}
+    and j.completed_at < ${dayAfter(to, zone)}
     and jt.revenue_class::text = any(${sql.param([...classes])}::text[])
 `;
 
-const revenueOf = (classes: readonly string[]): Records => (from, to) => sql`
-  select ${sql.raw(jobRow(REVENUE_ON_JOB))}
+const revenueOf = (classes: readonly string[]): Records => (from, to, zone) => sql`
+  select ${jobRow(REVENUE_ON_JOB, zone)}
   from public.job j
   join public.job_type jt on jt.id = j.job_type_id
   where j.deleted_at is null
     and j.completed_at is not null
-    and j.completed_at >= ${from}::date
-    and j.completed_at < (${to}::date + 1)
+    and j.completed_at >= ${dayStart(from, zone)}
+    and j.completed_at < ${dayAfter(to, zone)}
     and jt.revenue_class::text = any(${sql.param([...classes])}::text[])
 `;
 
@@ -166,7 +180,7 @@ const revenueOf = (classes: readonly string[]): Records => (from, to) => sql`
  * `on_site`, `shop`, `paid_break` and `on_call` are a day worked. One row per
  * person per day, which opens on that week's timesheets.
  */
-const technicianDays = (): Records => (from, to) => sql`
+const technicianDays = (): Records => (from, to, zone) => sql`
   select 'technician_day'::text as kind,
          concat(days.technician_id, ':', days.d) as id,
          concat(t.display_name, ', ', to_char(days.d, 'Mon FMDD')) as label,
@@ -174,12 +188,12 @@ const technicianDays = (): Records => (from, to) => sql`
          1::numeric as value,
          '/timesheets?week=' || to_char(days.d, 'YYYY-MM-DD') as href
   from (
-    select distinct te.technician_id, (te.started_at at time zone 'UTC')::date as d
+    select distinct te.technician_id, (te.started_at at time zone ${zone})::date as d
     from public.timeclock_entry te
     where te.deleted_at is null
       and te.kind not in ('pto', 'holiday', 'training', 'unpaid_break')
-      and te.started_at >= ${from}::date
-      and te.started_at < (${to}::date + 1)
+      and te.started_at >= ${dayStart(from, zone)}
+      and te.started_at < ${dayAfter(to, zone)}
   ) as days
   join public.technician t on t.id = days.technician_id
 `;
@@ -224,23 +238,23 @@ const presentations = (statuses: readonly string[]): Records => (from, to) => sq
  * Completed calls of these classes to customers holding no plan at the time
  * of the call, which is the opportunity a plan is sold on.
  */
-const callsToNonMembers = (classes: readonly string[]): Records => (from, to) => sql`
-  select ${sql.raw(jobRow("1"))}
+const callsToNonMembers = (classes: readonly string[]): Records => (from, to, zone) => sql`
+  select ${jobRow("1", zone)}
   from public.job j
   join public.job_type jt on jt.id = j.job_type_id
   where j.deleted_at is null and j.completed_at is not null
     and jt.revenue_class::text = any(${sql.param([...classes])}::text[])
-    and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
     and not exists (
       select 1 from public.agreement a
       where a.customer_id = j.customer_id and a.deleted_at is null
-        and a.started_on <= (j.completed_at at time zone 'UTC')::date
-        and (a.ends_on is null or a.ends_on >= (j.completed_at at time zone 'UTC')::date)
+        and a.started_on <= (j.completed_at at time zone ${zone})::date
+        and (a.ends_on is null or a.ends_on >= (j.completed_at at time zone ${zone})::date)
     )
 `;
 
 /** Declined recommendations on live units over twelve years old. See `replace_pipeline`. */
-const declinedOnOldUnits = (value: string): Records => (from, to) => sql`
+const declinedOnOldUnits = (value: string): Records => (from, to, zone) => sql`
   select 'deficiency'::text as kind, d.id::text as id,
          concat(coalesce(e.tag || ' ', ''), e.category, ': ', d.description) as label,
          d.declined_on::text as on_day,
@@ -254,14 +268,14 @@ const declinedOnOldUnits = (value: string): Records => (from, to) => sql`
     and d.quoted_amount is not null
     and e.active = true
     and e.installed_on is not null
-    and e.installed_on < current_date - interval '12 years'
+    and e.installed_on < (now() at time zone ${zone})::date - interval '12 years'
 `;
 
 /** Attempted bin stops, or only the ones where the bin was not out. See `not_out_rate`. */
-const binStops = (notOutOnly: boolean): Records => (from, to) => sql`
+const binStops = (notOutOnly: boolean): Records => (from, to, zone) => sql`
   select 'visit'::text as kind, va.id::text as id,
          concat('#', j.number, ' visit ', v.sequence, ', ', e.category, coalesce(' ' || e.tag, '')) as label,
-         to_char(v.completed_at at time zone 'UTC', 'YYYY-MM-DD') as on_day,
+         to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
          1::numeric as value, '/visits/' || v.id as href
   from public.visit_asset va
   join public.visit v on v.id = va.visit_id
@@ -269,7 +283,7 @@ const binStops = (notOutOnly: boolean): Records => (from, to) => sql`
   join public.equipment e on e.id = va.equipment_id
   where va.deleted_at is null and v.deleted_at is null
     and ${notOutOnly ? sql`va.outcome = 'no_access'` : sql`va.outcome is not null`}
-    and v.completed_at >= ${from}::date and v.completed_at < (${to}::date + 1)
+    and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
 `;
 
 /**
@@ -343,23 +357,23 @@ export const CATALOGUE: Record<string, Entry> = {
        */
       numerator: {
         label: "revenue on completed jobs",
-        records: (from, to) => sql`
-          select ${sql.raw(jobRow(REVENUE_ON_JOB))}
+        records: (from, to, zone) => sql`
+          select ${jobRow(REVENUE_ON_JOB, zone)}
           from public.job j
           where j.deleted_at is null and j.completed_at is not null
             and j.is_warranty = false
-            and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
             and ${sql.raw(REVENUE_ON_JOB)} <> 0
         `,
       },
       denominator: {
         label: "completed jobs",
-        records: (from, to) => sql`
-          select ${sql.raw(jobRow("1"))}
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
           from public.job j
           where j.deleted_at is null and j.completed_at is not null
             and j.is_warranty = false
-            and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
             and ${sql.raw(REVENUE_ON_JOB)} <> 0
         `,
       },
@@ -415,15 +429,15 @@ export const CATALOGUE: Record<string, Entry> = {
        */
       numerator: {
         label: "warranty returns inside thirty days",
-        records: (from, to) => sql`
-          select ${sql.raw(jobRow("1"))}
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
           from public.job j
           join public.job parent on parent.id = j.parent_job_id
           where j.deleted_at is null and j.completed_at is not null
             and j.is_warranty = true
             and parent.completed_at is not null
             and j.completed_at <= parent.completed_at + interval '30 days'
-            and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
         `,
       },
       denominator: { label: "completed jobs", records: completed(["install", "service", "recurring", "project"]) },
@@ -625,26 +639,26 @@ export const CATALOGUE: Record<string, Entry> = {
        */
       numerator: {
         label: "zero revenue return visits",
-        records: (from, to) => sql`
-          select ${sql.raw(jobRow("1"))}
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
           from public.job j
           where j.deleted_at is null and j.completed_at is not null
             and j.parent_job_id is not null
-            and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
             and ${sql.raw(REVENUE_ON_JOB)} = 0
         `,
       },
       denominator: {
         label: "completed visits",
-        records: (from, to) => sql`
+        records: (from, to, zone) => sql`
           select 'visit'::text as kind, v.id::text as id,
                  concat('#', j.number, ' visit ', v.sequence) as label,
-                 to_char(v.completed_at at time zone 'UTC', 'YYYY-MM-DD') as on_day,
+                 to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
                  1::numeric as value, '/visits/' || v.id as href
           from public.visit v
           join public.job j on j.id = v.job_id
           where v.deleted_at is null and v.status = 'completed'
-            and v.completed_at >= ${from}::date and v.completed_at < (${to}::date + 1)
+            and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
         `,
       },
     },
@@ -664,13 +678,13 @@ export const CATALOGUE: Record<string, Entry> = {
        */
       numerator: {
         label: "zero revenue calls inside a programme",
-        records: (from, to) => sql`
-          select ${sql.raw(jobRow("1"))}
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
           from public.job j
           join public.job_type jt on jt.id = j.job_type_id
           where j.deleted_at is null and j.completed_at is not null
             and jt.revenue_class = 'recurring'
-            and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
             and ${sql.raw(REVENUE_ON_JOB)} = 0
         `,
       },
@@ -730,39 +744,39 @@ export const CATALOGUE: Record<string, Entry> = {
        */
       numerator: {
         label: "one time customers who started a programme inside sixty days",
-        records: (from, to) => sql`
+        records: (from, to, zone) => sql`
           select distinct on (j.customer_id)
                  'customer'::text as kind, j.customer_id::text as id,
                  (select c.name from public.customer c where c.id = j.customer_id) as label,
-                 to_char(j.completed_at at time zone 'UTC', 'YYYY-MM-DD') as on_day,
+                 to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
                  1::numeric as value, '/customers/' || j.customer_id as href
           from public.job j
           join public.job_type jt on jt.id = j.job_type_id
           where j.deleted_at is null and j.completed_at is not null
             and jt.revenue_class in ('service', 'project')
-            and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
             and exists (
               select 1 from public.agreement a
               where a.customer_id = j.customer_id and a.deleted_at is null
-                and a.started_on >= (j.completed_at at time zone 'UTC')::date
-                and a.started_on <= (j.completed_at at time zone 'UTC')::date + 60
+                and a.started_on >= (j.completed_at at time zone ${zone})::date
+                and a.started_on <= (j.completed_at at time zone ${zone})::date + 60
             )
           order by j.customer_id, j.completed_at
         `,
       },
       denominator: {
         label: "one time customers served",
-        records: (from, to) => sql`
+        records: (from, to, zone) => sql`
           select distinct on (j.customer_id)
                  'customer'::text as kind, j.customer_id::text as id,
                  (select c.name from public.customer c where c.id = j.customer_id) as label,
-                 to_char(j.completed_at at time zone 'UTC', 'YYYY-MM-DD') as on_day,
+                 to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
                  1::numeric as value, '/customers/' || j.customer_id as href
           from public.job j
           join public.job_type jt on jt.id = j.job_type_id
           where j.deleted_at is null and j.completed_at is not null
             and jt.revenue_class in ('service', 'project')
-            and j.completed_at >= ${from}::date and j.completed_at < (${to}::date + 1)
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
           order by j.customer_id, j.completed_at
         `,
       },
@@ -798,17 +812,17 @@ export const CATALOGUE: Record<string, Entry> = {
       numerator: { label: "revenue on completed jobs", records: revenueOf(["install", "service", "recurring", "project"]) },
       denominator: {
         label: "paid hours on site and travelling",
-        records: (from, to) => sql`
+        records: (from, to, zone) => sql`
           select 'time'::text as kind, te.id::text as id,
                  concat(t.display_name, ', ', replace(te.kind::text, '_', ' ')) as label,
-                 to_char(te.started_at at time zone 'UTC', 'YYYY-MM-DD') as on_day,
+                 to_char(te.started_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
                  (coalesce(te.minutes, 0)::numeric / 60) as value,
-                 '/timesheets?week=' || to_char(te.started_at at time zone 'UTC', 'YYYY-MM-DD') as href
+                 '/timesheets?week=' || to_char(te.started_at at time zone ${zone}, 'YYYY-MM-DD') as href
           from public.timeclock_entry te
           join public.technician t on t.id = te.technician_id
           where te.deleted_at is null
             and te.kind in ('on_site', 'paid_break')
-            and te.started_at >= ${from}::date and te.started_at < (${to}::date + 1)
+            and te.started_at >= ${dayStart(from, zone)} and te.started_at < ${dayAfter(to, zone)}
         `,
       },
     },

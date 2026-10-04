@@ -1,10 +1,11 @@
 import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
+import { time } from "@opentradesos/core";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
-  withProvenance,
+  timezoneOf, withProvenance,
 } from "./context";
 import { admitInstant, requireImport } from "./history";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
@@ -951,7 +952,8 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
         dueAt: new Date(),
         consequence:
           "A technician completed work on a cancelled visit"
-          + (visit.windowStart ? ` from ${visit.windowStart.toISOString().slice(0, 10)}` : "")
+          + (visit.windowStart
+            ? ` from ${time.dateIn(visit.windowStart, await timezoneOf(tx, ctx.actor.organizationId))}` : "")
           + ". Confirm whether to bill it.",
       });
     }

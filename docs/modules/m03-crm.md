@@ -228,8 +228,13 @@ which is also the case where merging is the right answer.
 
 ## What is not built
 
-Contacts have a service and no route. Custom fields are stored and read back
-and nothing filters by one.
+Contacts are added, removed and made primary on the customer's page, and the
+API has no route for any of that: the one contact route is
+`POST /v1/contacts/{id}/portal-access`, which lets a contact sign in to the
+portal (M05). A customer's custom fields are stored, checked and read back,
+and `/customers` and `GET /v1/customers` filter by one field holding one value
+(`fieldKey` and `fieldValue`); nothing filters by two at once, and the report
+builder does not filter by one (M29).
 
 Tags live in a list on the customer row, not in a table of their own, so the
 tag filter and the counts read each customer's list rather than an index.

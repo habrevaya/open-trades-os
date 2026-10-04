@@ -607,8 +607,15 @@
     {
       "idx": 86,
       "version": "7",
-      "when": 1791085075896,
-      "tag": "0086_special_virginia_dare",
+      "when": 1791084482526,
+      "tag": "0086_good_goblin_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1791102982933,
+      "tag": "0087_perpetual_scourge",
       "breakpoints": true
     }
   ]

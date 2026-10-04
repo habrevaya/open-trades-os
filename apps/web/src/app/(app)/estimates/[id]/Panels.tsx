@@ -124,13 +124,23 @@ export function EstimateActions({
           <ActionForm action={action} submit="Send estimate" hidden={{ ...hidden, op: "send" }}
                       className="mt-3 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Select label="How" name="channel" defaultValue={contact.email ? "email" : contact.phone ? "sms" : "link"} options={[
+              {/*
+                Both at once is offered only when the customer has both, and
+                is then the default: the text is what gets read today, the
+                email is what gets found next week, and one link serves both.
+              */}
+              <Select label="How" name="channel"
+                      defaultValue={contact.email && contact.phone ? "both" : contact.email ? "email" : contact.phone ? "sms" : "link"}
+                      options={[
+                ...(contact.email && contact.phone
+                  ? [{ value: "both", label: `Email and text, to ${contact.email} and ${contact.phone}` }]
+                  : []),
                 { value: "email", label: contact.email ? `Email to ${contact.email}` : "Email" },
                 { value: "sms", label: contact.phone ? `Text to ${contact.phone}` : "Text" },
                 { value: "link", label: "Just give me the link to hand over" },
               ]} />
               <TextField label="To a different address or number" name="to" maxLength={320}
-                         placeholder="Leave empty for the one on file" />
+                         placeholder="Leave empty for the one on file. One channel only." />
             </div>
             <TextArea label="A line from you, above the link" name="message" rows={2} maxLength={2000} />
           </ActionForm>

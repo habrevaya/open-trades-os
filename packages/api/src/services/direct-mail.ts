@@ -268,31 +268,49 @@ async function select(tx: Database, rules: readonly cp.AudienceRule[], limit: nu
   });
 }
 
-/** The company's name, the number on the card, and the return address. */
+/**
+ * The company's name, the number on the card, and the return address.
+ *
+ * The company's own address and number from its details (Settings, Company)
+ * first, because that is the address printed on its invoices and the one a
+ * returned card should come back to; the first office location with a full
+ * address when the details have none.
+ */
 async function senderOf(tx: Database, organizationId: string, campaign: MailRow) {
-  const [org] = await tx.select({ name: schema.organization.name, slug: schema.organization.slug })
-    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
-  const main = await senderFor(tx, organizationId, { smsRequired: false, purpose: "conversation" });
+  const [org] = await tx.select({
+    name: schema.organization.name, slug: schema.organization.slug, phone: schema.organization.phone,
+    line1: schema.organization.addressLine1, line2: schema.organization.addressLine2,
+    city: schema.organization.city, state: schema.organization.state, postalCode: schema.organization.postalCode,
+  }).from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const main = org?.phone ? null : await senderFor(tx, organizationId, { smsRequired: false, purpose: "conversation" });
   /** The mailing's own tracking number, which is what credits a call from the card to it. */
   const [tracking] = await tx.select({ e164: schema.phoneNumber.e164 }).from(schema.phoneNumber).where(and(
     eq(schema.phoneNumber.organizationId, organizationId),
     eq(schema.phoneNumber.acquisitionCampaignId, campaign.acquisitionCampaignId),
     isNull(schema.phoneNumber.releasedAt),
   )).orderBy(asc(schema.phoneNumber.createdAt)).limit(1);
-  const offices = await tx.select().from(schema.location).where(and(
-    eq(schema.location.organizationId, organizationId), eq(schema.location.active, true),
-  )).orderBy(asc(schema.location.isWarehouse), asc(schema.location.createdAt));
-  const office = offices.find((l) => dm.checkAddress({
-    name: org?.name ?? "", line1: l.addressLine1, line2: l.addressLine2, city: l.city, state: l.state, postalCode: l.postalCode,
-  }).ok);
+  const name = org?.name ?? "";
+  const own = { name, line1: org?.line1 ?? null, line2: org?.line2 ?? null, city: org?.city ?? null, state: org?.state ?? null, postalCode: org?.postalCode ?? null };
+  let returnAddress: MailParty | null = dm.checkAddress(own).ok
+    ? { name, line1: own.line1!, line2: own.line2, city: own.city!, state: own.state!, postalCode: own.postalCode! }
+    : null;
+  if (!returnAddress) {
+    const offices = await tx.select().from(schema.location).where(and(
+      eq(schema.location.organizationId, organizationId), eq(schema.location.active, true),
+    )).orderBy(asc(schema.location.isWarehouse), asc(schema.location.createdAt));
+    const office = offices.find((l) => dm.checkAddress({
+      name, line1: l.addressLine1, line2: l.addressLine2, city: l.city, state: l.state, postalCode: l.postalCode,
+    }).ok);
+    if (office) {
+      returnAddress = { name, line1: office.addressLine1!, line2: office.addressLine2, city: office.city!, state: office.state!, postalCode: office.postalCode! };
+    }
+  }
   return {
-    companyName: org?.name ?? "",
+    companyName: name,
     slug: org?.slug ?? "",
-    companyPhone: dm.printedPhone(main?.e164 ?? null),
+    companyPhone: dm.printedPhone(org?.phone ?? main?.e164 ?? null),
     trackingPhone: dm.printedPhone(tracking?.e164 ?? null),
-    returnAddress: office
-      ? { name: org?.name ?? "", line1: office.addressLine1!, line2: office.addressLine2, city: office.city!, state: office.state!, postalCode: office.postalCode! }
-      : null,
+    returnAddress,
   };
 }
 
@@ -379,7 +397,7 @@ export async function send(ctx: ServiceContext, input: { id: string }, deps: Mai
     await mailConnection(tx, org);
     const sender = await senderOf(tx, org, campaign);
     if (!sender.returnAddress) {
-      throw new ConflictError("Add the office's address under Settings, Locations first. It is the return address on every piece, and the post office will not take mail without one.");
+      throw new ConflictError("Add the company's address under Settings, Company first. It is the return address on every piece, and the post office will not take mail without one.");
     }
     const rules = parseRules(campaign.audience);
     const selected = await select(tx, rules, MAX_AUDIENCE);

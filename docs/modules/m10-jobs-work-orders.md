@@ -57,8 +57,10 @@ board since it was built, so an empty slot on somebody's day off looked
 bookable. Checked for work still to come only, because a visit whose window has
 already ended is a record of something that happened.
 
-**Nobody is booked or sent alone onto work they are not qualified for.** A job
-type's required skills are checked for each technician named when a visit is
+**Nobody is booked or sent alone onto work they are not qualified for.** A job's
+required skills, its type's and any the job adds of its own for one unusual
+piece of work (`PUT /v1/jobs/{id}/required-skills`, M24), are checked for each
+technician named when a visit is
 booked or assigned, with a sentence naming the person and the skill. The answer
 comes from M24: a live certification clears a skill, a lapsed or missing one
 refuses it, and for a skill no certification grants, the person's recorded
@@ -180,7 +182,7 @@ button on a visit.
 `job:delete` is in the catalogue and nothing checks it: a job is cancelled
 rather than deleted, which keeps the visits, the labour and the obligations that
 reference it explicable. Route optimisation is a proposal per technician that a
-person applies (M09), not an automatic reorder. A job's required skills are
-declared on the job type and nowhere else: a job cannot add a skill of its own
-for one unusual piece of work. Booking with a technician who is refused has no
-override; book the visit unassigned and send them from the board.
+person applies (M09), not an automatic reorder. A job can add skills of its own
+to its type's but cannot drop one of its type's. Booking with a technician who
+is refused has no override; book the visit unassigned and send them from the
+board.

@@ -43,6 +43,13 @@ describe("judging one record", () => {
     expect(verdict).toMatchObject({ state: "not_yet", why: "Kept until 2025-06-01." });
   });
 
+  it("names the day in the company's calendar, so a record made at 01:00 UTC is the evening before's", () => {
+    /** 01:00 UTC on 1 June is eight in the evening on 31 May in Chicago. */
+    const late = { createdAt: d("2024-06-01T01:00:00Z") };
+    expect(retention.judge(policy, late, d("2025-05-01T00:00:00Z"), false, "America/Chicago"))
+      .toMatchObject({ state: "not_yet", why: "Kept until 2025-05-31." });
+  });
+
   it("is held when somebody put a hold on it", () => {
     expect(retention.judge(policy, facts, d("2026-01-01T00:00:00Z"), true).state).toBe("held");
   });

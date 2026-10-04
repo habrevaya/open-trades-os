@@ -258,6 +258,14 @@ schedule's clock. A worker that dies rolls all three back; a second worker, a
 restart, or somebody moving the time from seven to eight after the seven o'clock
 one went inserts nothing and sends nothing.
 
+**A day is the company's day.** Every KPI and every report counts whole days in
+the company's timezone: a window runs from the first moment of its first day to
+the last of its last day where the company is, a day, month or day of the week
+it groups by is the one the company was in, and the aging buckets age against
+the company's today. A job finished at eight in the evening in Chicago on the
+30th is the 30th's, though it is the 1st in UTC. A column that is already a
+date (an invoice's issue date) is compared as the date it is.
+
 ## Setup
 
 Nothing. The catalogue and the built-in reports ship with the product, and
@@ -436,10 +444,7 @@ Twenty six of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. The records behind a KPI are listed only for a
-reader whose scope is the whole company. The older KPIs still date a job by its
-UTC day; `drive_time_pct` is the one that uses the company's calendar, because a
-shift running past seven in the evening in Austin would otherwise be split in
-two. A drill, of a report or of a KPI, lists at most a thousand records (its
+reader whose scope is the whole company. A drill, of a report or of a KPI, lists at most a thousand records (its
 totals still cover all of them).
 
 The PDF is set in the standard Helvetica faces, which cover Western European

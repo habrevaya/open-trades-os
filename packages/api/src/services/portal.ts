@@ -4,7 +4,7 @@ import { money as m, branding as brand, customerPortal as cp, SYSTEM_USER_ID } f
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  audit, type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError, InvalidGrantError,
+  audit, contactOf, type ServiceContext, guardedWrite, inTenant, NotFoundError, ConflictError, InvalidGrantError,
 } from "./context";
 
 /** Re-exported so existing importers of this module keep working. */
@@ -184,10 +184,17 @@ function customerOf(grant: ResolvedGrant): string {
  * Derived colours are computed here rather than stored, exactly as in
  * `branding.current`, because two places computing it is one place fewer than
  * two places storing it and being asked which is right.
+ *
+ * With how to reach the company, which the page's header prints under the
+ * logo. Here and not on the sign in page's branding by slug: the person
+ * holding a link is the company's customer, and the slug is on fridge magnets.
  */
-export async function brandingFor(db: Database, token: string) {
+export async function brandingFor(db: Database, token: string): Promise<PublicBrand & { contact: brand.CompanyContact }> {
   const grant = await peek(db, token);
-  return inGrant(db, grant, (tx) => brandWithin(tx, grant.organizationId));
+  return inGrant(db, grant, async (tx) => ({
+    ...await brandWithin(tx, grant.organizationId),
+    contact: await contactOf(tx, grant.organizationId),
+  }));
 }
 
 /**

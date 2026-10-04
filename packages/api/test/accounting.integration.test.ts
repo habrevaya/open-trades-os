@@ -17,7 +17,7 @@ import {
 } from "../src/accounting/quickbooks";
 import { createXeroProvider } from "../src/accounting/xero";
 import "../src/accounting";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 
 /**
  * THE ACCOUNTING BRIDGE
@@ -951,7 +951,8 @@ run("a refund after the payment reached the books", () => {
     expect(sent.paymentExternalId).toMatch(/^payment-/);
     expect(sent.bankAccountExternalId).toBe(`qbo-${ledger.ACCOUNTS.CASH}`);
     expect(sent.receivableAccountExternalId).toBe(`qbo-${ledger.ACCOUNTS.AR}`);
-    expect(sent.refundedOn).toBe(new Date().toISOString().slice(0, 10));
+    /** The company's day, which is what its books date a refund by. */
+    expect(sent.refundedOn).toBe(companyToday());
     const links = (await linkRows()).filter((l) => l.kind === "refund");
     expect(links).toHaveLength(1);
     expect(links[0]!.state).toBe("linked");
@@ -1029,7 +1030,7 @@ run("a refund after the payment reached the books", () => {
     expect(body["AccountRef"]).toEqual({ value: `qbo-${ledger.ACCOUNTS.CASH}` });
     expect(body["EntityRef"]).toMatchObject({ type: "Customer" });
     expect(body["DocNumber"]).toMatch(/^OR[0-9a-f]{16}$/);
-    expect(body["TxnDate"]).toBe(new Date().toISOString().slice(0, 10));
+    expect(body["TxnDate"]).toBe(companyToday());
     expect(body.Line).toHaveLength(1);
     expect(body.Line[0]!.Amount).toBe(150);
     expect(body.Line[0]!.DetailType).toBe("AccountBasedExpenseLineDetail");
@@ -1736,7 +1737,8 @@ async function aCreditNote(input: {
   });
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+/** The company's today: a void is dated in the books on the company's day. */
+const today = () => companyToday();
 
 run("credit notes into the books", () => {
   it("sends an issued credit note once, with its own lines on the revenue account the ledger debited", async () => {

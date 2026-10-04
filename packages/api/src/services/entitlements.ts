@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { coverage, money as m } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, timezoneOf, NotFoundError, type ServiceContext,
 } from "./context";
 
 /**
@@ -204,6 +204,8 @@ export async function quote(
  */
 export async function bySource(ctx: ServiceContext, input: { from?: string; to?: string } = {}) {
   return guardedRead(ctx, "report.financial:read", async (tx) => {
+    /** Whole days in the company's zone, so a decision on the evening of the 31st is the 31st's. */
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const rows = await tx.execute<{ source: coverage.CoverageSource; jobs: number; value: string }>(sql`
       select e.source,
              count(distinct e.job_id)::int as jobs,
@@ -211,8 +213,8 @@ export async function bySource(ctx: ServiceContext, input: { from?: string; to?:
       from public.entitlement e
       join public.job j on j.id = e.job_id and j.deleted_at is null
       where true
-        ${input.from ? sql`and e.resolved_at >= ${input.from}::date` : sql``}
-        ${input.to ? sql`and e.resolved_at < ${input.to}::date` : sql``}
+        ${input.from ? sql`and e.resolved_at >= ((${input.from}::date)::timestamp at time zone ${zone})` : sql``}
+        ${input.to ? sql`and e.resolved_at < ((${input.to}::date)::timestamp at time zone ${zone})` : sql``}
       group by e.source
       order by count(distinct e.job_id) desc
     `);

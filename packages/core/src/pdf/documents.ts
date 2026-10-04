@@ -21,6 +21,12 @@ export interface Company {
   name: string;
   /** `#RRGGBB`, the company's own colour, or null for ink. */
   color: string | null;
+  /**
+   * How to reach the company, as `branding.contactLines` writes it: the postal
+   * address, then the phone and email. Printed under the name on every page.
+   * Empty or absent prints nothing, never an empty label.
+   */
+  contact?: string[] | undefined;
 }
 
 const accentOf = (company: Company): Rgb | null => (company.color ? hex(company.color) : null);
@@ -71,6 +77,7 @@ export function invoicePdf(input: InvoicePdfInput, options: RenderOptions = {}):
   const money = (v: string) => usd(v, input.currency);
   const flow = new Flow({
     company: input.company.name,
+    contact: input.company.contact,
     accent: accentOf(input.company),
     title: `Invoice ${input.number}`,
     subtitle: [input.issuedOn ? `Issued ${longDate(input.issuedOn)}` : null, input.dueOn ? `Due ${longDate(input.dueOn)}` : null]
@@ -164,6 +171,7 @@ export interface ProposalPdfInput {
 export function proposalPdf(input: ProposalPdfInput, options: RenderOptions = {}): Uint8Array {
   const flow = new Flow({
     company: input.company.name,
+    contact: input.company.contact,
     accent: accentOf(input.company),
     title: `Proposal ${input.number}`,
     subtitle: [input.issuedOn ? `Written ${longDate(input.issuedOn)}` : null, input.expiresOn ? `Good until ${longDate(input.expiresOn)}` : null]
@@ -252,6 +260,7 @@ export interface StatementPdfInput {
 export function statementPdf(input: StatementPdfInput, options: RenderOptions = {}): Uint8Array {
   const flow = new Flow({
     company: input.company.name,
+    contact: input.company.contact,
     accent: accentOf(input.company),
     title: "Statement",
     subtitle: `${longDate(input.from)} to ${longDate(input.to)}`,
@@ -432,6 +441,10 @@ function drawChart(flow: Flow, plan: ChartPlan, accent: Rgb): void {
 
 export function reportPdf(input: ReportPdfInput, options: RenderOptions = {}): Uint8Array {
   const accent = accentOf(input.company) ?? { r: 0.15, g: 0.39, b: 0.92 };
+  /**
+   * No contact lines on a report. It goes to the company's own people, who
+   * know the phone number, and the room is better spent on the report.
+   */
   const flow = new Flow({
     company: input.company.name,
     accent: accentOf(input.company),

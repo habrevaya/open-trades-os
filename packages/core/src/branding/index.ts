@@ -261,3 +261,9 @@ export function checkAsset(kind: BrandAssetKind, bytes: Uint8Array): AssetVerdic
 
   return { ok: true, contentType: type };
 }
+
+// ---------------------------------------------------------------------------
+// How a customer reaches the company
+// ---------------------------------------------------------------------------
+
+export * from "./contact.js";

@@ -1844,8 +1844,11 @@ create or replace function app.network_rollup(
         and n.operator_organization_id = (select app.current_organization_id())
         and n.deleted_at is null
     ),
+    -- Each member's own zone: a month is that company's month, so a job one of
+    -- them finished on the evening of the 31st is counted in the 31st's month
+    -- and not, as a UTC month would have it, in the next.
     members as (
-      select o.id, o.network_member_code
+      select o.id, o.network_member_code, coalesce(o.timezone, 'America/Chicago') as zone
       from public.organization o
       join operator on true
       join public.network_grant g
@@ -1859,15 +1862,15 @@ create or replace function app.network_rollup(
     )
     -- Jobs completed, per member per month.
     select m.id, m.network_member_code,
-           to_char(j.completed_at, 'YYYY-MM'), 'jobs_completed', count(*)::numeric
+           to_char(j.completed_at at time zone m.zone, 'YYYY-MM'), 'jobs_completed', count(*)::numeric
     from members m
     join public.job j on j.organization_id = m.id
     where p_aggregate = 'job_counts'
       and j.deleted_at is null
       and j.completed_at is not null
-      and j.completed_at >= p_from::timestamptz
-      and j.completed_at < (p_to + 1)::timestamptz
-    group by m.id, m.network_member_code, to_char(j.completed_at, 'YYYY-MM')
+      and j.completed_at >= (p_from::timestamp at time zone m.zone)
+      and j.completed_at < ((p_to + 1)::timestamp at time zone m.zone)
+    group by m.id, m.network_member_code, to_char(j.completed_at at time zone m.zone, 'YYYY-MM')
 
     union all
 
@@ -1931,7 +1934,7 @@ create or replace function app.network_rollup(
     -- debit balances. A sum of raw amounts with the directions mixed is a
     -- number that means nothing.
     select m.id, m.network_member_code,
-           to_char(e.occurred_at, 'YYYY-MM'),
+           to_char(e.occurred_at at time zone m.zone, 'YYYY-MM'),
            case substr(e.account_code, 1, 1)
              when '1' then 'asset' when '2' then 'liability'
              when '3' then 'equity' when '4' then 'revenue'
@@ -1947,9 +1950,9 @@ create or replace function app.network_rollup(
     from members m
     join public.ledger_entry e on e.organization_id = m.id
     where p_aggregate = 'gl_summary'
-      and e.occurred_at >= p_from::timestamptz
-      and e.occurred_at < (p_to + 1)::timestamptz
-    group by m.id, m.network_member_code, to_char(e.occurred_at, 'YYYY-MM'),
+      and e.occurred_at >= (p_from::timestamp at time zone m.zone)
+      and e.occurred_at < ((p_to + 1)::timestamp at time zone m.zone)
+    group by m.id, m.network_member_code, to_char(e.occurred_at at time zone m.zone, 'YYYY-MM'),
              substr(e.account_code, 1, 1)
   $$;
 

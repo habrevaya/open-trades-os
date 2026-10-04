@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseColor, toRgb, luminance, contrast, readableOn, checkColor, textSafe,
   sniff, checkAsset, MAX_BYTES, WHITE, INK, CANVAS, AA,
+  checkContact, contactLines, NO_CONTACT,
 } from "../src/branding/index.js";
 
 describe("reading a colour somebody typed", () => {
@@ -250,5 +251,42 @@ describe("whether a mark may be saved", () => {
     // broken, and they are right.
     expect(checkAsset("logo", webp()).ok).toBe(true);
     expect(checkAsset("favicon", webp()).ok).toBe(false);
+  });
+});
+
+describe("how a customer reaches the company", () => {
+  it("keeps a phone as it dials, whichever way it was typed", () => {
+    for (const typed of ["(512) 555-0143", "512-555-0143", "5125550143", "+1 512 555 0143", "1 512 555 0143"]) {
+      const verdict = checkContact({ phone: typed });
+      expect(verdict.ok && verdict.contact.phone, typed).toBe("+15125550143");
+    }
+  });
+
+  it("refuses what nobody could dial or write to, rather than printing it", () => {
+    expect(checkContact({ phone: "the office" }).ok).toBe(false);
+    expect(checkContact({ phone: "555-0143" }).ok).toBe(false);
+    expect(checkContact({ email: "office at example" }).ok).toBe(false);
+  });
+
+  it("takes an address with a street and a town, and refuses half of one", () => {
+    expect(checkContact({ addressLine1: "1200 Industrial Blvd", city: "Austin" }).ok).toBe(true);
+    expect(checkContact({ addressLine1: "1200 Industrial Blvd" }).ok).toBe(false);
+    expect(checkContact({ city: "Austin", state: "TX" }).ok).toBe(false);
+  });
+
+  it("treats empty boxes as nothing set", () => {
+    const verdict = checkContact({ phone: "  ", email: "", addressLine1: " ", city: "" });
+    expect(verdict).toEqual({ ok: true, contact: NO_CONTACT });
+  });
+
+  it("prints the address on one line and the phone and email on the next, and nothing when none is set", () => {
+    expect(contactLines(NO_CONTACT)).toEqual([]);
+    expect(contactLines({
+      ...NO_CONTACT, phone: "+15125550143", email: "office@example.com",
+      addressLine1: "1200 Industrial Blvd", addressLine2: "Suite 4", city: "Austin", state: "TX", postalCode: "78745",
+    })).toEqual(["1200 Industrial Blvd, Suite 4, Austin, TX 78745", "(512) 555-0143   office@example.com"]);
+    expect(contactLines({ ...NO_CONTACT, email: "office@example.com" })).toEqual(["office@example.com"]);
+    // A number outside North America is printed as stored, never forced into the American grouping.
+    expect(contactLines({ ...NO_CONTACT, phone: "+442071234567" })).toEqual(["+442071234567"]);
   });
 });

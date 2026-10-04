@@ -108,7 +108,8 @@ Ten steps, in this order. The four marked essential are what stops a booking.
 
 The wizard lives at `/setup`, and every step has a page of its own that draws
 the real settings form for it rather than a copy: `/setup/company` (the name,
-the legal name, the time zone, the logo and colour), `/setup/trade`,
+the legal name, the phone, email and postal address customers reach the
+company by, the time zone, the logo and colour), `/setup/trade`,
 `/setup/service-area`, `/setup/hours` (opening hours, arrival windows and what
 may be booked online), `/setup/team` (inviting people, and branches for a
 company with more than one shop), `/setup/pricebook` (every price, or one
@@ -175,19 +176,28 @@ pack the company is on.
 
 ### Configure the company
 
-`Settings` holds what a company changes about itself after setup: its time
-zone, how it looks (a brand colour and a logo, which appear on the customer
-portal and on documents), the phone numbers it sends from, and its call
-recording policy. All of these need `settings:write` to change and
-`settings:read` to see. The name and legal name are changed on
-`/setup/company` or with `PATCH /v1/company`, which items are taxed on
+`Settings` holds what a company changes about itself after setup: its name,
+legal name and contact details, its time zone, how it looks (a brand colour
+and a logo, which appear on the customer portal and on documents), the phone
+numbers it sends from, and its call recording policy. All of these need
+`settings:write` to change and `settings:read` to see. The name, legal name,
+phone, email and postal address are changed on `/settings` and
+`/setup/company` (one form, drawn on both) or with `PATCH /v1/company`.
+
+The phone, email and address are printed under the company's name on the
+proposal, the statement, the invoice, proposal and statement PDFs, and the
+header of every page a customer opens from a link. Each is optional and
+printed only when set. The phone is kept in E.164 however it was typed, an
+email address that is not one is refused, and an address needs at least a
+street and a town; a field left out of `PATCH /v1/company` keeps what it had
+and an empty one clears it. Which items are taxed is set on
 `/pricebook/tax` (`POST /v1/item-tax`, a new version of each item that
 changes, so old invoices keep what they charged), and who works here on
 `/settings/team`.
 
 The time zone is not cosmetic. Every date boundary in the product is computed
 in it: a container day in M22, quiet hours on a campaign in M19, a pay period
-in M17. A company in the wrong zone gets a working day that starts in the
+in M17, the days and months every report and KPI counts in M21. A company in the wrong zone gets a working day that starts in the
 evening.
 
 ### Divide the company up

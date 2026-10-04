@@ -96,24 +96,32 @@ with the link and a line from whoever is sending, and `sms` a short text that
 opens with the company's name; both go through the same consent, suppression
 and sending number checks as every other message, and both land in the
 customer's conversation in `/inbox`, so a reply arrives beside the estimate
-it answers. `link` only issues the link, for handing over another way. A send
+it answers. `both` sends the email and the text at once, carrying one link, to
+the customer's own address and number; it is refused with a typed address and
+for a customer missing either. `link` only issues the link, for handing over
+another way. A send
 the transport refuses (they replied STOP, no consent, no email sender
 connected) is recorded with the reason in words and changes nothing else: the
 estimate keeps its status, the link the customer already holds still works,
 no `estimate.sent` is emitted, and the screen says "not sent" in red. A send
-that goes withdraws every earlier link. Each attempt is a row with what
+that goes withdraws every earlier link. By email and text at once, a refused
+text beside an email that went is a send that went, with the refusal on its
+own row and said on the screen. Each attempt is a row with what
 became of it (queued, sent, delivered, bounced, refused), read from the
 message rather than stored: `GET /v1/estimates/{id}/deliveries`, and the
 "Sent" list on the estimate's screen. The send form on `/estimates/{id}`
-offers all three, defaulting to the customer's email, and takes a different
-address or number for one send.
+offers email, text, both at once (only when the customer has both, and then
+as the default) and the link, and takes a different address or number for a
+send by one channel.
 
 ### The proposal
 
 Every estimate is a branded proposal the customer can read and print:
 `/estimates/{id}/proposal` in the office and `/e/{token}/proposal` from the
 customer's own link, both drawn from one function so they cannot disagree.
-The company's logo, colour and name come from Branding; the options sit side
+The company's logo, colour and name come from Branding, with its phone, email
+and postal address under the name when the company has set them (M02); the
+options sit side
 by side, the recommended one first and edged in the company's colour; with two
 or three options each is named Good, Better or Best by its price (never by
 its position, and not at all when two cost the same or there are four or
@@ -124,7 +132,10 @@ line to sign, or who signed and when once it is approved. Printing is
 reading: the customer's copy peeks at the link rather than spending it. No
 cost or margin can appear, because the document is built from what a
 customer may see rather than by removing what they may not.
-`GET /v1/estimates/{id}/proposal` is the same document.
+`GET /v1/estimates/{id}/proposal` is the same document, and it is a PDF file
+too: `/estimates/{id}/pdf` from the office and `/e/{token}/pdf` from the
+customer's link, laid out by the server rather than the browser, every option
+with its lines and total.
 
 ### Terms
 
@@ -182,8 +193,10 @@ largest, never every option added up. `GET /v1/unsold-estimates` is the same
 list.
 
 Following them up is a recommended automation on `/automations`, "Follow up an
-estimate that has not been answered", turned on with how many days to wait. It
-installs an ordinary automation the company can edit: some days after an
+estimate that has not been answered". A new company starts with it installed
+and on, waiting three days; one created before that, or one that deleted it,
+turns it on there with how many days to wait. It is an ordinary automation the
+company can edit or switch off from the same list: some days after an
 estimate is sent, if it is still waiting for an answer, it texts the customer a
 fresh link to it, emails one, and raises a call in the office queue. Sending an
 estimate emits `estimate.sent`, which is what it waits from, and asking again
@@ -264,12 +277,12 @@ else's behalf is a decision about their money. Handing them a link is not.
 
 ## What is not built
 
-There is no PDF file: the proposal is a page laid out for printing, and a PDF
-is the browser's "save as PDF". It carries no company phone number or address,
-because the company record has neither yet. A proposal template (sections,
-photos, a cover page) is not built; the layout is fixed. An estimate is sent by
-email or text one at a time; the same send cannot go by both at once.
-Following up is an automation the company turns on rather than something that
-happens unless switched off. Nothing marks an estimate expired on its own: an
+The PDF is set in the standard Helvetica faces, so a letter outside Western
+European alphabets prints as its base letter or "?", and it carries the
+company's name, colour and contact details but not its logo. A proposal
+template (sections, photos, a cover page) is not built; the layout is fixed.
+Sending by both channels at once goes only to the customer's own email address
+and mobile number. The follow up is on from the start only for a company
+created since it was; an older company still turns it on. Nothing marks an estimate expired on its own: an
 expiry date stops it counting as open pipeline, and `expired` is a status only
 history brings in.

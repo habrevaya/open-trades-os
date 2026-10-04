@@ -27,6 +27,8 @@ export interface Column {
 
 export interface Header {
   company: string;
+  /** Lines under the company's name: its address, its phone and email. */
+  contact?: string[] | undefined;
   /** The company's colour, for the band at the top. Ink when it has none. */
   accent: Rgb | null;
   title: string;
@@ -63,11 +65,23 @@ export class Flow {
     page.rect(0, 0, LETTER.width, 6, { fill: accent });
     page.text(this.left, MARGIN, fit(this.header.company, "bold", 14, this.width * 0.55), { font: "bold", size: 14, color: INK });
     page.text(this.right, MARGIN, this.header.title, { font: "bold", size: 14, color: INK, align: "right" });
+    /**
+     * The contact lines sit under the name on the left and the subtitle under
+     * the title on the right, so the rule goes under whichever runs longer.
+     * Fitted rather than wrapped: an address is one line on paper, and one
+     * that wrapped would push the title column out of line with it.
+     */
+    let left = MARGIN;
+    for (const line of this.header.contact ?? []) {
+      left += 12;
+      page.text(this.left, left, fit(line, "regular", 9, this.width * 0.55), { size: 9, color: MUTED });
+    }
     let y = MARGIN;
     if (this.header.subtitle) {
       y += 15;
       page.text(this.right, y, this.header.subtitle, { size: 9, color: MUTED, align: "right" });
     }
+    y = Math.max(y, left);
     y += 10;
     page.line(this.left, y, this.right, y, { color: RULE });
     this.y = y + 20;

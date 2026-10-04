@@ -43,7 +43,7 @@ export default async function SignedInStatementPage({ params, searchParams }: {
         </span>
       </div>
       <div className="rounded-md border border-steel-200 bg-canvas p-5">
-        <StatementView statement={statement} timezone="UTC" />
+        <StatementView statement={statement} timezone="UTC" withContact={false} />
       </div>
     </PortalBrand>
   );

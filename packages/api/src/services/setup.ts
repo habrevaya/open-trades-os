@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, setup as rules, isSystem } from "@opentradesos/core";
+import { assertCan, branding, can, setup as rules, isSystem } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -149,23 +149,59 @@ export async function finish(ctx: ServiceContext): Promise<{ setupCompletedAt: s
 
 /* ------------------------------------------------------- company details */
 
-export interface CompanyDetails {
+export interface CompanyDetails extends branding.CompanyContact {
   name: string;
   legalName: string | null;
   timezone: string;
 }
+
+type OrganizationRow = typeof schema.organization.$inferSelect;
+
+const detailsOf = (org: OrganizationRow): CompanyDetails => ({
+  name: org.name,
+  legalName: org.legalName,
+  timezone: org.timezone,
+  ...contactColumns(org),
+});
+
+/** The contact columns of an organization row, as core's shape. */
+const contactColumns = (org: Pick<OrganizationRow,
+  "phone" | "email" | "addressLine1" | "addressLine2" | "city" | "state" | "postalCode">): branding.CompanyContact => ({
+  phone: org.phone,
+  email: org.email,
+  addressLine1: org.addressLine1,
+  addressLine2: org.addressLine2,
+  city: org.city,
+  state: org.state,
+  postalCode: org.postalCode,
+});
 
 export async function details(ctx: ServiceContext): Promise<CompanyDetails> {
   return guardedRead(ctx, "settings:read", async (tx) => {
     const [org] = await tx.select().from(schema.organization)
       .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
     if (!org) throw new NotFoundError("Company");
-    return { name: org.name, legalName: org.legalName, timezone: org.timezone };
+    return detailsOf(org);
   });
 }
 
+export type CompanyDetailsInput = {
+  name: string;
+  legalName?: string | null | undefined;
+  phone?: string | null | undefined;
+  email?: string | null | undefined;
+  addressLine1?: string | null | undefined;
+  addressLine2?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  postalCode?: string | null | undefined;
+};
+
+const CONTACT_KEYS = ["phone", "email", "addressLine1", "addressLine2", "city", "state", "postalCode"] as const;
+
 /**
- * What customers call the company, and what it is called on paper.
+ * What customers call the company, what it is called on paper, and how a
+ * customer reaches it.
  *
  * The name was written once, at sign up, and nothing could change it: a typo
  * typed at nine in the evening was on every invoice, every text and every
@@ -176,9 +212,15 @@ export async function details(ctx: ServiceContext): Promise<CompanyDetails> {
  * separate and the legal one may be left empty until somebody knows it.
  * The time zone has its own control (`branding.setTimezone`), because what
  * changing it does is a different conversation.
+ *
+ * The phone, email and postal address are printed on the proposal, the
+ * invoice, the statement, their PDFs and the portal's header. They are
+ * checked together by `branding.checkContact`, which is where the rules live.
+ * A field left out of the request keeps what it had, so a client that only
+ * renames the company does not wipe its address; an empty string clears it.
  */
 export async function updateDetails(
-  ctx: ServiceContext, input: { name: string; legalName?: string | null | undefined },
+  ctx: ServiceContext, input: CompanyDetailsInput,
 ): Promise<CompanyDetails> {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const name = input.name.trim().replace(/\s+/g, " ");
@@ -191,15 +233,30 @@ export async function updateDetails(
       .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
     if (!before) throw new NotFoundError("Company");
 
+    /**
+     * The contact is checked as a whole, after the fields left out are filled
+     * from what is stored, so "an address needs a street and a town" is asked
+     * of the address that will exist afterwards rather than of the request.
+     */
+    const current = contactColumns(before);
+    const merged = { ...current };
+    for (const key of CONTACT_KEYS) {
+      if (input[key] !== undefined) merged[key] = input[key] ?? null;
+    }
+    const verdict = branding.checkContact(merged);
+    if (!verdict.ok) throw new ConflictError(verdict.reason);
+
     const [after] = await tx.update(schema.organization).set({
       name,
       ...(legalName !== undefined ? { legalName } : {}),
+      ...verdict.contact,
       updatedAt: new Date(),
     }).where(eq(schema.organization.id, ctx.actor.organizationId)).returning();
 
     await audit(tx, ctx, "organization.details_changed", "organization", ctx.actor.organizationId,
-      { name: before.name, legalName: before.legalName }, { name: after!.name, legalName: after!.legalName });
-    return { name: after!.name, legalName: after!.legalName, timezone: after!.timezone };
+      { name: before.name, legalName: before.legalName, ...current },
+      { name: after!.name, legalName: after!.legalName, ...contactColumns(after!) });
+    return detailsOf(after!);
   });
 }
 
@@ -368,6 +425,9 @@ async function factsFor(tx: Database, org: string, row: Org): Promise<Partial<Re
       `Called ${row.name}${row.legalName && row.legalName !== row.name ? `, legally ${row.legalName}` : ""}.`,
       `Days run in ${row.timezone.replace(/_/g, " ")}.`,
       logo > 0 ? "A logo is set." : "No logo yet, so documents show the name.",
+      branding.contactLines(contactColumns(row)).length > 0
+        ? `Documents print ${branding.contactLines(contactColumns(row)).join(", ")}.`
+        : "No phone, email or address, so documents give the customer no way to reach you.",
     ],
     trade: [row.primaryTrade ? `Running the ${row.primaryTrade.replace(/-/g, " ")} pack.` : "No trade pack applied."],
     "service-area": [territories > 0 ? `${plural(territories, "territory", "territories")} declared.` : "No territories, so no address has an area or a trip charge."],
@@ -414,8 +474,7 @@ export const handlers = {
   markSetupStep: (ctx: ServiceContext, input: { key: string; done: boolean }) => mark(ctx, input),
   finishSetup: (ctx: ServiceContext) => finish(ctx),
   getCompanyDetails: (ctx: ServiceContext) => details(ctx),
-  updateCompanyDetails: (ctx: ServiceContext, input: { name: string; legalName?: string | null | undefined }) =>
-    updateDetails(ctx, input),
+  updateCompanyDetails: (ctx: ServiceContext, input: CompanyDetailsInput) => updateDetails(ctx, input),
   listItemTax: async (ctx: ServiceContext) => ({ items: await taxTable(ctx) }),
   setItemTax: (ctx: ServiceContext, input: { itemIds: string[]; taxable: boolean; taxClass: string | null }) =>
     setItemTax(ctx, input),

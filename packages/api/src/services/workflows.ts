@@ -712,6 +712,8 @@ export interface RecommendedAutomation {
   blockedBy: string | null;
   /** For a platform parameter: the review sites declared with a link. */
   platforms: { platform: string; displayName: string }[];
+  /** Installed and switched on when a company is created. See `installStarters`. */
+  onForNewCompanies: boolean;
 }
 
 /**
@@ -767,6 +769,7 @@ export async function recommended(ctx: ServiceContext): Promise<RecommendedAutom
         installed: install ? { id: install.id, enabled: install.enabled, name: install.name } : null,
         blockedBy,
         platforms: template.parameters.some((p) => p.kind === "platform") ? platforms : [],
+        onForNewCompanies: template.onForNewCompanies === true,
       };
     });
   });
@@ -846,6 +849,51 @@ export async function installTemplate(
     await audit(tx, ctx, "workflow.installed_from_template", "workflow", workflow.id, null,
       { templateKey: input.key, values: input.values ?? {} });
     return { id: workflow.id, name: workflow.name, enabled: workflow.enabled, templateKey: input.key };
+  });
+}
+
+/**
+ * WHAT A NEW COMPANY STARTS WITH SWITCHED ON.
+ *
+ * The recommended automations a template marks `onForNewCompanies`, installed
+ * with their defaults and switched on, by the person who owns the company, in
+ * the transaction that creates it. Called by sign up and by the operator API
+ * alike, so a company somebody made for you starts the same as one you made.
+ *
+ * Through `createWithin`, the path a press of "Turn on" takes, so the check,
+ * the permission rule and the first version are the same: the owner holds
+ * every permission the steps need, and the run is held to that record. It is
+ * an ordinary workflow from then on, switched off or deleted from the list
+ * like any other, and the list says it was on from the start.
+ *
+ * A template already installed (by a retry, say) is left alone rather than
+ * refused, because the question being answered is "is it on", not "install
+ * another".
+ */
+export async function installStarters(ctx: ServiceContext): Promise<string[]> {
+  return guardedWrite(ctx, "workflow:write", async (tx) => {
+    const installed: string[] = [];
+    for (const template of automation.TEMPLATES.filter((t) => t.onForNewCompanies)) {
+      const [existing] = await tx.select({ id: schema.workflow.id }).from(schema.workflow)
+        .where(and(eq(schema.workflow.templateKey, template.key), isNull(schema.workflow.deletedAt))).limit(1);
+      if (existing) continue;
+
+      const built = automation.buildTemplate(template.key, {});
+      if (!built.ok) throw new ConflictError(built.reason);
+      const workflow = await createWithin(tx, ctx, {
+        name: built.definition.name,
+        description: built.definition.description,
+        triggerKind: built.definition.triggerKind,
+        triggerEvents: built.definition.triggerEvents,
+        steps: automation.flattenPlan(built.definition.steps)
+          .map((step) => ({ kind: step.kind, config: step.config ?? {} })),
+      }, { templateKey: template.key, enabled: true });
+
+      await audit(tx, ctx, "workflow.installed_from_template", "workflow", workflow.id, null,
+        { templateKey: template.key, values: {}, reason: "on for new companies" });
+      installed.push(workflow.id);
+    }
+    return installed;
   });
 }
 

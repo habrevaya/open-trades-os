@@ -1021,6 +1021,8 @@ export interface PlatformView {
 export async function platforms(ctx: ServiceContext): Promise<PlatformView[]> {
   return guardedRead(ctx, "adspend:read", async (tx) => {
     const org = ctx.actor.organizationId;
+    /** For the day a sign in runs out, said as the owner counts days. */
+    const zone = await timezoneOf(tx, org);
     const rows = await tx.select().from(schema.integrationConnection).where(and(
       eq(schema.integrationConnection.organizationId, org),
       inArray(schema.integrationConnection.provider, ads.ADS_PROVIDERS),
@@ -1066,7 +1068,7 @@ export async function platforms(ctx: ServiceContext): Promise<PlatformView[]> {
       }
       const expires = grant?.expiresAt ?? null;
       if (expires && expires.getTime() - Date.now() < 14 * 86_400_000) {
-        notices.push(`Meta's sign in runs out on ${expires.toISOString().slice(0, 10)}. Sign in again before then.`);
+        notices.push(`Meta's sign in runs out on ${time.dateIn(expires, zone)}. Sign in again before then.`);
       }
 
       out.push({
