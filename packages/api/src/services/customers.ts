@@ -6,7 +6,7 @@ import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
   decodeCursor, paginate, NotFoundError, ConflictError, scopeOf, audit,
 } from "./context";
-import { enforceWithin, filterCondition } from "./custom-fields";
+import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { customerScopeFilter, customerBranchFilter } from "./scope";
 import * as acquisition from "./acquisition";
@@ -48,21 +48,28 @@ function asCustomer<T extends Record<string, unknown>>(row: T) {
  * Compared without case through the same key `core/tags` uses, so "vip"
  * finds the customers tagged "VIP".
  *
- * NO INDEX SERVES THIS, and that is a choice rather than an oversight. A GIN
- * index on `tags` answers exact spellings only, and the whole point of the
- * comparison is that the spelling may differ; the case blind check reads each
- * customer's short list, which for a company of ten thousand customers is a
- * few milliseconds. A book far larger than that wants a normalised tag table,
- * and the docs say so.
+ * READ FROM `customer_tag`, under its index on the key, rather than from each
+ * customer's list. The list was a few milliseconds at ten thousand customers
+ * and seconds at a million, because nothing could index a case blind match
+ * inside it; the table holds the same tags one per row with the key beside
+ * each, kept equal to the lists by a trigger, and only live customers have
+ * rows. "All of these" is the customers holding as many distinct keys from
+ * the list as the list has.
  */
 function tagFilter(input: ListInput) {
-  const wanted = [...(input.tags ?? []), ...(input.tag ? [input.tag] : [])]
+  const wanted = [...new Set([...(input.tags ?? []), ...(input.tag ? [input.tag] : [])]
     .map(tagRules.tagKey)
-    .filter((key) => key !== "");
+    .filter((key) => key !== ""))];
   if (wanted.length === 0) return undefined;
-  const keys = sql`${sql.param([...new Set(wanted)])}::text[]`;
-  const held = sql`(select coalesce(array_agg(lower(btrim(t.tag))), '{}') from jsonb_array_elements_text(${schema.customer.tags}) as t(tag))`;
-  return input.tagMatch === "all" ? sql`${held} @> ${keys}` : sql`${held} && ${keys}`;
+  const keys = sql`${sql.param(wanted)}::text[]`;
+  return input.tagMatch === "all"
+    ? sql`${schema.customer.id} in (
+        select ct.customer_id from public.customer_tag ct
+        where ct.tag_key = any(${keys})
+        group by ct.customer_id
+        having count(distinct ct.tag_key) = ${wanted.length})`
+    : sql`${schema.customer.id} in (
+        select ct.customer_id from public.customer_tag ct where ct.tag_key = any(${keys}))`;
 }
 
 /**
@@ -72,20 +79,14 @@ export async function list(ctx: ServiceContext, input: ListInput) {
   return guardedRead(ctx, "customer:read", async (tx) => {
     const cursor = decodeCursor(input.cursor);
     /**
-     * One custom field holding one value, when the list was asked for it.
-     * Both halves or neither: a key with no value is a filter with nothing to
-     * match, and saying so beats returning every customer as though it had
-     * been applied.
+     * The custom fields the list was asked for, every one of which has to
+     * hold. `fieldKey` and `fieldValue` both or neither: a key with no value
+     * is a filter with nothing to match, and saying so beats returning every
+     * customer as though it had been applied.
      */
-    if ((input.fieldKey === undefined) !== (input.fieldValue === undefined)) {
-      throw new ConflictError("Filtering by a custom field needs both the field and the value to look for.");
-    }
-    const byField = input.fieldKey !== undefined && input.fieldValue !== undefined
-      ? await filterCondition(
-        tx, ctx.actor.organizationId, "customer", input.fieldKey, input.fieldValue,
-        sql`${schema.customer.customFields}`,
-      )
-      : undefined;
+    const byField = await listFilter(
+      tx, ctx.actor.organizationId, "customer", input, sql`${schema.customer.customFields}`,
+    );
     /**
      * A technician sees the people they have been sent to, not the company's
      * book. This is the filter the comment on the technician row in

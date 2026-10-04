@@ -6,7 +6,7 @@ import {
   ConflictError, NotFoundError, UnprocessableError, type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
-import { definitionsWithin, enforceWithin, filterCondition } from "./custom-fields";
+import { definitionsWithin, enforceWithin, listFilter } from "./custom-fields";
 import { emit } from "./events";
 import { jobVisibility } from "./scope";
 import { remember, replayed } from "./once";
@@ -448,6 +448,8 @@ export interface ListRecordsInput {
   q?: string | undefined;
   fieldKey?: string | undefined;
   fieldValue?: string | undefined;
+  /** Several fields at once, each `key:value`. */
+  fields?: readonly string[] | undefined;
   customerId?: string | undefined;
   propertyId?: string | undefined;
   jobId?: string | undefined;
@@ -467,13 +469,8 @@ export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) 
   gate(ctx, false);
   return inTenant(ctx, async (tx) => {
     const kind = await kindFor(tx, ctx, input.type, false);
-    if ((input.fieldKey === undefined) !== (input.fieldValue === undefined)) {
-      throw new ConflictError("Filtering by a field needs both the field and the value to look for.");
-    }
-    const byField = input.fieldKey !== undefined && input.fieldValue !== undefined
-      ? await filterCondition(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key),
-        input.fieldKey, input.fieldValue, sql`${schema.customObjectRecord.customFields}`)
-      : undefined;
+    const byField = await listFilter(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key),
+      input, sql`${schema.customObjectRecord.customFields}`);
     const q = input.q?.trim();
     const pattern = q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);

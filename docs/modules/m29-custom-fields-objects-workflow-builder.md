@@ -270,22 +270,39 @@ A refused save is a 422 with one sentence per field, each at `customFields.<key>
 starting with the field's label: "Permit number is required.", "Units has to be a
 number." A screen shows all of them at once under the form.
 
-### Find records by one
+### Find records by them
 
 The customer list filters by a field: choose the field, type or pick the value.
-So do `/jobs`, `/invoices`, `/estimates`, `/people` (by a technician's field) and
-each kind of record's own list.
+Then choose another and press "Add this filter", and the list is the records both
+hold for: the customers on the Annual plan who have pets. Each field applied is
+listed with a link that takes it off and leaves the rest, and the address carries
+every one, so the list is a link somebody can send. So do `/jobs`, `/invoices`,
+`/estimates`, `/people` (by a technician's fields) and each kind of record's own
+list.
 A choice matches exactly, several choices match a customer holding that one among
 theirs, yes or no matches as stored, a number matches as a number, and free text
 matches anywhere in the value, ignoring case. `GET /v1/customers`,
 `GET /v1/jobs`, `GET /v1/invoices`, `GET /v1/estimates`, `GET /v1/properties`,
-`GET /v1/people` and `GET /v1/custom-records` take the same as `fieldKey` and
-`fieldValue`, and refuse a key the company has not declared on that record, in words,
-rather than matching nobody. In the report builder every field is a column, a
-filter and a grouping on the dataset its record is a row of (a job's fields on
-Jobs and Job profitability, an invoice's on Invoices, an estimate's on Estimates, a
-visit's on Visits), a customer's fields reach the datasets that hang off a customer
-as "Customer: ...", and a number field is also its total and its average.
+`GET /v1/people` and `GET /v1/custom-records` take `fields`, repeated, each the
+field's key, a colon and the value (`fields=plan:Annual&fields=has_pets:yes`), every
+one of which has to hold, up to ten; `fieldKey` and `fieldValue` still work and are
+one more beside them. A key the company has not declared on that record is refused
+in words rather than matching nobody, and so is a filter that is not a key, a colon and a value.
+
+In the report builder every field is a column, a filter and a grouping on the
+dataset its record is a row of (a job's fields on Jobs and Job profitability, an
+invoice's on Invoices, an estimate's on Estimates, a visit's on Visits, a kind of
+record's on its own dataset), and a number field is also its total and its average.
+The fields of the records a row hangs off are there too, named for the record: a
+customer's as "Customer: ..." on Jobs, Job profitability, Invoices, Estimates,
+Visits, Calls and every kind of record that links a customer; an address's as
+"Address: ..." on Jobs, Job profitability, Invoices, Estimates, Visits and the
+kinds that link an address; a job's as "Job: ..." on Invoices, Estimates, Visits,
+Calls and the kinds that link a job; a unit's as "Unit: ..." on the kinds that link
+a unit; and the lead technician's as "Technician: ..." on Visits. Each needs the
+permission that reads that record (`property:read`, `job:read`,
+`equipment:read`, `user:read`) to group or filter by, the customer's excepted, and
+a filter is held to it exactly as a grouping is.
 
 ### Keep a list of your own
 
@@ -488,7 +505,9 @@ saved through their own route and panel, not on those records' create forms or
 create routes, so a required field on one of them is asked for when the fields are
 saved rather than when the record is made, and a record the product makes by itself
 starts with none. Visits and units have no company wide list to filter, so their
-fields are filtered in the report builder rather than on a list screen. A field's key
+fields are filtered in the report builder rather than on a list screen. Several
+fields on a list are joined by AND only; there is no "any of these" across fields.
+The Tasks dataset has no fields to filter by, because a task can be about anything. A field's key
 cannot be changed once made (`/settings/custom-fields` says why), and neither can a
 kind of record's. A kind of record links to a customer, an address, a job or a unit
 and to nothing else (not to an invoice, another kind, or a person), its records are

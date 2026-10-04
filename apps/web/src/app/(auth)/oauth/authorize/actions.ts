@@ -14,13 +14,9 @@ import { oauth } from "@opentradesos/api/services";
  * the service's own authority check, so the same refusal an install by hand
  * gets is the one this gets.
  */
-const PARAMS = [
-  "response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource",
-] as const;
-
 function paramsOf(form: FormData): oauth.AuthorizeParams {
   const out: Record<string, string> = {};
-  for (const name of PARAMS) {
+  for (const name of oauth.AUTHORIZE_PARAMS) {
     const value = form.get(name);
     if (typeof value === "string" && value !== "") out[name] = value;
   }
@@ -36,9 +32,18 @@ export async function answer(form: FormData): Promise<void> {
 
   if (form.get("decision") !== "approve") redirect(oauth.refuseAuthorization(check));
 
+  /**
+   * What the person left ticked. Only when the boxes were on the page: a
+   * form without them (nothing could be given) has no answer to narrow by,
+   * and reading its absence as "nothing ticked" would refuse a yes.
+   */
+  const choice = form.get("narrow") === "1"
+    ? { permissions: form.getAll("grant").filter((value): value is string => typeof value === "string") }
+    : {};
+
   let to: string;
   try {
-    to = (await oauth.approveAuthorization({ actor: user.actor, db }, check)).redirectTo;
+    to = (await oauth.approveAuthorization({ actor: user.actor, db }, check, choice)).redirectTo;
   } catch (error) {
     /**
      * A refusal from the authority check is told to the client as

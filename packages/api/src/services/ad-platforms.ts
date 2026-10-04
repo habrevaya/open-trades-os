@@ -1066,6 +1066,9 @@ export async function platforms(ctx: ServiceContext): Promise<PlatformView[]> {
       if (provider === "meta_lead_ads" && !text(settings, "pageId")) {
         notices.push("No Page id is entered, so no instant form leads are read.");
       }
+      if (provider === "facebook_page" && !text(settings, "pageId")) {
+        notices.push("No Page id is entered, so no Facebook reviews are read.");
+      }
       const expires = grant?.expiresAt ?? null;
       if (expires && expires.getTime() - Date.now() < 14 * 86_400_000) {
         notices.push(`Meta's sign in runs out on ${time.dateIn(expires, zone)}. Sign in again before then.`);

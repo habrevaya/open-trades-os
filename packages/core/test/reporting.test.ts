@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveDrill, matchFor, drillTotals, sumDecimals, normalizeDecimal, compareDecimals, sameAt, roundDecimal,
   checkCadence, nextDelivery, describeCadence, periodFor, deliveryDay, statementMonth, defaultPeriod,
-  toCsv, csvValue,
+  toCsv, csvValue, resolveReport,
   type Dataset, type ReportDefinition,
 } from "../src/reporting/index.js";
 import type { Permission } from "../src/access/permissions.js";
@@ -264,5 +264,18 @@ describe("the CSV an accountant opens", () => {
 
   it("writes a status in the screen's words rather than the database's", () => {
     expect(csvValue({ key: "status", label: "Status", type: "status" }, "in_progress")).toBe("In Progress");
+  });
+});
+
+describe("filtering on a dimension somebody may not group by", () => {
+  it("is refused for the same permission, because a count by a filter tells what a grouping would", () => {
+    const held = new Set<Permission>(["report.financial:read"] as Permission[]);
+    const definition: ReportDefinition = {
+      dataset: "invoices", dimensions: [], measures: ["count"],
+      filters: [{ dimension: "cost_bucket", op: "eq", value: "High" }],
+    };
+    expect(resolveReport(definition, [INVOICES], held))
+      .toMatchObject({ ok: false, reason: "missing_permission", permissions: ["job.cost:read"] });
+    expect(resolveReport(definition, [INVOICES], OWNER)).toMatchObject({ ok: true });
   });
 });

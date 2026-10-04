@@ -18,3 +18,4 @@ import "./microsoft-ads";
 import "./meta-lead-ads";
 import "./search-console";
 import "./ga4-data";
+import "./facebook-page";

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { acquisition, adPlatforms } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { ads, can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { ActionForm } from "@/components/ActionForm";
 import { Empty, PageHeader, Table, Td, Th } from "@/components/Table";
@@ -80,7 +80,7 @@ export default async function PlatformsPage() {
                   )}
                   {p.ownCredential && <span className="text-xs text-ink-500">Using a token from your own secret store</span>}
                 </div>
-                {writes && p.status === "connected" && p.provider !== "google_business_profile" && (
+                {writes && p.status === "connected" && !ads.PROVIDERS[p.provider as ads.AdsProvider]?.pullsReviews && (
                   <ActionForm action={pullNow} submit="Pull now" tone="quiet" hidden={{ provider: p.provider }} className="" />
                 )}
               </div>

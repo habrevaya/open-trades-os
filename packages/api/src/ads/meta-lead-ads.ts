@@ -50,7 +50,7 @@ export function verifyMetaSignature(body: string, header: string | undefined, ap
   return expected.length === provided.length && timingSafeEqual(expected, provided);
 }
 
-function metaError(status: number, body: unknown): Error {
+export function metaError(status: number, body: unknown): Error {
   const error = (body as { error?: { message?: unknown; code?: unknown } }).error ?? {};
   const words = typeof error.message === "string" ? error.message.slice(0, 300) : "";
   if (error.code === 190 || status === 401) return new AuthorizationLostError(`Meta no longer accepts this connection's sign in: ${words}`);

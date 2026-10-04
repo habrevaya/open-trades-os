@@ -71,7 +71,11 @@ export async function upgradePack(_previous: FormState, form: FormData): Promise
     const done = await tradePacks.upgrade(await ctx(), packId);
     return {
       message: `Now on version ${done.toVersion}. ${done.added} added, ${done.updated} updated, `
-        + `${done.kept} of yours kept as they were${done.jobTypesAdded > 0 ? `, ${done.jobTypesAdded} job types added` : ""}.`,
+        + `${done.kept} of yours kept as they were${done.jobTypesAdded > 0 ? `, ${done.jobTypesAdded} job types added` : ""}.`
+        + (done.setup.added + done.setup.updated + done.setup.kept > 0
+          ? ` Reports, inspections, retention and the portal: ${done.setup.added} set up, ${done.setup.updated} updated, `
+            + `${done.setup.kept} of yours kept.`
+          : ""),
     };
   });
   revalidatePath("/setup/trade");

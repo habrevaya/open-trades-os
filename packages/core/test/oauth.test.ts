@@ -78,3 +78,22 @@ describe("PKCE", () => {
     expect(oauth.sameString("abc", "ab")).toBe(false);
   });
 });
+
+describe("narrowing on the consent page", () => {
+  const offered = ["customer:read", "customer:write", "property:read"] as const;
+
+  it("gives what was ticked, in the order offered", () => {
+    expect(oauth.narrowGrant([...offered], ["property:read", "customer:read"]))
+      .toEqual({ ok: true, granted: ["customer:read", "property:read"] });
+  });
+
+  it("refuses a permission the page did not offer, by name, rather than granting it", () => {
+    const result = oauth.narrowGrant([...offered], ["customer:read", "invoice:void"]);
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.message).toMatch(/invoice:void/);
+  });
+
+  it("refuses an empty grant, which is a refusal said the long way round", () => {
+    expect(oauth.narrowGrant([...offered], []).ok).toBe(false);
+  });
+});

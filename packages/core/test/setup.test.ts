@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   SETUP_STEPS, SETUP_STEP_KEYS, progress, stepAfter, stepNumber, isSetupStepKey,
   planUpgrade, differences, taggedVersion, planChangesSomething,
+  planSetupUpgrade, canonical, changedParts, type SetupKind, type SetupPiece, type CompanySetupPiece,
   type CompanyItem, type PackSeedItem, type SeedFields, type UpgradeInput,
 } from "../src/setup/index.js";
 
@@ -188,5 +189,72 @@ describe("a newer trade pack over an older one", () => {
     expect(planUpgrade(input({ fromVersion: 2, toVersion: 2 })).upToDate).toBe(true);
     expect(planUpgrade(input({ fromVersion: 1, toVersion: 2 })).upToDate).toBe(false);
     expect(planUpgrade(input({ fromVersion: null, toVersion: 1 })).upToDate).toBe(false);
+  });
+});
+
+describe("the rest of a newer pack: templates, programmes, rules and the portal", () => {
+  const seed = (key: string, content: Record<string, unknown>, kind: SetupKind = "retention_rule"): SetupPiece =>
+    ({ kind, key, name: key, content });
+  const row = (key: string, content: Record<string, unknown>, extra: Partial<CompanySetupPiece> = {}): CompanySetupPiece => ({
+    kind: "retention_rule", key, name: key, content, id: `id-${key}`, tradePackId: "hvac@1", untouched: false, ...extra,
+  });
+  const plan = (input: Partial<Parameters<typeof planSetupUpgrade>[0]>) =>
+    planSetupUpgrade({ packId: "hvac", baseline: null, company: [], pack: [], ...input });
+
+  it("compares content, not the order its keys were written in", () => {
+    expect(canonical({ b: 1, a: [{ y: 2, x: undefined, z: null }] })).toBe(canonical({ a: [{ z: null, y: 2 }], b: 1 }));
+    expect(changedParts({ months: 36, basis: "EPA" }, { basis: "EPA", months: 24 })).toEqual(["months"]);
+  });
+
+  it("updates a piece still as the old version set it up, and keeps one somebody changed", () => {
+    const result = plan({
+      baseline: { "retention_rule:a": { months: 36 }, "retention_rule:b": { months: 36 } },
+      company: [row("a", { months: 36 }), row("b", { months: 48 })],
+      pack: [seed("a", { months: 24 }), seed("b", { months: 24 })],
+    });
+    expect(result.update.map((u) => [u.key, u.changed])).toEqual([["a", ["months"]]]);
+    expect(result.kept.map((k) => [k.key, k.reason])).toEqual([["b", "edited"]]);
+  });
+
+  it("does not put back a piece the company removed, and adds one that is new", () => {
+    const result = plan({
+      baseline: { "retention_rule:gone": { months: 36 } },
+      pack: [seed("gone", { months: 24 }), seed("new", { months: 12 })],
+    });
+    expect(result.kept).toEqual([{ kind: "retention_rule", key: "gone", id: null, name: "gone", reason: "removed", changed: [] }]);
+    expect(result.add.map((a) => a.key)).toEqual(["new"]);
+  });
+
+  it("never shortens a rule allowed to purge, and lengthens one happily", () => {
+    const shorter = plan({
+      baseline: { "retention_rule:a": { retainMonths: 36 } },
+      company: [row("a", { retainMonths: 36 }, { purgeAllowed: true })],
+      pack: [seed("a", { retainMonths: 24 })],
+    });
+    expect(shorter.kept.map((k) => k.reason)).toEqual(["purging"]);
+    const longer = plan({
+      baseline: { "retention_rule:a": { retainMonths: 36 } },
+      company: [row("a", { retainMonths: 36 }, { purgeAllowed: true })],
+      pack: [seed("a", { retainMonths: 48 })],
+    });
+    expect(longer.update.map((u) => u.key)).toEqual(["a"]);
+  });
+
+  it("leaves what the company made under the same key, and what the new version dropped", () => {
+    const result = plan({
+      company: [row("mine", { months: 120 }, { tradePackId: null }), row("old", { months: 12 })],
+      pack: [seed("mine", { months: 84 })],
+    });
+    expect(result.kept.map((k) => [k.key, k.reason])).toEqual([["mine", "yours"]]);
+    expect(result.dropped.map((d) => d.key)).toEqual(["old"]);
+  });
+
+  it("without a record of what was set up, trusts only a row nobody has saved since it was made", () => {
+    const result = plan({
+      company: [row("fresh", { months: 36 }, { untouched: true }), row("saved", { months: 36 })],
+      pack: [seed("fresh", { months: 24 }), seed("saved", { months: 24 })],
+    });
+    expect(result.update.map((u) => u.key)).toEqual(["fresh"]);
+    expect(result.kept.map((k) => [k.key, k.reason])).toEqual([["saved", "edited"]]);
   });
 });

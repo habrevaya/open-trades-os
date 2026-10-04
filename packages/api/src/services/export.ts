@@ -160,6 +160,10 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  customer_tag: {
+    tag_key: "A customer's tag lower cased with its spaces tidied, which the tag filter compares by. "
+      + "A key in the sense of a lookup, not a credential.",
+  },
   sealed_credential: {
     key_fingerprint: "Twelve hex characters of a hash of the deployment's sealing key, which say which key "
       + "sealed a grant and nothing about the key itself.",

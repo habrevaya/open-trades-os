@@ -41,7 +41,7 @@ function daysOverdue(dueOn: string | null, today: string): number {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string; field?: string; value?: string }>;
+  searchParams: Promise<{ branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -49,7 +49,7 @@ export default async function InvoicesPage({
   const params = await searchParams;
   const branch = chosenBranch(options, params.branch);
   const declared = await customFields.formFields(ctx, "invoice");
-  const { fieldKey, fieldValue, byField } = fieldFrom(params);
+  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
 
   const { page, refusal } = await withFieldFilter((withField) => billing.list(ctx, {
     limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
@@ -63,8 +63,8 @@ export default async function InvoicesPage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Invoices" count={page.data.length} />
-      <BranchFilter options={options} action="/invoices" current={branch} keep={{ field: fieldKey, value: fieldValue }} />
-      <CustomFieldFilter action="/invoices" declared={declared} keep={{ branch }} fieldKey={fieldKey} fieldValue={fieldValue}
+      <BranchFilter options={options} action="/invoices" current={branch} keep={fieldKeep} />
+      <CustomFieldFilter action="/invoices" declared={declared} keep={{ branch }} pairs={pairs}
                          refusal={refusal} noun="invoices" />
 
       {late > 0 && (

@@ -807,6 +807,20 @@ export const oauthClient = pgTable("oauth_client", {
   redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
   /** Where the registration came from, so an operator can see a burst of them. */
   registeredFrom: text("registered_from"),
+  /**
+   * How the client proves who it is at the token, revocation and
+   * introspection endpoints. `none` for a public client, which has nothing to
+   * prove with and is held to PKCE instead; `client_secret_basic` or
+   * `client_secret_post` for a confidential one, a client that runs on its
+   * maker's own server and can keep a secret there.
+   */
+  authMethod: text("token_endpoint_auth_method").notNull().default("none"),
+  /**
+   * SHA-256 of a confidential client's secret. The secret is handed back once,
+   * in the registration answer, and never stored: a table that held it would
+   * be a list of every assistant's password. Null for a public client.
+   */
+  secretHash: text("secret_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -209,12 +209,32 @@ const FieldChange = z.object({
   to: z.union([z.string(), z.number(), z.boolean(), z.null()]),
 });
 
+const SetupKind = z.enum(["service_report", "inspection_program", "retention_rule", "portal_layout"]);
+
+/**
+ * The rest of what a pack sets up, planned under the same rule as the price
+ * book. `changed` names the parts that differ: `fields` (a template's
+ * readings), `checkpoints`, `retainMonths`, `blocks` and so on.
+ */
+const SetupPlan = z.object({
+  add: z.array(z.object({ kind: SetupKind, key: z.string(), name: z.string() })),
+  update: z.array(z.object({ kind: SetupKind, key: z.string(), id: Uuid, name: z.string(), changed: z.array(z.string()) })),
+  kept: z.array(z.object({
+    kind: SetupKind, key: z.string(), id: Uuid.nullable(), name: z.string(),
+    /** `edited` changed here, `yours` made here under the same name, `removed` taken out here, `purging` a shorter period on a rule allowed to purge. */
+    reason: z.enum(["edited", "yours", "removed", "purging"]),
+    changed: z.array(z.string()),
+  })),
+  unchanged: z.number().int(),
+  dropped: z.array(z.object({ kind: SetupKind, key: z.string(), id: Uuid, name: z.string() })),
+});
+
 export const previewTradePackUpgrade = defineRoute({
   method: "get",
   path: "/v1/trade-packs/{id}/upgrade",
   summary: "What a newer version of a trade pack would change",
   description:
-    "Nothing is written. Items the company does not have are added; items still exactly as the older version seeded them take the new values; items somebody here changed, or made under the same code, are kept and listed with what the new version would have changed; items the new version dropped are kept and listed. Job types the company is missing are added. Costs are shown only to a caller who may read them.",
+    "Nothing is written. Items the company does not have are added; items still exactly as the older version seeded them take the new values; items somebody here changed, or made under the same code, are kept and listed with what the new version would have changed; items the new version dropped are kept and listed. Job types the company is missing are added. The service report template, inspection programmes, retention rules and portal layout are planned the same way under `setup`: what is new is set up, what is still as the older version set it up is updated, and what the company changed, removed or made under the same name is kept, as is a retention rule allowed to purge whose period the new version shortens. Costs are shown only to a caller who may read them.",
   module: "M02",
   permissions: ["settings:read"],
   input: z.object({ id: z.string().max(60) }),
@@ -233,6 +253,7 @@ export const previewTradePackUpgrade = defineRoute({
     unchanged: z.number().int(),
     dropped: z.array(z.object({ itemId: Uuid, code: z.string(), name: z.string() })),
     jobTypes: z.object({ add: z.array(z.object({ code: z.string(), name: z.string() })), present: z.number().int() }),
+    setup: SetupPlan,
   }),
 });
 
@@ -241,7 +262,7 @@ export const upgradeTradePack = defineRoute({
   path: "/v1/trade-packs/{id}/upgrade",
   summary: "Upgrade to the newer version of a trade pack",
   description:
-    "Applies the plan the preview shows, worked out again inside the transaction so an item edited after the preview was looked at is kept rather than overwritten. An updated item gets a new version, as a price change by hand does, so documents that quoted the old one still say the old one. Nothing the company changed or made is touched, and nothing is deleted.",
+    "Applies the plan the preview shows, worked out again inside the transaction so an item edited after the preview was looked at is kept rather than overwritten. An updated item gets a new version, as a price change by hand does, so documents that quoted the old one still say the old one, and so does an updated template's readings or programme's checkpoints, so a report captured under the old questions still says which it answered. Nothing the company changed, removed or made is touched, and nothing is deleted.",
   module: "M02",
   permissions: ["settings:write"],
   idempotent: true,
@@ -256,6 +277,7 @@ export const upgradeTradePack = defineRoute({
     unchanged: z.number().int(),
     dropped: z.number().int(),
     jobTypesAdded: z.number().int(),
+    setup: z.object({ added: z.number().int(), updated: z.number().int(), kept: z.number().int(), dropped: z.number().int() }),
   }),
 });
 

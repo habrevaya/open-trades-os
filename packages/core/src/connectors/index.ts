@@ -500,6 +500,21 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
       "Google rate limits both reading and replying, and a reply posted through an API is still subject to their moderation, so a reply that appears here can be absent there. Who wrote a review is a suggestion here, never a fact, until somebody confirms it.",
   },
 
+  {
+    key: "facebook_page",
+    label: "Facebook Page reviews",
+    capability: "reviews",
+    auth: "oauth",
+    flows: ["reviews_in", "reviews_out"],
+    state: "built",
+    purpose:
+      "Read the ratings and recommendations people leave on the company's Facebook Page into the review work list every hour, and post the reply written here back to Facebook as a comment from the Page.",
+    setup:
+      "A Meta app of the business type that has passed Meta's app review for pages_show_list, pages_read_engagement, pages_read_user_content and pages_manage_engagement, without which Meta refuses to show a Page's ratings to any app; its id and secret in your secret store as one JSON value with clientId and clientSecret. Enter the Page id, then sign in with Meta as an admin of the Page.",
+    limitation:
+      "Tested against a fake of Meta's documented Graph API, not a live Page, and none of it works until Meta's app review is passed. Facebook replaced star ratings with yes or no recommendations, so a yes is counted as five stars and a no as one. A rating Facebook gives no post for cannot be replied to from here. Meta's sign in lasts about sixty days.",
+  },
+
   /* --------------------------------------------------------- campaigns out */
   {
     key: "campaign_email",
