@@ -82,6 +82,8 @@ export default async function MyRecordPage() {
                 <span className="text-ink-500">
                   {formatIn(d.signedAt!, zone)}, {d.signedVia === "drawn" ? "drawn" : `typed as ${d.signerName ?? ""}`}
                 </span>
+                <a href={`/me/documents/${d.requestId}/pdf`} className="text-blue-600 underline underline-offset-4"
+                   aria-label={`Print ${d.title} as a PDF`}>Print as PDF</a>
               </li>
             ))}
           </ul>

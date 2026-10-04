@@ -135,6 +135,10 @@ export default async function PersonPage({ params }: { params: Promise<{ members
                 {d.signedAt ? (
                   <span className="text-ink-500">
                     {formatIn(d.signedAt, user.organizationTimezone)}, {d.signedVia === "drawn" ? "drawn" : "typed"}
+                    {" "}
+                    <a href={`/people/documents/${d.documentId}/signed/${d.requestId}/pdf`}
+                       className="text-blue-600 underline underline-offset-4"
+                       aria-label={`Print ${d.title} as a PDF`}>Print as PDF</a>
                   </span>
                 ) : null}
               </li>

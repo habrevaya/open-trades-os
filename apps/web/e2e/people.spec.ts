@@ -89,6 +89,31 @@ test("a technician completes onboarding and asks for a day off that the office a
   await expect(stranger.getByRole("region", { name: "Documents to sign" }).getByRole("listitem").filter({ hasText: agreement }))
     .toContainText(`typed as ${name}`);
 
+  // Printed as a PDF by the person who signed it, and by the office from the person's page.
+  const printed = async (page: typeof owner, href: string) => {
+    const answer = await page.request.get(href);
+    expect(answer.ok()).toBe(true);
+    expect(answer.headers()["content-type"]).toBe("application/pdf");
+    expect(answer.headers()["content-disposition"]).toContain("signed-by-Tia-Tech");
+    expect((await answer.body()).subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  };
+  const ownCopy = stranger.getByRole("link", { name: `Print ${agreement} as a PDF` });
+  await printed(stranger, (await ownCopy.getAttribute("href"))!);
+  await owner.goto("/people");
+  await owner.getByRole("link", { name }).click();
+  const officeCopy = owner.getByRole("region", { name: "Documents to sign" })
+    .getByRole("link", { name: `Print ${agreement} as a PDF` });
+  await printed(owner, (await officeCopy.getAttribute("href"))!);
+  // The document's own page has one for each signature too.
+  await owner.goto("/people/documents");
+  await owner.getByRole("link", { name: agreement }).click();
+  await expect(owner.getByRole("link", { name: `Print ${name}'s signed copy as a PDF` })).toBeVisible();
+  // The stranger's PDF is not the office's to guess at: nobody signed in sees a refusal, not a file.
+  const anonymous = await owner.context().browser()!.newContext({ baseURL: new URL(owner.url()).origin });
+  const refused = await anonymous.request.get((await ownCopy.getAttribute("href"))!, { maxRedirects: 0 });
+  expect(refused.status()).not.toBe(200);
+  await anonymous.close();
+
   // The course, ticked by them.
   await stranger.getByRole("listitem").filter({ hasText: ladder }).getByRole("button", { name: "Done" }).click();
   await expect(stranger.getByText("Done: all 2 required lines ticked.")).toBeVisible();

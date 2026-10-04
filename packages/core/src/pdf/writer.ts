@@ -6,7 +6,7 @@ import { bundledFonts, type EmbeddedFont } from "./font.js";
  *
  * Every document this product hands a customer or an accountant as a file is
  * text, ruled lines and filled boxes: an invoice, a proposal, a statement, a
- * report with its chart, the company's logo, and on a proposal the company's
+ * signed staff document, a report with its chart, the company's logo, and on a proposal the company's
  * photographs, which PDF takes as the JPEG or PNG data they already are
  * (`image.ts`). None of it needs a layout engine, and all of it has to be
  * produced in two places that are not a browser: a Next route handler and the

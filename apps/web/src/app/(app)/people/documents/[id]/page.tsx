@@ -64,7 +64,10 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
                       <Chip tone="success">Signed</Chip>{" "}
                       <span className="text-ink-700">
                         {formatIn(r.signedAt, zone)}, {r.signedVia === "drawn" ? "drawn" : `typed as ${r.signerName ?? ""}`}
-                      </span>
+                      </span>{" "}
+                      <a href={`/people/documents/${doc.id}/signed/${r.id}/pdf`}
+                         className="text-blue-600 underline underline-offset-4"
+                         aria-label={`Print ${r.name}'s signed copy as a PDF`}>Print as PDF</a>
                     </span>
                   ) : <Chip tone="warning">Not yet</Chip>}
                 </Td>

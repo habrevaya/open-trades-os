@@ -10,7 +10,8 @@ import {
   ceWithin, contactsWithin, employmentWithin, onboardingWithin,
   type CeView, type EmergencyContactView, type EmploymentView, type OnboardingView,
 } from "./people-records";
-import { ownWithin, signWithin, type OwnDocument, type SignInput } from "./staff-documents";
+import { ownWithin, signWithin, signedPdfWithin, type OwnDocument, type SignInput } from "./staff-documents";
+import type { PdfFile } from "./documents";
 
 /**
  * M24. A PERSON'S OWN RECORD, SEEN AND KEPT BY THEM
@@ -215,6 +216,18 @@ export function setOnboardingLine(ctx: ServiceContext, input: {
 }
 
 /* ---------------------------------------------------------- signing */
+
+/**
+ * One's own signed copy as a PDF. Somebody else's request, or one not signed
+ * yet, is not something to print: the first is not found, as signing it would
+ * not be, and the second is said in words.
+ */
+export function signedPdf(ctx: ServiceContext, input: { requestId: string }): Promise<PdfFile> {
+  return guardedRead(ctx, "profile:own", async (tx) => {
+    const self = await selfWithin(tx, ctx);
+    return signedPdfWithin(tx, ctx, { requestId: input.requestId, membershipId: self.membershipId });
+  });
+}
 
 /** Sign a document they were asked to sign, by typing their name or drawing it. */
 export function sign(ctx: ServiceContext, input: SignInput): Promise<OwnDocument> {
