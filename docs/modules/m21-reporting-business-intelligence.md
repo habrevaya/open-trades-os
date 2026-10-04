@@ -315,6 +315,18 @@ is a link you can send.
 "Edit a copy" on any built-in report opens the builder with that definition
 loaded, which is the usual way a custom report starts.
 
+The catalogue the builder offers is the company's own: the product's datasets with
+the company's custom fields added (a job's fields on Jobs and Job profitability, an
+invoice's on Invoices, an estimate's on Estimates, a visit's on Visits, and a
+customer's on the first three as "Customer: ..."), each a column, a filter and a
+grouping, with a number field also totalled and averaged; and a dataset for each of
+the company's own kinds of record (M29), counted and grouped by its fields, its
+month, its customer and its job type. Every fragment is still written by the
+product: a field's key reaches the SQL only after matching the lowercase key pattern
+every definition is held to, and a value is read as a number only where the stored
+value is one. A kind of record's dataset is read through the same visibility its
+list uses, and needs `record:read` and the kind's own permission.
+
 ### Save one
 
 Named, described, and visible to everybody who can read reports. What they see
@@ -436,7 +448,8 @@ Twenty six of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. The records behind a KPI are listed only for a
-reader whose scope is the whole company. The older KPIs still date a job by its
+reader whose scope is the whole company. A custom field on an address, a unit or a
+technician is not on any dataset yet, because no dataset is a row of one. The older KPIs still date a job by its
 UTC day; `drive_time_pct` is the one that uses the company's calendar, because a
 shift running past seven in the evening in Austin would otherwise be split in
 two. A drill, of a report or of a KPI, lists at most a thousand records (its

@@ -64,9 +64,13 @@ it can tell you what to ask an administrator for. Sent as a transport failure
 it becomes "the OpenTradesOS server is down", which is both wrong and
 unactionable.
 
-**A bulk change can be tried first.** The tools that change many records at
-once (renaming or merging a customer tag, moving jobs between branches, setting
-tax on many items, a price change, a supplier catalogue) take `dryRun`. Sent as
+**A change can be tried first.** The tools that change many records at once
+(renaming or merging a customer tag, moving jobs between branches, setting tax on
+many items, a price change, a supplier catalogue, loading a spreadsheet of a
+company's own records) take `dryRun`, and so do the tools that change how the
+company is set up: defining, changing and retiring a custom field or a kind of
+record, writing, publishing and deleting a workflow, and copying settings back from
+a sandbox. Sent as
 true, the route runs exactly as it would, inside a transaction that is then
 rolled back, and the answer is what it would have returned, the rows it would
 have written per table, and the audit lines naming each record. It is the route
@@ -208,18 +212,32 @@ an app token.
 **Does it support OAuth?** Yes, the authorization code flow with PKCE that the
 MCP specification describes, for public clients. See Setup.
 
-**Can an agent see what a bulk change would do first?** Yes, on the bulk tools:
-send `dryRun: true`.
+**Can an agent see what a change would do first?** Yes, on the bulk tools and the
+tools that change how the company is set up: send `dryRun: true`.
 
-**Can an agent add a custom field or edit a workflow rule?** Not yet. Those
-routes exist in the product but the tools for them are part of the unfinished
-half of this module.
+**Can an agent add a custom field or edit a workflow rule?** Yes, with the same
+permissions as the screens. `otos_define_custom_field` and `otos_update_custom_field`
+need `customfield:write`, as Settings, Custom fields does; `otos_define_custom_object`
+defines a kind of record (a permit, an inspection) and its fields are then
+`otos_define_custom_field` on `object:<key>`; `otos_get_workflow` reads a workflow's
+trigger, conditions and steps with `workflow:read`, and `otos_create_workflow` and
+`otos_publish_workflow` write and publish one with `workflow:write`, refused when it
+names a step the person the agent acts for could not publish. Records of a company's
+own kinds are `otos_list_custom_records` and `otos_create_custom_record`, under
+`record:read` and `record:write`.
+
+**Is there somewhere safe to try things?** Yes, a sandbox: a second company holding a
+copy of this one's settings and none of its customers. `otos_create_sandbox` makes
+one, `otos_get_sandbox_copy_plan` says what copying each setting back would do, and
+`otos_copy_back_from_sandbox` copies the chosen ones, all or none, after a dry run if
+asked. All three need `sandbox:manage`. M29 has what is copied and what is not.
 
 ## What is not built
 
-Tools for defining custom fields and objects. Tools for editing workflow rules. A
-sandbox tenant. The plugin APIs for custom job workflows, pricing rules and
-report types.
+The plugin APIs for custom job workflows, pricing rules and report types. An app
+token belongs to one company, so an agent connected to the real company reaches its
+sandbox only through the sandbox routes, and an agent working inside a sandbox needs a
+token issued there.
 
 OAuth has no token revocation or introspection endpoint (RFC 7009, RFC 7662):
 turning the app off under Settings, Applications is how a connection ends. There
@@ -227,5 +245,6 @@ are no confidential clients and no client secrets, and a registration is never
 cleaned up, though it grants nothing. The consent page approves the scopes as
 asked, cut to what the approver holds; it cannot narrow them further. The stdio
 transports read their token once at start and check it on every message, so a
-new token means restarting the client. A dry run is offered on six bulk routes
-and no others.
+new token means restarting the client. A dry run is offered on the bulk routes and
+the routes that change how the company is set up, and on no route that sends a
+message or moves money.

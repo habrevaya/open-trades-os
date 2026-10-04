@@ -80,7 +80,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
             <fieldset className="space-y-4">
               <legend className="text-sm font-medium">Sections, in order</legend>
               {rows.map((section, index) => (
-                <div key={index} className="grid gap-3 rounded-md border border-steel-200 p-4 sm:grid-cols-[6rem_1fr_1fr]"
+                <div key={index} role="group" className="grid gap-3 rounded-md border border-steel-200 p-4 sm:grid-cols-[6rem_1fr_1fr]"
                      aria-label={section ? `Section ${index + 1}` : "A new section"}>
                   <TextField label="Position" name={`s${index}.position`} type="number" min={1} max={20}
                              defaultValue={String(index + 1)} />

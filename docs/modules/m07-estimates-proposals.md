@@ -126,6 +126,36 @@ cost or margin can appear, because the document is built from what a
 customer may see rather than by removing what they may not.
 `GET /v1/estimates/{id}/proposal` is the same document.
 
+### Lay the proposal out your way
+
+`/estimates/templates` holds the company's proposal layouts: a cover with a
+headline, a sentence and a photograph, then sections in the order it sells in,
+chosen from about us, the options, the warranty, financing, what customers said
+(the company's own reviews at or above a rating, with words in them), the terms and
+sections of its own. `/estimates/templates/{id}` edits one: each section's kind,
+heading, words and position, the cover and its photograph, whether each option shows
+its photographs, which job type it starts estimates for, and whether it is the
+default. The options must be in a layout, and once; every problem with a layout is
+said at once when it is saved. Designing them needs `settings:write`, like the terms.
+
+A new estimate starts in its job type's layout, or the default, or the plain one
+(the options, then the terms), and it keeps a COPY, like the terms: editing a layout
+changes the estimates it is applied to from then on, and none it was already on. The
+"Proposal layout" panel on a draft estimate applies another or goes back to the
+plain one, and puts photographs on each option. Both are refused once the estimate
+has been sent, because sending froze what the customer reads. The office's proposal,
+the customer's `/e/{token}/proposal` and the PDF all draw the same sections in the
+same order, with the cover first; the PDF prints a JPEG or a plain PNG and says so
+in a line where a photograph is a kind it cannot print. Each proposal's photographs
+are served only through that proposal.
+
+`GET /v1/proposal-templates`, `POST /v1/proposal-templates`,
+`PATCH /v1/proposal-templates/{id}`, `DELETE /v1/proposal-templates/{id}` and
+`POST /v1/proposal-templates/{id}/cover` are the same, and
+`POST /v1/estimates/{id}/proposal-template`, `POST /v1/estimate-options/{id}/photos`
+and `DELETE /v1/estimate-option-photos/{id}` act on a draft estimate.
+`GET /v1/estimates/{id}/proposal` carries the layout.
+
 ### Terms
 
 `/estimates/terms` holds the company's own small print, and every estimate
@@ -241,6 +271,14 @@ read their screen.
 | `GET /v1/estimates/{id}/deliveries` | `estimate:read` |
 | `GET /v1/estimates/{id}/proposal` | `estimate:read` |
 | `GET /v1/proposal-terms` | `estimate:read` |
+| `GET /v1/proposal-templates` | `estimate:read` |
+| `POST /v1/proposal-templates` | `settings:write` |
+| `PATCH /v1/proposal-templates/{id}` | `settings:write` |
+| `DELETE /v1/proposal-templates/{id}` | `settings:write` |
+| `POST /v1/proposal-templates/{id}/cover` | `settings:write` |
+| `POST /v1/estimates/{id}/proposal-template` | `estimate:write` |
+| `POST /v1/estimate-options/{id}/photos` | `estimate:write` |
+| `DELETE /v1/estimate-option-photos/{id}` | `estimate:write` |
 | `PUT /v1/proposal-terms` | `settings:write` |
 | `POST /v1/estimates/{id}/approve` | `estimate:approve` |
 | `POST /v1/estimates/{id}/decline` | `estimate:write` |
@@ -266,8 +304,10 @@ else's behalf is a decision about their money. Handing them a link is not.
 
 There is no PDF file: the proposal is a page laid out for printing, and a PDF
 is the browser's "save as PDF". It carries no company phone number or address,
-because the company record has neither yet. A proposal template (sections,
-photos, a cover page) is not built; the layout is fixed. An estimate is sent by
+because the company record has neither yet. A proposal layout is a closed set of
+section kinds, one cover photograph and photographs per option; there are no columns,
+fonts or per section colours, a layout cannot be changed on an estimate once it has
+been sent, and the PDF does not print a PNG with transparency. An estimate is sent by
 email or text one at a time; the same send cannot go by both at once.
 Following up is an automation the company turns on rather than something that
 happens unless switched off. Nothing marks an estimate expired on its own: an
