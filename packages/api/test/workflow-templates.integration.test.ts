@@ -168,6 +168,25 @@ run("turning a recommended automation on", () => {
   });
 });
 
+run("what a new company starts with", () => {
+  it("has the estimate follow up installed and on, once however often it is asked, and it switches off", async () => {
+    const first = await workflows.installStarters(owner());
+    expect(first).toHaveLength(1);
+    // A second call, a retry of sign up say, leaves the one it made alone.
+    expect(await workflows.installStarters(owner())).toEqual([]);
+
+    const listed = (await workflows.recommended(owner())).find((t) => t.key === "estimate_follow_up")!;
+    expect(listed.onForNewCompanies).toBe(true);
+    expect(listed.installed).toEqual({ id: first[0], enabled: true, name: "Follow up an estimate that has not been answered" });
+    // Only the one marked for it: the review request needs rules a new company has not set.
+    expect((await workflows.recommended(owner())).filter((t) => t.installed)).toHaveLength(1);
+
+    await workflows.setEnabled(owner(), { id: first[0]!, enabled: false });
+    const after = (await workflows.recommended(owner())).find((t) => t.key === "estimate_follow_up")!;
+    expect(after.installed?.enabled).toBe(false);
+  });
+});
+
 run("following up an estimate nobody answered", () => {
   it("waits, then texts the link, emails it if it can, and raises a call for the office", async () => {
     await workflows.installTemplate(owner(), { key: "estimate_follow_up", values: { days: 3 } });

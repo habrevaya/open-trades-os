@@ -60,8 +60,11 @@ export async function actOnEstimate(_previous: FormState, form: FormData): Promi
           id, channel, to: field(form, "to"), message: field(form, "message"),
           expiresInDays: Number(field(form, "expiresInDays") ?? "30"),
         }));
-        if (sent.delivery.state === "refused") {
-          throw new ConflictError(`Not sent. ${sent.delivery.error ?? ""} Nothing else changed.`);
+        const by = (one: string) => (one === "email" ? "by email" : "by text");
+        const went = sent.deliveries.filter((d) => d.state !== "refused");
+        if (went.length === 0) {
+          const reasons = sent.deliveries.map((d) => d.error).filter(Boolean).join(" ");
+          throw new ConflictError(`Not sent. ${reasons} Nothing else changed.`);
         }
         if (channel === "link") {
           return {
@@ -69,7 +72,16 @@ export async function actOnEstimate(_previous: FormState, form: FormData): Promi
             ...(sent.approvalUrl ? { link: sent.approvalUrl } : {}),
           };
         }
-        return { message: `Sent ${channel === "email" ? "by email" : "by text"} to ${sent.delivery.destination}.` };
+        /**
+         * By both at once, one channel can be refused while the other goes.
+         * The estimate is sent, and the refusal is said beside it rather
+         * than lost, because "they never got the text" changes who rings them.
+         */
+        const notSent = sent.deliveries.filter((d) => d.state === "refused")
+          .map((d) => ` Not sent ${by(d.channel)}: ${d.error ?? "refused"}`).join("");
+        return {
+          message: `Sent ${went.map((d) => `${by(d.channel)} to ${d.destination}`).join(" and ")}.${notSent}`,
+        };
       }
       case "deposit": {
         const amount = field(form, "amount")?.replace(/[$,\s]/g, "");

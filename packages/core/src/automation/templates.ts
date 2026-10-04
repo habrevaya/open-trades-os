@@ -49,6 +49,16 @@ export interface WorkflowTemplate {
   /** What has to be true in the company for it to do anything, said up front. */
   needs: string;
   parameters: TemplateParameter[];
+  /**
+   * Installed and switched on, with its defaults, when a company is created.
+   *
+   * Only for an automation whose worst case is harmless and whose absence is
+   * the costly mistake. An unanswered estimate is the commonest way a small
+   * office loses work it had already won, and "turn it on" is the step that
+   * gets skipped in the first week. It stays an ordinary workflow, switched
+   * off or deleted from the same list as any other.
+   */
+  onForNewCompanies?: boolean;
 }
 
 export const TEMPLATES: readonly WorkflowTemplate[] = [
@@ -67,6 +77,7 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
       help: "Three is what most offices use. Less reads as pushy; more and they have hired somebody else.",
       kind: "number", default: 3, min: 1, max: 30,
     }],
+    onForNewCompanies: true,
   },
   {
     key: "review_after_paid",

@@ -99,6 +99,11 @@ export default async function AutomationsPage() {
                 </div>
                 <p className="mt-1 text-sm text-ink-700">{template.summary}</p>
                 <p className="mt-1 text-xs text-ink-500">{template.needs}</p>
+                {template.onForNewCompanies ? (
+                  <p className="mt-1 text-xs text-ink-500">
+                    On from the start for a new company. Turn it off in the list below if you would rather not.
+                  </p>
+                ) : null}
                 {!template.installed && template.blockedBy ? (
                   <p className="mt-2 text-sm text-amber-700">{template.blockedBy}</p>
                 ) : null}

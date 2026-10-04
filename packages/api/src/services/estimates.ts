@@ -533,9 +533,15 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
     if (ctx.idempotencyKey) {
       const seen = await seenBefore(tx, ctx.idempotencyKey, "estimate_delivery");
       if (seen) {
-        const delivery = (await deliveriesWithin(tx, input.id)).find((d) => d.id === seen);
+        const all = await deliveriesWithin(tx, input.id);
+        const delivery = all.find((d) => d.id === seen);
         if (delivery) {
-          return { estimate: await loadEstimate(tx, ctx, input.id), approvalUrl: null, expiresAt: null, delivery };
+          /** A send by email and text at once is two rows sharing one link; both come back. */
+          const together = await sameSend(tx, seen);
+          return {
+            estimate: await loadEstimate(tx, ctx, input.id), approvalUrl: null, expiresAt: null, delivery,
+            deliveries: all.filter((d) => together.includes(d.id)),
+          };
         }
       }
     }
@@ -556,18 +562,37 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
      * WHERE IT GOES. The address or number typed for this send, otherwise the
      * one on the customer. No address is thrown rather than recorded: there is
      * no attempt to record, and the fix is a detail on the customer.
+     *
+     * BY BOTH AT ONCE is the email and the text together, carrying ONE link,
+     * so the customer approving from either is approving the one document and
+     * the link still works once. Each goes to the customer's own address and
+     * number: a typed `to` would be one address for two channels, so it is
+     * refused rather than guessed at. A customer missing either is refused
+     * before anything is sent, because half of "by email and text" going out
+     * silently is the outcome nobody asked for.
      */
     const channel = input.channel;
-    let to: string | null = null;
-    if (channel !== "link") {
-      to = (input.to ?? (channel === "email" ? customer?.email : customer?.phone) ?? "").trim();
-      if (to === "") {
+    const channels: ("email" | "sms")[] = channel === "both" ? ["email", "sms"] : channel === "link" ? [] : [channel];
+    if (channel === "both" && input.to?.trim()) {
+      throw new ConflictError(
+        "Sending by email and text at once goes to the customer's own email address and mobile number. "
+        + "To use a different address or number, send by one channel at a time.",
+      );
+    }
+    const destinations = new Map<"email" | "sms", string>();
+    for (const one of channels) {
+      const to = (channel === "both" ? undefined : input.to)
+        ?? (one === "email" ? customer?.email : customer?.phone) ?? "";
+      if (to.trim() === "") {
         throw new ConflictError(
-          `${customer?.name ?? "This customer"} has no ${channel === "email" ? "email address" : "mobile number"} `
-          + "on file and none was given. Add one to the customer, or hand them the link another way.",
+          `${customer?.name ?? "This customer"} has no ${one === "email" ? "email address" : "mobile number"} `
+          + "on file and none was given. Add one to the customer, "
+          + (channel === "both" ? "or send by the other channel alone." : "or hand them the link another way."),
         );
       }
+      destinations.set(one, to.trim());
     }
+    const to = channels.length === 1 ? destinations.get(channels[0]!)! : null;
 
     const token = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -587,37 +612,56 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
     const url = approvalUrl(token);
 
     /**
-     * The attempt is written before the transport is called, in the same
+     * The attempts are written before the transport is called, in the same
      * transaction, so there is no ordering in which a message exists and the
-     * row that says which estimate it carried does not.
+     * row that says which estimate it carried does not. One row per channel,
+     * each with its own outcome, all naming the same link.
      */
-    const [delivery] = await tx.insert(schema.estimateDelivery).values({
-      organizationId: ctx.actor.organizationId,
-      estimateId: input.id,
-      channel,
-      destination: to,
-      portalGrantId: grant!.id,
-      sentByUserId: ctx.portalGrantId ? null : ctx.actor.userId,
-    }).returning({ id: schema.estimateDelivery.id });
-    const deliveryId = delivery!.id;
+    const attempts = await tx.insert(schema.estimateDelivery).values(
+      (channels.length === 0 ? ["link" as const] : channels).map((one) => ({
+        organizationId: ctx.actor.organizationId,
+        estimateId: input.id,
+        channel: one,
+        destination: one === "link" ? null : destinations.get(one)!,
+        portalGrantId: grant!.id,
+        sentByUserId: ctx.portalGrantId ? null : ctx.actor.userId,
+      })),
+    ).returning({ id: schema.estimateDelivery.id, channel: schema.estimateDelivery.channel });
+    const deliveryId = attempts[0]!.id;
+    const deliveryIds = attempts.map((a) => a.id);
 
-    if (channel !== "link") {
-      const outcome = await transport(tx, ctx, {
-        channel,
-        to: to!,
-        customerId: current.customerId,
-        identity: await identityOf(tx, ctx.actor.organizationId),
-        estimate: {
-          number: current.number,
-          title: current.title,
-          customerName: customer?.name ?? "",
-          totals: current.options.map((o) => o.total as string),
-        },
-        url,
-        note: input.message?.trim() ? input.message.trim() : null,
-      });
+    if (channels.length > 0) {
+      const identity = await identityOf(tx, ctx.actor.organizationId);
+      const refused: { channel: string; to: string; reason: string }[] = [];
+      for (const attempt of attempts) {
+        const one = attempt.channel as "email" | "sms";
+        const outcome = await transport(tx, ctx, {
+          channel: one,
+          to: destinations.get(one)!,
+          customerId: current.customerId,
+          identity,
+          estimate: {
+            number: current.number,
+            title: current.title,
+            customerName: customer?.name ?? "",
+            totals: current.options.map((o) => o.total as string),
+          },
+          url,
+          note: input.message?.trim() ? input.message.trim() : null,
+        });
+        if (outcome.sent) {
+          await tx.update(schema.estimateDelivery)
+            .set({ messageId: outcome.messageId, updatedAt: new Date() })
+            .where(eq(schema.estimateDelivery.id, attempt.id));
+        } else {
+          await tx.update(schema.estimateDelivery)
+            .set({ error: outcome.explanation, updatedAt: new Date() })
+            .where(eq(schema.estimateDelivery.id, attempt.id));
+          refused.push({ channel: one, to: destinations.get(one)!, reason: outcome.reason });
+        }
+      }
 
-      if (!outcome.sent) {
+      if (refused.length === attempts.length) {
         /**
          * NOT SENT IS RECORDED, NOT THROWN, AND CHANGES NOTHING ELSE.
          *
@@ -627,26 +671,29 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
          * must not start the clock an "unanswered estimate" follow up waits
          * on. What remains is the attempt with the reason in words, on the
          * estimate's own screen.
+         *
+         * Only when EVERY channel was refused. By both at once with the
+         * text refused (they replied STOP) and the email gone, the customer
+         * has the estimate, and the refused text is a row with its reason
+         * beside the one that went.
          */
         await withdraw(tx, grant!.id);
-        await tx.update(schema.estimateDelivery)
-          .set({ error: outcome.explanation, updatedAt: new Date() })
-          .where(eq(schema.estimateDelivery.id, deliveryId));
         await audit(tx, ctx, "estimate.delivery_refused", "estimate", input.id, null, {
-          deliveryId, channel, to, reason: outcome.reason,
+          deliveryId, channel, to, refused,
         });
         await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
+        const all = await deliveriesWithin(tx, input.id);
         return {
           estimate: current,
           approvalUrl: null,
           expiresAt: null,
-          delivery: (await deliveriesWithin(tx, input.id)).find((d) => d.id === deliveryId)!,
+          delivery: all.find((d) => d.id === deliveryId)!,
+          deliveries: all.filter((d) => deliveryIds.includes(d.id)),
         };
       }
-
-      await tx.update(schema.estimateDelivery)
-        .set({ messageId: outcome.messageId, updatedAt: new Date() })
-        .where(eq(schema.estimateDelivery.id, deliveryId));
+      if (refused.length > 0) {
+        await audit(tx, ctx, "estimate.delivery_refused", "estimate", input.id, null, { deliveryId, channel, refused });
+      }
     }
 
     /**
@@ -677,7 +724,8 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       kind: "estimate_sent",
       headline: `Estimate #${current.number} sent`,
       detail: input.message
-        ?? (channel === "email" ? `By email to ${to}` : channel === "sms" ? `By text to ${to}` : null),
+        ?? (channel === "email" ? `By email to ${to}` : channel === "sms" ? `By text to ${to}`
+          : channel === "both" ? `By email to ${destinations.get("email")} and by text to ${destinations.get("sms")}` : null),
     });
 
     /**
@@ -718,13 +766,25 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       { status: current.status }, { status: "sent", channel, deliveryId });
     await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
 
+    const all = await deliveriesWithin(tx, input.id);
     return {
       estimate: await loadEstimate(tx, ctx, input.id),
       approvalUrl: url,
       expiresAt: expiresAt.toISOString(),
-      delivery: (await deliveriesWithin(tx, input.id)).find((d) => d.id === deliveryId)!,
+      delivery: all.find((d) => d.id === deliveryId)!,
+      deliveries: all.filter((d) => deliveryIds.includes(d.id)),
     };
   });
+}
+
+/** The attempts one send made: every delivery row carrying the same link as this one. */
+async function sameSend(tx: Database, deliveryId: string): Promise<string[]> {
+  const [first] = await tx.select({ grantId: schema.estimateDelivery.portalGrantId })
+    .from(schema.estimateDelivery).where(eq(schema.estimateDelivery.id, deliveryId)).limit(1);
+  if (!first?.grantId) return [deliveryId];
+  const rows = await tx.select({ id: schema.estimateDelivery.id }).from(schema.estimateDelivery)
+    .where(eq(schema.estimateDelivery.portalGrantId, first.grantId));
+  return rows.map((row) => row.id);
 }
 
 /** Every attempt to send this estimate, with what became of each. */
