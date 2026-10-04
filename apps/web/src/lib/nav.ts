@@ -59,6 +59,21 @@ export const NAV: NavGroup[] = [
        */
       { href: "/my-day", label: "My day", permission: "field:sync", icon: "day" },
       { href: "/", label: "Today", permission: "job:read", icon: "today" },
+      /**
+       * A person's own record, for everybody: the documents waiting for their
+       * signature, their onboarding, the people to ring, their certifications,
+       * their pay for closed periods and their time off. Up here rather than
+       * under People, which is everybody's record and needs `user:read`.
+       */
+      {
+        href: "/me", label: "My record", permission: "profile:own", icon: "me",
+        children: [
+          { href: "/me", label: "About me" },
+          /** Inherits `profile:own` to be SHOWN; the page itself needs `payroll:own`. */
+          { href: "/me/pay", label: "My pay" },
+          { href: "/me/time-off", label: "Time off" },
+        ],
+      },
     ],
   },
   {
@@ -306,7 +321,18 @@ export const NAV: NavGroup[] = [
           { href: "/books/budget", label: "Budget" },
         ],
       },
-      { href: "/timesheets", label: "Timesheets", permission: "timesheet:read", icon: "timesheets" },
+      {
+        href: "/timesheets", label: "Timesheets", permission: "timesheet:read", icon: "timesheets",
+        children: [
+          { href: "/timesheets", label: "Hours" },
+          /**
+           * Requests to answer and leave already granted, for the people the
+           * reader answers for. Under Timesheets because whoever approves the
+           * hours approves the days off; answering needs `timesheet:approve`.
+           */
+          { href: "/timesheets/time-off", label: "Time off" },
+        ],
+      },
       /**
        * Beside timesheets, because it is what the hours become: a closed
        * period, a register somebody can check line by line, and the file the
@@ -380,6 +406,8 @@ export const NAV: NavGroup[] = [
         children: [
           { href: "/people", label: "Everybody" },
           { href: "/people/onboarding", label: "Onboarding" },
+          /** What the company asks its people to sign, and who has. */
+          { href: "/people/documents", label: "Documents to sign" },
         ],
       },
       /** The company's own licences, insurance and filings. Business, because it is about the company rather than a job. */

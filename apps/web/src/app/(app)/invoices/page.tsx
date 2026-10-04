@@ -8,6 +8,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 import { CustomFieldFilter } from "@/components/CustomFieldFilter";
 import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
+import { work } from "@opentradesos/core";
 
 export const dynamic = "force-dynamic";
 
@@ -95,7 +96,7 @@ export default async function InvoicesPage({
             const over = invoice.balance === "0" ? 0 : daysOverdue(invoice.dueOn, today);
             return (
             <tr key={invoice.id} className="hover:bg-steel-100">
-              <Td className="font-mono tabular-nums text-ink-700">{invoice.number}</Td>
+              <Td className="font-mono tabular-nums text-ink-700">{work.documentNumber(invoice.numberPrefix, invoice.number)}</Td>
               <Td>
                 <a href={`/invoices/${invoice.id}`} className="font-medium text-ink-900 hover:underline">
                   {invoice.customerName}

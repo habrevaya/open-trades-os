@@ -23,21 +23,31 @@ function refresh() {
 }
 
 /**
+ * What the inviter is told: whether it was emailed, and the link either way.
+ *
  * The link is shown as a secret rather than as a link: it signs somebody in
  * as a new person, once, and an anchor whose address is a credential leaks it
- * into history and into whatever it is clicked through to.
+ * into history and into whatever it is clicked through to. It is shown even
+ * when the email went, once, because "it went to spam" is the commonest reply
+ * to an invite and the inviter is standing next to the person.
  */
-function handOver(name: string, link: string | null, reissued: boolean): Partial<NonNullable<FormState>> {
-  if (!link) {
+function handOver(
+  name: string,
+  result: { link: string | null; reissued: boolean; emailed: boolean; emailNote: string | null },
+): Partial<NonNullable<FormState>> {
+  if (!result.link) {
     return {
-      message: `${name} is set up. This server has no public address (PUBLIC_URL), so no link could be made: `
-        + "set it, then press New link beside them.",
+      message: `${name} is set up. This server has no public address (PUBLIC_URL), so no link could be made `
+        + "or emailed: set it, then press Send a new invite beside them.",
     };
   }
+  const emailed = result.emailed
+    ? `Emailed to them, with a link of its own.`
+    : `Not emailed (${result.emailNote ?? "the email could not be sent"}), so send this to them yourself.`;
   return {
     secret: {
-      value: link,
-      caption: `${reissued ? "A new link for" : "Send this to"} ${name}. It lets them choose a password, once, in the next seven days${reissued ? ", and the old one no longer works" : ""}. It is not shown again.`,
+      value: result.link,
+      caption: `${result.reissued ? "A new invite for" : "Invited"} ${name}. ${emailed} The link lets them choose a password, once, in the next seven days${result.reissued ? ", and the old invite no longer works" : ""}. It is not shown again.`,
     },
   };
 }
@@ -54,7 +64,7 @@ export async function invite(_previous: FormState, form: FormData): Promise<Form
       ...(form.get("goesOut") === "on" ? { goesOut: true } : {}),
     });
     refresh();
-    return handOver(name, result.link, result.reissued);
+    return handOver(name, result);
   });
 }
 
@@ -63,7 +73,7 @@ export async function resend(_previous: FormState, form: FormData): Promise<Form
   return attempt(form, async () => {
     const result = await team.resendInvite(await ctx(), { membershipId: String(form.get("membershipId") ?? "") });
     refresh();
-    return handOver(name, result.link, true);
+    return handOver(name, result);
   });
 }
 
@@ -121,6 +131,20 @@ export async function setActive(_previous: FormState, form: FormData): Promise<F
         ? "Turned back on. They can sign in again."
         : `Turned off.${done.sessionsRevoked > 0 ? ` Signed out of ${done.sessionsRevoked} ${done.sessionsRevoked === 1 ? "device" : "devices"}.` : ""}`,
     };
+  });
+  refresh();
+  return result;
+}
+
+/** Which shop somebody works from: what a "their shop's work" role shows them. */
+export async function changeLocation(_previous: FormState, form: FormData): Promise<FormState> {
+  const chosen = String(form.get("locationId") ?? "");
+  const result = await attempt(form, async () => {
+    await branches.setMemberLocation(await ctx(), {
+      membershipId: String(form.get("membershipId") ?? ""),
+      locationId: chosen === "" ? null : chosen,
+    });
+    return { message: "Saved." };
   });
   refresh();
   return result;

@@ -112,7 +112,37 @@ because stating what people are owed is a different act from paying them.
 `GET /v1/timeclock/me` is somebody's own clock, with `timeclock:own`.
 `GET /v1/timesheets/week` and `GET /v1/timesheets/entries` are the week, with
 `timesheet:read`, and `POST /v1/timesheets/approvals` approves it, with
-`timesheet:approve`. `/timesheets` is the screen.
+`timesheet:approve`. `/timesheets` is the screen. Timesheets are scoped by the
+person they belong to: a branch scoped reader sees and approves the people in
+their branch, including an hour one of them spent on another branch's job, and
+a crew lead their crew.
+
+### A person's own pay
+
+`/me/pay` is the signed in person's own statement for each period payroll has
+closed (`GET /v1/me/pay-statements`, `payroll:own`): their lines exactly as the
+register and the export carried them, worked out at the moment the period
+closed, and the commission behind the commission lines, invoice by invoice,
+with whether it has been paid. Open periods are left off, because a figure
+read on Tuesday that has moved by Friday is a dispute rather than a statement.
+A year of periods at most. The call takes no person; it is whoever is signed
+in.
+
+### Time off
+
+A technician asks for days off on `/me/time-off` (`POST /v1/time-off`, with
+`timeclock:own`), and sees each request's answer there. Whoever approves the
+hours answers on `/timesheets/time-off` (`GET /v1/time-off/pending`,
+`POST /v1/time-off/{id}/approve`, `POST /v1/time-off/{id}/decline`, all
+`timesheet:approve`), which also lists the leave already granted that is still
+to come (`GET /v1/time-off/upcoming`, `timesheet:read`). Approved leave is what
+the board, the crew check and the booking page read; a request changes nothing
+for anybody until it is approved. A request is asked again with the same key
+and gets its first answer rather than a refusal that it overlaps itself.
+
+Both lists, and approving and declining, are for the people the approver's
+timesheet scope reaches: a branch manager given `timesheet:approve` answers
+their own branch's people, and another branch's request is not found.
 
 ### Run payroll
 
@@ -191,7 +221,8 @@ writing a second row.
 | Administrator | Nothing in payroll unless it is granted explicitly |
 | Office manager | Reads timesheets |
 | Dispatcher | Reads timesheets |
-| Technician | Clocks in and out. Their own time only |
+| Technician | Clocks in and out. Their own time only, and their own pay statements for closed periods |
+| Branch manager | Reads their branch's people's timesheets and time off; approving them is granted by name |
 | Accountant | Reads payroll, runs the export, reads commission |
 
 `payroll:read` and `commission:read` are both on the sensitive list, and the
@@ -221,6 +252,9 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `POST /v1/payroll/wage-scales/{id}/retire` | `payroll:configure` |
 | `GET /v1/payroll/crew-rates` | `timesheet:read` |
 | `POST /v1/payroll/classifications` | `payroll:configure` |
+| `GET /v1/me/pay-statements` | `payroll:own` |
+| `GET /v1/time-off/pending` | `timesheet:approve` |
+| `GET /v1/time-off/upcoming` | `timesheet:read` |
 
 ## Common questions
 
@@ -228,9 +262,11 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 would differ from the file already sent, with nothing saying so. Reopen the
 period, close it again, and export.
 
-**Can a technician see their own pay rate?** Only with `payroll:read`, which the
-technician preset does not hold. The applied rates on a punch are redacted by the
-same permission.
+**Can a technician see their own pay rate?** On their own statement for a closed
+period, yes: `payroll:own`, which every preset holds, shows them the rate their
+hours were paid at. Anybody else's, and the rates on a punch while a period is
+open, need `payroll:read`, which the technician preset does not hold. A company
+that shows pay through its payroll bureau's own portal revokes `payroll:own`.
 
 **Why is there one commission permission for declaring a plan and settling an
 earning?** Declaring and settling are different acts and a larger product would
@@ -249,4 +285,7 @@ the phone or on `/my-day`, and nobody in the office can record or change one
 for them. A tip is split evenly with no way to split it otherwise. Reimbursements and per diem
 are not modelled. Certified payroll reporting is not built. Commission
 splits across several people are computed by core and settled one earning at a
-time rather than from a screen.
+time rather than from a screen. A person's own statement is gross pay: what the
+bureau withheld is on the bureau's statement, and this product never knows it.
+Time off is asked for in whole days on a screen; part of a day is asked for
+through the API.

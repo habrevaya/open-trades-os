@@ -87,6 +87,11 @@ beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: OWNER, name: "Two Shops Again", slug: "branch-scope-two-shops" });
+  /**
+   * The people this file invites are accounts, which are not the company's
+   * and outlive its reset; a second run would find each address taken.
+   */
+  await raw`delete from public."user" where email like ${"branch-scope-%@test.local"} and id <> ${OWNER}`;
 
   austin = (await company.createBusinessUnit(owner(), { name: "Austin", code: "AUS" })).id;
   houston = (await company.createBusinessUnit(owner(), { name: "Houston", code: "HOU" })).id;
@@ -321,6 +326,19 @@ run("a shop scope, reachable on the roles screen", () => {
     const board = await dispatch.board(lou, { date: today() });
     expect(board.technicians.flatMap((t) => t.visits.map((v) => v.id))).toEqual([austinVisit]);
     expect((await serviceReports.list(lou, {})).reports.map((r) => r.id)).toEqual([austinReport]);
+  });
+
+  it("sees the work of the people based at the shop, whose day starts there", async () => {
+    await raw`update public.technician set home_location_id = ${north} where id = ${rayTech}`;
+    try {
+      const lou = await resolve(LOU);
+      const board = await dispatch.board(lou, { date: today() });
+      expect(board.technicians.flatMap((t) => t.visits.map((v) => v.id)).sort())
+        .toEqual([austinVisit, houstonVisit, houstonVisitForSam].sort());
+      expect(board.technicians.map((t) => t.id)).toContain(rayTech);
+    } finally {
+      await raw`update public.technician set home_location_id = null where id = ${rayTech}`;
+    }
   });
 });
 

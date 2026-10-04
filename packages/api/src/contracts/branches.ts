@@ -84,7 +84,7 @@ export const setMemberLocation = defineRoute({
   path: "/v1/memberships/{membershipId}/location",
   summary: "Say which shop somebody works from",
   description:
-    "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them, the jobs with a visit dispatched from it. Taking it away is refused while their role or their own limits show them only their shop.",
+    "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them: the jobs worked from it, by somebody based there or on a visit sent from there, and the people based there. Taking it away is refused while their role or their own limits show them only their shop.",
   module: "M01",
   permissions: ["membership:write"],
   /** Setting a state. */

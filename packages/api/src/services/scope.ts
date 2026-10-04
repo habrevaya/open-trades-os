@@ -108,13 +108,33 @@ export function jobVisibility(scope: Scope, actor: ScopeContext, jobId: SQL): SQ
      * A physical shop. That lives on the VISIT rather than the job, because
      * one job can be served from two shops, so this asks whether any of its
      * visits were.
+     *
+     * A visit is the shop's when it says so (`visit.location_id`), or when
+     * somebody based at the shop is on it: a technician whose day starts
+     * there or whose membership is there, or a crew based there. Nothing
+     * writes a visit's own shop yet, so with only the first test this scope
+     * matched nothing at all, and a "their shop's work" role read as a shop
+     * with no work.
      */
-    case "location":
+    case "location": {
       if (!actor.locationId) return NOTHING;
+      const shop = actor.locationId;
       return sql`exists (
         select 1 from public.visit v
-        where v.job_id = ${jobId} and v.location_id = ${actor.locationId}
+        where v.job_id = ${jobId}
+          and (
+            v.location_id = ${shop}
+            or exists (select 1 from public.crew lc where lc.id = v.crew_id and lc.home_location_id = ${shop})
+            or exists (
+              select 1 from public.visit_assignment lva
+              join public.technician lt on lt.id = lva.technician_id
+              left join public.membership lm on lm.id = lt.membership_id
+              where lva.visit_id = v.id
+                and (lt.home_location_id = ${shop} or lm.location_id = ${shop})
+            )
+          )
       )`;
+    }
 
     default:
       /**
@@ -268,7 +288,8 @@ export const branchOfJob = (businessUnitId: string, jobId: SQL): SQL =>
  *   own            themselves
  *   crew           themselves and the people on their crews
  *   business_unit  the people whose branch is this person's branch
- *   location       the people based at this person's shop
+ *   location       the people based at this person's shop: their day starts
+ *                  there, or their membership names it
  *
  * A technician from another branch working one of this branch's jobs is not
  * matched here, and the callers that draw a day add them back from the
@@ -296,12 +317,13 @@ export function technicianScopeFilter(scope: Scope, actor: ScopeContext): SQL | 
         select 1 from public.membership sm
         where sm.id = ${schema.technician.membershipId} and sm.business_unit_id = ${actor.businessUnitId}
       )`;
+    /** Based at the shop: their day starts there, or their membership says so. */
     case "location":
       if (!actor.locationId) return NOTHING;
-      return sql`exists (
+      return sql`(${schema.technician.homeLocationId} = ${actor.locationId} or exists (
         select 1 from public.membership sm
         where sm.id = ${schema.technician.membershipId} and sm.location_id = ${actor.locationId}
-      )`;
+      ))`;
     default:
       return NOTHING;
   }

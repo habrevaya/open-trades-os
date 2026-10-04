@@ -91,6 +91,11 @@ beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: OWNER, name: "Self Service Heating", slug: "self-service-heating" });
+  /**
+   * The people this file invites are accounts, which are not the company's
+   * and outlive its reset; a second run would find each address taken.
+   */
+  await raw`delete from public."user" where email like ${"self-service-%@test.local"} and id <> ${OWNER}`;
   await raw`update public."user" set name = 'Olive Owner' where id = ${OWNER}`;
 
   rayMembership = await person(RAY, "self-service-ray@test.local", "Ray Ortiz", "technician");
