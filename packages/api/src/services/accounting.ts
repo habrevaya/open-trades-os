@@ -317,7 +317,13 @@ export async function unmappedAccountCodes(
     .where(eq(schema.accountMapping.connectionId, connectionId));
 
   const known = new Set(mapped.map((row) => row.accountCode));
-  return used.map((row) => row.accountCode).filter((code) => !known.has(code)).sort();
+  /**
+   * Retainage receivable is left off: nothing this bridge sends lands on it
+   * (the books carry an application's invoice as billed, net), so asking
+   * somebody to map it would be asking for a mapping nothing reads. M14 says so.
+   */
+  return used.map((row) => row.accountCode)
+    .filter((code) => !known.has(code) && code !== ledger.ACCOUNTS.RETAINAGE_RECEIVABLE).sort();
 }
 
 /* -------------------------------------------------------- period closing */
@@ -500,6 +506,8 @@ export const creditNoteVoidKey = (number: number): string => `CNV${number}`;
  * a credit note's id.
  */
 export const creditApplicationKey = (id: string): string => shortKey("OA", id);
+/** A credit note's credit paid out as money, hashed like a payment, `OP` for "our payout". */
+export const creditPayoutKey = (id: string): string => shortKey("OP", id);
 
 /* ------------------------------------------------------------- the claim */
 
@@ -1923,6 +1931,51 @@ async function pushCreditNotes(
     });
   }
 
+  /* Paid out as money. */
+  const payouts = await guardedRead(ctx, "accounting:sync", async (tx) => ({
+    rows: await payoutsToPush(tx, connection.id, closedOn, limit),
+    accounts: await mappingsOf(tx, connection.id, [ledger.ACCOUNTS.CASH, ledger.ACCOUNTS.AR]),
+  }));
+  for (const payout of payouts.rows) {
+    const key = creditPayoutKey(payout.id);
+    const push = deps.provider.pushCreditNoteRefund?.bind(deps.provider);
+    if (!push) {
+      await recordRefusal(ctx, connection.id, "credit_note_refund", payout.id, key,
+        `${deps.provider.name} cannot be sent a credit paid out from here. Record credit note ${payout.number}'s refund there by hand.`);
+      state.failed += 1;
+      continue;
+    }
+    const cash = payouts.accounts.get(ledger.ACCOUNTS.CASH);
+    if (!cash) {
+      await recordRefusal(ctx, connection.id, "credit_note_refund", payout.id, key,
+        `Account ${ledger.ACCOUNTS.CASH} is not mapped to anything in the accounting system. Map it on `
+        + "the accounting settings screen; this credit paid out is not sent until you do.");
+      state.failed += 1;
+      continue;
+    }
+    const customerExternalId = await customerRef(payout.customerId);
+    if (!customerExternalId) { state.skipped += 1; continue; }
+    const how = payout.method === "card" ? "to the customer's card"
+      : payout.method === "check" ? `by cheque${payout.reference ? ` ${payout.reference}` : ""}`
+      : payout.method === "cash" ? "in cash" : "to the customer";
+    await pushOne(ctx, connection.id, state, meteredRead, {
+      kind: "credit_note_refund",
+      entityId: payout.id,
+      idempotencyKey: key,
+      send: () => push({
+        idempotencyKey: key,
+        customerExternalId,
+        creditNoteExternalId: payout.creditNoteExternalId!,
+        paidOn: payout.paidOn!,
+        amount: money(payout.amount, payout.currency),
+        bankAccountExternalId: cash,
+        receivableAccountExternalId: payouts.accounts.get(ledger.ACCOUNTS.AR) ?? null,
+        memo: `Credit note ${payout.number} paid back ${how}`,
+      }),
+      find: (k) => deps.provider.findPushed("credit_note_refund", k),
+    });
+  }
+
   /* Voided: the reversing invoice. */
   const voids = await guardedRead(ctx, "accounting:sync", (tx) =>
     voidsToPush(tx, connection.id, closedOn, limit));
@@ -2078,6 +2131,63 @@ async function applicationsToPush(
     ))
     .orderBy(asc(schema.creditNoteApplication.createdAt))
     .limit(limit);
+}
+
+/**
+ * Credit paid out as money whose credit note is in the books, dated after the
+ * close by the day the money went. A card payout is offered only once the
+ * processor has said the refund moved, because only then is it posted here.
+ */
+async function payoutsToPush(
+  tx: Database, connectionId: string, closedOn: string | null, limit: number,
+) {
+  const noteLink = alias(schema.accountingEntityLink, "paid_out_note_link");
+  const payoutLink = alias(schema.accountingEntityLink, "payout_link");
+  return tx.select({
+    id: schema.creditNotePayout.id,
+    method: schema.creditNotePayout.method,
+    reference: schema.creditNotePayout.reference,
+    amount: schema.creditNotePayout.amount,
+    currency: schema.creditNotePayout.currency,
+    paidOn: schema.creditNotePayout.paidOn,
+    customerId: schema.creditNote.customerId,
+    number: schema.creditNote.number,
+    creditNoteExternalId: noteLink.externalId,
+  })
+    .from(schema.creditNotePayout)
+    .innerJoin(schema.creditNote, eq(schema.creditNote.id, schema.creditNotePayout.creditNoteId))
+    .innerJoin(noteLink, and(
+      eq(noteLink.connectionId, connectionId),
+      eq(noteLink.kind, "credit_note"),
+      eq(noteLink.entityId, schema.creditNote.id),
+      eq(noteLink.state, "linked"),
+      isNotNull(noteLink.externalId),
+    ))
+    .leftJoin(payoutLink, and(
+      eq(payoutLink.connectionId, connectionId),
+      eq(payoutLink.kind, "credit_note_refund"),
+      eq(payoutLink.entityId, schema.creditNotePayout.id),
+    ))
+    .where(and(
+      eq(schema.creditNotePayout.status, "paid"),
+      isNotNull(schema.creditNotePayout.paidOn),
+      offerable(payoutLink.id, payoutLink.state),
+      afterClose(schema.creditNotePayout.paidOn, closedOn),
+    ))
+    .orderBy(asc(schema.creditNotePayout.paidAt))
+    .limit(limit);
+}
+
+/** The mapped external id for each of a few account codes, where one is mapped. */
+async function mappingsOf(tx: Database, connectionId: string, codes: string[]): Promise<Map<string, string>> {
+  const rows = await tx.select({
+    accountCode: schema.accountMapping.accountCode,
+    externalId: schema.accountMapping.externalId,
+  }).from(schema.accountMapping).where(and(
+    eq(schema.accountMapping.connectionId, connectionId),
+    inArray(schema.accountMapping.accountCode, codes),
+  ));
+  return new Map(rows.map((row) => [row.accountCode, row.externalId]));
 }
 
 /**

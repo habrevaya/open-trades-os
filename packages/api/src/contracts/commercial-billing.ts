@@ -106,6 +106,8 @@ export const BillingLine = z.object({
   /** A card applies to this payer and none of its rules prices this line. */
   outOfScope: z.boolean(),
   taxable: z.boolean(),
+  /** The rate this line is taxed at, as applied: the rate asked for on a taxable line, nought otherwise. */
+  taxRate: RateString,
 });
 
 export const BillingPlan = z.object({
@@ -118,8 +120,14 @@ export const BillingPlan = z.object({
     customerId: Uuid,
     name: z.string(),
     role: z.enum(["third_party", "customer", "share"]),
+    /** Before tax. */
     total: MoneyString,
-    lines: z.array(z.object({ key: z.string(), amount: MoneyString, whole: z.boolean() })),
+    /** The tax on this payer's parts, at each line's rate; nothing for a payer who is tax exempt. */
+    taxTotal: MoneyString,
+    /** What their invoice will ask for: `total` and `taxTotal`. */
+    totalWithTax: MoneyString,
+    taxExempt: z.boolean(),
+    lines: z.array(z.object({ key: z.string(), amount: MoneyString, whole: z.boolean(), tax: MoneyString })),
     ceiling: z.object({ state: z.enum(["within", "over"]), held: z.boolean(), message: z.string().nullable() }).nullable(),
   })),
   pricedTotal: MoneyString,
@@ -128,6 +136,11 @@ export const BillingPlan = z.object({
   absorbed: MoneyString,
   /** True when the payers' parts and what was absorbed come to the priced work exactly. */
   reconciles: z.boolean(),
+  /**
+   * The tax on everything invoiced, worked out on the whole and rounded once,
+   * which the payers' `taxTotal`s add up to exactly.
+   */
+  taxTotal: MoneyString,
   outOfScope: z.number().int(),
   problems: z.array(z.string()),
   existing: z.array(z.object({
@@ -143,7 +156,16 @@ export const previewJobBilling = defineRoute({
     "Every unbilled line on the job, plus a card's trip charge per visit made, each priced by the authority of whoever pays for it: their contract's card, a warranty network schedule or a manufacturer allowance, with our price book as the fallback. Then split between payers: a third party covering part of the work pays the covered work less the deductible and the customer the rest; payers named with shares pay their shares and the party billed the remainder. `problems` says what has to be decided before it can be billed. Nothing is written.",
   module: "M31",
   permissions: ["invoice:read"],
-  input: z.object({ id: Uuid }),
+  input: z.object({
+    id: Uuid,
+    /**
+     * The sales tax rate on the job's taxable lines, as a fraction: 0.0825.
+     * Nought when left off, because the product does not decide a rate for
+     * anybody (M13). Each payer is taxed on their own part of each taxable
+     * line, a payer marked tax exempt on nothing.
+     */
+    taxRate: RateString.optional(),
+  }),
   output: BillingPlan,
 });
 
@@ -152,11 +174,11 @@ export const billJob = defineRoute({
   path: "/v1/jobs/{id}/billing",
   summary: "Bill a job to whoever pays for it, one invoice per payer",
   description:
-    "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs.",
+    "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. With a `taxRate`, each payer's invoice is taxed on that payer's part of each taxable line, and the tax across the invoices adds up to the tax on the whole job to the cent.",
   module: "M31",
   permissions: ["invoice:write"],
   idempotent: true,
-  input: z.object({ id: Uuid, draft: z.boolean().optional() }),
+  input: z.object({ id: Uuid, draft: z.boolean().optional(), taxRate: RateString.optional() }),
   output: z.object({
     jobId: Uuid,
     basis: z.enum(["single", "coverage", "shares", "absorbed"]),
@@ -167,6 +189,7 @@ export const billJob = defineRoute({
     pricedTotal: MoneyString,
     invoicedTotal: MoneyString,
     absorbed: MoneyString,
+    taxTotal: MoneyString,
   }),
 });
 

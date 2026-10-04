@@ -38,20 +38,52 @@ describe("the writer", () => {
     expect(read.text).toBe("Compressed");
   });
 
-  it("prints Western European accents and drops an accent the fonts lack, and prints a question mark for a letter they lack", () => {
+  it("prints a name in any Latin, Greek or Cyrillic alphabet as itself, from the font in the file", () => {
     const page = new pdf.PdfPage();
     page.text(48, 60, "José Peña ’s €5");
-    page.text(48, 80, "Đức");
-    const read = pdf.inspectPdf(pdf.renderPdf([page], { title: "t", createdAt: AT }));
-    expect(read.pages[0]![0]).toBe("José Peña ’s €5");
-    expect(read.pages[0]![1]).toBe("?uc");
+    page.text(48, 80, "Nguyễn Thị Đức");
+    page.text(48, 100, "Dvořák, Łukasz Żółć", { font: "bold" });
+    page.text(48, 120, "Σωκράτης Παπαδόπουλος");
+    page.text(48, 140, "Анна Петрова");
+    const read = pdf.inspectPdf(pdf.renderPdf([page], { title: "Nguyễn Thị Đức", createdAt: AT }));
+    expect(read.problems).toEqual([]);
+    expect(read.pages[0]).toEqual([
+      "José Peña ’s €5", "Nguyễn Thị Đức", "Dvořák, Łukasz Żółć", "Σωκράτης Παπαδόπουλος", "Анна Петрова",
+    ]);
+    expect(read.title).toBe("Nguyễn Thị Đức");
+    /** Both weights are in the file, each a subset named as PDF asks. */
+    expect(read.fonts).toHaveLength(2);
+    for (const name of read.fonts) expect(name).toMatch(/^[A-Z]{6}\+NotoSans-(Regular|Bold)$/);
   });
 
-  it("measures text from the font's own widths", () => {
-    // Helvetica: "W" is 944 units, "i" is 222. At 10 points, 9.44 and 2.22.
-    expect(pdf.widthOf("W", "regular", 10)).toBeCloseTo(9.44, 5);
-    expect(pdf.widthOf("i", "regular", 10)).toBeCloseTo(2.22, 5);
-    expect(pdf.widthOf("W", "bold", 10)).toBeCloseTo(9.44, 5);
+  it("prints a letter the bundled scripts lack as its base letter, or a question mark", () => {
+    const page = new pdf.PdfPage();
+    // A Chinese character, a polytonic Greek alpha (which comes apart into alpha and its breathing), a ligature.
+    page.text(48, 60, "\u738b \u1f00 \ufb01");
+    const read = pdf.inspectPdf(pdf.renderPdf([page], { title: "t", createdAt: AT }));
+    expect(read.pages[0]![0]).toBe("? \u03b1 ?");
+  });
+
+  it("keeps only the glyphs a document uses in its copy of the font", () => {
+    const small = new pdf.PdfPage();
+    small.text(48, 60, "Hi");
+    const large = new pdf.PdfPage();
+    large.text(48, 60, "The quick brown fox jumps over the lazy dog. ÀÉÎÕÜ àéîõü Ωω Жж 0123456789");
+    const smallBytes = pdf.renderPdf([small], { title: "s", createdAt: AT });
+    const largeBytes = pdf.renderPdf([large], { title: "l", createdAt: AT });
+    expect(smallBytes.length).toBeLessThan(largeBytes.length);
+    // The whole regular face is over a hundred kilobytes; two letters and their notdef are a fraction of it.
+    expect(smallBytes.length).toBeLessThan(40_000);
+    expect(pdf.inspectPdf(smallBytes).problems).toEqual([]);
+  });
+
+  it("measures text from the embedded font's own widths", () => {
+    // Noto Sans: "W" is 930 units of 1000 and "i" 258, bold "W" 967. At 10 points, 9.3, 2.58 and 9.67.
+    expect(pdf.widthOf("W", "regular", 10)).toBeCloseTo(9.3, 5);
+    expect(pdf.widthOf("i", "regular", 10)).toBeCloseTo(2.58, 5);
+    expect(pdf.widthOf("W", "bold", 10)).toBeCloseTo(9.67, 5);
+    // A wider name measures wider, so a right aligned total never runs over its label.
+    expect(pdf.widthOf("Đức", "regular", 10)).toBeGreaterThan(pdf.widthOf("Duc", "regular", 10) - 0.5);
   });
 
   it("wraps at spaces, keeps line breaks, and breaks a word too long for the line", () => {
@@ -152,3 +184,111 @@ describe("the documents", () => {
     expect(read.text).toContain("-$300.00");
   });
 });
+
+/** A PNG of the given colour type and rows, built here so a test can say exactly what is in it. */
+function png(width: number, height: number, colourType: number, rows: number[][], extra: Array<[string, number[]]> = []): Uint8Array {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (bytes: number[]) => {
+    let c = 0xffffffff;
+    for (const b of bytes) c = crcTable[(c ^ b) & 255]! ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const u32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  const chunk = (type: string, body: number[]) => {
+    const typed = [...type].map((c) => c.charCodeAt(0));
+    return [...u32(body.length), ...typed, ...body, ...u32(crc([...typed, ...body]))];
+  };
+  const raw = rows.flatMap((row) => [0, ...row]);
+  const idat = [...deflateSync(Uint8Array.from(raw))];
+  return Uint8Array.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...chunk("IHDR", [...u32(width), ...u32(height), 8, colourType, 0, 0, 0]),
+    ...extra.flatMap(([type, body]) => chunk(type, body)),
+    ...chunk("IDAT", idat),
+    ...chunk("IEND", []),
+  ]);
+}
+
+describe("the company's logo", () => {
+  const codecs = { inflate, deflate };
+
+  it("reads a logo with transparency into its colour and a mask", () => {
+    // Two pixels: solid red, and blue half see through.
+    const logo = pdf.readImage(png(2, 1, 6, [[255, 0, 0, 255, 0, 0, 255, 128]]), codecs)!;
+    expect(logo).toMatchObject({ width: 2, height: 1, colorSpace: "DeviceRGB", filter: "FlateDecode" });
+    expect([...inflate(logo.data)]).toEqual([255, 0, 0, 0, 0, 255]);
+    expect([...inflate(logo.mask!.data)]).toEqual([255, 128]);
+    /** Without the codecs it is refused, as it always was. */
+    expect(pdf.readImage(png(2, 1, 6, [[255, 0, 0, 255, 0, 0, 255, 128]]))).toBeNull();
+  });
+
+  it("reads a palette logo, with the palette's transparency, and leaves a solid one unmasked", () => {
+    const paletted = pdf.readImage(png(2, 1, 3, [[0, 1]], [["PLTE", [10, 20, 30, 200, 210, 220]], ["tRNS", [0]]]), codecs)!;
+    expect([...inflate(paletted.data)]).toEqual([10, 20, 30, 200, 210, 220]);
+    expect([...inflate(paletted.mask!.data)]).toEqual([0, 255]);
+    const solid = pdf.readImage(png(1, 2, 6, [[1, 2, 3, 255], [4, 5, 6, 255]]), codecs)!;
+    expect(solid.mask).toBeUndefined();
+  });
+
+  it("undoes the PNG row filters", () => {
+    // Grey with alpha, the second row filtered "up": each byte is its difference from the row above.
+    const image = pdf.readImage(pngWith(1, 2, 4, [[0, 100, 255], [2, 5, 0]]), codecs)!;
+    expect([...inflate(image.data)]).toEqual([100, 105]);
+    /** Solid everywhere, so no mask. */
+    expect(image.mask).toBeUndefined();
+  });
+
+  it("prints on every page of an invoice, beside the company's name", () => {
+    const logo = pdf.readImage(png(2, 1, 6, [[255, 0, 0, 255, 0, 0, 255, 128]]), codecs);
+    const lines = Array.from({ length: 80 }, (_, i) => ({
+      name: `Line ${i + 1}`, description: null, quantity: "1", unitPrice: "1.0000", lineTotal: "1.0000",
+    }));
+    const read = pdf.inspectPdf(pdf.invoicePdf({
+      company: { name: "Lone Star Air", color: "#0F7B6C", logo },
+      number: 9, status: "open", issuedOn: null, dueOn: null, currency: "USD",
+      customerName: "Nguyễn Thị Đức", propertyAddress: "", lines,
+      subtotal: "80.0000", discountTotal: "0", taxTotal: "0", total: "80.0000", amountPaid: "0", balance: "80.0000",
+      payments: [], generatedAt: AT,
+    }, { deflate }), inflate);
+    expect(read.problems).toEqual([]);
+    expect(read.pageCount).toBeGreaterThan(1);
+    /** One image object, drawn on each page, carrying its mask. */
+    expect(read.images).toEqual([{ width: 2, height: 1, colorSpace: "DeviceRGB", masked: true }]);
+    expect(read.text).toContain("Nguyễn Thị Đức");
+  });
+});
+
+/** A PNG from rows that already carry their filter byte, for testing the filters. */
+function pngWith(width: number, height: number, colourType: number, filteredRows: number[][]): Uint8Array {
+  const plain = png(width, height, colourType, filteredRows.map((r) => r.slice(1)));
+  // Swap the IDAT for one holding the rows exactly as given, filter bytes and all.
+  const idat = [...deflateSync(Uint8Array.from(filteredRows.flat()))];
+  const at = findChunk(plain, "IDAT");
+  const length = (plain[at]! << 24) | (plain[at + 1]! << 16) | (plain[at + 2]! << 8) | plain[at + 3]!;
+  const before = [...plain.subarray(0, at)];
+  const after = [...plain.subarray(at + 12 + length)];
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  let c = 0xffffffff;
+  for (const b of [0x49, 0x44, 0x41, 0x54, ...idat]) c = crcTable[(c ^ b) & 255]! ^ (c >>> 8);
+  c = (c ^ 0xffffffff) >>> 0;
+  const u32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  return Uint8Array.from([...before, ...u32(idat.length), 0x49, 0x44, 0x41, 0x54, ...idat, ...u32(c), ...after]);
+}
+
+function findChunk(bytes: Uint8Array, type: string): number {
+  let at = 8;
+  while (at < bytes.length) {
+    const length = (bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!;
+    if (String.fromCharCode(bytes[at + 4]!, bytes[at + 5]!, bytes[at + 6]!, bytes[at + 7]!) === type) return at;
+    at += 12 + length;
+  }
+  throw new Error(`No ${type}`);
+}

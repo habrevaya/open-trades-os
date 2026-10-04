@@ -413,6 +413,16 @@ export const projectApplication = pgTable("project_application", {
   currentPaymentDue: money("current_payment_due"),
   invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "set null" }),
   invoicedAt: timestamp("invoiced_at", { withTimezone: true }),
+  /**
+   * What this application moved on the retainage receivable when it was
+   * invoiced: the retainage it held (positive) or released (negative), posted
+   * as `retainage` against this row (`services/retainage.ts`). NULL on an
+   * application invoiced before retainage was booked to a receivable, which
+   * is how a project billed the old way is recognised and left on it.
+   */
+  retainageBooked: money("retainage_booked"),
+  /** When a void of its invoice took that retainage back off. */
+  retainageReversedAt: timestamp("retainage_reversed_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   numberIdx: uniqueIndex("project_application_number_idx").on(t.projectId, t.number),

@@ -25,6 +25,7 @@ import { ActionForm, TextArea } from "@/components/ActionForm";
 import { VisitFields } from "@/components/VisitFields";
 import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
+import { rateFromPercent } from "@/lib/estimate-form";
 import { addVisit } from "../actions";
 import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus, shareJobPhoto } from "./actions";
 import { shareVisitNotes } from "./notes-actions";
@@ -35,9 +36,20 @@ import { EstimateDrafts } from "./EstimateDrafts";
 
 export const dynamic = "force-dynamic";
 
-export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function JobPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ taxRate?: string }>;
+}) {
   const user = await requireSetupUser();
   const { id } = await params;
+  /**
+   * The sales tax on the job's taxable lines, typed as a percentage on the
+   * billing preview and carried in the address so the preview and the bill
+   * button use the same rate. Something that is not a percentage under a
+   * hundred is shown back and taxes nothing, rather than failing the page.
+   */
+  const typedTax = ((await searchParams).taxRate ?? "").replace(/[%\s]/g, "");
+  const taxRate = /^\d{1,2}(\.\d{1,4})?$/.test(typedTax) ? rateFromPercent(typedTax) : undefined;
 
   const ctx = { actor: user.actor, db: getDb() };
 
@@ -81,7 +93,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const contractOptions = allContracts.filter((c) => involved.has(c.customerId))
     .map((c) => ({ id: c.id, label: `${c.name}, ${c.customerName}` }));
   const clocks = await jobBilling.clocks(ctx, { jobId: id });
-  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id }) : null;
+  const plan = can(user.actor, "invoice:read") ? await jobBilling.preview(ctx, { jobId: id, taxRate }) : null;
 
   /** The evidence behind the source, for whoever reads the marketing figures. */
   const attribution = can(user.actor, "adspend:read")
@@ -425,7 +437,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
       <EstimateDrafts ctx={ctx} jobId={id} />
       {plan && (plan.lines.length > 0 || plan.existing.length === 0) && job.status !== "cancelled" && (
-        <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} />
+        <BillingPlanView jobId={id} plan={plan} canBill={canInvoice} typedTax={typedTax}
+                         taxRate={taxRate ?? null} />
       )}
 
       {(invoices.length > 0 || canInvoice) && (

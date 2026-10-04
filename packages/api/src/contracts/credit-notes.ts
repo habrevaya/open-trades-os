@@ -47,6 +47,29 @@ export const CreditNoteApplication = z.object({
   appliedOn: z.string().date().nullable(),
 });
 
+export const CreditNotePayoutMethod = z.enum(["card", "cash", "check", "other"]);
+
+/**
+ * Credit given back as money. A card payout is `pending` from the moment the
+ * processor is asked until it reports the refund made, and is posted only
+ * then; cash and cheques are `paid` when recorded.
+ */
+export const CreditNotePayout = z.object({
+  id: Uuid,
+  method: CreditNotePayoutMethod,
+  status: z.enum(["pending", "paid", "failed"]),
+  amount: MoneyString,
+  /** The earlier card payment it went back through. */
+  paymentId: Uuid.nullable(),
+  /** A cheque number, or how the cash went. */
+  reference: z.string().nullable(),
+  paidOn: z.string().date().nullable(),
+  note: z.string().nullable(),
+  /** Why the processor would not make it. The credit is back on the account. */
+  failureReason: z.string().nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+});
+
 export const CreditNote = z.object({
   id: Uuid,
   number: z.number().int(),
@@ -63,11 +86,14 @@ export const CreditNote = z.object({
   taxTotal: MoneyString,
   total: MoneyString,
   amountApplied: MoneyString,
+  /** Given back as money, or on its way back to a card. */
+  amountPaidOut: MoneyString,
   /** Still owed to the customer and not yet put against anything. */
   balance: MoneyString,
   voidedAt: z.string().datetime({ offset: true }).nullable(),
   lines: z.array(CreditNoteLine),
   applications: z.array(CreditNoteApplication),
+  payouts: z.array(CreditNotePayout),
 }).merge(Timestamps);
 
 export const CreditNoteLineInput = z.object({
@@ -135,12 +161,54 @@ export const applyCreditNote = defineRoute({
   output: CreditNote,
 });
 
+export const payOutCreditNote = defineRoute({
+  method: "post",
+  path: "/v1/credit-notes/{id}/payouts",
+  summary: "Pay a credit out to the customer as money",
+  description:
+    "Credit the customer holds and has not used, given back. `card` refunds it through the card processor against one of the customer's earlier card payments (`paymentId`, or the newest with enough left to refund when it is left off): it is pending until the processor reports the refund made, and is posted then, taking the credit out of customer deposits against cash. The payment keeps what it paid and held, and the credit set aside goes back on the account if the processor will not make the refund. `cash`, `check` and `other` record money already handed over, posted on `paidOn` (today when left off). Never more than the credit has left. Synced to the accounting system as a refund of the credit note.",
+  module: "M13",
+  permissions: ["payment:refund"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    method: CreditNotePayoutMethod,
+    /** All that is left when it is left off. */
+    amount: MoneyString.optional(),
+    paymentId: Uuid.optional(),
+    reference: z.string().max(200).optional(),
+    paidOn: z.string().date().optional(),
+    note: z.string().max(2000).optional(),
+  }),
+  output: CreditNote,
+});
+
+export const refundableCardPayments = defineRoute({
+  method: "get",
+  path: "/v1/credit-notes/{id}/refundable-payments",
+  summary: "The card payments a credit can go back through",
+  description:
+    "The credit note's customer's payments taken through the card processor, newest first, with what each still has that the processor would refund: its amount, less what has been refunded and what other credit payouts are waiting on it.",
+  module: "M13",
+  permissions: ["payment:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    payments: z.array(z.object({
+      id: Uuid,
+      method: z.string(),
+      amount: MoneyString,
+      refundable: MoneyString,
+      receivedAt: z.string().datetime({ offset: true }),
+    })),
+  }),
+});
+
 export const voidCreditNote = defineRoute({
   method: "post",
   path: "/v1/credit-notes/{id}/void",
   summary: "Void a credit note nothing has used",
   description:
-    "Reverses its posting. Refused once any of it is applied, because the application has its own posting and unwinding both from here would be two reversals pretending to be one.",
+    "Reverses its posting. Refused once any of it is applied or paid out, because each of those has its own posting and unwinding both from here would be two reversals pretending to be one.",
   module: "M13",
   permissions: ["invoice:credit"],
   idempotent: true,
@@ -188,5 +256,5 @@ export const listCreditNotes = defineRoute({
 
 export const creditNoteRoutes = {
   createCreditNote, issueCreditNote, applyCreditNote, voidCreditNote, deleteCreditNote,
-  getCreditNote, listCreditNotes,
+  getCreditNote, listCreditNotes, payOutCreditNote, refundableCardPayments,
 } as const;

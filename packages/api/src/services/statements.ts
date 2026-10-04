@@ -17,6 +17,7 @@ const INVOICE_SOURCES = ["invoice", "void", "write_off", "agreement_billing"] as
 const KIND: Record<string, z.infer<typeof StatementLineKind>> = {
   invoice: "invoice", agreement_billing: "agreement", payment: "payment", refund: "refund",
   void: "void", write_off: "write_off", credit_note: "credit_note", credit_note_void: "credit_note_void",
+  credit_note_payout: "credit_payout",
   deposit: "deposit", deposit_refund: "deposit_refund", deposit_forfeiture: "deposit_kept",
 };
 
@@ -220,6 +221,21 @@ async function describe(tx: Database, items: Array<{ sourceType: string; sourceI
     for (const note of notes) {
       names.set(`credit_note:${note.id}`, `Credit note ${note.number}`);
       names.set(`credit_note_void:${note.id}`, `Credit note ${note.number} voided`);
+    }
+  }
+  const payoutIds = ids(["credit_note_payout"]);
+  if (payoutIds.length > 0) {
+    const payouts = await tx.select({
+      id: schema.creditNotePayout.id, method: schema.creditNotePayout.method,
+      reference: schema.creditNotePayout.reference, number: schema.creditNote.number,
+    }).from(schema.creditNotePayout)
+      .innerJoin(schema.creditNote, eq(schema.creditNote.id, schema.creditNotePayout.creditNoteId))
+      .where(inArray(schema.creditNotePayout.id, payoutIds));
+    for (const p of payouts) {
+      const how = p.method === "card" ? "to your card"
+        : p.method === "check" ? (p.reference ? `by cheque ${p.reference}` : "by cheque")
+        : p.method === "cash" ? "in cash" : "";
+      names.set(`credit_note_payout:${p.id}`, `Credit note ${p.number} paid back ${how}`.trim());
     }
   }
   for (const id of ids(["deposit"])) names.set(`deposit:${id}`, "Deposit received");

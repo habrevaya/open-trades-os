@@ -45,6 +45,8 @@ export * as customerLifecycle from "./customer-lifecycle";
 export * as equipment from "./equipment";
 export * as inspections from "./inspections";
 export * as creditNotes from "./credit-notes";
+export * as creditPayouts from "./credit-payouts";
+export * as contractEscalation from "./contract-escalation";
 export * as statements from "./statements";
 export * as reports from "./reports";
 export * as dashboards from "./dashboards";

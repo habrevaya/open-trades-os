@@ -184,12 +184,12 @@ export const listAccountingRuns = defineRoute({
 
 /**
  * What a document in the books can be. `credit_memo` is a void or a write off
- * of an invoice; `credit_note` and the two after it are the credit notes this
- * company issues, applies and takes back.
+ * of an invoice; `credit_note` and the three after it are the credit notes this
+ * company issues, applies, takes back and pays out as money.
  */
 const AccountingDocumentKind = z.enum([
   "customer", "invoice", "payment", "credit_memo", "refund",
-  "credit_note", "credit_note_application", "credit_note_void",
+  "credit_note", "credit_note_application", "credit_note_void", "credit_note_refund", "journal",
 ]);
 
 export const listAccountingProblems = defineRoute({

@@ -26189,6 +26189,248 @@
         ]
       }
     },
+    "/v1/contracts/{contractId}/escalation": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyContractEscalation",
+        "summary": "Apply the annual escalation the preview showed",
+        "description": "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen by the rate (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. Refused unless `anniversary` and `rate` are the ones the preview shows now, and before the preview says it is ready. A retry for an anniversary already applied answers with the cards it made.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyContractEscalationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Apply the annual escalation the preview showed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyContractEscalationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      },
+      "get": {
+        "operationId": "previewContractEscalation",
+        "summary": "What the contract's next annual escalation would do to its cards",
+        "description": "The next anniversary of the contract's start (a year after the last one applied), the year of the contract it opens, and every price on every card in force the day before it, before and after rising by the contract's escalation rate, to the cent, half up. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. Nothing is written.\n\nRequires a session holding: pricebook:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the contract's next annual escalation would do to its cards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewContractEscalationOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:read"
+        ]
+      }
+    },
     "/v1/contracts/{contractId}/sites": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -28230,6 +28472,253 @@
         ]
       }
     },
+    "/v1/credit-notes/{id}/payouts": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "payOutCreditNote",
+        "summary": "Pay a credit out to the customer as money",
+        "description": "Credit the customer holds and has not used, given back. `card` refunds it through the card processor against one of the customer's earlier card payments (`paymentId`, or the newest with enough left to refund when it is left off): it is pending until the processor reports the refund made, and is posted then, taking the credit out of customer deposits against cash. The payment keeps what it paid and held, and the credit set aside goes back on the account if the processor will not make the refund. `cash`, `check` and `other` record money already handed over, posted on `paidOn` (today when left off). Never more than the credit has left. Synced to the accounting system as a refund of the credit note.\n\nRequires a session holding: payment:refund.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayOutCreditNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pay a credit out to the customer as money",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayOutCreditNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:refund"
+        ]
+      }
+    },
+    "/v1/credit-notes/{id}/refundable-payments": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "refundableCardPayments",
+        "summary": "The card payments a credit can go back through",
+        "description": "The credit note's customer's payments taken through the card processor, newest first, with what each still has that the processor would refund: its amount, less what has been refunded and what other credit payouts are waiting on it.\n\nRequires a session holding: payment:read.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The card payments a credit can go back through",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundableCardPaymentsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:read"
+        ]
+      }
+    },
     "/v1/credit-notes/{id}/void": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -28238,7 +28727,7 @@
       "post": {
         "operationId": "voidCreditNote",
         "summary": "Void a credit note nothing has used",
-        "description": "Reverses its posting. Refused once any of it is applied, because the application has its own posting and unwinding both from here would be two reversals pretending to be one.\n\nRequires a session holding: invoice:credit.",
+        "description": "Reverses its posting. Refused once any of it is applied or paid out, because each of those has its own posting and unwinding both from here would be two reversals pretending to be one.\n\nRequires a session holding: invoice:credit.",
         "tags": [
           "M13"
         ],
@@ -34600,6 +35089,144 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EmailCustomerStatementOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:send"
+        ]
+      }
+    },
+    "/v1/customers/{id}/statement/text": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "textCustomerStatement",
+        "summary": "Text a customer their statement",
+        "description": "The link to the statement on the customer's own account page, for the period, by text: to `phone` when given, or the customer's main contact's mobile, or the number on the customer. No amounts, for the reason the email carries none. It goes through the same consent gate as every text, so a number that replied STOP, a company with no number registered to text from, or no number at all is recorded as refused with the reason, rather than thrown, and the link minted for it is revoked. A retry with the same idempotency key is the same send.\n\nRequires a session holding: invoice:send.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextCustomerStatementInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Text a customer their statement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextCustomerStatementOutput"
                 }
               }
             }
@@ -50531,7 +51158,7 @@
       "post": {
         "operationId": "billJob",
         "summary": "Bill a job to whoever pays for it, one invoice per payer",
-        "description": "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs.\n\nRequires a session holding: invoice:write.",
+        "description": "Writes exactly what the preview shows, as one invoice per payer in one transaction: every invoice or none. Each line keeps the authority that priced it; a line two payers share appears on both invoices with each payer's part. The invoices plus anything absorbed are checked to come to the priced work to the cent after they are written, and a mismatch keeps nothing. Refused while the preview lists a problem, with the problem as the reason. The job's authorisation is applied to the payer it belongs to, and each payer's contract limit to theirs. With a `taxRate`, each payer's invoice is taxed on that payer's part of each taxable line, and the tax across the invoices adds up to the tax on the whole job to the cent.\n\nRequires a session holding: invoice:write.",
         "tags": [
           "M31"
         ],
@@ -50675,6 +51302,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "taxRate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^-?\\d+(\\.\\d{1,6})?$"
             }
           }
         ],
@@ -77556,7 +78192,7 @@
       "post": {
         "operationId": "revisePriceBookItem",
         "summary": "Revise a price book item",
-        "description": "Creates a new version. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
+        "description": "Creates a new version, from now or from `effectiveFrom`: the name, description, price, cost, labour minutes, tax, warranty and a kit's parts, each carried forward when left off. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M06"
         ],
@@ -77770,6 +78406,15 @@
               "type": "string",
               "pattern": "^\\d{2}$"
             }
+          },
+          {
+            "name": "effectiveOn",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
           }
         ],
         "responses": {
@@ -77867,7 +78512,7 @@
       "post": {
         "operationId": "applyPriceChange",
         "summary": "Apply a change to many prices",
-        "description": "Recomputed inside the write rather than taken from a preview that may be a minute old, and written as a new version per item, the way a single revision is: no version is edited in place, so every document already raised keeps its price. `itemIds` narrows the selection to the items left ticked. Takes effect now.\n\nRequires a session holding: pricebook:write.",
+        "description": "Recomputed inside the write rather than taken from a preview that may be a minute old, and written as a new version per item, the way a single revision is: no version is edited in place, so every document already raised keeps its price. `itemIds` narrows the selection to the items left ticked. Takes effect now, or with `effectiveOn` from the start of that day ahead, each new version waiting as a scheduled revision until then.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M06"
         ],
@@ -78222,7 +78867,7 @@
       "post": {
         "operationId": "reversePriceChange",
         "summary": "Undo a bulk change",
-        "description": "Each item goes back to the price it had, as another new version, and the undo is recorded as a change of its own pointing at this one. Not the opposite percentage: five per cent up and five per cent down is 99.75, not 100. An item changed again since is left alone and named.\n\nRequires a session holding: pricebook:write.",
+        "description": "Each item goes back to the price it had, as another new version, and the undo is recorded as a change of its own pointing at this one. Not the opposite percentage: five per cent up and five per cent down is 99.75, not 100. An item changed again since is left alone and named. A change dated ahead and not yet in force is called off instead: each scheduled version is withdrawn and the price in force stays, so nothing was ever charged at it.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M06"
         ],
@@ -84742,7 +85387,7 @@
       "post": {
         "operationId": "uploadProposalCover",
         "summary": "Put a photograph on a layout's cover",
-        "description": "A JPEG or a PNG, base64, up to eight megabytes, decided from the bytes rather than from what the upload claims. The PDF prints a JPEG or a plain PNG; one with transparency is shown on the page and named in the file.\n\nRequires a session holding: settings:write.",
+        "description": "A JPEG or a PNG, base64, up to eight megabytes, decided from the bytes rather than from what the upload claims. The PDF prints a JPEG or an eight bit PNG, transparency included; a sixteen bit or interlaced PNG is shown on the page and named in the file.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M07"
         ],
@@ -103412,7 +104057,7 @@
       ],
       "get": {
         "operationId": "listStatementDeliveries",
-        "summary": "Statements emailed, by hand or by the monthly run",
+        "summary": "Statements emailed or texted, by hand or by the monthly run",
         "description": "Newest first, for one customer or everybody: the period, where it went, what the customer owed when it went, and the message's status, or why it was not sent.\n\nRequires a session holding: invoice:read.",
         "tags": [
           "M13"
@@ -103440,7 +104085,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Statements emailed, by hand or by the monthly run",
+            "description": "Statements emailed or texted, by hand or by the monthly run",
             "content": {
               "application/json": {
                 "schema": {
@@ -103625,7 +104270,7 @@
       "post": {
         "operationId": "setStatementSchedule",
         "summary": "Turn monthly statements on or off",
-        "description": "On a day from 1 to 28 at a time in the company's timezone, every customer owing more than `minimumBalance` on open invoices (counted by whoever pays them) is emailed a link to their statement for the month before. Each customer is sent at most one per month, whatever the worker does. Off is a pause: the history stays.\n\nRequires a session holding: invoice:send.",
+        "description": "On a day from 1 to 28 at a time in the company's timezone, every customer owing more than `minimumBalance` on open invoices (counted by whoever pays them) is sent a link to their statement for the month before: by email, or with `textWhenPreferred` by text to a customer whose main contact prefers texts, through the consent gate, and by email when the text cannot go. Each customer is sent at most one per month, whatever the worker does. Off is a pause: the history stays.\n\nRequires a session holding: invoice:send.",
         "tags": [
           "M13"
         ],
@@ -119671,6 +120316,75 @@
           "menuId"
         ]
       },
+      "ApplyContractEscalationInput": {
+        "type": "object",
+        "properties": {
+          "anniversary": {
+            "type": "string",
+            "format": "date"
+          },
+          "rate": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          }
+        },
+        "required": [
+          "anniversary",
+          "rate"
+        ]
+      },
+      "ApplyContractEscalationOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "anniversary": {
+            "type": "string",
+            "format": "date"
+          },
+          "rate": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fromRateCardId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "rateCardId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "effectiveFrom": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "required": [
+                "fromRateCardId",
+                "rateCardId",
+                "name",
+                "effectiveFrom"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contractId",
+          "anniversary",
+          "rate",
+          "cards"
+        ]
+      },
       "ApplyCreditNoteInput": {
         "type": "object",
         "properties": {
@@ -119786,6 +120500,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountPaidOut": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -119897,6 +120615,87 @@
               ]
             }
           },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "cash",
+                    "check",
+                    "other"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "paid",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "method",
+                "status",
+                "amount",
+                "paymentId",
+                "reference",
+                "paidOn",
+                "note",
+                "failureReason",
+                "createdAt"
+              ]
+            }
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -119922,10 +120721,12 @@
           "taxTotal",
           "total",
           "amountApplied",
+          "amountPaidOut",
           "balance",
           "voidedAt",
           "lines",
           "applications",
+          "payouts",
           "createdAt",
           "updatedAt"
         ]
@@ -120594,6 +121395,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "paidOutAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "processor": {
             "type": "string"
           },
@@ -120684,6 +121489,7 @@
           "tipAmount",
           "surchargeAmount",
           "refundedAmount",
+          "paidOutAmount",
           "processor",
           "processorPaymentId",
           "receivedAt",
@@ -120734,6 +121540,10 @@
           "ending": {
             "type": "string",
             "pattern": "^\\d{2}$"
+          },
+          "effectiveOn": {
+            "type": "string",
+            "format": "date"
           }
         },
         "required": [
@@ -123629,6 +124439,10 @@
         "properties": {
           "draft": {
             "type": "boolean"
+          },
+          "taxRate": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
           }
         }
       },
@@ -123696,6 +124510,10 @@
           "absorbed": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         },
         "required": [
@@ -123704,7 +124522,8 @@
           "invoices",
           "pricedTotal",
           "invoicedTotal",
-          "absorbed"
+          "absorbed",
+          "taxTotal"
         ]
       },
       "BookAgreementVisitInput": {
@@ -128873,6 +129692,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountPaidOut": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -128984,6 +129807,87 @@
               ]
             }
           },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "cash",
+                    "check",
+                    "other"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "paid",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "method",
+                "status",
+                "amount",
+                "paymentId",
+                "reference",
+                "paidOn",
+                "note",
+                "failureReason",
+                "createdAt"
+              ]
+            }
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -129009,10 +129913,12 @@
           "taxTotal",
           "total",
           "amountApplied",
+          "amountPaidOut",
           "balance",
           "voidedAt",
           "lines",
           "applications",
+          "payouts",
           "createdAt",
           "updatedAt"
         ]
@@ -133714,6 +134620,27 @@
               "null"
             ]
           },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "itemId",
+                "quantity"
+              ]
+            }
+          },
           "active": {
             "type": "boolean"
           },
@@ -133784,6 +134711,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "components",
           "active",
           "externalRef",
           "createdAt",
@@ -133989,6 +134917,20 @@
             ],
             "format": "date-time"
           },
+          "retainageBooking": {
+            "type": "string",
+            "enum": [
+              "receivable",
+              "net"
+            ]
+          },
+          "retainageBooked": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -134147,6 +135089,8 @@
           "notes",
           "invoiceId",
           "invoicedAt",
+          "retainageBooking",
+          "retainageBooked",
           "lines",
           "totals",
           "problems"
@@ -141673,6 +142617,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms"
+            ]
+          },
           "destination": {
             "type": [
               "string",
@@ -141684,6 +142635,12 @@
             "enum": [
               "queued",
               "refused"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "explanation": {
@@ -141699,8 +142656,10 @@
         "required": [
           "deliveryId",
           "customerId",
+          "channel",
           "destination",
           "state",
+          "note",
           "explanation",
           "portalUrl"
         ]
@@ -145901,6 +146860,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountPaidOut": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -146012,6 +146975,87 @@
               ]
             }
           },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "cash",
+                    "check",
+                    "other"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "paid",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "method",
+                "status",
+                "amount",
+                "paymentId",
+                "reference",
+                "paidOn",
+                "note",
+                "failureReason",
+                "createdAt"
+              ]
+            }
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -146037,10 +147081,12 @@
           "taxTotal",
           "total",
           "amountApplied",
+          "amountPaidOut",
           "balance",
           "voidedAt",
           "lines",
           "applications",
+          "payouts",
           "createdAt",
           "updatedAt"
         ]
@@ -147204,7 +148250,8 @@
                     "deposit",
                     "deposit_refund",
                     "deposit_kept",
-                    "agreement"
+                    "agreement",
+                    "credit_payout"
                   ]
                 },
                 "description": {
@@ -159640,6 +160687,27 @@
               "null"
             ]
           },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "itemId",
+                "quantity"
+              ]
+            }
+          },
           "active": {
             "type": "boolean"
           },
@@ -159770,6 +160838,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "components",
           "active",
           "externalRef",
           "createdAt",
@@ -159811,6 +160880,12 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "effectiveFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "skipped": {
             "type": "array",
@@ -159876,6 +160951,7 @@
           "appliedAt",
           "reversesId",
           "reversedById",
+          "effectiveFrom",
           "skipped",
           "lines"
         ]
@@ -160273,6 +161349,20 @@
             ],
             "format": "date-time"
           },
+          "retainageBooking": {
+            "type": "string",
+            "enum": [
+              "receivable",
+              "net"
+            ]
+          },
+          "retainageBooked": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -160431,6 +161521,8 @@
           "notes",
           "invoiceId",
           "invoicedAt",
+          "retainageBooking",
+          "retainageBooked",
           "lines",
           "totals",
           "problems"
@@ -164435,6 +165527,9 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "textWhenPreferred": {
+            "type": "boolean"
+          },
           "nextRunAt": {
             "type": [
               "string",
@@ -164461,6 +165556,7 @@
           "dayOfMonth",
           "time",
           "minimumBalance",
+          "textWhenPreferred",
           "nextRunAt",
           "lastRunAt",
           "lastError"
@@ -167132,6 +168228,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountPaidOut": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -167243,6 +168343,87 @@
               ]
             }
           },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "cash",
+                    "check",
+                    "other"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "paid",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "method",
+                "status",
+                "amount",
+                "paymentId",
+                "reference",
+                "paidOn",
+                "note",
+                "failureReason",
+                "createdAt"
+              ]
+            }
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -167268,10 +168449,12 @@
           "taxTotal",
           "total",
           "amountApplied",
+          "amountPaidOut",
           "balance",
           "voidedAt",
           "lines",
           "applications",
+          "payouts",
           "createdAt",
           "updatedAt"
         ]
@@ -168217,7 +169400,9 @@
                     "refund",
                     "credit_note",
                     "credit_note_application",
-                    "credit_note_void"
+                    "credit_note_void",
+                    "credit_note_refund",
+                    "journal"
                   ]
                 },
                 "entityId": {
@@ -173265,6 +174450,10 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "amountPaidOut": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
                 "balance": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -173376,6 +174565,87 @@
                     ]
                   }
                 },
+                "payouts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "card",
+                          "cash",
+                          "check",
+                          "other"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "paid",
+                          "failed"
+                        ]
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "paymentId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "reference": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "paidOn": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date"
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "failureReason": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "method",
+                      "status",
+                      "amount",
+                      "paymentId",
+                      "reference",
+                      "paidOn",
+                      "note",
+                      "failureReason",
+                      "createdAt"
+                    ]
+                  }
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -173401,10 +174671,12 @@
                 "taxTotal",
                 "total",
                 "amountApplied",
+                "amountPaidOut",
                 "balance",
                 "voidedAt",
                 "lines",
                 "applications",
+                "payouts",
                 "createdAt",
                 "updatedAt"
               ]
@@ -180162,6 +181434,10 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "paidOutAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
                 "processor": {
                   "type": "string"
                 },
@@ -180252,6 +181528,7 @@
                 "tipAmount",
                 "surchargeAmount",
                 "refundedAmount",
+                "paidOutAmount",
                 "processor",
                 "processorPaymentId",
                 "receivedAt",
@@ -181653,6 +182930,27 @@
                     "null"
                   ]
                 },
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 10000
+                      }
+                    },
+                    "required": [
+                      "itemId",
+                      "quantity"
+                    ]
+                  }
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -181723,6 +183021,7 @@
                 "taxClass",
                 "laborMinutes",
                 "warrantyMonths",
+                "components",
                 "active",
                 "externalRef",
                 "createdAt",
@@ -181847,6 +183146,12 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "effectiveFrom": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -181857,7 +183162,8 @@
                 "appliedBy",
                 "appliedAt",
                 "reversesId",
-                "reversedById"
+                "reversedById",
+                "effectiveFrom"
               ]
             }
           }
@@ -185769,6 +187075,13 @@
                   "type": "string",
                   "format": "date"
                 },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                },
                 "destination": {
                   "type": [
                     "string",
@@ -185794,6 +187107,12 @@
                     "null"
                   ]
                 },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -185806,10 +187125,12 @@
                 "period",
                 "periodFrom",
                 "periodTo",
+                "channel",
                 "destination",
                 "closingBalance",
                 "messageStatus",
                 "error",
+                "note",
                 "createdAt"
               ]
             }
@@ -191317,6 +192638,359 @@
           "carried"
         ]
       },
+      "PayOutCreditNoteInput": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "card",
+              "cash",
+              "check",
+              "other"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "paymentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "paidOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "method"
+        ]
+      },
+      "PayOutCreditNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "partially_applied",
+              "applied",
+              "void"
+            ]
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "billing_error",
+              "price_adjustment",
+              "goodwill",
+              "work_not_done",
+              "duplicate_invoice",
+              "contract_adjustment"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "subtotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountApplied": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "amountPaidOut": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "balance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "voidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxable": {
+                  "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "taxAmount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lineTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceLineId",
+                "name",
+                "description",
+                "quantity",
+                "unitPrice",
+                "taxable",
+                "taxRate",
+                "taxAmount",
+                "lineTotal"
+              ]
+            }
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "integer"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "appliedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                }
+              },
+              "required": [
+                "id",
+                "invoiceId",
+                "invoiceNumber",
+                "amount",
+                "appliedOn"
+              ]
+            }
+          },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "cash",
+                    "check",
+                    "other"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "paid",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "method",
+                "status",
+                "amount",
+                "paymentId",
+                "reference",
+                "paidOn",
+                "note",
+                "failureReason",
+                "createdAt"
+              ]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "customerId",
+          "customerName",
+          "invoiceId",
+          "invoiceNumber",
+          "reason",
+          "note",
+          "issuedOn",
+          "currency",
+          "subtotal",
+          "taxTotal",
+          "total",
+          "amountApplied",
+          "amountPaidOut",
+          "balance",
+          "voidedAt",
+          "lines",
+          "applications",
+          "payouts",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "PayPortalAccountInvoiceInput": {
         "type": "object",
         "properties": {
@@ -192485,6 +194159,191 @@
           "sample"
         ]
       },
+      "PreviewContractEscalationOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "anniversary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "contractYear": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "daysAway": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "escalatedThrough": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rateCardId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "effectiveFrom": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "effectiveTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "before": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "after": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "before",
+                      "after",
+                      "id",
+                      "description"
+                    ]
+                  }
+                },
+                "labourRates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "before": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "after": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "band": {
+                        "type": "string"
+                      },
+                      "jobTypeName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "before",
+                      "after",
+                      "id",
+                      "band",
+                      "jobTypeName"
+                    ]
+                  }
+                },
+                "tripCharge": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "before": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "after": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "before",
+                    "after"
+                  ]
+                }
+              },
+              "required": [
+                "rateCardId",
+                "name",
+                "effectiveFrom",
+                "effectiveTo",
+                "lines",
+                "labourRates",
+                "tripCharge"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contractId",
+          "rate",
+          "anniversary",
+          "contractYear",
+          "daysAway",
+          "ready",
+          "problem",
+          "escalatedThrough",
+          "cards"
+        ]
+      },
       "PreviewJobBillingOutput": {
         "type": "object",
         "properties": {
@@ -192617,6 +194476,10 @@
                 },
                 "taxable": {
                   "type": "boolean"
+                },
+                "taxRate": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                 }
               },
               "required": [
@@ -192636,7 +194499,8 @@
                 "rateCardId",
                 "rateCardLineId",
                 "outOfScope",
-                "taxable"
+                "taxable",
+                "taxRate"
               ]
             }
           },
@@ -192664,6 +194528,17 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "taxTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "totalWithTax": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "taxExempt": {
+                  "type": "boolean"
+                },
                 "lines": {
                   "type": "array",
                   "items": {
@@ -192678,12 +194553,17 @@
                       },
                       "whole": {
                         "type": "boolean"
+                      },
+                      "tax": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                       }
                     },
                     "required": [
                       "key",
                       "amount",
-                      "whole"
+                      "whole",
+                      "tax"
                     ]
                   }
                 },
@@ -192722,6 +194602,9 @@
                 "name",
                 "role",
                 "total",
+                "taxTotal",
+                "totalWithTax",
+                "taxExempt",
                 "lines",
                 "ceiling"
               ]
@@ -192741,6 +194624,10 @@
           },
           "reconciles": {
             "type": "boolean"
+          },
+          "taxTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "outOfScope": {
             "type": "integer"
@@ -192795,6 +194682,7 @@
           "invoicedTotal",
           "absorbed",
           "reconciles",
+          "taxTotal",
           "outOfScope",
           "problems",
           "existing"
@@ -197597,6 +199485,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "paidOutAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "processor": {
             "type": "string"
           },
@@ -197687,6 +199579,7 @@
           "tipAmount",
           "surchargeAmount",
           "refundedAmount",
+          "paidOutAmount",
           "processor",
           "processorPaymentId",
           "receivedAt",
@@ -198746,6 +200639,48 @@
           "amount",
           "status",
           "settled"
+        ]
+      },
+      "RefundableCardPaymentsOutput": {
+        "type": "object",
+        "properties": {
+          "payments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "refundable": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "receivedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "method",
+                "amount",
+                "refundable",
+                "receivedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "payments"
         ]
       },
       "RefuseAppRequestInput": {
@@ -203277,7 +205212,9 @@
               "refund",
               "credit_note",
               "credit_note_application",
-              "credit_note_void"
+              "credit_note_void",
+              "credit_note_refund",
+              "journal"
             ]
           },
           "attempts": {
@@ -203994,6 +205931,28 @@
             "minimum": 0,
             "maximum": 600
           },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "itemId",
+                "quantity"
+              ]
+            },
+            "maxItems": 100
+          },
           "effectiveFrom": {
             "type": "string",
             "format": "date-time"
@@ -204085,6 +206044,27 @@
               "null"
             ]
           },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "itemId",
+                "quantity"
+              ]
+            }
+          },
           "active": {
             "type": "boolean"
           },
@@ -204155,6 +206135,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "components",
           "active",
           "externalRef",
           "createdAt",
@@ -211825,6 +213806,9 @@
           "minimumBalance": {
             "type": "string",
             "pattern": "^\\d+(\\.\\d{1,2})?$"
+          },
+          "textWhenPreferred": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -211848,6 +213832,9 @@
           "minimumBalance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "textWhenPreferred": {
+            "type": "boolean"
           },
           "nextRunAt": {
             "type": [
@@ -211875,6 +213862,7 @@
           "dayOfMonth",
           "time",
           "minimumBalance",
+          "textWhenPreferred",
           "nextRunAt",
           "lastRunAt",
           "lastError"
@@ -214945,6 +216933,81 @@
           "reason",
           "fields",
           "unmapped"
+        ]
+      },
+      "TextCustomerStatementInput": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "TextCustomerStatementOutput": {
+        "type": "object",
+        "properties": {
+          "deliveryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms"
+            ]
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "refused"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "explanation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "portalUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deliveryId",
+          "customerId",
+          "channel",
+          "destination",
+          "state",
+          "note",
+          "explanation",
+          "portalUrl"
         ]
       },
       "TickTaskChecklistItemInput": {
@@ -221482,6 +223545,27 @@
               "null"
             ]
           },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "itemId",
+                "quantity"
+              ]
+            }
+          },
           "active": {
             "type": "boolean"
           },
@@ -221552,6 +223636,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "components",
           "active",
           "externalRef",
           "createdAt",
@@ -221777,6 +223862,20 @@
             ],
             "format": "date-time"
           },
+          "retainageBooking": {
+            "type": "string",
+            "enum": [
+              "receivable",
+              "net"
+            ]
+          },
+          "retainageBooked": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -221935,6 +224034,8 @@
           "notes",
           "invoiceId",
           "invoicedAt",
+          "retainageBooking",
+          "retainageBooked",
           "lines",
           "totals",
           "problems"
@@ -226899,6 +229000,10 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "amountPaidOut": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "balance": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -227010,6 +229115,87 @@
               ]
             }
           },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "card",
+                    "cash",
+                    "check",
+                    "other"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "paid",
+                    "failed"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paymentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "failureReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "method",
+                "status",
+                "amount",
+                "paymentId",
+                "reference",
+                "paidOn",
+                "note",
+                "failureReason",
+                "createdAt"
+              ]
+            }
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -227035,10 +229221,12 @@
           "taxTotal",
           "total",
           "amountApplied",
+          "amountPaidOut",
           "balance",
           "voidedAt",
           "lines",
           "applications",
+          "payouts",
           "createdAt",
           "updatedAt"
         ]

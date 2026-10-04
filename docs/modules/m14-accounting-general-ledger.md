@@ -88,7 +88,7 @@ Accounts Receivable, and to Xero as an invoice for the amount plus Spend Money
 through the mapped customer deposits account, because Xero's receivable is a
 system account nothing else may touch.
 
-**A credit note becomes four kinds of document, each waiting for the one before.**
+**A credit note becomes five kinds of document, each waiting for the one before.**
 Issued, it goes as a QuickBooks CreditMemo or a Xero ACCRECCREDIT credit note, with
 its own lines on the revenue account the ledger debited when it was issued and its
 tax on the mapped tax account, exactly as an invoice's lines are mapped. Each time it
@@ -98,8 +98,14 @@ in Xero as an Allocation on the credit note. A void goes as an invoice for the s
 lines dated the day of the void, settled against the credit note the same way, rather
 than as either book's own void: QuickBooks' API offers no void for a credit memo, only
 a delete, and Xero's void takes the credit out of the period it was issued in, which
-may be closed. A credit note voided before it reached the books never goes. Each is
-dated by its own act for the close (issue, application, void), offered a bounded
+may be closed. Credit paid back to the customer as money goes, once the credit note
+is over there and on the day the money went, in Xero as a payment against the credit
+note out of the mapped cash account, and in QuickBooks as a cheque from that account
+to the customer's receivable, which is the first half of Intuit's own steps for
+refunding a credit (see What is not built for the second). A card payout goes only
+once the card processor has said the refund moved, because only then is it posted
+here. A credit note voided before it reached the books never goes. Each is
+dated by its own act for the close (issue, application, payout, void), offered a bounded
 number of times, refused by name when an account is unmapped, and found again after a
 lost response: by its number, or for a Xero allocation by reading the credit note and
 matching the invoice, amount and date. A write off sent after a credit note was used
@@ -214,7 +220,16 @@ deletion over there. No branch dimension on a posting. A refund sent
 to the accounting system is not watched for deletion over there, and neither is a
 credit note application. A credit note used on an invoice raised to a different
 customer it pays for goes to QuickBooks under the credit note's customer and is
-refused there, because a QuickBooks payment cannot link two customers' documents. There is no
+refused there, because a QuickBooks payment cannot link two customers' documents.
+Credit paid back reaches QuickBooks as the cheque to the customer's receivable and
+not the receive payment that would link it to the credit memo, which QuickBooks'
+API is not documented to take: the customer's balance over there is right, and the
+credit memo shows as unapplied until a bookkeeper links the two by hand.
+Retainage held on an application for payment is booked here to retainage
+receivable against revenue (M12) and not sent: the books there carry the
+application's invoice as billed, net of retainage, and revenue there is gross only
+once a bookkeeper posts the retainage by journal. The accounting settings do not ask
+for account 1210 to be mapped, because nothing sent lands on it. There is no
 reconciliation screen against a bank feed, and no fixed asset or depreciation
 handling: a company that needs those does them in the accounting system, which is
 where they belong.

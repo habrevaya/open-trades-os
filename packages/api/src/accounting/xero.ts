@@ -2,7 +2,7 @@ import {
   registerProvider,
   type AccountingEntityKind, type AccountingProvider, type ChangeSet,
   type ExternalAccount, type ExternalChange, type ExternalCredit, type ExternalRefund,
-  type ExternalCreditApplication, type ExternalCreditNote, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
+  type ExternalCreditApplication, type ExternalCreditNote, type ExternalCreditNoteRefund, type ExternalCustomer, type ExternalInvoice, type ExternalMoney,
   type ExternalJournal, type ExternalPayment, type ExternalRef, type HttpTransport,
   type ProviderHooks, type PushResult, type ReadResult,
 } from "./provider";
@@ -161,6 +161,8 @@ const KEY_FIELD: Record<Exclude<AccountingEntityKind, "credit_note_application">
   },
   /** The invoice that reverses a voided credit note. See `pushOutbound` in the sync. */
   credit_note_void: { path: "Invoices", collection: "Invoices", field: "InvoiceNumber", id: "InvoiceID" },
+  /** A credit note's credit paid out: a payment against the credit note, found by its reference. */
+  credit_note_refund: { path: "Payments", collection: "Payments", field: "Reference", id: "PaymentID" },
   /**
    * A manual journal. It has no number or reference field at all, so the key
    * opens the narration and `findPushed` searches for a narration starting
@@ -1034,6 +1036,26 @@ export function createXeroProvider(
           LineItems: [line],
         }],
       }, refund.idempotencyKey, "&unitdp=4");
+    },
+
+    /**
+     * A CASH REFUND OF A CREDIT NOTE, which is Xero's own instrument for
+     * exactly this: a payment against the credit note out of a bank account.
+     * The credit note's remaining credit goes down by the amount and the bank
+     * by the same, and no invoice is touched, which is our posting: customer
+     * deposits down, cash down. The key is the payment's reference, which is
+     * what `findPushed` asks for.
+     */
+    async pushCreditNoteRefund(refund: ExternalCreditNoteRefund): Promise<PushResult> {
+      return create(KEY_FIELD.credit_note_refund, {
+        Payments: [{
+          CreditNote: { CreditNoteID: refund.creditNoteExternalId },
+          Account: { AccountID: refund.bankAccountExternalId },
+          Date: refund.paidOn,
+          Amount: lineAmount(refund.amount),
+          Reference: refund.idempotencyKey,
+        }],
+      }, refund.idempotencyKey);
     },
 
     /**

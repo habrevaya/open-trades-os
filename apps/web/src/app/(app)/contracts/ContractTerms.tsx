@@ -1,5 +1,5 @@
 import { TextField, Select } from "@/components/ActionForm";
-import { SLA_ROWS } from "@/lib/contract-forms";
+import { SLA_ROWS, percentOf } from "@/lib/contract-forms";
 
 /** The contract's terms as form fields, shared by setting one up and changing it. */
 export function ContractTermFields({ values }: {
@@ -7,7 +7,7 @@ export function ContractTermFields({ values }: {
     startsOn: string | null; endsOn: string | null; defaultNotToExceed: string | null;
     notToExceedAction: "hold" | "warn"; slaTerms: Array<{ kind: string; minutes: number; priority?: string }>;
     invoiceWithinDays: number | null; claimWithinDays: number | null; invoiceFormat: "csv" | "xml" | null;
-    purchaseOrderNumber: string | null;
+    purchaseOrderNumber: string | null; escalationRate?: string | null;
   } | undefined;
 }) {
   return (
@@ -26,6 +26,8 @@ export function ContractTermFields({ values }: {
                    defaultValue={values?.invoiceWithinDays ?? ""} />
         <TextField label="Claim within, days of finishing" name="claimWithinDays" inputMode="numeric"
                    defaultValue={values?.claimWithinDays ?? ""} />
+        <TextField label="Rates rise each year by, per cent" name="escalationRate" inputMode="decimal" placeholder="3"
+                   defaultValue={values?.escalationRate ? percentOf(values.escalationRate) : ""} />
       </div>
       <fieldset>
         <legend className="text-sm font-medium text-ink-700">Response times</legend>

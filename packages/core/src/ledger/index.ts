@@ -1,4 +1,4 @@
-import { type Money, add, subtract, zero, toString, isZero, isNegative, allocate, multiply, round, sum, compare, money } from "../money/index.js";
+import { type Money, add, subtract, zero, toString, isZero, isNegative, isPositive, allocate, multiply, round, sum, compare, money } from "../money/index.js";
 
 /**
  * POSTING TO THE LEDGER
@@ -22,6 +22,12 @@ import { type Money, add, subtract, zero, toString, isZero, isNegative, allocate
  */
 export const ACCOUNTS = {
   AR: "1200",                 // Accounts receivable
+  /**
+   * Retainage a customer is holding back on an application for payment:
+   * earned and billed, owed when the job is done. An asset, and not the
+   * receivable, because the customer does not owe it yet.
+   */
+  RETAINAGE_RECEIVABLE: "1210",
   CASH: "1000",               // Undeposited funds
   INVENTORY: "1300",
   CUSTOMER_DEPOSITS: "2300",  // Money held against work not yet done. A LIABILITY.
@@ -767,6 +773,84 @@ export function postCreditNoteVoid(input: {
   });
 }
 
+/**
+ * PAYING A CREDIT OUT AS MONEY.
+ *
+ * The credit note's issue left what the company owes the customer in customer
+ * deposits, and this is the company handing it over: back to the card they
+ * paid with, or as cash or a cheque. The liability goes and the cash goes with
+ * it. Nothing else moves: the revenue and tax came off when the credit note
+ * was issued, and no invoice is settled or reopened.
+ *
+ * NOT `postRefund`. A refund of a payment puts the receivable back up, because
+ * it gives back money that paid an invoice, and the customer owes that invoice
+ * again. Paying out a credit gives back money the company already owed, so the
+ * receivable is not touched, even when the money goes back through the very
+ * card payment that paid the invoice the credit was raised against.
+ */
+export function postCreditNotePayout(input: {
+  payoutId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+}): Posting {
+  if (!isPositive(input.amount)) {
+    throw new RangeError(`postCreditNotePayout takes the amount paid out, and was given ${toString(input.amount)}.`);
+  }
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "credit_note_payout",
+    sourceId: input.payoutId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Credit paid out to the customer", tag),
+      cr(ACCOUNTS.CASH, input.amount, "Cash out", tag),
+    ]),
+  });
+}
+
+/**
+ * RETAINAGE HELD OR RELEASED ON AN APPLICATION FOR PAYMENT.
+ *
+ * The invoice an application becomes carries what is due now, net of the
+ * retainage held this period, and `postInvoice` books that as revenue. The
+ * work was done in full, so the share held back is revenue too, owed later:
+ * `change` positive debits the retainage receivable and credits revenue for
+ * it. When retainage is released, the release is a line on that period's
+ * invoice and `postInvoice` books it as revenue again, so `change` negative
+ * takes it off the retainage receivable and back off revenue: the customer
+ * now owes it on the invoice, and it was earned once, when it was billed.
+ *
+ * `reversal` marks the posting that takes an application's retainage back
+ * when its invoice is voided, so the register says why it moved.
+ */
+export function postRetainage(input: {
+  applicationId: string;
+  occurredAt: Date;
+  /** Held now less what is already on the books: positive held, negative released. */
+  change: Money;
+  customerId?: string | undefined;
+  reversal?: boolean | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  const held = !isNegative(input.change);
+  const amount = held ? input.change : subtract(zero(input.change.currency), input.change);
+  return assertBalanced({
+    sourceType: input.reversal ? "retainage_reversal" : "retainage",
+    sourceId: input.applicationId,
+    occurredAt: input.occurredAt,
+    entries: compact(held
+      ? [
+        dr(ACCOUNTS.RETAINAGE_RECEIVABLE, amount, input.reversal ? "Released retainage put back" : "Retainage held by the customer", tag),
+        cr(ACCOUNTS.REVENUE, amount, input.reversal ? "Revenue restored" : "Revenue earned on retainage held", tag),
+      ]
+      : [
+        dr(ACCOUNTS.REVENUE, amount, input.reversal ? "Revenue on voided retainage reversed" : "Retainage released, earned when billed", tag),
+        cr(ACCOUNTS.RETAINAGE_RECEIVABLE, amount, input.reversal ? "Retainage voided" : "Retainage released onto the invoice", tag),
+      ]),
+  });
+}
+
 /** Writing off a balance. The receivable goes, and the loss is recognised. */
 export function postWriteOff(input: {
   invoiceId: string;
@@ -1039,6 +1123,7 @@ export function postTipPayout(input: {
  */
 export const CONTROL_ACCOUNTS: Readonly<Record<string, string>> = {
   [ACCOUNTS.AR]: "Accounts receivable follows the invoices. Correct it with a credit note, a write off or a payment.",
+  [ACCOUNTS.RETAINAGE_RECEIVABLE]: "Retainage receivable follows the applications for payment. It moves when retainage is held on one and when it is released.",
   [ACCOUNTS.CUSTOMER_DEPOSITS]: "Customer deposits follows the deposits and unapplied payments held. Apply, refund or forfeit the deposit instead.",
   [ACCOUNTS.TIPS_PAYABLE]: "Tips payable follows the tips owed to technicians. It is cleared through payroll.",
   [ACCOUNTS.COMMISSION_PAYABLE]: "Commission payable follows the commission records. Adjust those instead.",

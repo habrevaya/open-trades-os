@@ -7,7 +7,7 @@ import * as billing from "../src/services/billing";
 import * as statementDelivery from "../src/services/statement-delivery";
 import * as schedules from "../src/services/delivery-schedules";
 import * as portalAccount from "../src/services/portal-account";
-import { ConflictError, type ServiceContext } from "../src/services/context";
+import { ConflictError, inTenant, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -256,4 +256,157 @@ run("monthly statements", () => {
       .rejects.toBeInstanceOf(ConflictError);
     await expect(schedules.setStatementSchedule(as(["dispatcher"]), { enabled: true })).rejects.toThrow();
   });
+});
+
+/**
+ * BY TEXT, THROUGH THE ONE GATE EVERY TEXT GOES THROUGH
+ *
+ * Its own company, so the email runs above and the text runs here cannot
+ * count each other's customers.
+ */
+run("statements by text", () => {
+  const TEXT_ORG = fixtureId("stdel:text:org");
+  const TEXT_USER = fixtureId("stdel:text:owner");
+  const boss = (): ServiceContext => ({
+    actor: { userId: TEXT_USER, organizationId: TEXT_ORG, roles: ["owner"] }, db: db(),
+  });
+  let texter = "", stopped = "", emailer = "", silent = "";
+
+  /** A customer owing on an invoice, with a main contact who prefers `channel`. */
+  async function owing(name: string, phone: string, emailAddress: string | null, channel: "sms" | "email" | null) {
+    const created = await customers.create(boss(), {
+      type: "residential", name, phone,
+      ...(emailAddress ? { email: emailAddress } : {}),
+      paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {},
+    });
+    if (channel) {
+      await raw`insert into public.contact (organization_id, customer_id, name, phone, email, preferred_channel, is_primary)
+                values (${TEXT_ORG}, ${created.id}, ${name}, ${phone}, ${emailAddress}, ${channel}, true)`;
+    }
+    await billing.create(boss(), {
+      customerId: created.id, issuedOn: days(-3),
+      lines: [{ name: "Work", quantity: "1", unitPrice: "180.00", discountAmount: "0", taxable: false }],
+    });
+    return created.id as string;
+  }
+
+  const texts = () => raw<{ to_address: string; body: string }[]>`
+    select to_address, body from public.message
+    where organization_id = ${TEXT_ORG} and channel = 'sms' and direction = 'outbound' order by created_at`;
+
+  beforeAll(async () => {
+    if (!url) return;
+    await seedOrg(raw, { organizationId: TEXT_ORG, userId: TEXT_USER, name: "Text Statement Co", slug: "text-statement-co" });
+    await raw`update public.organization set timezone = 'America/Chicago' where id = ${TEXT_ORG}`;
+    await raw`insert into public.integration_connection (organization_id, capability, provider, status, settings)
+              values (${TEXT_ORG}, 'email', 'fake', 'connected', ${raw.json({ fromAddress: "office@text.test" })})`;
+    await raw`insert into public.phone_number (organization_id, e164, purpose, sms_registered)
+              values (${TEXT_ORG}, '+15125558800', 'main', true)`;
+    texter = await owing("Tess Texter", "+15125558801", "tess@customer.test", "sms");
+    stopped = await owing("Stan Stopped", "+15125558802", "stan@customer.test", "sms");
+    emailer = await owing("Edie Emailer", "+15125558803", "edie@customer.test", "email");
+    silent = await owing("Sol Silent", "+15125558804", "sol@customer.test", null);
+    await raw`insert into public.suppression (organization_id, address, channel, reason)
+              values (${TEXT_ORG}, '+15125558802', 'sms', 'stop')`;
+  });
+
+  it("texts the link from the office, to the main contact's mobile, with no amounts", async () => {
+    const sent = await statementDelivery.textStatement({ ...boss(), idempotencyKey: "stdel-text-1" }, { id: texter });
+    expect(sent).toMatchObject({ state: "queued", channel: "sms", destination: "+15125558801", note: null });
+    const [message] = (await texts()).slice(-1);
+    expect(message!.to_address).toBe("+15125558801");
+    expect(message!.body).toMatch(/^Hi Tess, it's Text Statement Co\. Your statement for /);
+    expect(message!.body).toContain(sent.portalUrl);
+    expect(message!.body).not.toMatch(/\$|180/);
+    const [row] = await raw<{ channel: string }[]>`select channel from public.statement_delivery where id = ${sent.deliveryId}`;
+    expect(row!.channel).toBe("sms");
+
+    const again = await statementDelivery.textStatement({ ...boss(), idempotencyKey: "stdel-text-1" }, { id: texter });
+    expect(again).toMatchObject({ deliveryId: sent.deliveryId, channel: "sms", portalUrl: "" });
+  });
+
+  it("goes to a number the office types instead", async () => {
+    const sent = await statementDelivery.textStatement(boss(), { id: emailer, phone: "(512) 555-8899" });
+    expect(sent).toMatchObject({ state: "queued", channel: "sms" });
+    expect((await texts()).at(-1)!.to_address).toBe("+15125558899");
+  });
+
+  it("records a number that replied STOP as not texted, and does not leave the link alive", async () => {
+    const before = (await texts()).length;
+    const sent = await statementDelivery.textStatement(boss(), { id: stopped });
+    expect(sent.state).toBe("refused");
+    expect(sent.explanation).toBeTruthy();
+    expect(await texts()).toHaveLength(before);
+    const [row] = await raw<{ portal_grant_id: string; error: string }[]>`
+      select portal_grant_id, error from public.statement_delivery where id = ${sent.deliveryId}`;
+    expect(row!.error).toBe(sent.explanation);
+    const [grant] = await raw<{ revoked_at: Date | null }[]>`
+      select revoked_at from public.portal_grant where id = ${row!.portal_grant_id}`;
+    expect(grant!.revoked_at).not.toBeNull();
+  });
+
+  it("refuses something that is not a phone number, and somebody who may not send bills", async () => {
+    await expect(statementDelivery.textStatement(boss(), { id: texter, phone: "call me" }))
+      .rejects.toBeInstanceOf(ConflictError);
+    const technician: ServiceContext = {
+      actor: { userId: TEXT_USER, organizationId: TEXT_ORG, roles: ["technician"] }, db: db(),
+    };
+    await expect(statementDelivery.textStatement(technician, { id: texter })).rejects.toThrow();
+  });
+
+  it("emails everybody on the monthly run until texting is turned on for it", async () => {
+    const set = await schedules.setStatementSchedule(boss(), { enabled: true, dayOfMonth: 1, time: "08:00" });
+    expect(set.textWhenPreferred).toBe(false);
+    const result = await runInTenant(set.textWhenPreferred, firstOfMonth(-1));
+    expect(result).toMatchObject({ owing: 4, texted: 0, emailedInstead: 0 });
+    const rows = await raw<{ channel: string }[]>`
+      select channel from public.statement_delivery
+      where organization_id = ${TEXT_ORG} and period = ${monthBefore(firstOfMonth(-1))}`;
+    expect(rows.map((r) => r.channel)).toEqual(["email", "email", "email", "email"]);
+  });
+
+  it("texts the customers who prefer texts when it is on, and emails a text that cannot go, saying so", async () => {
+    const set = await schedules.setStatementSchedule(boss(), { enabled: true, textWhenPreferred: true });
+    expect(set.textWhenPreferred).toBe(true);
+    /** A month on from the run above, so each customer is owed a statement again. */
+    const result = await runInTenant(true, firstOfMonth(0));
+    expect(result).toMatchObject({ owing: 4, queued: 4, refused: 0, texted: 1, emailedInstead: 1 });
+
+    const rows = await raw<{ customer_id: string; channel: string; destination: string; note: string | null }[]>`
+      select customer_id, channel, destination, note from public.statement_delivery
+      where organization_id = ${TEXT_ORG} and period = ${monthBefore(firstOfMonth(0))}`;
+    const of = (id: string) => rows.find((r) => r.customer_id === id)!;
+    expect(of(texter)).toMatchObject({ channel: "sms", destination: "+15125558801", note: null });
+    expect(of(stopped)).toMatchObject({ channel: "email", destination: "stan@customer.test" });
+    expect(of(stopped).note).toMatch(/^Not texted: .+ Emailed instead\.$/);
+    expect(of(emailer)).toMatchObject({ channel: "email", note: null });
+    expect(of(silent)).toMatchObject({ channel: "email", note: null });
+
+    const listed = await statementDelivery.deliveries(boss(), { customerId: stopped });
+    expect(listed[0]).toMatchObject({ channel: "email", note: of(stopped).note });
+  });
+
+  async function scheduleId(): Promise<string | undefined> {
+    const [row] = await raw<{ id: string }[]>`
+      select id from public.delivery_schedule where organization_id = ${TEXT_ORG} and kind = 'statements'`;
+    return row?.id;
+  }
+  /** The run, inside the company's own transaction as the worker runs it, for the month before `firstOf`. */
+  async function runInTenant(textWhenPreferred: boolean, firstOf: string) {
+    const id = (await scheduleId())!;
+    return inTenant({ actor: { userId: TEXT_USER, organizationId: TEXT_ORG, roles: ["owner"] }, db: db() }, (tx) =>
+      statementDelivery.deliverStatements(tx, {
+        organizationId: TEXT_ORG, scheduleId: id, at: new Date(`${firstOf}T14:00:00Z`),
+        minimumBalance: "0", textWhenPreferred,
+      }));
+  }
+  /** The first of this month, or of a month before it, as a date. A statement cannot run past today. */
+  function firstOfMonth(after: number): string {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + after, 1)).toISOString().slice(0, 10);
+  }
+  /** `2026-09` for the first of October: the month a run on that day is about. */
+  function monthBefore(firstOf: string): string {
+    return new Date(Date.parse(`${firstOf}T00:00:00Z`) - 864e5).toISOString().slice(0, 7);
+  }
 });

@@ -7,6 +7,7 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
+import * as retainage from "./retainage";
 import { listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
@@ -85,6 +86,14 @@ export interface PreparedLine {
   note: string | null;
   rateCardId: string | null;
   rateCardLineId: string | null;
+  /**
+   * The tax the caller already worked out for this line: a job billed in
+   * parts shares the tax on the whole job between its payers so the invoices
+   * add up (`core/splits.taxAcross`). Still checked against the rate by
+   * `computeInvoice`, which refuses a stated tax a cent or more from it.
+   */
+  taxRate?: string | undefined;
+  taxAmount?: m.Money | undefined;
 }
 
 /**
@@ -782,13 +791,20 @@ async function priceInvoice(
       unitPrice: price,
       unitCost: version?.cost ? usd(version.cost) : null,
       discountAmount: usd(line.discountAmount),
-      taxable: version?.taxable ?? line.taxable,
+      /**
+       * A job billed in parts already decided, per payer, whether their part
+       * is taxed (an exempt payer's is not), so its word stands over the
+       * item's tax class.
+       */
+      taxable: options.prepared?.[index]?.taxRate !== undefined ? line.taxable : (version?.taxable ?? line.taxable),
       /**
        * Resolved per jurisdiction in phase 5. Zero until then, honestly,
-       * unless the line is history and says what it was taxed at.
+       * unless the line is history and says what it was taxed at, or a job
+       * billed in parts was given the rate by the person billing it.
        */
-      taxRate: line.taxRate ?? "0",
-      taxAmount: line.taxAmount === undefined ? undefined : usd(line.taxAmount),
+      taxRate: options.prepared?.[index]?.taxRate ?? line.taxRate ?? "0",
+      taxAmount: options.prepared?.[index]?.taxAmount
+        ?? (line.taxAmount === undefined ? undefined : usd(line.taxAmount)),
       costCode: line.costCode ?? null,
       versionId: linked?.versionId ?? null,
       coverageSource: line.coverageSource ?? null,
@@ -1383,12 +1399,18 @@ async function assertAllocatable(
  * credit.
  */
 export function unappliedOf(
-  payment: { amount: string; refundedAmount: string },
+  payment: { amount: string; refundedAmount: string; paidOutAmount?: string | undefined },
   allocations: Array<{ amount: string }>,
 ): m.Money {
+  /**
+   * A credit note paid out through this payment's card went back through
+   * it without coming out of it: the invoices it paid stay paid and what it
+   * held is still held. So only the rest of what was refunded counts here.
+   */
+  const refunded = m.subtract(usd(payment.refundedAmount), usd(payment.paidOutAmount ?? "0"));
   const left = m.subtract(
     m.subtract(usd(payment.amount), m.sum(allocations.map((a) => usd(a.amount)), "USD")),
-    usd(payment.refundedAmount),
+    refunded,
   );
   return m.isNegative(left) ? usd("0") : left;
 }
@@ -1941,6 +1963,9 @@ export async function voidInvoice(
       customerId: invoice.customerId,
       ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
     }));
+
+    /** An application for payment's retainage goes back off with its invoice. */
+    await retainage.reverseOnVoid(tx, ctx, invoice.id);
 
     await tx.update(schema.invoice).set({
       status: "void",

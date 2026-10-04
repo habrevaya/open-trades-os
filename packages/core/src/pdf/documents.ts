@@ -28,6 +28,11 @@ export interface Company {
    * Empty or absent prints nothing, never an empty label.
    */
   contact?: string[] | undefined;
+  /**
+   * The company's logo as a page can draw it (`readImage`), on every page
+   * beside the name. Absent or null prints the name alone.
+   */
+  logo?: PdfImage | null | undefined;
 }
 
 const accentOf = (company: Company): Rgb | null => (company.color ? hex(company.color) : null);
@@ -80,6 +85,7 @@ export function invoicePdf(input: InvoicePdfInput, options: RenderOptions = {}):
     company: input.company.name,
     contact: input.company.contact,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: `Invoice ${input.number}`,
     subtitle: [input.issuedOn ? `Issued ${longDate(input.issuedOn)}` : null, input.dueOn ? `Due ${longDate(input.dueOn)}` : null]
       .filter(Boolean).join(", ") || undefined,
@@ -193,6 +199,7 @@ export function proposalPdf(input: ProposalPdfInput, options: RenderOptions = {}
     company: input.company.name,
     contact: input.company.contact,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: `Proposal ${input.number}`,
     subtitle: [input.issuedOn ? `Written ${longDate(input.issuedOn)}` : null, input.expiresOn ? `Good until ${longDate(input.expiresOn)}` : null]
       .filter(Boolean).join(", ") || undefined,
@@ -331,6 +338,7 @@ export function statementPdf(input: StatementPdfInput, options: RenderOptions = 
     company: input.company.name,
     contact: input.company.contact,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: "Statement",
     subtitle: `${longDate(input.from)} to ${longDate(input.to)}`,
   });
@@ -517,6 +525,7 @@ export function reportPdf(input: ReportPdfInput, options: RenderOptions = {}): U
   const flow = new Flow({
     company: input.company.name,
     accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
     title: fit(input.name, "bold", 14, 300),
     subtitle: input.period,
   });

@@ -191,6 +191,12 @@ export const accountingEntityKind = pgEnum("accounting_entity_kind", [
    */
   "credit_note_void",
   /**
+   * Credit on a credit note paid out to the customer as money: a Xero payment
+   * against the credit note out of the bank, a QuickBooks cheque from the bank
+   * to the customer's receivable. The entity id is the `credit_note_payout`.
+   */
+  "credit_note_refund",
+  /**
    * A manual journal, as a QuickBooks JournalEntry or a Xero manual journal.
    * The entity id is the `journal_entry` row; a reversal is a journal of its
    * own and goes as one.

@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
+import { invoiceFileWithin } from "./documents";
 import * as email from "./email";
 import * as payments from "./payments";
 import * as tips from "./tips";
@@ -344,6 +345,7 @@ function compose(input: {
     `${action}:`,
     url,
     "",
+    "A copy of the invoice is attached as a PDF.",
     /**
      * Named rather than left implicit. A customer who cannot open a link
      * needs to know who to ring, and an invoice email with no sender in the
@@ -365,8 +367,8 @@ function compose(input: {
     `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 20px;`
     + `background:${escapeHtml(fill)};color:${escapeHtml(onFill)};text-decoration:none;`
     + `border-radius:6px">${escapeHtml(action)}</a></p>`,
-    `<p style="font-size:14px;color:#4b5563">This link opens your invoice without an `
-    + `account. Reply to this email if anything looks wrong.</p>`,
+    `<p style="font-size:14px;color:#4b5563">A copy of the invoice is attached as a PDF. `
+    + `This link opens your invoice without an account. Reply to this email if anything looks wrong.</p>`,
     `<p style="font-size:14px;color:#4b5563">${escapeHtml(organizationName)}</p>`,
     `</div>`,
   ].join("");
@@ -638,6 +640,13 @@ export function send(ctx: ServiceContext, input: SendInvoiceInput): Promise<Send
      * and is why the refusal below is a real outcome rather than a
      * formality.
      */
+    /**
+     * THE INVOICE ITSELF, ATTACHED, as the customer's copy prints it from
+     * their link: the same reader, so nothing on it is anything their link
+     * would not show. A bookkeeper files the file, and an accounts payable
+     * clerk will not follow a link to fetch one.
+     */
+    const printed = await invoiceFileWithin(tx, ctx.actor.organizationId, invoice.id);
     const outcome = await email.queue(transportContext(ctx, tx), {
       to,
       subject: composed.subject,
@@ -645,6 +654,7 @@ export function send(ctx: ServiceContext, input: SendInvoiceInput): Promise<Send
       html: composed.html,
       purpose: "transactional",
       customerId: invoice.payerCustomerId ?? invoice.customerId,
+      attachments: [{ filename: printed.filename, contentType: "application/pdf", content: Buffer.from(printed.bytes) }],
     });
 
     if (!outcome.queued) {

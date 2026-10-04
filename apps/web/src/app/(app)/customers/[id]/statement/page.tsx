@@ -6,7 +6,7 @@ import { can } from "@opentradesos/core";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import { enumText } from "@/lib/labels";
-import { emailStatement } from "./actions";
+import { emailStatement, textStatement } from "./actions";
 import { Crumb } from "@/components/Detail";
 import { PrintButton } from "@/components/PrintButton";
 import { StatementView } from "@/components/Statement";
@@ -47,9 +47,8 @@ export default async function StatementPage({ params, searchParams }: {
    * may send a statement without holding the customer list, and then the box
    * simply says "the address on file".
    */
-  const onFile = can(user.actor, "customer:read")
-    ? (await customers.get(ctx, { id }).catch(() => null))?.email ?? null
-    : null;
+  const record = can(user.actor, "customer:read") ? await customers.get(ctx, { id }).catch(() => null) : null;
+  const onFile = record?.email ?? null;
   const sent = await statementDelivery.deliveries(ctx, { customerId: id, limit: 5 });
   const sends = can(user.actor, "invoice:send");
 
@@ -91,12 +90,26 @@ export default async function StatementPage({ params, searchParams }: {
             <TextField label="Email address" name="email" type="email" className="block w-72"
                        placeholder={onFile ?? "The address on file"} />
           </ActionForm>
+          <h2 className="mt-5 text-sm font-medium text-ink-700">Or text it</h2>
+          <p className="mt-0.5 text-xs text-ink-500">
+            The same link by text, to their main contact&apos;s mobile or the number on file. A number that asked not
+            to be texted is not texted, and this says so.
+          </p>
+          <ActionForm
+            action={textStatement} submit="Text statement" className="mt-3 flex flex-wrap items-end gap-3"
+            hidden={{ id, from: statement.from, to: statement.to }}
+          >
+            <TextField label="Mobile number" name="phone" type="tel" className="block w-72"
+                       placeholder={record?.phone ?? "The number on file"} />
+          </ActionForm>
           {sent.length > 0 && (
             <ul className="mt-3 space-y-0.5 text-sm text-ink-700" aria-label="Statements already sent">
               {sent.map((row) => (
                 <li key={row.id}>
-                  {formatIn(row.createdAt, user.organizationTimezone)}, to {row.destination ?? "no address"}:{" "}
+                  {formatIn(row.createdAt, user.organizationTimezone)}, {row.channel === "sms" ? "texted" : "emailed"} to{" "}
+                  {row.destination ?? "no address"}:{" "}
                   {row.error ? <span className="text-red-600">not sent. {row.error}</span> : enumText(row.messageStatus ?? "queued")}
+                  {row.note ? <span className="text-ink-500"> {row.note}</span> : null}
                 </li>
               ))}
             </ul>

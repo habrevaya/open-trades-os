@@ -523,3 +523,74 @@ export function ceilingVerdict(input: {
         : "The contract lets it through, so expect the client to question the difference."),
   };
 }
+
+/* --------------------------------------------------------- annual escalation */
+
+/**
+ * A CONTRACT'S ANNUAL ESCALATION, APPLIED TO ITS CARDS.
+ *
+ * A contract says "rates rise three per cent each year on the anniversary",
+ * and the card is the price list that has to rise. Pure arithmetic here: the
+ * service decides which cards are in force and writes the new version.
+ */
+
+/**
+ * The anniversary after `escalatedThrough` (or the first one, a year after
+ * the contract started), as `YYYY-MM-DD`. A contract that started on the 29th
+ * of February has its anniversary on the 28th in a year without one, because
+ * a rise that waits for a day that does not exist would skip three years.
+ */
+export function nextAnniversary(startsOn: string, escalatedThrough: string | null): string {
+  const [year, month, day] = startsOn.split("-").map(Number) as [number, number, number];
+  const from = escalatedThrough ?? startsOn;
+  for (let n = 1; n < 200; n += 1) {
+    const candidate = anniversaryIn(year + n, month, day);
+    if (candidate > from) return candidate;
+  }
+  throw new RangeError(`No anniversary of ${startsOn} after ${from}.`);
+}
+
+function anniversaryIn(year: number, month: number, day: number): string {
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${year}-${pad(month)}-${pad(Math.min(day, last))}`;
+}
+
+/** Which year of the contract an anniversary opens: the first anniversary opens year two. */
+export function contractYear(startsOn: string, anniversary: string): number {
+  return Number(anniversary.slice(0, 4)) - Number(startsOn.slice(0, 4)) + 1;
+}
+
+/**
+ * A price risen by a rate, to the cent, half up: 142.50 at three per cent is
+ * 146.78 (146.775 rounded up). A rate is a fraction, 0.03 for three per cent,
+ * and must be more than nothing and less than one: a "3" is a typo that would
+ * quadruple every price on the card.
+ */
+export function escalate(price: Money, rate: string): Money {
+  /**
+   * Exact, then rounded once to the cent, from the bigints: multiplying to
+   * four places and then rounding to two would round twice, and a price a
+   * hair under half a cent would come out a cent high.
+   */
+  const found = /^(\d+)(?:\.(\d+))?$/.exec(rate.trim());
+  if (!found) throw new TypeError(`Not a rate: ${JSON.stringify(rate)}`);
+  const divisor = 10n ** BigInt((found[2] ?? "").length);
+  const value = BigInt(`${found[1]}${found[2] ?? ""}`);
+  const numerator = price.amount * (divisor + value);
+  const denominator = divisor * 100n;
+  const negative = numerator < 0n;
+  const abs = negative ? -numerator : numerator;
+  let cents = abs / denominator;
+  if ((abs % denominator) * 2n >= denominator) cents += 1n;
+  return { amount: (negative ? -cents : cents) * 100n, currency: price.currency };
+}
+
+/** Whether a stored escalation rate is one a card can be risen by. */
+export function escalationRateProblem(rate: string | null | undefined): string | null {
+  if (rate === null || rate === undefined || rate.trim() === "") return "This contract has no annual escalation rate.";
+  const n = Number(rate);
+  if (!Number.isFinite(n) || n <= 0) return "An escalation of nothing raises nothing. Set the contract's rate first.";
+  if (n >= 1) return `An escalation of ${rate} would more than double every price. Write 0.03 for three per cent.`;
+  return null;
+}

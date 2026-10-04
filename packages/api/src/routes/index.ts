@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, contacts, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore,
+  apps, comms, consent, contacts, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore,
   dispatchMap, dispatchDays, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
@@ -178,6 +178,8 @@ export const handlers = {
 
   // Commercial contracts. Whose price governs, when it is not ours.
   listContracts: contractService.handlers.listContracts,
+  previewContractEscalation: contractEscalation.handlers.previewContractEscalation,
+  applyContractEscalation: contractEscalation.handlers.applyContractEscalation,
   createContract: contractService.handlers.createContract,
   addContractSite: contractService.handlers.addContractSite,
   createRateCard: contractService.handlers.createRateCard,
@@ -662,6 +664,7 @@ export const handlers = {
 
   getCustomerStatement: statements.handlers.getCustomerStatement,
   emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
+  textCustomerStatement: statementDelivery.handlers.textCustomerStatement,
   listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
   sendReportScheduleNow: deliverySchedules.handlers.sendReportScheduleNow,
   getStatementSchedule: deliverySchedules.handlers.getStatementSchedule,
@@ -673,6 +676,8 @@ export const handlers = {
   deleteCreditNote: creditNotes.handlers.deleteCreditNote,
   getCreditNote: creditNotes.handlers.getCreditNote,
   listCreditNotes: creditNotes.handlers.listCreditNotes,
+  payOutCreditNote: creditPayouts.handlers.payOutCreditNote,
+  refundableCardPayments: creditPayouts.handlers.refundableCardPayments,
   listInspectionPrograms: inspections.handlers.listInspectionPrograms,
   recordInspection: inspections.handlers.recordInspection,
   listDeficiencies: inspections.handlers.listDeficiencies,

@@ -89,7 +89,14 @@ export function CoverageFromUnit({ jobId }: { jobId: string }) {
  * button is exactly this, so the screen is the preview rather than a guess.
  * The problems are the decisions that have to be made first, in words.
  */
-export function BillingPlanView({ jobId, plan, canBill }: { jobId: string; plan: Plan; canBill: boolean }) {
+export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate }: {
+  jobId: string; plan: Plan; canBill: boolean;
+  /** The sales tax percentage as typed, shown back in the box. */
+  typedTax: string;
+  /** The rate it became, or null when nothing usable was typed. */
+  taxRate: string | null;
+}) {
+  const taxable = plan.lines.some((line) => line.taxable);
   const byKey = new Map(plan.lines.map((line) => [line.key, line]));
   const nothing = plan.lines.length === 0;
   return (
@@ -121,12 +128,34 @@ export function BillingPlanView({ jobId, plan, canBill }: { jobId: string; plan:
           </Table>
           <p className="mt-2 text-right text-sm font-medium">Priced at <Money value={plan.pricedTotal} /></p>
 
+          {taxable && (
+            <form method="get" className="mt-3 flex flex-wrap items-end gap-2 text-sm">
+              <label className="flex flex-col gap-1">
+                <span className="text-ink-700">Sales tax on the taxable lines, per cent</span>
+                <input name="taxRate" inputMode="decimal" defaultValue={typedTax} placeholder="8.25"
+                       className="h-8 w-28 rounded border border-steel-300 px-2" />
+              </label>
+              <button type="submit" className="h-8 rounded border border-steel-300 px-3 font-medium hover:bg-steel-100">
+                Work out the tax
+              </button>
+              {typedTax !== "" && taxRate === null && (
+                <span className="text-red-600">Type the rate as a percentage under 100, such as 8.25.</span>
+              )}
+              {Number(plan.taxTotal) > 0 && plan.payers.length > 1 && (
+                <span className="text-ink-700">
+                  Each payer is taxed on their own part of each line, and the tax adds up to the tax on the whole
+                  job: <Money value={plan.taxTotal} />.
+                </span>
+              )}
+            </form>
+          )}
+
           <ul className="mt-4 grid gap-3 sm:grid-cols-2">
             {plan.payers.map((payer) => (
               <li key={payer.customerId} className="rounded-md border border-steel-200 p-3">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="font-medium">{payer.name}</span>
-                  <span className="font-medium"><Money value={payer.total} /></span>
+                  <span className="font-medium"><Money value={payer.totalWithTax} /></span>
                 </div>
                 <ul className="mt-1 space-y-0.5 text-xs text-ink-700">
                   {payer.lines.map((part) => (
@@ -136,6 +165,12 @@ export function BillingPlanView({ jobId, plan, canBill }: { jobId: string; plan:
                     </li>
                   ))}
                 </ul>
+                {(Number(payer.taxTotal) > 0 || (payer.taxExempt && taxRate !== null)) && (
+                  <p className="mt-1 flex justify-between gap-2 text-xs text-ink-700">
+                    <span>{payer.taxExempt ? "Tax exempt, so no sales tax" : "Sales tax on their part"}</span>
+                    <Money value={payer.taxTotal} />
+                  </p>
+                )}
                 {payer.ceiling?.message && (
                   <p className={`mt-2 text-xs ${payer.ceiling.held ? "text-red-600" : "text-ink-700"}`}>{payer.ceiling.message}</p>
                 )}
@@ -155,7 +190,7 @@ export function BillingPlanView({ jobId, plan, canBill }: { jobId: string; plan:
       )}
 
       {canBill && !nothing && (
-        <ActionForm action={billThisJob} hidden={{ jobId }}
+        <ActionForm action={billThisJob} hidden={{ jobId, taxRate: taxRate ?? "" }}
                     submit={plan.payers.length > 1 ? `Bill in ${plan.payers.length} parts` : "Bill this job"}
                     className="mt-3 flex flex-wrap items-center gap-3" />
       )}

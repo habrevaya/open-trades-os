@@ -132,6 +132,12 @@ const ChangeInput = z.object({
   value: z.string().max(20).optional(),
   /** Round up to the next price ending in these cents: 00, 95, 99. */
   ending: z.string().regex(/^\d{2}$/).optional(),
+  /**
+   * A day ahead for the new prices to take effect, from the start of that day
+   * in the company's calendar, the way a single revision is dated ahead. Left
+   * off, or today, they take effect when applied.
+   */
+  effectiveOn: z.string().date().optional(),
 });
 
 const PreviewLine = z.object({
@@ -176,7 +182,7 @@ export const applyPriceChange = defineRoute({
   path: "/v1/pricebook/price-changes",
   summary: "Apply a change to many prices",
   description:
-    "Recomputed inside the write rather than taken from a preview that may be a minute old, and written as a new version per item, the way a single revision is: no version is edited in place, so every document already raised keeps its price. `itemIds` narrows the selection to the items left ticked. Takes effect now.",
+    "Recomputed inside the write rather than taken from a preview that may be a minute old, and written as a new version per item, the way a single revision is: no version is edited in place, so every document already raised keeps its price. `itemIds` narrows the selection to the items left ticked. Takes effect now, or with `effectiveOn` from the start of that day ahead, each new version waiting as a scheduled revision until then.",
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -194,6 +200,8 @@ const Change = z.object({
   appliedAt: z.string(),
   reversesId: Uuid.nullable(),
   reversedById: Uuid.nullable(),
+  /** When the prices take effect, for a change dated ahead. Null when it took effect as applied. */
+  effectiveFrom: z.string().nullable(),
 });
 
 export const listPriceChanges = defineRoute({
@@ -220,6 +228,7 @@ export const getPriceChange = defineRoute({
     appliedAt: z.string(),
     reversesId: Uuid.nullable(),
     reversedById: Uuid.nullable(),
+    effectiveFrom: z.string().nullable(),
     /** For an undo: the items it left alone because they had changed again since. */
     skipped: z.array(z.object({ itemId: Uuid, code: z.string(), reason: z.string() })),
     lines: z.array(z.object({
@@ -233,7 +242,7 @@ export const reversePriceChange = defineRoute({
   path: "/v1/pricebook/price-changes/{id}/reverse",
   summary: "Undo a bulk change",
   description:
-    "Each item goes back to the price it had, as another new version, and the undo is recorded as a change of its own pointing at this one. Not the opposite percentage: five per cent up and five per cent down is 99.75, not 100. An item changed again since is left alone and named.",
+    "Each item goes back to the price it had, as another new version, and the undo is recorded as a change of its own pointing at this one. Not the opposite percentage: five per cent up and five per cent down is 99.75, not 100. An item changed again since is left alone and named. A change dated ahead and not yet in force is called off instead: each scheduled version is withdrawn and the price in force stays, so nothing was ever charged at it.",
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,

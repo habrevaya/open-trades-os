@@ -308,6 +308,11 @@ export const Payment = z.object({
   tipAmount: MoneyString,
   surchargeAmount: MoneyString,
   refundedAmount: MoneyString,
+  /**
+   * Of `refundedAmount`, what went back to the card to pay out a credit note.
+   * It reopens nothing and leaves `unappliedAmount` as it was.
+   */
+  paidOutAmount: MoneyString,
   processor: z.string(),
   processorPaymentId: z.string().nullable(),
   receivedAt: z.string().datetime(),

@@ -23,6 +23,14 @@ export function fractionOf(percent: string): string | null {
   return money.toString(money.divide(money.money(cleaned), "100"));
 }
 
+/** A stored fraction as the per cent a person typed: "0.035000" reads "3.5". The point moves; nothing rounds. */
+export function percentOf(rate: string): string {
+  const [whole = "0", frac = ""] = rate.split(".");
+  const digits = frac.padEnd(2, "0");
+  const rest = digits.slice(2).replace(/0+$/, "");
+  return `${Number(`${whole}${digits.slice(0, 2)}`)}${rest ? `.${rest}` : ""}`;
+}
+
 /** "17:30" as minutes past midnight. */
 export function minutesOf(clock: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(clock.trim());

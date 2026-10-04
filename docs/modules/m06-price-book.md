@@ -89,6 +89,13 @@ points at any of those. The item can be retired or sold again, and the
 vendors who sell it to us are listed with their part numbers (M16).
 `/pricebook` can include retired items.
 
+**What is in the kit**, on the same screen, lists a kit's parts by code with how
+many of each, and saves a changed list as a new version, now or from a day ahead,
+exactly like a price change (`components` on the revise call): an estimate already
+written keeps the kit it was written with, and every later revision carries the
+parts forward. A part is an item still sold, named once, and never the kit itself
+or a kit that already contains it, however deep.
+
 `POST /v1/pricebook/items` creates one. `GET /v1/pricebook/items/{id}` is the
 item with every version. `POST /v1/pricebook/items/{id}/revise` is how a price
 changes: it writes a new version rather than editing the old one, and carries
@@ -140,6 +147,13 @@ shows every item's price now and after, and for whoever holds
 change says why (no cost recorded for a margin rule, a change that would
 price it at nothing, a revision already scheduled). Untick anything to leave
 alone, then apply.
+
+A change can be dated ahead with **Takes effect** (`effectiveOn` on the API): each
+item's new version then waits as a scheduled revision from the start of that day in
+the company's calendar, exactly as a single revision dated ahead does, the prices
+in force stay until then, and the list of changes says it is waiting. Undo before
+that day calls the waiting versions off, and the prices that were in force simply
+carry on; after it, Undo puts prices back as new versions as for any change.
 
 Applying writes a NEW VERSION per item through the same code a single
 revision uses, so no version is edited in place and every document already
@@ -221,11 +235,9 @@ different permission from editing the book.
 
 ## What is not built
 
-A bulk change takes effect when it is applied; it cannot be dated ahead the way
-a single revision can, so a quarterly change across a category is staged item
-by item or applied on the day. An item with a revision already scheduled is
-left out of a bulk change rather than given a version beside it. A bulk change
-reaches at most two thousand items at a time. The item screen does not edit a
-kit's components, an image or a commission rate; those carry forward through a
-revision unchanged. A revision dated ahead is staged from the start of that day
+An item with a revision already scheduled is left out of a bulk change, dated
+ahead or not, rather than given a version beside it. A bulk change reaches at most
+two thousand items at a time. The item screen does not edit an image or a
+commission rate; those carry forward through a revision unchanged. A kit's price is
+its own and is not worked out from its parts. A revision dated ahead is staged from the start of that day
 in the company's calendar; a time of day is an API call.

@@ -1,4 +1,4 @@
-import { deflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import { and, asc, eq, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
 import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
@@ -42,6 +42,23 @@ export const RENDER: pdf.RenderOptions = {
   deflate: (bytes) => new Uint8Array(deflateSync(bytes)),
 };
 
+/** What a logo with transparency is decoded and compressed again with. */
+const CODECS: pdf.ImageCodecs = {
+  inflate: (bytes) => new Uint8Array(inflateSync(bytes)),
+  deflate: (bytes) => new Uint8Array(deflateSync(bytes)),
+};
+
+/**
+ * The company's logo as a page draws it, or null for none or one a PDF cannot
+ * carry (an SVG, a WebP): the documents then print the name alone, as before
+ * there was a logo, rather than refusing to print.
+ */
+export async function logoOf(tx: Database): Promise<pdf.PdfImage | null> {
+  const [found] = await tx.select({ bytes: schema.brandAsset.bytes })
+    .from(schema.brandAsset).where(eq(schema.brandAsset.kind, "logo")).limit(1);
+  return found ? pdf.readImage(new Uint8Array(found.bytes), CODECS) : null;
+}
+
 /**
  * The company as a document's header prints it: the name, the colour, and
  * the lines a customer needs to reach it, which every document had to leave
@@ -54,6 +71,7 @@ export async function companyOf(tx: Database, organizationId: string): Promise<p
     name: org?.name ?? "",
     color: org?.color ? brand.parseColor(org.color) : null,
     contact: brand.contactLines(await contactOf(tx, organizationId)),
+    logo: await logoOf(tx),
   };
 }
 
@@ -194,6 +212,14 @@ const invoiceFile = (doc: pdf.InvoicePdfInput): PdfFile => ({
 });
 
 /**
+ * The customer's copy of an invoice, inside a transaction already in the
+ * tenant: what the invoice email attaches. Never a draft, as their link is not.
+ */
+export async function invoiceFileWithin(tx: Database, organizationId: string, invoiceId: string): Promise<PdfFile> {
+  return invoiceFile(await invoiceDocWithin(tx, organizationId, invoiceId, { customerFacing: true }));
+}
+
+/**
  * The office's copy, under the same permission as reading the invoice and the
  * same scope as the invoice list: a technician who sees invoices on their own
  * work gets a PDF of those and a not found for the rest.
@@ -239,7 +265,7 @@ export async function invoicePdfForAccount(db: Database, input: { token: string;
  * The proposal as a file, in the layout its page draws: the cover, the
  * sections in the company's order, the reviews they show and each option's
  * photographs. A photograph is read from the company's own store; one the
- * PDF cannot print (a PNG with transparency, a HEIC) is said in a line
+ * PDF cannot print (a sixteen bit or interlaced PNG, a HEIC) is said in a line
  * rather than dropped.
  */
 async function proposalFile(tx: Database, doc: Awaited<ReturnType<typeof proposalWithin>>): Promise<PdfFile> {
@@ -252,14 +278,17 @@ async function proposalFile(tx: Database, doc: Awaited<ReturnType<typeof proposa
     const files = await tx.select({ key: schema.storedFile.storageKey, ...HELD })
       .from(schema.storedFile)
       .where(and(inArray(schema.storedFile.storageKey, [...new Set(keys)]), isNull(schema.storedFile.deletedAt)));
-    for (const file of files) images.set(file.key, pdf.readImage(new Uint8Array(await bytesOf(file))));
+    for (const file of files) images.set(file.key, pdf.readImage(new Uint8Array(await bytesOf(file)), CODECS));
   }
   const coverKey = doc.layout.cover?.photoKey ?? null;
   return {
     filename: `proposal-${doc.number}.pdf`,
     bytes: pdf.proposalPdf({
       ...doc,
-      company: { name: doc.company.name, color: doc.company.color, contact: brand.contactLines(doc.company.contact) },
+      company: {
+        name: doc.company.name, color: doc.company.color, contact: brand.contactLines(doc.company.contact),
+        logo: await logoOf(tx),
+      },
       options: doc.options.map((option) => ({
         ...option,
         photos: (doc.layout.optionPhotos[option.id] ?? []).map((photo) => images.get(photo.storageKey) ?? null),

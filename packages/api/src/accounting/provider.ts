@@ -63,7 +63,7 @@
  */
 export type AccountingEntityKind =
   | "customer" | "invoice" | "payment" | "credit_memo" | "refund"
-  | "credit_note" | "credit_note_application" | "credit_note_void" | "journal";
+  | "credit_note" | "credit_note_application" | "credit_note_void" | "credit_note_refund" | "journal";
 
 /** ISO 4217, carried on every amount for the same reason the schema carries it. */
 export interface ExternalMoney {
@@ -214,6 +214,25 @@ export interface ExternalCreditApplication {
   invoiceExternalId: string;
   appliedOn: string;
   amount: ExternalMoney;
+}
+
+/**
+ * Credit on a credit note already in the books, paid out to the customer as
+ * money: to their card or by cash or cheque. Our ledger posts customer
+ * deposits down and cash down, and no invoice moves; over there the credit
+ * note's unused credit is what goes, out of the bank.
+ */
+export interface ExternalCreditNoteRefund {
+  idempotencyKey: string;
+  customerExternalId: string;
+  creditNoteExternalId: string;
+  paidOn: string;
+  amount: ExternalMoney;
+  /** The mapped id for our cash account, where the money left from. */
+  bankAccountExternalId: string;
+  /** Our receivable account's mapping, when there is one. */
+  receivableAccountExternalId: string | null;
+  memo: string;
 }
 
 /**
@@ -413,6 +432,14 @@ export interface AccountingProvider {
 
   /** One credit note against one invoice, by an amount, on a date. */
   pushCreditApplication(application: ExternalCreditApplication): Promise<PushResult>;
+
+  /**
+   * Credit on a credit note paid out as money. See `ExternalCreditNoteRefund`.
+   * OPTIONAL, as a journal is: a book that cannot take one leaves it out, and
+   * the sync then says so on the problems list for each payout rather than
+   * sending it some other way.
+   */
+  pushCreditNoteRefund?(refund: ExternalCreditNoteRefund): Promise<PushResult>;
 
   /**
    * "Did this application already land?", for the crash window only.

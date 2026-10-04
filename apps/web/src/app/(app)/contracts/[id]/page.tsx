@@ -1,15 +1,15 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { contracts, rateCards, jobs, properties, billing } from "@opentradesos/api/services";
+import { contracts, contractEscalation, rateCards, jobs, properties, billing } from "@opentradesos/api/services";
 import { can, rates, deadlines } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
-import { LABOUR_ROWS, MARKUP_ROWS, clockOf } from "@/lib/contract-forms";
+import { LABOUR_ROWS, MARKUP_ROWS, clockOf, percentOf } from "@/lib/contract-forms";
 import { ContractTermFields } from "../ContractTerms";
-import { addSite, createCard, issuePayerLink, setCardLines, setCardTerms, updateContractTerms } from "../actions";
+import { addSite, applyEscalation, createCard, issuePayerLink, setCardLines, setCardTerms, updateContractTerms } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +58,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
   const addresses = writes
     ? (await properties.list(ctx, { limit: 100, customerId: contract.customerId })).data
     : [];
+  const rise = reads ? await contractEscalation.preview(ctx, { contractId: id }) : null;
   const open = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 100, customerId: contract.customerId, status: ["open", "partially_paid"] })).data
     : [];
@@ -91,6 +92,52 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
           )
         )}
       </section>
+
+      {rise && rise.rate && (
+        <section aria-label="Annual escalation" className="mt-10">
+          <h2 className="text-base font-semibold">Annual escalation</h2>
+          <p className="mt-1 max-w-2xl text-sm text-ink-700">
+            {rise.anniversary
+              ? <>Rates rise by {percentOf(rise.rate)}% on each anniversary. Year {rise.contractYear} starts on {rise.anniversary}
+                {rise.daysAway !== null && rise.daysAway >= 0 ? `, in ${rise.daysAway} days` : `, ${Math.abs(rise.daysAway ?? 0)} days ago`}.
+                Applying it writes a new version of each card from that day; the current prices stay in force until the day before.</>
+              : null}
+            {rise.escalatedThrough ? ` Last risen on ${rise.escalatedThrough}.` : ""}
+          </p>
+          {rise.problem && <p className="mt-2 text-sm text-ink-700">{rise.problem}</p>}
+          {rise.cards.map((card) => (
+            <Table key={card.rateCardId} label={`${card.name} from ${rise.anniversary}`}
+                   head={<><Th>{card.name}</Th><Th className="text-right">Now</Th><Th className="text-right">From {rise.anniversary}</Th></>}>
+              {card.lines.map((line) => (
+                <tr key={line.id}>
+                  <Td>{line.description}</Td>
+                  <Td className="text-right"><Money value={line.before} /></Td>
+                  <Td className="text-right"><Money value={line.after} /></Td>
+                </tr>
+              ))}
+              {card.labourRates.map((rate) => (
+                <tr key={rate.id}>
+                  <Td>{rates.BAND_LABEL[rate.band as rates.LabourBand] ?? rate.band} labour{rate.jobTypeName ? `, ${rate.jobTypeName}` : ""}, per hour</Td>
+                  <Td className="text-right"><Money value={rate.before} /></Td>
+                  <Td className="text-right"><Money value={rate.after} /></Td>
+                </tr>
+              ))}
+              {card.tripCharge && (
+                <tr>
+                  <Td>Trip charge</Td>
+                  <Td className="text-right"><Money value={card.tripCharge.before} /></Td>
+                  <Td className="text-right"><Money value={card.tripCharge.after} /></Td>
+                </tr>
+              )}
+            </Table>
+          ))}
+          {prices && rise.ready && rise.anniversary && (
+            <ActionForm action={applyEscalation} submit={`Apply year ${rise.contractYear} prices`}
+                        hidden={{ contractId: id, anniversary: rise.anniversary, rate: rise.rate }}
+                        className="mt-3 flex flex-wrap items-center gap-3" />
+          )}
+        </section>
+      )}
 
       <section aria-label="Sites" className="mt-10">
         <h2 className="text-base font-semibold">Sites</h2>
