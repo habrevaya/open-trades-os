@@ -163,6 +163,7 @@ export * from "./agreements";
 export * from "./visit-changes";
 export * from "./customer-tags";
 export * from "./contacts";
+export * from "./equipment";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
 export * from "./customer-portal";

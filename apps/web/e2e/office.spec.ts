@@ -133,6 +133,54 @@ test("a contact's details are edited on the customer's page, under the rules the
   expect(people.find((c) => c.name === `Terry Renter ${run}`)).toMatchObject({ phone: null, preferredChannel: "email" });
 });
 
+test("a unit is corrected and moved to another address from its own page", async ({ owner }) => {
+  const name = `Mona Mover ${run}`;
+  const customerId = await newCustomer(owner, {
+    name, address: { street: "7 First Place", city: "Austin", state: "TX", zip: "78701" },
+  });
+  const places = await owner.request.get(`/api/v1/properties?customerId=${customerId}`);
+  const from = ((await places.json()) as { data: { id: string }[] }).data[0]!.id;
+  const second = await owner.request.post("/api/v1/properties", {
+    data: { customerId, address: { line1: `9 Second Street ${run}`, city: "Austin", state: "TX", postalCode: "78702" } },
+  });
+  expect(second.ok()).toBe(true);
+  const unit = await owner.request.post("/api/v1/equipment", {
+    data: { propertyId: from, category: "water heater", manufacturer: "Rheem", model: `R${run}`, serialNumber: `SN${run}`.toUpperCase() },
+  });
+  expect(unit.ok()).toBe(true);
+  const unitId = ((await unit.json()) as { id: string }).id;
+
+  await owner.goto(`/equipment/${unitId}`);
+  await owner.getByText("Correct its details", { exact: true }).click();
+  await owner.getByLabel("Tag").fill("Garage heater");
+  await owner.getByLabel("Parts cover ends").fill(daysFromNow(400));
+  await owner.getByRole("button", { name: "Save details" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
+  await expect(owner.getByRole("heading", { level: 1 })).toContainText("Garage heater");
+
+  // The same refusal the API gives for a serial already on file at this address.
+  const twin = await owner.request.post("/api/v1/equipment", {
+    data: { propertyId: from, category: "water heater", serialNumber: `TWIN${run}`.toUpperCase() },
+  });
+  expect(twin.ok()).toBe(true);
+  await owner.getByLabel("Serial number").fill(`TWIN${run}`.toUpperCase());
+  await owner.getByRole("button", { name: "Save details" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "already on file at this property" })).toBeVisible();
+
+  // Moved to the customer's other address, which is offered without a search.
+  await owner.getByText("Move it to another address", { exact: true }).click();
+  await owner.getByLabel(new RegExp(`9 Second Street ${run}`)).check();
+  await owner.getByLabel("Note, if any").fill("Moved with the tenant");
+  await owner.getByRole("button", { name: "Move it" }).click();
+  await expect(owner.getByRole("status").filter({ hasText: "Moved." })).toBeVisible();
+  await owner.goto(`/equipment/${unitId}`);
+  await expect(owner.getByText(`9 Second Street ${run}`).first()).toBeVisible();
+  const moves = owner.getByRole("region", { name: "Moves" });
+  await expect(moves).toContainText("Moved with the tenant");
+  const now = await owner.request.get(`/api/v1/equipment/${unitId}`);
+  expect(((await now.json()) as { propertyId: string }).propertyId).not.toBe(from);
+});
+
 test("a category is added, and a price change is previewed, applied and undone", async ({ owner }) => {
   await owner.goto("/pricebook/categories");
   const shelf = `Shelf ${run}`;
