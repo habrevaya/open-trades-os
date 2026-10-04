@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
 } from "./context";
+import { listFilter } from "./custom-fields";
 
 /**
  * M24. PEOPLE AND CERTIFICATIONS.
@@ -816,6 +817,8 @@ export interface Person {
   technicianId: string | null;
   displayName: string | null;
   technicianActive: boolean | null;
+  /** The technician's own fields, or null for somebody who is not one. */
+  customFields: Record<string, unknown> | null;
 }
 
 /**
@@ -850,7 +853,8 @@ export interface Person {
  * every holder of the staff list the compliance file with it.
  */
 export async function listPeople(
-  ctx: ServiceContext, input: { email?: string | undefined } = {},
+  ctx: ServiceContext,
+  input: { email?: string | undefined; fieldKey?: string | undefined; fieldValue?: string | undefined } = {},
 ): Promise<Person[]> {
   return guardedRead(ctx, "user:read", async (tx) => {
     const directory = await tx.execute<{ membership_id: string; name: string | null; email: string }>(
@@ -867,9 +871,13 @@ export async function listPeople(
       technicianId: schema.technician.id,
       displayName: schema.technician.displayName,
       technicianActive: schema.technician.active,
+      customFields: schema.technician.customFields,
     }).from(schema.membership)
       .leftJoin(schema.technician, eq(schema.technician.membershipId, schema.membership.id))
-      .where(eq(schema.membership.organizationId, ctx.actor.organizationId))
+      .where(and(
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+        await listFilter(tx, ctx.actor.organizationId, "technician", input, sql`${schema.technician.customFields}`),
+      ))
       .orderBy(asc(schema.membership.createdAt));
 
     return rows.map((row) => ({
@@ -882,6 +890,7 @@ export async function listPeople(
       technicianId: row.technicianId,
       displayName: row.displayName,
       technicianActive: row.technicianActive,
+      customFields: row.customFields,
     })).filter((person) => wanted === undefined || person.email.toLowerCase() === wanted);
   });
 }

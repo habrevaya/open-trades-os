@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, Address, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 /**
  * Properties are a first class resource, not a field on a customer.
@@ -106,6 +107,7 @@ export const listProperties = defineRoute({
     territoryId: Uuid.optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Property.extend({
     customers: z.array(z.object({ id: Uuid, name: z.string(), role: PropertyRole })),

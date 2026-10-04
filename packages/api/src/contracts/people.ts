@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 /**
  * PEOPLE, AND THE DOOR
@@ -91,6 +92,8 @@ export const listPeople = defineRoute({
   input: z.object({
     /** Exact, case insensitive. For matching a person from another system. */
     email: z.string().max(320).optional(),
+    /** Technicians whose own field holds a value; somebody who is not a technician has none. */
+    ...CustomFieldListFilter,
   }),
   output: z.object({
     people: z.array(z.object({
@@ -103,6 +106,8 @@ export const listPeople = defineRoute({
       technicianId: Uuid.nullable(),
       displayName: z.string().nullable(),
       technicianActive: z.boolean().nullable(),
+      /** The technician's own fields (M29), or null for somebody who is not a technician. */
+      customFields: z.record(z.unknown()).nullable(),
     })),
   }),
 });

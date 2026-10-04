@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 /**
  * WHOSE PRICE GOVERNS.
@@ -227,6 +228,7 @@ export const listJobs = defineRoute({
     businessUnitId: z.union([Uuid, z.literal("none")]).optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Job.omit({ visits: true }).extend({
     customerName: z.string(),

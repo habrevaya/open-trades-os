@@ -7,6 +7,7 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
+import { listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
 import { inForceAt } from "./pricebook";
@@ -1104,6 +1105,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
         input.businessUnitId ? invoiceBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.invoice, input),
+        await listFilter(tx, ctx.actor.organizationId, "invoice", input, sql`${schema.invoice.customFields}`),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))
       .orderBy(desc(schema.invoice.createdAt))

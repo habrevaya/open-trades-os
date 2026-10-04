@@ -1216,6 +1216,23 @@ export async function filterCondition(
   }
 }
 
+/**
+ * The same, for a list asked for by `fieldKey` and `fieldValue`: both halves
+ * or neither, because a key with no value is a filter with nothing to match,
+ * and saying so beats returning every record as though it had been applied.
+ * Undefined when the list was not asked to filter.
+ */
+export async function listFilter(
+  tx: Database, organizationId: string, entityType: string,
+  input: { fieldKey?: string | undefined; fieldValue?: string | undefined }, column: SQL,
+): Promise<SQL | undefined> {
+  if ((input.fieldKey === undefined) !== (input.fieldValue === undefined)) {
+    throw new ConflictError("Filtering by a custom field needs both the field and the value to look for.");
+  }
+  if (input.fieldKey === undefined || input.fieldValue === undefined) return undefined;
+  return filterCondition(tx, organizationId, entityType, input.fieldKey, input.fieldValue, column);
+}
+
 /* ------------------------------------------------------------- the routes */
 
 export const handlers = {

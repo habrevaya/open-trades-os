@@ -34,6 +34,18 @@ export const CustomFieldEntity = z.union([
   z.string().regex(/^object:[a-z][a-z0-9_]{0,47}$/, "A kind of record is object: and its key, like object:permit"),
 ]);
 
+/**
+ * A list narrowed to the records whose custom field `fieldKey` holds
+ * `fieldValue`, the way the customer list has always been: both or neither,
+ * the key one the company declared on that record, matched by the field's
+ * type (a choice exactly, several choices by membership, yes or no as
+ * stored, a number as a number, text anywhere in the value ignoring case).
+ */
+export const CustomFieldListFilter = {
+  fieldKey: z.string().max(64).optional(),
+  fieldValue: z.string().max(200).optional(),
+};
+
 export const CustomFieldType = z.enum([
   "text", "number", "boolean", "date", "select", "multiselect",
 ]);

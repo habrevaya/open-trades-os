@@ -8,7 +8,7 @@ import {
 } from "./context";
 import { admitInstant, requireImport } from "./history";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
-import { enforceWithin } from "./custom-fields";
+import { enforceWithin, listFilter } from "./custom-fields";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter, jobBranchFilter } from "./scope";
@@ -148,6 +148,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.businessUnitId !== undefined
           ? jobBranchFilter(input.businessUnitId === "none" ? null : input.businessUnitId)
           : undefined,
+        await listFilter(tx, ctx.actor.organizationId, "job", input, sql`${schema.job.customFields}`),
         cursor ? lt(schema.job.createdAt, new Date(cursor)) : undefined,
         // Every scope, not just `own`. An unhandled one used to fall through
         // to no filter, which turned a role written to be limited into one
