@@ -1,4 +1,5 @@
-import { and, eq, isNull, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, inArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { schema } from "@opentradesos/db";
 import { tags as tagRules } from "@opentradesos/core";
 import {
@@ -61,7 +62,7 @@ type Cursor = [number, string, string, string];
  */
 export async function sweep(
   ctx: ServiceContext, input: { limit?: number | undefined; cursor?: string | undefined } = {},
-): Promise<{ data: DuplicatePair[]; hasMore: boolean; nextCursor: string | null }> {
+): Promise<{ data: DuplicatePair[]; hasMore: boolean; nextCursor: string | null; total: number }> {
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
   let after: Cursor | null = null;
   try {
@@ -85,11 +86,12 @@ export async function sweep(
               > (${after[0]}::int, ${after[1]}::text, ${after[2]}::text, ${after[3]}::text)`
       : sql``;
 
-    const rows = await tx.execute<{
-      strength: number;
-      a_id: string; a_name: string; a_phone: string | null; a_email: string | null;
-      b_id: string; b_name: string; b_phone: string | null; b_email: string | null;
-    }>(sql`
+    /**
+     * The pairs as a statement fragment, so the page and the total are one
+     * definition: a total that was counted by a copy of the query is a
+     * number that drifts from the list the first time somebody edits one.
+     */
+    const pairsCte = sql`
       with matched as (
         select a.id as a_id, b.id as b_id, 0 as strength
         from public.customer a
@@ -109,7 +111,14 @@ export async function sweep(
       ),
       pairs as (
         select a_id, b_id, min(strength) as strength from matched group by a_id, b_id
-      )
+      )`;
+
+    const rows = await tx.execute<{
+      strength: number;
+      a_id: string; a_name: string; a_phone: string | null; a_email: string | null;
+      b_id: string; b_name: string; b_phone: string | null; b_email: string | null;
+    }>(sql`
+      ${pairsCte}
       select p.strength,
         a.id as a_id, a.name as a_name, a.phone as a_phone, a.email as a_email,
         b.id as b_id, b.name as b_name, b.phone as b_phone, b.email as b_email
@@ -123,6 +132,23 @@ export async function sweep(
       ${position}
       order by p.strength, lower(a.name), a.id::text, b.id::text
       limit ${limit + 1}`);
+
+    /**
+     * EVERY PAIR STILL TO LOOK AT, whatever page this is. The cursor moves
+     * through the list by position, so the number of pairs the book holds
+     * is not something the pages add up to until the last one is read. It
+     * leaves out the pairs set aside, as the list does, and counts the ones
+     * before this page as well as after it, so page two says the same total
+     * as page one.
+     */
+    const [counted] = await tx.execute<{ n: number }>(sql`
+      ${pairsCte}
+      select count(*)::int as n
+      from pairs p
+      where not exists (
+        select 1 from public.customer_not_duplicate d
+        where d.customer_a_id = p.a_id and d.customer_b_id = p.b_id
+      )`);
 
     const list = [...rows];
     const hasMore = list.length > limit;
@@ -139,6 +165,7 @@ export async function sweep(
       nextCursor: hasMore && last
         ? encodeCursor(JSON.stringify([Number(last.strength), last.a_name.toLowerCase(), last.a_id, last.b_id]))
         : null,
+      total: Number(counted?.n ?? 0),
     };
   });
 }
@@ -191,6 +218,105 @@ export async function dismissedCount(ctx: ServiceContext): Promise<number> {
   });
 }
 
+/**
+ * The pairs somebody said are two people, newest first, with who they are and
+ * what was said, so a pair set aside by mistake can be found and put back.
+ *
+ * A pair whose customer has since been merged or taken off the books is still
+ * listed, with the name it had: the mark outlives the record, and hiding it
+ * would leave a row nobody can see and so nobody can unmark.
+ */
+export interface SetAsidePair {
+  a: { id: string; name: string };
+  b: { id: string; name: string };
+  reason: string | null;
+  markedAt: string;
+}
+
+export async function setAside(
+  ctx: ServiceContext, input: { limit?: number | undefined; cursor?: string | undefined } = {},
+): Promise<{ data: SetAsidePair[]; hasMore: boolean; nextCursor: string | null }> {
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+  let after: [string, string] | null = null;
+  try {
+    const decoded = decodeCursor(input.cursor);
+    after = decoded ? JSON.parse(decoded) as [string, string] : null;
+  } catch {
+    after = null;
+  }
+
+  return guardedRead(ctx, "customer:merge", async (tx) => {
+    const a = alias(schema.customer, "a");
+    const b = alias(schema.customer, "b");
+    const rows = await tx.select({
+      id: schema.customerNotDuplicate.id,
+      createdAt: schema.customerNotDuplicate.createdAt,
+      reason: schema.customerNotDuplicate.reason,
+      aId: a.id, aName: a.name, bId: b.id, bName: b.name,
+    }).from(schema.customerNotDuplicate)
+      .innerJoin(a, eq(a.id, schema.customerNotDuplicate.customerAId))
+      .innerJoin(b, eq(b.id, schema.customerNotDuplicate.customerBId))
+      .where(and(
+        eq(schema.customerNotDuplicate.organizationId, ctx.actor.organizationId),
+        // By position, newest first, so setting one aside while the list is
+        // open does not move the rows under somebody's cursor.
+        after
+          ? sql`(${schema.customerNotDuplicate.createdAt}, ${schema.customerNotDuplicate.id}::text)
+                < (${after[0]}::timestamptz, ${after[1]}::text)`
+          : undefined,
+      ))
+      .orderBy(desc(schema.customerNotDuplicate.createdAt), desc(sql`${schema.customerNotDuplicate.id}::text`))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    return {
+      data: page.map((row) => ({
+        a: { id: row.aId, name: row.aName },
+        b: { id: row.bId, name: row.bName },
+        reason: row.reason,
+        markedAt: row.createdAt.toISOString(),
+      })),
+      hasMore,
+      nextCursor: hasMore && last
+        ? encodeCursor(JSON.stringify([last.createdAt.toISOString(), last.id]))
+        : null,
+    };
+  });
+}
+
+/**
+ * Put a pair back in the sweep: somebody marked it "not the same person" and
+ * was wrong, or the reason stopped being true (the tenant bought the house).
+ *
+ * Said from either side, as the mark was. Taking off a mark that is not there
+ * is nothing rather than an error, which is what makes a retry safe, and the
+ * answer says whether a mark was found so a caller can tell a typo from a
+ * repeat. The customers need not still be live: a mark outlives a merge.
+ */
+export async function restore(
+  ctx: ServiceContext, input: { customerId: string; otherId: string },
+): Promise<{ customerAId: string; customerBId: string; dismissed: false; wasMarked: boolean }> {
+  return guardedWrite(ctx, "customer:merge", async (tx) => {
+    if (input.customerId === input.otherId) {
+      throw new ConflictError("That is one record, not two.");
+    }
+    const [a, b] = tagRules.orderedPair(input.customerId, input.otherId);
+    const removed = await tx.delete(schema.customerNotDuplicate)
+      .where(and(
+        eq(schema.customerNotDuplicate.organizationId, ctx.actor.organizationId),
+        eq(schema.customerNotDuplicate.customerAId, a),
+        eq(schema.customerNotDuplicate.customerBId, b),
+      )).returning();
+
+    if (removed[0]) {
+      await audit(tx, ctx, "customer.duplicate_restored", "customer", a, removed[0], { otherId: b });
+    }
+    return { customerAId: a, customerBId: b, dismissed: false as const, wasMarked: removed.length > 0 };
+  });
+}
+
 export const handlers = {
   listCustomerDuplicatePairs: (
     ctx: ServiceContext, input: { limit?: number | undefined; cursor?: string | undefined },
@@ -198,4 +324,10 @@ export const handlers = {
   dismissCustomerDuplicate: (
     ctx: ServiceContext, input: { customerId: string; otherId: string; reason?: string | undefined },
   ) => dismiss(ctx, input),
+  listSetAsideCustomerDuplicates: (
+    ctx: ServiceContext, input: { limit?: number | undefined; cursor?: string | undefined },
+  ) => setAside(ctx, input),
+  restoreCustomerDuplicate: (
+    ctx: ServiceContext, input: { customerId: string; otherId: string },
+  ) => restore(ctx, input),
 } as const;

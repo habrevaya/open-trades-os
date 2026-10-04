@@ -32007,7 +32007,7 @@
       "get": {
         "operationId": "listCustomerDuplicatePairs",
         "summary": "Likely duplicates across every customer",
-        "description": "The per record matcher run over every pair at once: the same phone number, the same email address, or a name close enough by trigram that a person should look, strongest reason first. No score, for the reason the per record read gives. Pairs somebody marked as two people are left out. Needs `customer:merge`, because it reads across the whole book and exists to be acted on.\n\nRequires a session holding: customer:merge.",
+        "description": "The per record matcher run over every pair at once: the same phone number, the same email address, or a name close enough by trigram that a person should look, strongest reason first. No score, for the reason the per record read gives. Pairs somebody marked as two people are left out. `total` is every pair still to look at, on whichever page it is asked, so a client can say how long the list is without reading to the end. Needs `customer:merge`, because it reads across the whole book and exists to be acted on.\n\nRequires a session holding: customer:merge.",
         "tags": [
           "M03"
         ],
@@ -32168,6 +32168,254 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:merge"
+        ]
+      }
+    },
+    "/v1/customer-duplicates/restore": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "restoreCustomerDuplicate",
+        "summary": "Put a pair back in the duplicate list",
+        "description": "Takes off the mark that said two records are two people, so the pair appears in the sweep and on either customer's own page again if they still look alike. Said from either side. A pair that is not marked is not an error: the answer has `wasMarked: false`, so sending it twice is safe. The customers do not have to be live, because a mark outlives a merge.\n\nRequires a session holding: customer:merge.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreCustomerDuplicateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put a pair back in the duplicate list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreCustomerDuplicateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:merge"
+        ]
+      }
+    },
+    "/v1/customer-duplicates/set-aside": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listSetAsideCustomerDuplicates",
+        "summary": "Pairs marked as two people",
+        "description": "Every pair somebody said was not the same person, newest first, with the reason they gave and when. A pair whose customer was merged since is still listed with the name it had, so a mark can always be found and taken off. Needs `customer:merge`.\n\nRequires a session holding: customer:merge.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pairs marked as two people",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSetAsideCustomerDuplicatesOutput"
                 }
               }
             }
@@ -175520,12 +175768,16 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "total": {
+            "type": "integer"
           }
         },
         "required": [
           "data",
           "nextCursor",
-          "hasMore"
+          "hasMore",
+          "total"
         ]
       },
       "ListCustomerPortalSessionsOutput": {
@@ -186885,6 +187137,80 @@
         },
         "required": [
           "routes"
+        ]
+      },
+      "ListSetAsideCustomerDuplicatesOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                },
+                "b": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "markedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "a",
+                "b",
+                "reason",
+                "markedAt"
+              ]
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
         ]
       },
       "ListSpendOutput": {
@@ -204669,6 +204995,51 @@
         "required": [
           "runId",
           "report"
+        ]
+      },
+      "RestoreCustomerDuplicateInput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "otherId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "customerId",
+          "otherId"
+        ]
+      },
+      "RestoreCustomerDuplicateOutput": {
+        "type": "object",
+        "properties": {
+          "customerAId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerBId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dismissed": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "wasMarked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customerAId",
+          "customerBId",
+          "dismissed",
+          "wasMarked"
         ]
       },
       "ResubmitRegulatorySubmissionInput": {

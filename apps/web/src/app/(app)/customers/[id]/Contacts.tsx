@@ -1,9 +1,9 @@
 "use client";
 
 import { useKeptAction } from "@/lib/use-kept-action";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Chip, Phone } from "@opentradesos/ui";
-import { addContact, removeContact, makePrimary } from "./actions";
+import { addContact, editContact, removeContact, makePrimary } from "./actions";
 import { setContactPortalAccess } from "./portal-actions";
 
 const BUTTON =
@@ -52,9 +52,17 @@ export function Contacts({
   const [accessState, accessForm, granting] = useKeptAction(setContactPortalAccess, null);
   const [removeState, removeForm, removing] = useKeptAction(removeContact, null);
   const [primaryState, primaryForm, promoting] = useKeptAction(makePrimary, null);
+  const [editState, editForm, saving] = useKeptAction(editContact, null);
   const [open, setOpen] = useState(false);
+  // One row at a time is open for editing, so the page never holds two half typed changes.
+  const [editing, setEditing] = useState<string | null>(null);
 
-  const error = [addState, removeState, primaryState, accessState]
+  // Closed once it saved, and left open under the refusal when it did not, so what was typed is still there.
+  useEffect(() => {
+    if (editState && "done" in editState && editState.done) setEditing(null);
+  }, [editState]);
+
+  const error = [addState, removeState, primaryState, accessState, editState]
     .map((state) => (state && "error" in state ? state.error : null))
     .find(Boolean);
 
@@ -120,6 +128,10 @@ export function Contacts({
                     </button>
                   </form>
                 )}
+                <button type="button" className={BUTTON}
+                        onClick={() => setEditing((was) => (was === contact.id ? null : contact.id))}>
+                  {editing === contact.id ? "Cancel edit" : "Edit"}
+                </button>
                 <form {...removeForm}>
                   <input type="hidden" name="customerId" value={customerId} />
                   <input type="hidden" name="id" value={contact.id} />
@@ -128,6 +140,59 @@ export function Contacts({
                   </button>
                 </form>
               </span>
+
+              {editing === contact.id && (
+                <form
+                  {...editForm}
+                  aria-label={`Edit ${contact.name}`}
+                  className="mt-2 flex w-full flex-wrap items-end gap-2 rounded-md border border-steel-200 p-3"
+                >
+                  <input type="hidden" name="customerId" value={customerId} />
+                  <input type="hidden" name="id" value={contact.id} />
+                  <div>
+                    <label htmlFor={`e-name-${contact.id}`} className="block text-xs text-ink-500">Name</label>
+                    <input id={`e-name-${contact.id}`} name="name" required defaultValue={contact.name}
+                           className={`mt-1 ${FIELD}`} />
+                  </div>
+                  <div>
+                    <label htmlFor={`e-title-${contact.id}`} className="block text-xs text-ink-500">Role, if any</label>
+                    <input id={`e-title-${contact.id}`} name="title" defaultValue={contact.title ?? ""}
+                           className={`mt-1 ${FIELD}`} />
+                  </div>
+                  <div>
+                    <label htmlFor={`e-phone-${contact.id}`} className="block text-xs text-ink-500">Phone</label>
+                    <input id={`e-phone-${contact.id}`} name="phone" type="tel" defaultValue={contact.phone ?? ""}
+                           className={`mt-1 ${FIELD}`} />
+                  </div>
+                  <div>
+                    <label htmlFor={`e-email-${contact.id}`} className="block text-xs text-ink-500">Email</label>
+                    <input id={`e-email-${contact.id}`} name="email" type="email" defaultValue={contact.email ?? ""}
+                           className={`mt-1 ${FIELD}`} />
+                  </div>
+                  <div>
+                    <label htmlFor={`e-property-${contact.id}`} className="block text-xs text-ink-500">Where</label>
+                    <select id={`e-property-${contact.id}`} name="propertyId" className={`mt-1 ${FIELD}`}
+                            defaultValue={contact.propertyId ?? ""}>
+                      <option value="">Everything this customer has</option>
+                      {properties.map((property) => (
+                        <option key={property.id} value={property.id}>{property.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor={`e-channel-${contact.id}`} className="block text-xs text-ink-500">Prefers</label>
+                    <select id={`e-channel-${contact.id}`} name="preferredChannel" className={`mt-1 ${FIELD}`}
+                            defaultValue={contact.preferredChannel}>
+                      <option value="sms">Text</option>
+                      <option value="email">Email</option>
+                      <option value="voice">A call</option>
+                    </select>
+                  </div>
+                  <button type="submit" disabled={saving} className={BUTTON}>
+                    {saving ? "Saving" : "Save details"}
+                  </button>
+                </form>
+              )}
             </li>
           ))}
         </ul>

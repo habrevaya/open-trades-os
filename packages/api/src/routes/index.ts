@@ -902,6 +902,8 @@ export const handlers = {
   mergeCustomerTags: customerTags.handlers.mergeCustomerTags,
   listCustomerDuplicatePairs: customerDuplicates.handlers.listCustomerDuplicatePairs,
   dismissCustomerDuplicate: customerDuplicates.handlers.dismissCustomerDuplicate,
+  listSetAsideCustomerDuplicates: customerDuplicates.handlers.listSetAsideCustomerDuplicates,
+  restoreCustomerDuplicate: customerDuplicates.handlers.restoreCustomerDuplicate,
 
   // A customer's people (M03), under the rules the customer's page holds them to
   listCustomerContacts: contacts.handlers.listCustomerContacts,

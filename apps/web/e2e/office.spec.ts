@@ -61,14 +61,31 @@ test("likely duplicates across the book: one pair set aside, one merged", async 
    * name close enough to this run's to be a likely duplicate of it too, so
    * one name alone can match two rows on a database that is not fresh.
    */
-  const landlordPair = owner.getByRole("listitem")
+  const landlordPair = owner.getByRole("list", { name: "Pairs to look at" }).getByRole("listitem")
     .filter({ hasText: `Aardvark Landlord ${run}` }).filter({ hasText: `Aardvark Tenant ${run}` });
   await expect(landlordPair).toContainText("Same phone number");
   await landlordPair.getByRole("textbox").fill("Landlord and tenant");
+  const total = owner.getByTestId("duplicate-total");
+  await expect(total).toHaveText(/^\d+ pairs to look at\.$/);
+  const before = Number((await total.innerText()).split(" ")[0]);
+  await landlordPair.getByRole("button", { name: "Not the same person" }).click();
+  await expect(landlordPair).toHaveCount(0);
+  await expect(total).toHaveText(`${before - 1} ${before - 1 === 1 ? "pair" : "pairs"} to look at.`);
+
+  // Marked, and listed with its reason, where it can be put back.
+  const marked = owner.getByRole("list", { name: "Pairs marked as different people" }).getByRole("listitem")
+    .filter({ hasText: `Aardvark Landlord ${run}` }).filter({ hasText: `Aardvark Tenant ${run}` });
+  await expect(marked).toContainText("Landlord and tenant");
+  await marked.getByRole("button", { name: "Put back in the list" }).click();
+  await expect(landlordPair).toContainText("Same phone number");
+  await expect(total).toHaveText(`${before} ${before === 1 ? "pair" : "pairs"} to look at.`);
+  await expect(marked).toHaveCount(0);
+
+  // Set aside again for the rest of the test, which merges the other pair.
   await landlordPair.getByRole("button", { name: "Not the same person" }).click();
   await expect(landlordPair).toHaveCount(0);
 
-  const bobPair = owner.getByRole("listitem")
+  const bobPair = owner.getByRole("list", { name: "Pairs to look at" }).getByRole("listitem")
     .filter({ hasText: `Aaberg Robert ${run}` }).filter({ hasText: `Aaberg Bob ${run}` });
   await bobPair.getByRole("button", { name: `Keep Aaberg Robert ${run}, merge the other in` }).click();
   // Merged, so the pair is no longer a pair; the kept record is still a customer.
@@ -77,6 +94,43 @@ test("likely duplicates across the book: one pair set aside, one merged", async 
   await expect(owner.getByRole("link", { name: `Aaberg Robert ${run}` })).toBeVisible();
   await owner.goto(`/customers?q=${encodeURIComponent(`Aaberg Bob ${run}`)}`);
   await expect(owner.getByRole("link", { name: `Aaberg Bob ${run}` })).toHaveCount(0);
+});
+
+test("a contact's details are edited on the customer's page, under the rules the API has", async ({ owner }) => {
+  const name = `Cora Contacts ${run}`;
+  const id = await newCustomer(owner, { name, phone: "5125550141" });
+  const added = await owner.request.post(`/api/v1/customers/${id}/contacts`, {
+    data: { name: `Terry Tenant ${run}`, phone: "5125550142", title: "Tenant", preferredChannel: "sms" },
+  });
+  expect(added.ok()).toBe(true);
+
+  await owner.goto(`/customers/${id}`);
+  const row = owner.getByRole("listitem").filter({ hasText: `Terry Tenant ${run}` });
+  await row.getByRole("button", { name: "Edit" }).click();
+  const form = owner.getByRole("form", { name: `Edit Terry Tenant ${run}` });
+
+  // Refused as the API refuses it: they prefer texts and the number is gone. The form stays open with what was typed.
+  await form.getByLabel("Phone").fill("");
+  await form.getByLabel("Email").fill(`terry${run}@example.com`);
+  await form.getByLabel("Role, if any").fill("Tenant, unit 4");
+  await form.getByRole("button", { name: "Save details" }).click();
+  await expect(owner.getByRole("alert").filter({ hasText: "prefer texts" })).toBeVisible();
+  await expect(form.getByLabel("Role, if any")).toHaveValue("Tenant, unit 4");
+
+  // Fixed by saying email instead, and the new details are on the row.
+  await form.getByLabel("Prefers").selectOption("email");
+  await form.getByLabel("Name").fill(`Terry Renter ${run}`);
+  await form.getByRole("button", { name: "Save details" }).click();
+  const edited = owner.getByRole("listitem").filter({ hasText: `Terry Renter ${run}` });
+  await expect(edited).toContainText("Tenant, unit 4");
+  await expect(edited).toContainText(`terry${run}@example.com`);
+  await expect(edited).toContainText("prefers email");
+  await expect(owner.getByRole("form", { name: /^Edit / })).toHaveCount(0);
+
+  // The same record through the API says the same.
+  const listed = await owner.request.get(`/api/v1/customers/${id}/contacts`);
+  const people = (await listed.json() as { contacts: { name: string; phone: string | null; preferredChannel: string }[] }).contacts;
+  expect(people.find((c) => c.name === `Terry Renter ${run}`)).toMatchObject({ phone: null, preferredChannel: "email" });
 });
 
 test("a category is added, and a price change is previewed, applied and undone", async ({ owner }) => {

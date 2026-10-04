@@ -154,10 +154,33 @@ customer's page. `GET /v1/customer-duplicates` and
 `POST /v1/customer-duplicates/dismiss`, both behind `customer:merge`, because
 the sweep reads across every customer and exists to be acted on.
 
+The page says how many pairs there are in all ("12 pairs to look at"), and the
+API's `total` says the same on every page of the list, so a client does not have
+to read to the end to know how long it is. The count leaves out the pairs set
+aside, as the list does, and is taken from the same query as the page, so the two
+cannot disagree.
+
+**A mark can be taken off.** Under the list, "Marked as different people" shows
+each pair set aside, newest first, with the reason somebody gave and the day, and
+a "Put back in the list" button on each. `GET /v1/customer-duplicates/set-aside`
+lists them and `POST /v1/customer-duplicates/restore` takes one off, from
+either side as the mark was made; both need `customer:merge`. Taking off a mark
+that is not there is not an error (the answer says `wasMarked: false`), which is
+what makes a retry safe. A pair whose customer was merged or taken off the books
+since is still listed with the name it had, so a mark can always be found. Putting
+a pair back is written to the audit log as `customer.duplicate_restored`.
+
 ### Keep a customer's people
 
-The customer's page adds a contact, takes one off and makes one primary, and the
-API does the same through the same service functions, so the rules are one set:
+The customer's page adds a contact, edits one, takes one off and makes one
+primary, and the API does the same through the same service functions, so the
+rules are one set. "Edit" on a person's row opens their name, role, phone, email,
+address and preferred channel, and saving runs `PATCH /v1/contacts/{id}`'s own
+function: it is checked as the whole row it would become, so clearing the phone of
+somebody who prefers texts is refused with the same sentence the API gives, and
+the form stays open with what was typed. A box left empty clears that detail. The
+screen cannot change who the person belongs to or make them primary, because the
+route does not. The rules:
 a contact belongs to the customer in the path, sits at an address only when the
 address is one of that customer's, needs a phone or an email and a preferred
 channel they can be reached on, and is removed softly so the texts already sent
@@ -260,10 +283,9 @@ which is also the case where merging is the right answer.
 
 ## What is not built
 
-A contact cannot be edited on the customer's page, only added, removed and made
-primary there; changing one's details is the API's `PATCH /v1/contacts/{id}`. A
-contact attached to an address and no customer is reached through neither the
-page nor these routes, which are about a customer's people. A customer's custom
+A contact attached to an address and no customer is reached through neither the
+customer's page nor the customer's contact routes, which are about a customer's
+people. A customer's custom
 fields filter `/customers` and `GET /v1/customers` several at once, every one of
 which has to hold (M29 says how), and reach the report builder on every dataset
 that hangs off a customer; there is no "any of these" across fields.
@@ -274,6 +296,8 @@ and undoing a merge is not built anyway. The tag table is written only by the
 database, so a restore that loads `customer_tag` rows from an export as well as
 customers is loading them twice: the customers' own lists are what to restore.
 
-A pair marked "not the same person" cannot be unmarked from a screen or the API
-yet. The duplicate sweep has no count of how many pairs there are in total,
-only the pages.
+The duplicate sweep's total counts the pairs the matcher finds right now, so it
+moves as customers are added, edited and merged; it is not a fixed list that a
+person is working down. A pair marked "not the same person" is unmarked by
+putting it back, which says nothing about the two being the same person: it only
+lets the matcher show them again if they still look alike.
