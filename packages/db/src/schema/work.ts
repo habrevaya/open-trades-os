@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
@@ -243,6 +243,15 @@ export const visit = pgTable("visit", {
    * promised "Ray, first thing", which no arrival window can say.
    */
   dispatchLocked: boolean("dispatch_locked").notNull().default(false),
+  /**
+   * The days, in the company's calendar, the customer agreed this visit may
+   * happen on: "any day the week of the fifth". Null at either end is no
+   * agreement, and a visit with neither stays on its day unless its
+   * customer named the days of the week that suit them. The multi day
+   * rebalance moves a visit only inside these, and tells the customer.
+   */
+  movableFrom: date("movable_from"),
+  movableUntil: date("movable_until"),
 
   /**
    * Exactly one of these is set, determined by the job type's capacity model.

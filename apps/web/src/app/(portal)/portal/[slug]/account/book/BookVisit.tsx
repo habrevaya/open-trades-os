@@ -27,7 +27,7 @@ export function BookVisit({ services, properties, technicians, load, book }: {
   services: { id: string; name: string; description: string | null }[];
   properties: { id: string; label: string }[];
   technicians: { id: string; name: string }[];
-  load: (input: { serviceId: string; technicianId?: string }) => Promise<{ ok: true; slots: AccountSlot[] } | { ok: false; message: string }>;
+  load: (input: { serviceId: string; technicianId?: string; propertyId?: string }) => Promise<{ ok: true; slots: AccountSlot[] } | { ok: false; message: string }>;
   book: (input: {
     serviceId: string; propertyId: string; date: string; arrivalWindowId: string;
     technicianId?: string; notes?: string; requestKey: string;
@@ -44,13 +44,20 @@ export function BookVisit({ services, properties, technicians, load, book }: {
   const [sending, startSending] = useTransition();
   const [requestKey] = useState(() => crypto.randomUUID());
 
-  const refresh = (service: string, technician: string) => {
+  /**
+   * The address goes with the question, because a member's plan covers the
+   * address it was sold for and a member is offered the windows held for
+   * members there.
+   */
+  const refresh = (service: string, technician: string, property: string = propertyId) => {
     setSlot(null);
     setSlots(null);
     setError(null);
     if (!service) return;
     startLoading(async () => {
-      const result = await load({ serviceId: service, ...(technician ? { technicianId: technician } : {}) });
+      const result = await load({
+        serviceId: service, ...(technician ? { technicianId: technician } : {}), ...(property ? { propertyId: property } : {}),
+      });
       if (result.ok) setSlots(result.slots);
       else setError(result.message);
     });
@@ -91,7 +98,7 @@ export function BookVisit({ services, properties, technicians, load, book }: {
       {properties.length > 1 && (
         <label className="block">
           <span className="text-sm font-medium">Where?</span>
-          <select className={field} value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
+          <select className={field} value={propertyId} onChange={(event) => { setPropertyId(event.target.value); refresh(serviceId, technicianId, event.target.value); }}>
             {properties.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </label>

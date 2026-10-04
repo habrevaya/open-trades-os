@@ -223,10 +223,16 @@ export function Board({
           )}
           {pending && <span className="text-ink-500">Saving…</span>}
           {canDispatch && canReorder && (
-            <a href={`/schedule/rebalance?date=${date}`}
-               className="rounded border border-steel-300 px-2.5 py-1 font-medium hover:bg-steel-100">
-              Rebalance the day
-            </a>
+            <>
+              <a href={`/schedule/rebalance?date=${date}`}
+                 className="rounded border border-steel-300 px-2.5 py-1 font-medium hover:bg-steel-100">
+                Rebalance the day
+              </a>
+              <a href={`/schedule/rebalance/days?from=${date}`}
+                 className="rounded border border-steel-300 px-2.5 py-1 font-medium hover:bg-steel-100">
+                Rebalance several days
+              </a>
+            </>
           )}
         </div>
       </header>

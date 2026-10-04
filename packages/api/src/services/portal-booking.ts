@@ -2,7 +2,7 @@ import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { time, SYSTEM_USER_ID } from "@opentradesos/core";
 import { audit, ConflictError, NotFoundError, type RequestMeta } from "./context";
-import { assertRoom, openSlots, type OpenSlot } from "./booking";
+import { assertRoom, memberTest, openSlots, type OpenSlot } from "./booking";
 import { emit } from "./events";
 import { inGrant } from "./portal";
 import { sessionFor } from "./portal-sign-in";
@@ -99,10 +99,18 @@ async function assertTheirs(tx: Database, customerId: string, technicianId: stri
   if (!theirs.some((t) => t.id === technicianId)) throw new NotFoundError("Technician");
 }
 
-/** The windows this service can be booked into, from anybody or from the one technician asked for. */
+/**
+ * The windows this service can be booked into, from anybody or from the one
+ * technician asked for. A member whose plan promises priority is offered the
+ * share of each window the company holds for members: at the address asked
+ * about when there is one, at any of theirs when not yet.
+ */
 export async function availability(
   db: Database,
-  input: { token: string; bookableServiceId: string; from?: string | undefined; days?: number | undefined; technicianId?: string | undefined },
+  input: {
+    token: string; bookableServiceId: string; from?: string | undefined; days?: number | undefined;
+    technicianId?: string | undefined; propertyId?: string | undefined;
+  },
 ): Promise<{ slots: OpenSlot[] }> {
   const session = await sessionFor(db, input.token);
   return inGrant(db, session.grant, async (tx) => {
@@ -113,6 +121,7 @@ export async function availability(
       from: input.from ?? time.dateIn(new Date(), timezone),
       days: Math.min(input.days ?? 14, 60),
       technicianId: input.technicianId,
+      member: await memberTest(tx, session.grant.organizationId, session.customerId, input.propertyId ?? null),
     });
     return { slots };
   });
@@ -163,14 +172,19 @@ export async function request(
       )).limit(1);
     if (!property) throw new NotFoundError("Property");
 
-    /** Offered, by the same function that drew the page: notice, open days, limit and somebody free. */
+    /**
+     * Offered, by the same function that drew the page: notice, open days,
+     * limit, somebody free, and the share held for members, which this
+     * customer may book into only when their plan covers this address.
+     */
+    const member = await memberTest(tx, organizationId, session.customerId, property.property.id);
     const offered = (await openSlots(tx, {
-      organizationId, timezone, service, from: input.requestedDate, days: 1, technicianId: input.technicianId,
+      organizationId, timezone, service, from: input.requestedDate, days: 1, technicianId: input.technicianId, member,
     })).some((slot) => slot.date === input.requestedDate && slot.arrivalWindowId === input.arrivalWindowId);
     if (!offered) throw new ConflictError("That time is not open any more. Please choose another.");
     await assertRoom(tx, {
       organizationId, timezone, service, date: input.requestedDate, arrivalWindowId: input.arrivalWindowId,
-      technicianId: input.technicianId,
+      technicianId: input.technicianId, member,
     });
 
     const [customer] = await tx.select({ name: schema.customer.name, email: schema.customer.email, phone: schema.customer.phone })
@@ -249,7 +263,10 @@ export const handlers = {
   getPortalBookingOptions: (db: Database, input: { token: string }) => options(db, input),
   getPortalBookingAvailability: (
     db: Database,
-    input: { token: string; bookableServiceId: string; from?: string | undefined; days?: number | undefined; technicianId?: string | undefined },
+    input: {
+      token: string; bookableServiceId: string; from?: string | undefined; days?: number | undefined;
+      technicianId?: string | undefined; propertyId?: string | undefined;
+    },
   ) => availability(db, input),
   requestPortalBooking: (db: Database, input: AccountBookingInput, meta?: RequestMeta) => request(db, input, meta),
 } as const;

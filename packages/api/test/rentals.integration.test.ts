@@ -104,6 +104,13 @@ beforeEach(async () => {
     organizationId: OTHER_ORG, userId: OTHER_USER, name: "Rival Haul", slug: "rival-haul",
   });
   await raw`update public.organization set timezone = ${ZONE} where id = ${ORG}`;
+  /**
+   * This suite books collections by the button and counts what it booked,
+   * so the worker's own collections (on by default) are off for this
+   * company: a pass from another suite must not book them in between.
+   */
+  await raw`update public.organization set settings = coalesce(settings, '{}'::jsonb)
+    || '{"rentalDispatch": {"automaticCollections": false}}'::jsonb where id = ${ORG}`;
   const [customer] = await raw<{ id: string }[]>`
     insert into public.customer (organization_id, type, name, payment_terms_days)
     values (${ORG}, 'residential', 'Remodel Ltd', 0) returning id`;

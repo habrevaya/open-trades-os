@@ -2,7 +2,7 @@
 
 import { useKeptAction } from "@/lib/use-kept-action";
 import { useState } from "react";
-import { offerService, saveWindows, saveHours } from "./actions";
+import { offerService, saveWindows, saveHours, saveMemberHold } from "./actions";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -188,6 +188,48 @@ export function Hours({ current }: {
               className="mt-3 h-10 rounded border border-steel-300 px-4 text-sm font-medium">
         {pending ? "Saving" : "Save hours"}
       </button>
+      <Note state={state} />
+    </form>
+  );
+}
+
+/**
+ * WHAT A PLAN'S PRIORITY DISPATCH RESERVES
+ *
+ * A share of each window kept back from anybody who is not a member, let go
+ * a number of hours before the window opens. The arithmetic is said beside
+ * the numbers, because "25" means nothing until it is "two of eight".
+ */
+export function MemberHold({ current, plansWithPriority }: {
+  current: { reservePercent: number; releaseHours: number };
+  plansWithPriority: number;
+}) {
+  const [state, actionForm, pending] = useKeptAction(saveMemberHold, {});
+  return (
+    <form {...actionForm} className="mt-3 max-w-prose">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-ink-500">Share of each window held for members (per cent)</span>
+          <input name="reservePercent" type="number" min={0} max={90} step={1} defaultValue={current.reservePercent}
+                 className="h-10 w-32 rounded border border-steel-300 px-3 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-ink-500">Let it go this many hours before the window</span>
+          <input name="releaseHours" type="number" min={0} max={336} step={1} defaultValue={current.releaseHours}
+                 className="h-10 w-32 rounded border border-steel-300 px-3 text-sm" />
+        </label>
+        <button type="submit" disabled={pending} className="h-10 rounded bg-ink-900 px-4 text-sm font-medium text-white disabled:opacity-60">
+          {pending ? "Saving" : "Save"}
+        </button>
+      </div>
+      <p className="mt-2 text-sm text-ink-500">
+        A window two technicians could fill with eight jobs, at 25 per cent, offers six to everybody and the last two only to
+        members, until the hours above before it opens. Members&apos; own bookings use the held share first. A small window
+        is never half held: the share is rounded to whole jobs, a half rounded down.
+        {plansWithPriority === 0
+          ? " None of your plans promises priority dispatch, so nothing is held until one does."
+          : ` Members of the ${plansWithPriority === 1 ? "plan" : `${plansWithPriority} plans`} that promise priority dispatch are offered the held share, from their own account and when they ask to move a visit; the public page never is.`}
+      </p>
       <Note state={state} />
     </form>
   );

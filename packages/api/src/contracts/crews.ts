@@ -429,7 +429,7 @@ export const getServiceRouteDensity = defineRoute({
   path: "/v1/service-routes/{id}/density",
   summary: "Will this day fit",
   description:
-    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. Travel is the figure the operator declared and nothing else, because there is no geocoding here; undeclared, the total is reported as a floor and says so rather than claiming a fifteen stop day fits. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.",
+    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours, and with neither the answer is null rather than a guess.",
   module: "M09",
   permissions: ["job:read"],
   input: z.object({
@@ -445,10 +445,17 @@ export const getServiceRouteDensity = defineRoute({
     targetStopCount: z.number().int().nullable(),
     overTarget: z.boolean().nullable(),
     serviceMinutes: z.number().int(),
-    /** Null, never zero, when the route has no declared drive time. */
+    /** Null, never zero, when there is no drive time to give: none declared and no road network to ask. */
     travelMinutes: z.number().int().nullable(),
     totalMinutes: z.number().int(),
+    /** True only when the route's own declared drive time was used. */
     travelDeclared: z.boolean(),
+    /** `declared` from the route, `road` from the routing service, `none` when neither. */
+    travelSource: z.enum(["declared", "road", "none"]),
+    /** Whether every leg of the drive is in the total. When false, the total is a floor. */
+    travelComplete: z.boolean(),
+    /** Where the drive came from and what it leaves out, in a sentence. */
+    travelNote: z.string(),
     overtimeAfterMinutes: z.number().int().nullable(),
     dayBasis: z.enum(["overtime_policy", "business_hours", "unknown"]),
     minutesOverThreshold: z.number().int().nullable(),

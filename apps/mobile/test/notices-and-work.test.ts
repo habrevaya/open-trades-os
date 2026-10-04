@@ -3,6 +3,7 @@ import { PUSH_CHANNELS, type PriceBookEntry } from "@opentradesos/field-client";
 import { CHANNELS, projectIdFrom, pushLine, visitFromNotice } from "../src/lib/push";
 import { missingReadings, parseQuantity, searchPriceBook } from "../src/lib/work";
 import { requestPhoneCode, signInPhoneWithCode } from "../src/lib/sign-in";
+import { EMPTY_UNIT, unitFromForm, unitSavedLine } from "../src/lib/unit";
 
 /**
  * What the phone decides about notices, parts, readings and a code sign in,
@@ -114,5 +115,20 @@ describe("signing in with a code", () => {
     const refused = (async () => json(401, { error: "That code is not right, or it has expired. Ask for a new one." })) as unknown as typeof fetch;
     expect(await signInPhoneWithCode({ server: "ops.example.com", email: "ray@example.com", code: "123456" }, device, refused))
       .toEqual({ ok: false, error: "That code is not right, or it has expired. Ask for a new one." });
+  });
+});
+
+describe("a unit typed on site", () => {
+  const visit = { id: "v1", property: { id: "p1" } };
+
+  it("is sent for the visit's own address, and matched by the server rather than the phone", () => {
+    const built = unitFromForm({ ...EMPTY_UNIT, category: "Furnace", serialNumber: " ab-12 " }, visit);
+    expect(built).toEqual({ unit: expect.objectContaining({ visitId: "v1", propertyId: "p1", category: "Furnace", serialNumber: " ab-12 " }) });
+    expect(unitSavedLine({ ...EMPTY_UNIT, serialNumber: "AB12" })).toMatch(/checked for that serial at every address/);
+    expect(unitSavedLine(EMPTY_UNIT)).toMatch(/added as a new unit at this address/);
+  });
+
+  it("says what is missing before anything goes into the queue", () => {
+    expect(unitFromForm({ ...EMPTY_UNIT, serialNumber: "AB12" }, visit)).toEqual({ problem: expect.stringMatching(/Say what the unit is/) });
   });
 });

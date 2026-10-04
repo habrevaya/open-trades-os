@@ -29,7 +29,7 @@ export const scheduleRentalCollections = defineRoute({
   path: "/v1/rental-collections",
   summary: "Put hires due back on the board as collections",
   description:
-    "Every open hire whose included period ends by `through` (tomorrow when left out) gets a collection stop on the day it is due, or today when it is already late, marked as the pickup leg of that hire. A hire that came with a job gets the stop as a visit on that job; one with no job gets a job of its own at the address, of the company's `pickup` job type when it has one. A hire already given a collection is left alone, so running this twice books nothing twice; one whose collection was cancelled is offered again. A standing hire with no included period, and one with nobody recorded at the address, are skipped with the reason.",
+    "Every open hire whose included period ends by `through` (tomorrow when left out), or whose customer agreed a collection by then, gets a collection stop: in the agreed window on the agreed day when there is one, otherwise on the day it is due in the working day, or today when that has passed, marked as the pickup leg of that hire. A hire that came with a job gets the stop as a visit on that job; one with no job gets a job of its own at the address, of the company's `pickup` job type when it has one. A hire already given a collection is left alone, so running this twice books nothing twice; one whose collection was cancelled is offered again. A standing hire with no included period and no agreed time, and one with nobody recorded at the address, are skipped with the reason. The worker runs the same booking on its own as hires come due, unless the company turned that off (`PUT /v1/rental-dispatch`).",
   module: "M22",
   permissions: ["asset:write", "job:write"],
   idempotent: true,
@@ -38,7 +38,10 @@ export const scheduleRentalCollections = defineRoute({
     through: z.string(),
     scheduled: z.array(z.object({
       rentalId: Uuid, assetIdentifier: z.string().nullable(), address: z.string().nullable(),
-      dueOn: z.string(), collectOn: z.string(), daysLate: z.number().int(),
+      /** The last day the price covers; null for a standing hire collected at an agreed time. */
+      dueOn: z.string().nullable(), collectOn: z.string(), daysLate: z.number().int(),
+      /** Booked at the time agreed with the customer rather than at the end of the price. */
+      agreed: z.boolean(),
       jobId: Uuid, jobNumber: z.number().int(), visitId: Uuid,
     })),
     skipped: z.array(z.object({ rentalId: Uuid, assetIdentifier: z.string().nullable(), reason: z.string() })),
@@ -153,7 +156,65 @@ export const applyScaleTickets = defineRoute({
   output: TicketResult.extend({ attached: z.number().int() }),
 });
 
+const RentalDispatch = z.object({
+  /** The worker books each hire's collection as it comes due. On unless turned off. */
+  automaticCollections: z.boolean(),
+  /** Days ahead a collection is booked: one is the day before it is due. */
+  collectionLeadDays: z.number().int().min(0).max(7),
+  /** Containers a truck carries at once, which orders a driver's day. */
+  containersPerTruck: z.number().int().min(1).max(4),
+  /** Minutes at the yard to tip a full container and load an empty. */
+  yardMinutes: z.number().int().min(0).max(120),
+});
+
+export const getRentalDispatch = defineRoute({
+  method: "get",
+  path: "/v1/rental-dispatch",
+  summary: "How collections are booked and a driver's day is ordered",
+  description:
+    "Whether the worker books collections on its own as hires come due and how many days ahead, and how many containers a truck carries and how long a run to the yard takes, which `GET /v1/dispatch/optimise` uses to order a driver's day by what is on the truck.",
+  module: "M22",
+  permissions: ["asset:read"],
+  input: z.object({}),
+  output: RentalDispatch,
+});
+
+export const setRentalDispatch = defineRoute({
+  method: "put",
+  path: "/v1/rental-dispatch",
+  summary: "Set how collections are booked and a driver's day is ordered",
+  description: "Any field left out keeps its value. A company setting, so `settings:write`.",
+  module: "M22",
+  permissions: ["settings:write"],
+  input: RentalDispatch.partial(),
+  output: RentalDispatch,
+});
+
+export const setRentalCollectionTime = defineRoute({
+  method: "put",
+  path: "/v1/rentals/{id}/collection-time",
+  summary: "Record when the customer agreed the container should be collected",
+  description:
+    "The window the customer agreed, as instants, or `start: null` to clear it. It beats the end of the price, early or late: the collection is booked into it. A collection already on the board and not under way moves to it, kept with its driver on the same day and back to the board for the dispatcher on another day; the driver is told through the visit's notices.",
+  module: "M22",
+  permissions: ["asset:write"],
+  input: z.object({
+    id: Uuid,
+    start: z.string().datetime({ offset: true }).nullable(),
+    end: z.string().datetime({ offset: true }).nullable().optional(),
+  }),
+  output: z.object({
+    id: Uuid,
+    collectionAgreedStart: z.string().datetime().nullable(),
+    collectionAgreedEnd: z.string().datetime().nullable(),
+    collectionVisitId: Uuid.nullable(),
+    /** What happened to a collection already on the board: kept with its driver, or back on the board. */
+    moved: z.enum(["kept", "returned_to_board"]).nullable(),
+  }),
+});
+
 export const rentalBillingRoutes = {
   scheduleRentalCollections, recordRentalCharge, listRentalCharges, removeRentalCharge,
   invoiceRental, previewScaleTickets, applyScaleTickets,
+  getRentalDispatch, setRentalDispatch, setRentalCollectionTime,
 } as const;

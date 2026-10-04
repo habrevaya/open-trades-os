@@ -7,7 +7,7 @@ import {
 } from "./context";
 import { announce, sideOf } from "./visit-notices";
 import { consume, inGrant, peek, type ResolvedGrant } from "./portal";
-import { openSlots, windowStart, type OpenSlot } from "./booking";
+import { memberTest, openSlots, windowStart, type OpenSlot } from "./booking";
 import { refusingDuplicate } from "./duplicates";
 import { sendTransactional } from "./comms-send";
 import * as email from "./email";
@@ -185,6 +185,8 @@ export async function options(
         days: Math.min(input.days ?? 21, 60),
         /** The visit being moved does not stand in its own way. */
         exceptVisitId: visit.id,
+        /** A member is offered the share of each window held for members, as when booking. */
+        member: await memberTest(tx, grant.organizationId, job.customerId, job.propertyId),
       }))
       : [];
 
@@ -307,6 +309,7 @@ export async function request(
       const slot = (await openSlots(tx, {
         organizationId: grant.organizationId, timezone, service: rules.service,
         from: input.requestedDate, days: 1, exceptVisitId: visit.id,
+        member: await memberTest(tx, grant.organizationId, job.customerId, job.propertyId),
       })).find((s) => s.arrivalWindowId === input.arrivalWindowId && s.date === input.requestedDate);
       if (!slot) throw new ConflictError("That time is not open any more. Please choose another.");
 
@@ -569,9 +572,12 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
       if (!service || !req.requestedDate || !req.arrivalWindowId || !req.requestedStart || !req.requestedEnd) {
         throw new ConflictError("This request no longer names a time that can be booked. Decline it and offer another.");
       }
+      const [owner] = await tx.select({ customerId: schema.job.customerId, propertyId: schema.job.propertyId })
+        .from(schema.job).where(eq(schema.job.id, visit.jobId)).limit(1);
       const still = (await openSlots(tx, {
         organizationId: ctx.actor.organizationId, timezone, service,
         from: req.requestedDate, days: 1, exceptRequestId: req.id, exceptVisitId: visit.id,
+        ...(owner ? { member: await memberTest(tx, ctx.actor.organizationId, owner.customerId, owner.propertyId) } : {}),
       })).some((s) => s.arrivalWindowId === req.arrivalWindowId && s.date === req.requestedDate);
       if (!still) {
         throw new ConflictError("That time has filled up since the customer asked. Decline it and offer them another.");
@@ -635,6 +641,62 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
 
     return { ...shape(after), assignmentsRemoved };
   });
+}
+
+/**
+ * THE OFFICE MOVED A VISIT TO ANOTHER DAY: THE CUSTOMER IS TOLD.
+ *
+ * The same telling a customer's own request gets when it is approved: a
+ * line on their timeline and a text when they can be texted, an email when
+ * they cannot, through the same consent gate, and what became of it kept.
+ * Only for a move inside what the customer agreed (a range of days, or the
+ * days of the week that suit them), which the caller has checked; the
+ * message says so and asks them to reply when it does not suit after all.
+ *
+ * A request of theirs still waiting on this visit is overtaken by the move,
+ * and its task in the office queue is closed with that said, so nobody
+ * later approves a move to a day the visit is no longer on.
+ *
+ * Inside the caller's transaction, after the visit has been written: the
+ * window it reads is the new one.
+ */
+export async function officeMoved(tx: Database, ctx: ServiceContext, input: {
+  visitId: string;
+  was: { start: Date; end: Date | null };
+}): Promise<string> {
+  const [row] = await tx.select({ visit: schema.visit, job: schema.job })
+    .from(schema.visit).innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(eq(schema.visit.id, input.visitId)).limit(1);
+  if (!row || !row.visit.windowStart) throw new NotFoundError("Visit");
+  const timezone = await timezoneOf(tx, ctx.actor.organizationId);
+  const when = sentenceWindow(row.visit.windowStart, row.visit.windowEnd, timezone);
+  const was = sentenceWindow(input.was.start, input.was.end, timezone);
+  const now = new Date();
+
+  const overtaken = await tx.update(schema.visitChangeRequest).set({
+    status: "superseded", decidedAt: now, updatedAt: now,
+    decidedByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+  }).where(and(eq(schema.visitChangeRequest.visitId, input.visitId), eq(schema.visitChangeRequest.status, "pending")))
+    .returning({ id: schema.visitChangeRequest.id, taskId: schema.visitChangeRequest.taskId });
+  for (const request of overtaken) await closeTask(tx, ctx, request.taskId, "Overtaken: the office moved the visit");
+
+  await tx.insert(schema.portalEvent).values({
+    organizationId: ctx.actor.organizationId,
+    customerId: row.job.customerId,
+    jobId: row.job.id,
+    kind: "rescheduled",
+    headline: "Visit moved",
+    detail: when,
+  });
+  const notified = await tell(tx, ctx, {
+    customerId: row.job.customerId,
+    subject: "Your visit has been moved",
+    body: `We have moved your visit from ${was} to ${when}, a day you told us suits you. Reply to this message if it does not.`,
+  });
+  await audit(tx, ctx, "visit.moved_by_office", "visit", input.visitId,
+    { windowStart: input.was.start, windowEnd: input.was.end },
+    { windowStart: row.visit.windowStart, windowEnd: row.visit.windowEnd, notified, overtaken: overtaken.map((r) => r.id) });
+  return notified;
 }
 
 /**

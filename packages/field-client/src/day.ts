@@ -340,7 +340,7 @@ export function projectDay(input: {
 export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payload">): string | undefined {
   if (op.kind === "service_report.set_field" || op.kind === "service_report.submit"
     || op.kind === "inspection.record" || op.kind === "estimate.create" || op.kind === "estimate.approve"
-    || op.kind === "estimate.decline" || op.kind === "invoice.raise") {
+    || op.kind === "estimate.decline" || op.kind === "invoice.raise" || op.kind === "equipment.record") {
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }

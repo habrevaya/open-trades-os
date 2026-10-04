@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  formatAmount, isOwing, outOfRange, parseAmount, readingValue, resultLabel, tipChoices,
+  formatAmount, isOwing, outOfRange, parseAmount, readingValue, recordEquipment, resultLabel, tipChoices,
   type DayReportField, type DayVisit,
 } from "@opentradesos/field-client";
 import { recordPayment } from "../lib/sell";
 import type { Navigate } from "../shell/App";
 import { useField } from "../state/FieldProvider";
 import { missingReadings, parseQuantity, searchPriceBook } from "../lib/work";
+import { EMPTY_UNIT, unitFromForm, unitSavedLine, type UnitForm } from "../lib/unit";
 import { Button, Card, Notice, Section } from "../components/ui";
 import { color, space, type } from "../components/theme";
 
@@ -252,6 +253,50 @@ export function PartsSection({ visit }: { visit: DayVisit }) {
                 onPress={() => void add({ name: query.trim().slice(0, 200), unitPrice: "0" })} />
       ) : null}
       {problem ? <Text style={styles.problem}>{problem}</Text> : null}
+    </Section>
+  );
+}
+
+/**
+ * A unit at this address, typed off its plate: a furnace found in the attic,
+ * a new water heater put in today. Matched by the server on its serial
+ * across every address the company has, with the office's rules, so the
+ * same unit is updated rather than added twice, and one on file somewhere
+ * else is held for the office to answer rather than added as a second
+ * record of the same furnace.
+ */
+export function UnitSection({ visit }: { visit: DayVisit }) {
+  const field = useField();
+  const [form, setForm] = useState<UnitForm>(EMPTY_UNIT);
+  const [said, setSaid] = useState<{ text: string; problem: boolean } | null>(null);
+  const set = (key: keyof UnitForm) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  const save = async () => {
+    const built = unitFromForm(form, visit);
+    if ("problem" in built) {
+      setSaid({ text: built.problem, problem: true });
+      return;
+    }
+    await field.perform((phone) => recordEquipment(phone.queue, built.unit));
+    setSaid({ text: unitSavedLine(form), problem: false });
+    setForm(EMPTY_UNIT);
+  };
+
+  const input = (key: keyof UnitForm, label: string, placeholder: string) => (
+    <TextInput value={form[key]} onChangeText={set(key)} placeholder={placeholder} placeholderTextColor={color.inkFaint}
+               autoCapitalize={key === "serialNumber" ? "characters" : "sentences"} autoCorrect={false}
+               style={[styles.input, { marginBottom: space.sm }]} accessibilityLabel={label} />
+  );
+
+  return (
+    <Section title="Equipment here">
+      {input("category", "What it is", "Furnace, condenser, water heater")}
+      {input("manufacturer", "Make", "Make")}
+      {input("model", "Model", "Model number")}
+      {input("serialNumber", "Serial number", "Serial number, as on the plate")}
+      {input("location", "Where it is", "Attic, north end")}
+      <Button label="Save this unit" kind="secondary" onPress={() => void save()} />
+      {said ? <Text style={said.problem ? styles.problem : type.soft}>{said.text}</Text> : null}
     </Section>
   );
 }

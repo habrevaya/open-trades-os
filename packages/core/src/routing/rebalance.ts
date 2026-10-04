@@ -212,6 +212,12 @@ export interface RebalanceVisit {
    * they may not. A technician missing from the record is not considered.
    */
   refusals: Record<string, string | null>;
+  /**
+   * A member whose plan promised priority. Placed before everybody else in
+   * the unassigned pile, so the next free gap goes to them, as it does on
+   * the board and in "Suggest who".
+   */
+  priority?: boolean | undefined;
 }
 
 export interface Unplaced {
@@ -306,12 +312,13 @@ export function rebalance(input: {
   const originalOwner = new Map<string, string>();
   for (const [technicianId, order] of routes) for (const id of order) originalOwner.set(id, technicianId);
 
-  /* 1. The unassigned pile, earliest closing window first. */
+  /* 1. The unassigned pile: members first, then earliest closing window first. */
   const unplaced: Unplaced[] = [];
   const open = input.visits
     .filter((v) => !originalOwner.has(v.stop.id))
     .sort((a, b) =>
-      (a.stop.windowEnd ?? Number.POSITIVE_INFINITY) - (b.stop.windowEnd ?? Number.POSITIVE_INFINITY)
+      Number(b.priority === true) - Number(a.priority === true)
+      || (a.stop.windowEnd ?? Number.POSITIVE_INFINITY) - (b.stop.windowEnd ?? Number.POSITIVE_INFINITY)
       || (a.stop.windowStart ?? Number.POSITIVE_INFINITY) - (b.stop.windowStart ?? Number.POSITIVE_INFINITY)
       || a.stop.id.localeCompare(b.stop.id));
 

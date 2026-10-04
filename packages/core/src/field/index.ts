@@ -530,3 +530,5 @@ export * from "./push.js";
 export * from "./codes.js";
 /** What a customer is shown on the phone, priced the way the server prices it. */
 export * from "./pricing.js";
+/** A unit recorded on site, matched by its serial across the company. */
+export * from "./equipment.js";

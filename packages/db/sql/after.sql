@@ -1444,6 +1444,52 @@ returns table (organization_id uuid)
 
 revoke all on function app.agreement_renewal_organizations(int) from public;
 grant execute on function app.agreement_renewal_organizations(int) to background;
+
+-- =========================================================================
+-- COMPANIES WITH CONTAINER COLLECTIONS TO BOOK
+--
+-- The rental pass in the worker books each hire's collection on the board
+-- when it comes due, across every tenant, and the worker cannot read across
+-- tenants under RLS. This returns the companies with an open hire that has
+-- no live collection and is due back (or has a collection agreed) within the
+-- company's lead days, with a day to spare for timezones, and that have not
+-- turned automatic collections off. Whether each one is due is decided per
+-- hire, in the company's own calendar, by the service.
+-- =========================================================================
+
+create or replace function app.rental_collection_organizations(p_limit int default 100)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select r.organization_id
+    from public.rental r
+    join public.organization o on o.id = r.organization_id
+    where r.picked_up_at is null
+      and r.delivered_at is not null
+      and o.suspended_at is null
+      and coalesce((o.settings -> 'rentalDispatch' ->> 'automaticCollections')::boolean, true)
+      and (
+        r.collection_visit_id is null
+        or exists (
+          select 1 from public.visit v
+           where v.id = r.collection_visit_id and v.status = 'cancelled'
+        )
+      )
+      and (
+        (r.collection_agreed_start is not null
+          and r.collection_agreed_start::date
+            <= current_date + coalesce((o.settings -> 'rentalDispatch' ->> 'collectionLeadDays')::int, 1) + 1)
+        or (r.collection_agreed_start is null and r.included_days is not null
+          and r.delivered_at::date + r.included_days - 1
+            <= current_date + coalesce((o.settings -> 'rentalDispatch' ->> 'collectionLeadDays')::int, 1) + 1)
+      )
+    group by r.organization_id
+    order by r.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.rental_collection_organizations(int) from public;
+grant execute on function app.rental_collection_organizations(int) to background;
 -- WEBHOOK DELIVERIES OWED IN A QUIET COMPANY
 --
 -- Delivery runs after a company's events are drained, so a company that

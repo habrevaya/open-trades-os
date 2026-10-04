@@ -48,6 +48,13 @@ beforeAll(async () => {
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Bin Co", slug: "bin-co" });
   await raw`update public.organization set timezone = ${ZONE} where id = ${ORG}`;
+  /**
+   * This suite books collections by the button and counts what it booked,
+   * so the worker's own collections (on by default) are off for this
+   * company: a pass from another suite must not book them in between.
+   */
+  await raw`update public.organization set settings = coalesce(settings, '{}'::jsonb)
+    || '{"rentalDispatch": {"automaticCollections": false}}'::jsonb where id = ${ORG}`;
   const customer = await customers.create(owner(), {
     type: "commercial", name: "Ridge Build", phone: "+15125550177",
     paymentTermsDays: 30, taxExempt: true, tags: [], customFields: {},

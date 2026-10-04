@@ -69,6 +69,7 @@ import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
 import { visitRoutes } from "./visits";
 import { dispatchMapRoutes } from "./dispatch-map";
+import { dispatchDaysRoutes } from "./dispatch-days";
 import { locationRoutes } from "./location";
 import { acquisitionRoutes } from "./acquisition";
 import { customerTagRoutes } from "./customer-tags";
@@ -154,6 +155,7 @@ export * from "./field-assets";
 export * from "./credit-notes";
 export * from "./statements";
 export * from "./dispatch-map";
+export * from "./dispatch-days";
 export * from "./location";
 export * from "./agreements";
 export * from "./visit-changes";
@@ -265,6 +267,7 @@ export const routes = {
   ...kpiRoutes,
   ...visitRoutes,
   ...dispatchMapRoutes,
+  ...dispatchDaysRoutes,
   ...locationRoutes,
   ...reportRoutes,
   ...customerTagRoutes,

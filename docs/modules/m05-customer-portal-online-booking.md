@@ -148,7 +148,11 @@ window limit stays as a ceiling: it is how many the company will sell
 online, which can be fewer than it could staff. The slot is re-checked
 inside the transaction that writes the request. A company with no
 technicians recorded at all has no board to read, and then the limit is all
-there is.
+there is. A company whose plans promise priority dispatch can hold a share
+of each window back for members until a set time before it opens (M08): the
+public page is offered what is left, and a member booking from their own
+account, or asking to move a visit from their link, is offered the held
+share too when their plan covers the address.
 
 **A resubmission inside a short window is the same submission.** Long enough to
 cover a phone that lost signal mid-request and somebody who gave up and refilled

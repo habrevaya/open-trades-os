@@ -20,6 +20,7 @@ import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import { purgePositions } from "./location";
 import { purgeUnusedClients } from "./oauth";
+import { collectionsPass } from "./rental-billing";
 import type { PushProvider } from "../push/provider";
 
 /**
@@ -385,6 +386,20 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] retention:", (error as Error).message);
+    }
+    /**
+     * Containers due back, booked on the board as collections at the time
+     * agreed with the customer or on the day the price runs out, for each
+     * company that has not turned it off. Its own try, and each company's
+     * failure is kept to that company: a hire not booked this pass is booked
+     * on the next, and one already booked is never booked twice.
+     */
+    try {
+      for (const result of await collectionsPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] collections ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] collections:", (error as Error).message);
     }
     /**
      * Reports and statements on a clock. Its own try, so a broken workflow

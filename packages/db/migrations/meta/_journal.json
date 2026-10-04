@@ -645,6 +645,13 @@
       "when": 1791107624331,
       "tag": "0091_exotic_marten_broadcloak",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1791123448494,
+      "tag": "0092_good_risque",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { can } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { BookingSections } from "./BookingSections";
+import { MemberHold } from "./Forms";
+import { booking } from "@opentradesos/api/services";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,13 @@ export default async function BookingPage() {
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
       <PageHeader title="Online booking" />
       <BookingSections ctx={ctx} />
+      <h2 className="mt-10 font-medium text-ink-900">Held for members</h2>
+      <MemberHold {...await memberHoldFor(ctx)} />
     </div>
   );
+}
+
+async function memberHoldFor(ctx: Parameters<typeof booking.memberHold>[0]) {
+  const { plansWithPriority, ...current } = await booking.memberHold(ctx);
+  return { current, plansWithPriority };
 }

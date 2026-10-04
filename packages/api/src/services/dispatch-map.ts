@@ -12,6 +12,8 @@ import * as location from "./location";
 import * as files from "./files";
 import * as dispatch from "./dispatch";
 import { remember, replayed } from "./once";
+import { rentalDispatchOf } from "./rental-billing";
+import { priorityWithin } from "./agreements";
 
 /**
  * THE DAY ON A MAP, AND WHAT ORDER TO DRIVE IT IN
@@ -135,7 +137,7 @@ const DEFAULT_WORKDAY: WorkdaySettings = {
 };
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-const minutesOfDay = (hhmm: string) => {
+export const minutesOfDay = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
   return h! * 60 + m!;
 };
@@ -196,13 +198,13 @@ export async function setWorkdaySettings(ctx: ServiceContext, input: Partial<Wor
 
 /* ------------------------------------------------------------- the day */
 
-const UNDER_WAY = ["en_route", "working"] as const;
-const FINISHED = ["completed", "no_show", "completed_after_cancellation"] as const;
-const NOT_STOPS = ["cancelled"] as const;
+export const UNDER_WAY = ["en_route", "working"] as const;
+export const FINISHED = ["completed", "no_show", "completed_after_cancellation"] as const;
+export const NOT_STOPS = ["cancelled"] as const;
 
 type Precision = geo.GeocodePrecision;
 
-interface Place {
+export interface Place {
   lat: number;
   lng: number;
   precision: Precision | null;
@@ -217,7 +219,7 @@ const placeOf = (row: {
   return at ? { ...at, precision: row.locationPrecision, source: row.locationSource } : null;
 };
 
-interface DayVisit {
+export interface DayVisit {
   id: string;
   jobId: string;
   jobNumber: number;
@@ -242,6 +244,17 @@ interface DayVisit {
   locked: boolean;
   /** Sent to a crew rather than to people, which the crew model does through `visit.crew_id`. */
   crewId: string | null;
+  customerId: string;
+  /**
+   * The days the customer agreed this visit may happen on, inclusive: the
+   * visit's own when the office set them, otherwise the window of the
+   * agreement visit it delivers. Null when nobody agreed a range.
+   */
+  movable: { from: string | null; until: string | null } | null;
+  /** The days of the week that suit the customer, 0 for Sunday. Empty is any day. */
+  preferredDays: number[];
+  /** What the stop does to a roll off truck: a drop, a collection, a swap, or nothing. */
+  truckWork: routing.TruckWork;
 }
 
 interface Start {
@@ -251,7 +264,7 @@ interface Start {
   isCompanyDefault: boolean;
 }
 
-interface Day {
+export interface Day {
   date: string;
   zone: string;
   origin: Date;
@@ -272,11 +285,13 @@ interface Day {
 }
 
 /**
- * Everything the three reads need about one day, in a handful of queries.
+ * Everything the reads need about one day, in a handful of queries. Shared
+ * with the multi day rebalance (`dispatch-days.ts`), which loads each day
+ * of its range with it, so a day there is the same day as here.
  * The same window and the same `isLate` rule as `dispatch.board`, so the map
  * and the board cannot disagree about which visits are on the day or late.
  */
-async function loadDay(tx: Database, organizationId: string, date: string): Promise<Day> {
+export async function loadDay(tx: Database, organizationId: string, date: string): Promise<Day> {
   const zone = await timezoneOf(tx, organizationId);
   const { start: dayStart, end: dayEnd } = time.dayBoundsIn(date, zone);
   const travel = await travelOf(tx, organizationId);
@@ -319,9 +334,13 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
     jobNumber: schema.job.number,
     summary: schema.job.summary,
     jobTypeId: schema.job.jobTypeId,
+    jobTypeCode: schema.jobType.code,
+    capacityModel: schema.jobType.capacityModel,
     requiredSkills: schema.jobType.requiredSkills,
     jobSkills: schema.job.requiredSkills,
+    customerId: schema.customer.id,
     customerName: schema.customer.name,
+    preferredDays: schema.customer.preferredDays,
     property: {
       id: schema.property.id,
       addressLine1: schema.property.addressLine1,
@@ -371,6 +390,18 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
     crewId: schema.crewMember.crewId, technicianId: schema.crewMember.technicianId, isLead: schema.crewMember.isLead,
   }).from(schema.crewMember).where(inArray(schema.crewMember.crewId, crewIds));
 
+  /**
+   * The window of the agreement visit a job delivers, which is the range of
+   * days the member was sold: "a tune up in the first half of May".
+   */
+  const jobIds = [...new Set(rows.map((r) => r.visit.jobId))];
+  const owed = jobIds.length === 0 ? [] : await tx.select({
+    jobId: schema.agreementVisit.jobId,
+    from: schema.agreementVisit.windowStartOn,
+    until: schema.agreementVisit.windowEndOn,
+  }).from(schema.agreementVisit).where(inArray(schema.agreementVisit.jobId, jobIds));
+  const owedWindow = new Map(owed.filter((o) => o.jobId && (o.from || o.until)).map((o) => [o.jobId!, { from: o.from, until: o.until }]));
+
   const done = new Set<string>(["completed", "cancelled", "no_show", "completed_after_cancellation"]);
   return {
     date, zone, origin: dayStart, travel, routeMinutes, workday,
@@ -408,15 +439,39 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
       isLate: Boolean(r.visit.windowEnd && r.visit.windowEnd < now && !done.has(r.visit.status)),
       locked: r.visit.dispatchLocked,
       crewId: r.visit.crewId,
+      customerId: r.customerId,
+      movable: r.visit.movableFrom || r.visit.movableUntil
+        ? { from: r.visit.movableFrom, until: r.visit.movableUntil }
+        : owedWindow.get(r.visit.jobId) ?? null,
+      preferredDays: (r.preferredDays ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
+      truckWork: truckWorkOf(r.visit.rentalEvent, r.capacityModel, r.jobTypeCode),
     })),
   };
 }
 
+/**
+ * What a stop does to a roll off truck. The leg the hire records when it
+ * has one (`visit.rental_event`), otherwise the dumpster pack's job type
+ * for rental work: a delivery is a drop before the hire exists to say so.
+ */
+export function truckWorkOf(
+  rentalEvent: string | null, capacityModel: string | null, jobTypeCode: string | null,
+): routing.TruckWork {
+  const leg = rentalEvent ?? (capacityModel === "asset_rental" ? jobTypeCode : null);
+  switch (leg) {
+    case "delivery": return "drop";
+    case "pickup": return "pickup";
+    case "swap": return "swap";
+    case "dump-return": return "dump_return";
+    default: return "none";
+  }
+}
+
 /** A technician's visits in the order they will drive them: route order, then window. */
-const routeOf = (day: Day, technicianId: string): DayVisit[] =>
+export const routeOf = (day: Day, technicianId: string): DayVisit[] =>
   day.visits.filter((v) => v.technicianIds.includes(technicianId));
 
-const iso = (d: Date | null) => d?.toISOString() ?? null;
+export const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 /* -------------------------------------------------------------- the map */
 
@@ -504,8 +559,9 @@ export async function map(ctx: ServiceContext, input: { date: string }) {
 
 const START = "start";
 const END = "end";
+const YARD = "yard";
 
-type Points = Map<string, { place: Place | null; routeId: string | null }>;
+export type Points = Map<string, { place: Place | null; routeId: string | null }>;
 
 /**
  * The drive between any two keys, in minutes: a visit id, or the start and
@@ -514,7 +570,7 @@ type Points = Map<string, { place: Place | null; routeId: string | null }>;
  * `travelMatrix` decides. Counts how often the declared figure was used, so
  * the preview can say how much of it was the company's own number.
  */
-async function travelOver(ctx: ServiceContext, day: Day, points: Points) {
+export async function travelOver(ctx: ServiceContext, day: Day, points: Points) {
   let declared = 0;
   const assumptions = { averageKmh: day.travel.averageKmh, roadFactor: day.travel.roadFactor };
   const matrix = await travelMatrix(ctx, new Map([...points].map(([key, p]) => [key, p.place ? { lat: p.place.lat, lng: p.place.lng } : null])), {
@@ -537,10 +593,10 @@ async function travelOver(ctx: ServiceContext, day: Day, points: Points) {
   return { travel, declared: () => declared, matrix };
 }
 
-const minutesFrom = (origin: Date, at: Date) => Math.round((at.getTime() - origin.getTime()) / 60_000);
+export const minutesFrom = (origin: Date, at: Date) => Math.round((at.getTime() - origin.getTime()) / 60_000);
 
 /** A local time on the day, in minutes from local midnight. */
-const atLocal = (day: Day, hhmm: string) => minutesFrom(day.origin, time.instantOfLocal(day.date, minutesOfDay(hhmm), day.zone));
+export const atLocal = (day: Day, hhmm: string) => minutesFrom(day.origin, time.instantOfLocal(day.date, minutesOfDay(hhmm), day.zone));
 
 /** When the van leaves, in minutes from local midnight: the day's start, or now if that has passed. */
 function departureOf(day: Day, startsAt: string = day.travel.dayStartsAt): number {
@@ -550,21 +606,21 @@ function departureOf(day: Day, startsAt: string = day.travel.dayStartsAt): numbe
   return minutesFrom(day.origin, from);
 }
 
-const stopOf = (day: Day, v: DayVisit): routing.PlanStop => ({
+export const stopOf = (day: Day, v: DayVisit): routing.PlanStop => ({
   id: v.id,
   serviceMinutes: v.estimatedDurationMinutes,
   windowStart: v.windowStart ? minutesFrom(day.origin, v.windowStart) : null,
   windowEnd: v.windowEnd ? minutesFrom(day.origin, v.windowEnd) : null,
 });
 
-const sourceOf = (matrix: TravelMatrix) => ({ driveSource: matrix.source, driveNote: describeSource(matrix) });
+export const sourceOf = (matrix: TravelMatrix) => ({ driveSource: matrix.source, driveNote: describeSource(matrix) });
 
 /**
  * Where a technician's plan starts and when: after the last work already
  * under way or finished that is on the map, at the later of its finish and
  * the start of the day, because that is where the van actually is.
  */
-function startingPoint(day: Day, technicianId: string, stops: DayVisit[], startsAt?: string) {
+export function startingPoint(day: Day, technicianId: string, stops: DayVisit[], startsAt?: string) {
   const technician = day.technicians.find((t) => t.id === technicianId)!;
   const locked = stops.filter((v) =>
     (UNDER_WAY as readonly string[]).includes(v.status) || (FINISHED as readonly string[]).includes(v.status));
@@ -586,7 +642,10 @@ function startingPoint(day: Day, technicianId: string, stops: DayVisit[], starts
 /* -------------------------------------------------------------- optimise */
 
 export async function optimise(ctx: ServiceContext, input: { date: string; technicianId: string }) {
-  const day = await guardedRead(ctx, "visit:read", (tx) => loadDay(tx, ctx.actor.organizationId, input.date));
+  const { day, truck } = await guardedRead(ctx, "visit:read", async (tx) => ({
+    day: await loadDay(tx, ctx.actor.organizationId, input.date),
+    truck: await rentalDispatchOf(tx, ctx.actor.organizationId),
+  }));
   const technician = day.technicians.find((t) => t.id === input.technicianId);
   if (!technician) throw new NotFoundError("Technician");
 
@@ -607,6 +666,8 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
   for (const v of stops) points.set(v.id, { place: v.place, routeId: v.routeId });
   points.set(START, start);
   points.set(END, end);
+  /** Where a roll off truck tips a full can and loads an empty: where the driver's day starts. */
+  points.set(YARD, { place: technician.start?.place ?? null, routeId: null });
   const startKnown = start.place !== null;
 
   const { travel, declared, matrix } = await travelOver(ctx, day, points);
@@ -616,7 +677,27 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
   };
   /** A visit the office locked keeps its place; everything else is ordered around it. */
   const pinned = new Set(placed.filter((v) => v.locked).map((v) => v.id));
-  const result = routing.optimise(plan, placed.map((v) => v.id), { pinned });
+
+  /**
+   * A DRIVER'S DAY WITH CONTAINERS ON IT is ordered by what is on the
+   * truck (`routing/truck.ts`): a drop needs an empty on board, a
+   * collection needs room, and the runs to the yard between are counted.
+   * Only when the yard is on the map, because a run to somewhere unknown
+   * cannot be measured; the proposal says so when it is not.
+   */
+  const containers = placed.some((v) => v.truckWork !== "none");
+  const yardKnown = technician.start?.place != null;
+  const byTruck = containers && yardKnown;
+  const truckPlan: routing.TruckPlan | null = byTruck ? {
+    ...plan,
+    stops: placed.map((v) => ({ ...stopOf(day, v), work: v.truckWork })),
+    yard: YARD,
+    capacity: truck.containersPerTruck,
+    yardMinutes: truck.yardMinutes,
+    load: locked.length > 0 ? loadAfter(locked.map((v) => v.truckWork), truck.containersPerTruck) : null,
+  } : null;
+  const truckResult = truckPlan ? routing.optimiseTruck(truckPlan, placed.map((v) => v.id), { pinned }) : null;
+  const result: routing.Proposal = truckResult ?? routing.optimise(plan, placed.map((v) => v.id), { pinned });
   const summary = (e: routing.Evaluation) => ({
     order: e.order,
     driveMinutes: e.driveMinutes,
@@ -660,8 +741,42 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     ],
     declaredLegs: declared(),
     travel: day.travel,
+    truck: containers ? {
+      byTruck,
+      note: byTruck
+        ? `Ordered by what is on the truck: ${truck.containersPerTruck === 1 ? "one container" : `${truck.containersPerTruck} containers`} at a time, ${truck.yardMinutes} minutes at the yard to tip and load.`
+        : `Not ordered by what is on the truck, because where ${technician.displayName}'s day starts, the yard, is not on the map.`,
+      containersPerTruck: truck.containersPerTruck,
+      yardMinutes: truck.yardMinutes,
+      /** Runs in the middle of the day; the one at the end to tip the last can is not a choice. */
+      currentYardRuns: truckResult ? truckResult.current.yardRuns.filter((r) => r.beforeId !== null).length : null,
+      yardRuns: (truckResult?.proposed.yardRuns ?? []).map((r) => ({
+        afterVisitId: r.afterId,
+        beforeVisitId: r.beforeId,
+        tipped: r.tipped,
+        loaded: r.loaded,
+        arriveAt: clockOf(day, r.arriveAt),
+      })),
+      startLoad: truckResult ? truckResult.proposed.startLoad : null,
+    } : null,
     ...sourceOf(matrix),
   };
+}
+
+/**
+ * What is on the truck after the stops already done today, walked from an
+ * empty truck at the yard: each drop took an empty, each collection a full
+ * can, and a stop the truck could not have served means it went back to
+ * the yard first. A guess at the morning is the best there is: the phone
+ * does not record what was loaded.
+ */
+function loadAfter(works: routing.TruckWork[], capacity: number): routing.TruckLoad {
+  let load: routing.TruckLoad = { empties: routing.loadFor(works, capacity), fulls: 0 };
+  for (const [i, work] of works.entries()) {
+    if (!routing.canServe(work, load, capacity)) load = { empties: routing.loadFor(works.slice(i), capacity), fulls: 0 };
+    load = routing.afterStop(work, load);
+  }
+  return load;
 }
 
 /* ------------------------------------------------------------- suggestions */
@@ -671,7 +786,7 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
  * required skills rather than per visit, because a day of ten diagnostic
  * calls is one question asked ten times.
  */
-async function verdictsFor(tx: Database, organizationId: string, day: Day, visits: DayVisit[]) {
+export async function verdictsFor(tx: Database, organizationId: string, day: Day, visits: DayVisit[]) {
   const bySkills = new Map<string, Map<string, q.QualificationVerdict>>();
   const technicianIds = day.technicians.map((t) => t.id);
   for (const v of visits) {
@@ -685,7 +800,7 @@ async function verdictsFor(tx: Database, organizationId: string, day: Day, visit
 }
 
 /** Why a technician may not take a visit, in one sentence, or null when they may. */
-function refusalFor(
+export function refusalFor(
   day: Day, t: Day["technicians"][number], v: DayVisit,
   verdictOf: (v: DayVisit, technicianId: string) => q.QualificationVerdict | undefined,
 ): string | null {
@@ -695,11 +810,27 @@ function refusalFor(
   return verdict && !verdict.qualified ? verdict.refusal : null;
 }
 
+/**
+ * Which of these visits a plan's priority dispatch covers, by visit, with
+ * the plan's name: the board's rule (`agreements.priorityWithin`), so a
+ * member first on the board is first in a suggestion too.
+ */
+export async function membersOn(tx: Database, day: Day, visits: DayVisit[]): Promise<Map<string, string>> {
+  return priorityWithin(tx, visits.map((v) => ({
+    key: v.id, customerId: v.customerId, propertyId: v.propertyId,
+    on: v.windowStart ? time.dateIn(v.windowStart, day.zone) : day.date,
+  })));
+}
+
 export async function suggestions(ctx: ServiceContext, input: { date: string }) {
-  const { day, verdictOf } = await guardedRead(ctx, "visit:read", async (tx) => {
+  const { day, verdictOf, members } = await guardedRead(ctx, "visit:read", async (tx) => {
     const day = await loadDay(tx, ctx.actor.organizationId, input.date);
     const open = day.visits.filter((v) => v.technicianIds.length === 0 && v.status === "unassigned" && v.place !== null);
-    return { day, verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, open) };
+    return {
+      day,
+      verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, open),
+      members: await membersOn(tx, day, open),
+    };
   });
   const open = day.visits.filter((v) => v.technicianIds.length === 0 && v.status === "unassigned");
   const placedOpen = open.filter((v) => v.place !== null);
@@ -722,9 +853,11 @@ export async function suggestions(ctx: ServiceContext, input: { date: string }) 
     });
   }
 
+  /** Members whose plan promised priority are suggested first, as they are first on the board. */
   const visits: routing.OpenVisit[] = placedOpen.map((v) => ({
     stop: stopOf(day, v),
     refusals: Object.fromEntries(day.technicians.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
+    priority: members.has(v.id),
   }));
 
   const { travel, matrix } = await travelOver(ctx, day, points);
@@ -739,6 +872,8 @@ export async function suggestions(ctx: ServiceContext, input: { date: string }) 
       return {
         visitId: s.visitId,
         customerName: visit.customerName,
+        /** The plan that put this visit first, when one did. */
+        member: members.get(s.visitId) ?? null,
         technicianId: s.technicianId,
         technicianName: s.technicianId ? nameOf.get(s.technicianId) ?? null : null,
         position: s.position === null ? null : s.position + 1,
@@ -767,17 +902,43 @@ export async function suggestions(ctx: ServiceContext, input: { date: string }) 
  * board no longer matches: a proposal made before somebody dragged a card is
  * a proposal about a different day.
  */
-function basisOf(day: Day): string {
+export function basisOf(day: Day): string {
   const lines = day.visits
     .map((v) => `${v.id}:${v.technicianIds.join(",")}:${v.crewId ?? ""}:${v.status}:${v.locked ? 1 : 0}`)
     .sort();
   return createHash("sha256").update(lines.join("\n")).digest("hex").slice(0, 32);
 }
 
+/**
+ * The technicians a rebalance leaves out, with their work where it is, and
+ * why in a sentence.
+ *
+ * Somebody whose day has no start on the map: nothing about their day can
+ * be measured, and moving work onto it or off it would be a guess. And a
+ * driver whose day carries containers: that day is ordered by what is on
+ * the truck, which the rebalance's arithmetic does not know, so it is left
+ * to "Optimise route" rather than reordered as if the truck were a van.
+ */
+export function leftOutOf(day: Day): { technicianId: string; displayName: string; reason: string }[] {
+  const out: { technicianId: string; displayName: string; reason: string }[] = [];
+  for (const t of day.technicians) {
+    if (!t.start?.place) {
+      out.push({ technicianId: t.id, displayName: t.displayName, reason: `Where ${t.displayName}'s day starts is not on the map.` });
+    } else if (routeOf(day, t.id).some((v) => v.truckWork !== "none" && !(NOT_STOPS as readonly string[]).includes(v.status))) {
+      out.push({
+        technicianId: t.id, displayName: t.displayName,
+        reason: `${t.displayName}'s day has containers on it, so it is ordered by what is on the truck: use Optimise route on the board.`,
+      });
+    }
+  }
+  return out;
+}
+
 /** Which of a technician's visits the rebalance may plan, and which it leaves where they are. */
-function plannable(day: Day, v: DayVisit): boolean {
+export function plannable(day: Day, v: DayVisit): boolean {
   return v.place !== null
     && v.crewId === null
+    && v.truckWork === "none"
     && v.technicianIds.length <= 1
     && !(NOT_STOPS as readonly string[]).includes(v.status)
     && !(UNDER_WAY as readonly string[]).includes(v.status)
@@ -785,27 +946,17 @@ function plannable(day: Day, v: DayVisit): boolean {
     && v.status !== "no_show";
 }
 
-const clockOf = (day: Day, minutes: number) => new Date(day.origin.getTime() + minutes * 60_000).toISOString();
+export const clockOf = (day: Day, minutes: number) => new Date(day.origin.getTime() + minutes * 60_000).toISOString();
 
-export async function rebalance(ctx: ServiceContext, input: { date: string }) {
-  const { day, verdictOf } = await guardedRead(ctx, "visit:read", async (tx) => {
-    const day = await loadDay(tx, ctx.actor.organizationId, input.date);
-    return { day, verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, day.visits.filter((v) => plannable(day, v))) };
-  });
-  const visitById = new Map(day.visits.map((v) => [v.id, v]));
-  const nameOf = new Map(day.technicians.map((t) => [t.id, t.displayName]));
-
-  /**
-   * Somebody whose day has no start on the map is left out, with their work
-   * where it is: nothing about their day can be measured, and moving work
-   * onto it or off it would be a guess.
-   */
-  const leftOut = day.technicians
-    .filter((t) => !t.start?.place)
-    .map((t) => ({ technicianId: t.id, displayName: t.displayName, reason: `Where ${t.displayName}'s day starts is not on the map.` }));
-  const planned = day.technicians.filter((t) => t.start?.place);
-
-  const points: Points = new Map();
+/**
+ * Each planned person's day as the rebalance plans it: where it starts and
+ * ends, when the van leaves, the shift around it with lunch, and the
+ * visits it may plan in the order they are in. Their work under way or
+ * finished goes first in what is applied and is not planned. The keys of
+ * the start and end carry `prefix`, so several days can share one map of
+ * drive times without one day's start standing in for another's.
+ */
+export function rebalanceTechnicians(day: Day, planned: Day["technicians"], points: Points, prefix = "") {
   const techs: routing.RebalanceTechnician[] = [];
   const keepFirst = new Map<string, string[]>();
   for (const t of planned) {
@@ -814,15 +965,15 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
     const startsAt = t.hours?.startsAt ?? day.travel.dayStartsAt;
     const { locked, departAt, start, end } = startingPoint(day, t.id, stops, startsAt);
     keepFirst.set(t.id, locked.map((v) => v.id));
-    points.set(`start:${t.id}`, start);
-    points.set(`end:${t.id}`, end);
+    points.set(`start:${prefix}${t.id}`, start);
+    points.set(`end:${prefix}${t.id}`, end);
     const lunch = day.workday.lunchMinutes > 0
       ? { minutes: day.workday.lunchMinutes, earliest: atLocal(day, day.workday.lunchEarliest), latest: atLocal(day, day.workday.lunchLatest) }
       : null;
     techs.push({
       technicianId: t.id,
-      start: `start:${t.id}`,
-      end: `end:${t.id}`,
+      start: `start:${prefix}${t.id}`,
+      end: `end:${prefix}${t.id}`,
       departAt,
       shift: {
         endsAt: atLocal(day, t.hours?.endsAt ?? day.workday.dayEndsAt),
@@ -834,6 +985,41 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
       order: stops.filter((v) => plannable(day, v) && v.technicianIds[0] === t.id).map((v) => v.id),
     });
   }
+  return { techs, keepFirst };
+}
+
+/** The day's figures for one person, as a screen shows them before and after. */
+export const rebalanceSummary = (day: Day, d: routing.RebalanceDay) => ({
+  order: d.evaluation.order,
+  driveMinutes: d.evaluation.driveMinutes,
+  finishAt: clockOf(day, d.evaluation.finishAt),
+  overtimeMinutes: d.evaluation.overtimeMinutes,
+  overLimitMinutes: d.evaluation.overLimitMinutes,
+  lunchAt: d.evaluation.lunch ? clockOf(day, d.evaluation.lunch.startAt) : null,
+  lunchLateMinutes: d.evaluation.lunch?.lateBy ?? 0,
+  late: d.evaluation.late.map((l) => ({ visitId: l.id, lateByMinutes: l.lateBy })),
+  refused: d.refused,
+});
+
+export async function rebalance(ctx: ServiceContext, input: { date: string }) {
+  const { day, verdictOf, members } = await guardedRead(ctx, "visit:read", async (tx) => {
+    const day = await loadDay(tx, ctx.actor.organizationId, input.date);
+    const candidates = day.visits.filter((v) => plannable(day, v));
+    return {
+      day,
+      verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, candidates),
+      members: await membersOn(tx, day, candidates.filter((v) => v.technicianIds.length === 0)),
+    };
+  });
+  const visitById = new Map(day.visits.map((v) => [v.id, v]));
+  const nameOf = new Map(day.technicians.map((t) => [t.id, t.displayName]));
+
+  /** Who is left out, with their work where it is, and why: see `leftOutOf`. */
+  const leftOut = leftOutOf(day);
+  const planned = day.technicians.filter((t) => !leftOut.some((l) => l.technicianId === t.id));
+
+  const points: Points = new Map();
+  const { techs, keepFirst } = rebalanceTechnicians(day, planned, points);
 
   const candidates = day.visits.filter((v) => plannable(day, v)
     && (v.technicianIds.length === 0 ? v.status === "unassigned" : planned.some((t) => t.id === v.technicianIds[0])));
@@ -843,22 +1029,13 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
     stop: stopOf(day, v),
     locked: v.locked,
     refusals: Object.fromEntries(planned.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
+    priority: members.has(v.id),
   }));
 
   const { travel, matrix } = await travelOver(ctx, day, points);
   const result = routing.rebalance({ technicians: techs, visits, travel });
 
-  const summary = (d: routing.RebalanceDay) => ({
-    order: d.evaluation.order,
-    driveMinutes: d.evaluation.driveMinutes,
-    finishAt: clockOf(day, d.evaluation.finishAt),
-    overtimeMinutes: d.evaluation.overtimeMinutes,
-    overLimitMinutes: d.evaluation.overLimitMinutes,
-    lunchAt: d.evaluation.lunch ? clockOf(day, d.evaluation.lunch.startAt) : null,
-    lunchLateMinutes: d.evaluation.lunch?.lateBy ?? 0,
-    late: d.evaluation.late.map((l) => ({ visitId: l.id, lateByMinutes: l.lateBy })),
-    refused: d.refused,
-  });
+  const summary = (d: routing.RebalanceDay) => rebalanceSummary(day, d);
   const customer = (id: string) => visitById.get(id)?.customerName ?? "A visit";
 
   /** What each unplaced visit would break, in a sentence. */
