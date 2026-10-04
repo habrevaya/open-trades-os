@@ -284,6 +284,15 @@ export const rental = pgTable("rental", {
    */
   collectionVisitId: uuid("collection_visit_id"),
   /**
+   * When the customer agreed the collection should happen, when they agreed
+   * one: the start and end of the window, as instants. It beats the day the
+   * price runs out, early or late, and the collection is booked into it by
+   * the worker or by a person. Null is no agreement: the collection goes on
+   * the day the price covers to, in the working day.
+   */
+  collectionAgreedStart: timestamp("collection_agreed_start", { withTimezone: true }),
+  collectionAgreedEnd: timestamp("collection_agreed_end", { withTimezone: true }),
+  /**
    * The invoice this hire's period and meters were billed on. Set by raising
    * it, and read before raising another, so the same extra days cannot reach
    * two invoices. No foreign key, for the same reason as the stop above.

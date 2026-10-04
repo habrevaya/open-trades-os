@@ -65,6 +65,13 @@ export const customer = pgTable("customer", {
   doNotService: boolean("do_not_service").notNull().default(false),
   doNotServiceReason: text("do_not_service_reason"),
   notes: text("notes"),
+  /**
+   * The days of the week that suit this customer, 0 for Sunday as Postgres
+   * `dow` counts. Empty is "any day". The multi day rebalance may move one
+   * of their visits to another of these days, and to no other, and tells
+   * them when it does.
+   */
+  preferredDays: jsonb("preferred_days").$type<number[]>().notNull().default([]),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   /**
