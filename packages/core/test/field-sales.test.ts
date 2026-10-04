@@ -114,7 +114,7 @@ describe("the field assistant", () => {
   });
 
   it("is offered to a technician, whose permissions it needs to run", () => {
-    const tech = { userId: "u", organizationId: "o", roles: ["technician"], grants: [] };
+    const tech = { userId: "u", organizationId: "o", roles: ["technician" as const], grants: [] };
     expect(offeredActions("field", tech).map((a) => a.name)).toEqual(["answer", "not_in_records"]);
     expect(admitCall("field", { name: "draft_estimate", input: {} }, tech)).toMatchObject({ ok: false, refusal: "unknown" });
   });
