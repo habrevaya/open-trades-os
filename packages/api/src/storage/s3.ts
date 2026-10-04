@@ -167,7 +167,9 @@ export function s3Client(config: S3Config): S3Client {
     accept?: number[];
   }): Promise<Response> {
     const query = input.query ?? {};
-    const body = typeof input.body === "string" ? Buffer.from(input.body, "utf8") : input.body;
+    /** A Buffer either way, which every runtime's fetch takes as a body. */
+    const body = typeof input.body === "string" ? Buffer.from(input.body, "utf8")
+      : input.body ? Buffer.from(input.body) : undefined;
     const payloadHash = body ? sha256Hex(body) : EMPTY_HASH;
     const amzDate = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
     const headers: Record<string, string> = {

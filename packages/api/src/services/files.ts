@@ -35,7 +35,7 @@ import { fileStorage, FileStorageNotConfiguredError } from "../storage";
  * should not need a bucket policy before they can attach a photograph to a
  * job. A deployment that sets `FILE_STORAGE=s3` keeps them in a bucket
  * instead (`../storage`), and each row says which, so the two kinds sit side
- * by side while `pnpm --filter @opentradesos/api files:move` moves them.
+ * by side while `pnpm --filter @opentradesos/api move-files` moves them.
  *
  * CONTENT ADDRESSED, SO A RETRY IS FREE. The key comes from the SHA-256 of
  * the bytes. A phone retrying over a metered connection, and the same

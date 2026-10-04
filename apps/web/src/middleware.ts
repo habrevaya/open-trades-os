@@ -29,6 +29,10 @@ export const config = {
    * Everything except the things that are not pages. Running this on every
    * static asset costs a function invocation each, which on a self hosted
    * instance is somebody's CPU.
+   *
+   * And not the upload of a copy to restore. Running middleware makes Next
+   * hold a request's body, and keeps only the first ten megabytes of it, which
+   * would cut a company's copy short before the restore ever saw it.
    */
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|setup/restore/upload).*)"],
 };

@@ -109,7 +109,7 @@ export async function moveFiles(
   for (const { id } of ids) {
     let leftInBucket: string | null = null;
     try {
-      const outcome = await inTenant(ctx, async (tx) => {
+      const outcome = await inTenant(ctx, async (tx): Promise<{ failed: string } | { moved: number } | null> => {
         const [row] = await tx.select().from(schema.storedFile)
           .where(and(eq(schema.storedFile.id, id), eq(schema.storedFile.storedIn, from), isNull(schema.storedFile.deletedAt)))
           .limit(1).for("update");

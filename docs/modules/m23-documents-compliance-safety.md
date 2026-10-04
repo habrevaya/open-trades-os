@@ -160,7 +160,8 @@ has purging off, and nobody has put a hold on it. A clock that cannot be worked 
 `POST /v1/compliance/retention/holds/{id}/release`) keeps one record whatever its
 age, for a claim or a dispute, and the call recordings sweep honours it too. Every
 record removed leaves an audit line naming the rule, the clock and the day it became
-due.
+due. A removed record's photographs go from Postgres at once, and from the
+deployment's bucket, when files are kept in one, on the worker's next sweep.
 
 The purge acts on incident reports, toolbox talks, service reports and inspections,
 with their photographs and signatures. A rule naming a kind matches by the

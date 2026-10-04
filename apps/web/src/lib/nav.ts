@@ -543,6 +543,12 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/export", label: "Take a copy" },
           /**
+           * The same copy on a clock, into the owner's own bucket. Beside Take
+           * a copy and narrower than its corridor for the same reason: shown
+           * under `settings:read`, read under `data:export`.
+           */
+          { href: "/settings/backups", label: "Backups" },
+          /**
            * A practice copy of the settings to try things in, and copying
            * chosen settings back. Shown under `settings:read`; making one
            * needs `sandbox:manage`, and the page says so.

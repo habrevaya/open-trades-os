@@ -95,6 +95,17 @@ const BOOKKEEPING = new Set(["audit_log", "restore_run"]);
 
 const NIL = SYSTEM_USER_ID;
 
+/**
+ * Tables the database rebuilds from other rows by trigger, with what rebuilds
+ * them. Their rows are in a copy, because a copy is complete, and are NOT
+ * loaded back: inserting the rows they are made from makes them again, and
+ * inserting the copy's rows as well would be every one of them twice. The
+ * report names each one as rebuilt rather than copied.
+ *
+ * Empty today. A table added here is one whose every row a trigger writes.
+ */
+export const REBUILT: Record<string, string> = {};
+
 /* ----------------------------------------------------------- the entry */
 
 export interface RestoreInput {
@@ -390,6 +401,12 @@ async function load(
     const plan = plans.get(table);
     const described = manifest.tables.find((t) => t.table === table);
     if (!plan || !described) continue;
+    if (table in REBUILT) {
+      if (described.rows > 0) {
+        report.tables.push({ table, inCopy: described.rows, restored: 0, notes: [`Rebuilt rather than copied: ${REBUILT[table]}`] });
+      }
+      continue;
+    }
     const line = { table, inCopy: 0, restored: 0, notes: [] as string[] };
     const dropped = new Map<string, number>();
     const cleared = new Map<string, number>();

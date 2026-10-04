@@ -1,9 +1,9 @@
 /**
  * MOVING STORED FILES INTO A BUCKET, OR BACK OUT OF ONE
  *
- *   pnpm --filter @opentradesos/api files:move              to where FILE_STORAGE says new files go
- *   pnpm --filter @opentradesos/api files:move -- --to postgres
- *   pnpm --filter @opentradesos/api files:move -- --dry-run
+ *   pnpm --filter @opentradesos/api move-files              to where FILE_STORAGE says new files go
+ *   pnpm --filter @opentradesos/api move-files -- --to postgres
+ *   pnpm --filter @opentradesos/api move-files -- --dry-run
  *
  * Run by whoever runs the deployment, with the same settings the app has, while
  * the app is in use: every file is moved in a transaction of its own, read back

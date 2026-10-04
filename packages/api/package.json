@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./contracts": "./src/contracts/index.ts",
     "./services": "./src/services/index.ts",
+    "./portability": "./src/portability/index.ts",
     "./http": "./src/http/index.ts",
     "./comms": "./src/comms/index.ts",
     "./email": "./src/email/index.ts",
@@ -29,7 +30,7 @@
     "test": "vitest run",
     "openapi": "tsx src/lib/generate-openapi.ts && pnpm --filter @opentradesos/sdk run generate",
     "worker": "tsx src/bin/worker.ts",
-    "files:move": "tsx src/bin/files-move.ts",
+    "move-files": "tsx src/bin/move-files.ts",
     "voice-relay": "tsx src/bin/voice-relay.ts",
     "seed": "tsx src/seed/index.ts",
     "mcp": "tsx src/bin/mcp-stdio.ts"

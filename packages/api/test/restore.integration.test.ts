@@ -181,7 +181,8 @@ run("the round trip", () => {
     });
     expect(checked.report.refusals).toEqual([]);
     expect(checked.report.outcome).toBe("checked");
-    const [{ n: nothingYet }] = await raw<{ n: number }[]>`select count(*)::int as n from public.customer where organization_id = ${TARGET}`;
+    const [row1] = await raw<{ n: number }[]>`select count(*)::int as n from public.customer where organization_id = ${TARGET}`;
+    const { n: nothingYet } = row1!;
     expect(nothingYet).toBe(0);
 
     const done = await restoreService.restore(actor(TARGET, RESTORER), {
@@ -196,9 +197,10 @@ run("the round trip", () => {
     expect(done.report.people.find((p) => p.email === "owner@ridgeline.example")?.outcome).toBe("linked");
 
     // Nothing in the restored company points at the original.
-    const [{ n: strays }] = await raw<{ n: number }[]>`
+    const [row2] = await raw<{ n: number }[]>`
       select count(*)::int as n from public.job j
       where j.organization_id = ${TARGET} and exists (select 1 from public.job o where o.id = j.id and o.organization_id = ${demo.org})`;
+    const { n: strays } = row2!;
     expect(strays).toBe(0);
     const [referred] = await raw<{ ok: boolean }[]>`
       select bool_and(r.organization_id = ${TARGET}) as ok from public.customer c
@@ -208,9 +210,10 @@ run("the round trip", () => {
       select storage_key, octet_length(bytes) as size from public.stored_file where organization_id = ${TARGET}`;
     expect(photo!.storage_key.startsWith(`${TARGET}/`)).toBe(true);
     expect(photo!.size).toBeGreaterThan(0);
-    const [{ balanced }] = await raw<{ balanced: string }[]>`
+    const [row3] = await raw<{ balanced: string }[]>`
       select coalesce(sum(case when direction = 'debit' then amount else -amount end), 0)::text as balanced
       from public.ledger_entry where organization_id = ${TARGET}`;
+    const { balanced } = row3!;
     expect(Number(balanced)).toBe(0);
 
     const restored = await takeCopy(actor(TARGET, RESTORER), "archive", "restored.zip");
@@ -244,9 +247,10 @@ run("the round trip", () => {
     expectSameCompany(await census(original, demo.org, "kept"), await census(restored, TARGET, "kept"), RESTORER);
 
     // The people came back as accounts with no password, ready for a first-password link.
-    const [{ n: passwords }] = await raw<{ n: number }[]>`
+    const [row4] = await raw<{ n: number }[]>`
       select count(*)::int as n from public.credential c join public."user" u on u.id = c.user_id
       where u.email like '%@ridgeline.example'`;
+    const { n: passwords } = row4!;
     expect(passwords).toBe(0);
     // The demo company back as the seed makes it, for whatever runs next. It holds the same ids, so the restore goes first.
     await resetOrg(raw, TARGET);
@@ -293,9 +297,10 @@ run("refusing", () => {
       path: copyPath, source: "upload", sourceName: "small.zip", dryRun: false,
     });
     expect(result.report.refusals).toEqual([]);
-    const [{ n }] = await raw<{ n: number }[]>`
+    const [row5] = await raw<{ n: number }[]>`
       select count(*)::int as n from public.workflow w where organization_id = ${TARGET}
       and exists (select 1 from public.workflow x where x.organization_id = ${TARGET} and x.template_key = w.template_key and x.id <> w.id)`;
+    const { n } = row5!;
     expect(n).toBe(0);
   });
 
@@ -327,7 +332,8 @@ run("refusing", () => {
     expect(result.report.refusals).toEqual([]);
     expect(result.report.outcome).toBe("checked");
     expect(result.report.tables.find((t) => t.table === "customer")).toMatchObject({ inCopy: 1, restored: 1 });
-    const [{ n }] = await raw<{ n: number }[]>`select count(*)::int as n from public.customer where organization_id = ${TARGET}`;
+    const [row6] = await raw<{ n: number }[]>`select count(*)::int as n from public.customer where organization_id = ${TARGET}`;
+    const { n } = row6!;
     expect(n).toBe(0);
     const runs = await restoreService.listRuns(actor(TARGET, RESTORER));
     expect(runs[0]).toMatchObject({ id: result.runId, dryRun: true, outcome: "checked" });

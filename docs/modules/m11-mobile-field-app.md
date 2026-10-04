@@ -437,7 +437,8 @@ held for ever.
 Four things happen to bytes that arrive. They are checked against the hash the
 device declared, and a mismatch is a corrupted file refused rather than stored.
 They are stored under a content addressed key, so a phone retrying four times in
-a car park does not leave four copies of a four megabyte photograph. They are
+a car park does not leave four copies of a four megabyte photograph, in Postgres
+or in the deployment's bucket, whichever it keeps files in. They are
 attached to the record they were taken for, because an upload that reached
 storage and never reached the job is a photograph nobody will ever find. And the
 attempt is counted, so an upload that can never succeed is abandoned with the
@@ -552,9 +553,13 @@ checklist is finished on its own page in a browser, not on the phone. The
 lender's link and the field assistant need a signal; nothing about them is
 queued.
 
-Object storage: the bytes are columns in Postgres, which is right
-for a self hoster with a few gigabytes of photographs and wrong for a company
-with a terabyte. The customer portal shows a job's photographs only through
+Photographs and signatures are kept in Postgres by default, which is right
+for a self hoster with a few gigabytes, and in an S3 compatible bucket when the
+deployment sets `FILE_STORAGE=s3` (`docs/self-hosting/files-and-backups.md`);
+`move-files` moves what is already stored, checking each file's hash, while the
+app is in use. Files are served through the app either way, never by a link
+straight into the bucket, which costs the app's bandwidth on a large deployment
+and keeps every read behind the company's own permission. The customer portal shows a job's photographs only through
 the job link, the treatment the logo already has (a token that already grants
 sight of the record), and only the ones somebody chose with **Show the
 customer** or all of them when the company says so (M05). There is still no

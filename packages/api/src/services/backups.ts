@@ -177,6 +177,8 @@ export type DestinationInput = portability.DestinationInput & { pathStyle?: bool
  * failed run with the reason, not a silent one.
  */
 export async function saveDestination(ctx: ServiceContext, input: DestinationInput) {
+  // Before the bucket is touched: checking a stranger's bucket for them is not a service to offer.
+  assertCan(ctx.actor, "data:export");
   const problems = portability.checkDestination(input);
   if (problems.length > 0) throw new ConflictError(problems.join(" "));
   const bucket: Bucket = {
@@ -473,9 +475,14 @@ export const handlers = {
   deleteBackupDestination: (ctx: ServiceContext) => removeDestination(ctx),
   listBackups: async (ctx: ServiceContext, input: { limit?: number | undefined }) => ({ backups: await runs(ctx, input) }),
   startBackup: (ctx: ServiceContext) => backUpNow(ctx),
-  listRestorableCopies: async (ctx: ServiceContext, input: BucketInput) =>
-    ({ copies: await copiesIn(ctx, bucketOf(input)) }),
+  listRestorableCopies: async (ctx: ServiceContext, input: BucketInput) => {
+    assertCan(ctx.actor, "data:import");
+    return { copies: await copiesIn(ctx, bucketOf(input)) };
+  },
   restoreCopy: (ctx: ServiceContext, input: {
     bucket: BucketInput; key: string; dryRun: boolean; keepSending?: boolean | undefined;
-  }) => restoreFromBucket(ctx, { ...input, bucket: bucketOf(input.bucket) }),
+  }) => {
+    assertCan(ctx.actor, "data:import");
+    return restoreFromBucket(ctx, { ...input, bucket: bucketOf(input.bucket) });
+  },
 } as const;
