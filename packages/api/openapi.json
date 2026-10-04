@@ -8101,8 +8101,8 @@
       ],
       "post": {
         "operationId": "approveAppRequest",
-        "summary": "Approve exactly what an app asked for",
-        "description": "Through the same check as installing: refused, naming them, when the app asks for anything the approver does not hold. Approving does not hand anybody a credential; the app collects it with its claim secret. Approving an app already approved changes nothing and succeeds.\n\nRequires a session holding: integration:write.",
+        "summary": "Approve what an app asked for, or part of it",
+        "description": "Without `permissions`, approves the whole list the app asked for. With it, approves only those, and each has to be one the app asked for: a permission it did not ask for is refused rather than added, and an empty list is refused (that is refusing). Through the same check as installing: refused, naming them, when the grant holds anything the approver does not hold. The record reach is the app's as asked. Approving does not hand anybody a credential; the app collects it with its claim secret and is told what was left out. Approving an app already approved changes nothing and succeeds.\n\nRequires a session holding: integration:write.",
         "tags": [
           "M26"
         ],
@@ -8138,7 +8138,7 @@
         },
         "responses": {
           "201": {
-            "description": "Approve exactly what an app asked for",
+            "description": "Approve what an app asked for, or part of it",
             "content": {
               "application/json": {
                 "schema": {
@@ -38494,7 +38494,7 @@
       "post": {
         "operationId": "queueEmail",
         "summary": "Put an email in the outbox",
-        "description": "Queued, never sent: the row says queued until a provider has accepted it, because a log that claims a send the company cannot stand behind is worse than no log. A recipient who has unsubscribed, hard bounced or complained comes back as a refusal rather than an error, since 'they asked us to stop' is an answer and throwing would roll back whatever the caller was recording. Malformed mail is refused outright: no subject, no body, HTML with no plain text alternative, or marketing with no unsubscribe URL. The last one is CAN-SPAM and the Gmail and Yahoo bulk sender rules, and this is the only place it can be enforced.\n\nRequires a session holding: message:send.",
+        "description": "Queued, never sent: the row says queued until a provider has accepted it, because a log that claims a send the company cannot stand behind is worse than no log. A recipient who has unsubscribed, hard bounced or complained comes back as a refusal rather than an error, since 'they asked us to stop' is an answer and throwing would roll back whatever the caller was recording. Malformed mail is refused outright: no subject, no body, or HTML with no plain text alternative. Marketing carries a one click unsubscribe link to this product's own page, which is CAN-SPAM and the Gmail and Yahoo bulk sender rules: leave `unsubscribeUrl` out and one is made for the address, or pass one this company issued for that same address. Any other URL, a 404 or another company's link included, is refused, because a link that does not reach this product's page cannot take anybody off the list.\n\nRequires a session holding: message:send.",
         "tags": [
           "M18"
         ],
@@ -85747,7 +85747,7 @@
       "post": {
         "operationId": "requestAppInstall",
         "summary": "Ask a company to let your application in",
-        "description": "For a third party with no credential yet. Names the company by its public slug and says exactly what the app wants: its permissions from the catalogue and the record scope on each resource. Nothing is granted by asking. The answer carries `decisionUrl`, the page where somebody at the company sees the request in plain words and approves or refuses that exact list, and `claimSecret`, shown once, which the app presents to `POST /v1/public/app-requests/{id}/claim` to collect its credential after approval. An unknown permission is refused rather than dropped. Requests expire after seven days unanswered, a company holds at most twenty waiting, and asking is counted per network address. NOT IDEMPOTENT: the claim secret is stored only as a hash, so a retry cannot be handed the first one, and leaves a second request that the company can refuse or let expire.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
+        "description": "For a third party with no credential yet. Names the company by its public slug and says exactly what the app wants: its permissions from the catalogue and the record scope on each resource. Nothing is granted by asking. The answer carries `decisionUrl`, the page where somebody at the company sees the request in plain words and approves or refuses that exact list, and `claimSecret`, shown once, which the app presents to `POST /v1/public/app-requests/{id}/claim` to collect its credential after approval. An unknown permission is refused rather than dropped. Requests expire after seven days unanswered, a company holds at most twenty waiting, and asking is counted per network address. SAFE TO RETRY WITH YOUR OWN SECRET: send `claimSecret` (32 to 200 random URL safe characters) and a retry carrying the same one is answered with the first request as it stands, `repeated: true`, rather than leaving a second one waiting. The same secret on a request asking for something else is refused. Without one the server makes a secret, shown once, and a retry makes a second request. People at the company who can approve are emailed when a request arrives, if the company has an email provider connected.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M26"
         ],
@@ -116630,6 +116630,153 @@
         ]
       }
     },
+    "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "cancelWebhookReplay",
+        "summary": "Stop a replay that is still waiting",
+        "description": "A replay still `pending` stops before its next event: nothing more of it is sent, what had already gone stays gone, and `position` says how far it got. A replay that finished, failed or was already cancelled is answered as it is, so pressing it twice is not an error. The worker checks before every event it sends, so a cancel that lands while a replay is under way stops it at the next one.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "replayId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelWebhookReplayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop a replay that is still waiting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelWebhookReplayOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
     "/v1/webhooks/endpoints/{id}/secret": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -122118,7 +122265,16 @@
       },
       "ApproveAppRequestInput": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "maxItems": 200
+          }
+        }
       },
       "ApproveAppRequestOutput": {
         "type": "object",
@@ -122135,12 +122291,26 @@
               "string",
               "null"
             ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "withheld": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "app",
           "status",
-          "returnTo"
+          "returnTo",
+          "permissions",
+          "withheld"
         ]
       },
       "ApproveEstimateInput": {
@@ -125257,6 +125427,79 @@
           "state"
         ]
       },
+      "CancelWebhookReplayInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "CancelWebhookReplayOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "endpointId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "fromSequence": {
+            "type": "integer"
+          },
+          "throughSequence": {
+            "type": "integer"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "failureCount": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "endpointId",
+          "eventId",
+          "fromSequence",
+          "throughSequence",
+          "position",
+          "status",
+          "failureCount",
+          "lastError",
+          "createdAt",
+          "finishedAt"
+        ]
+      },
       "CheckCallTrackingInput": {
         "type": "object",
         "properties": {}
@@ -125456,6 +125699,18 @@
           },
           "expiresAt": {
             "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "withheld": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -170321,6 +170576,15 @@
                     "type": "string"
                   }
                 },
+                "requestedPermissions": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "scopes": {
                   "type": "object",
                   "additionalProperties": {
@@ -170472,6 +170736,7 @@
                 "homepageUrl",
                 "status",
                 "permissions",
+                "requestedPermissions",
                 "scopes",
                 "approvedAt",
                 "revokedAt",
@@ -189894,7 +190159,8 @@
                   "enum": [
                     "pending",
                     "done",
-                    "failed"
+                    "failed",
+                    "cancelled"
                   ]
                 },
                 "failureCount": {
@@ -202819,7 +203085,8 @@
             "enum": [
               "pending",
               "done",
-              "failed"
+              "failed",
+              "cancelled"
             ]
           },
           "failureCount": {
@@ -203073,6 +203340,11 @@
           "state": {
             "type": "string",
             "maxLength": 500
+          },
+          "claimSecret": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 200
           }
         },
         "required": [
@@ -203091,8 +203363,14 @@
           "status": {
             "type": "string",
             "enum": [
-              "pending"
+              "pending",
+              "active",
+              "refused",
+              "revoked"
             ]
+          },
+          "repeated": {
+            "type": "boolean"
           },
           "decisionPath": {
             "type": "string"
@@ -203110,6 +203388,7 @@
         "required": [
           "id",
           "status",
+          "repeated",
           "decisionPath",
           "decisionUrl",
           "claimSecret",
@@ -205654,6 +205933,15 @@
                   "type": "string"
                 }
               },
+              "requestedPermissions": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
               "scopes": {
                 "type": "object",
                 "additionalProperties": {
@@ -205805,6 +206093,7 @@
               "homepageUrl",
               "status",
               "permissions",
+              "requestedPermissions",
               "scopes",
               "approvedAt",
               "revokedAt",
@@ -205831,13 +206120,20 @@
                 },
                 "held": {
                   "type": "boolean"
+                },
+                "granted": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "permission",
                 "label",
                 "sensitive",
-                "held"
+                "held",
+                "granted"
               ]
             }
           },
@@ -205863,6 +206159,24 @@
               ]
             }
           },
+          "leftOut": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "permission": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "permission",
+                "label"
+              ]
+            }
+          },
           "approvable": {
             "type": "boolean"
           },
@@ -205883,6 +206197,7 @@
           "app",
           "asks",
           "reach",
+          "leftOut",
           "approvable",
           "blockedBecause",
           "returnTo"

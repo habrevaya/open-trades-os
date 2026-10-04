@@ -12,6 +12,8 @@ import {
   TooManyRequestsError, UnprocessableError, type RequestMeta, type ServiceContext,
 } from "./context";
 import { portalBase } from "../lib/portal-base";
+import * as email from "./email";
+import { memberActor } from "./session";
 
 /**
  * CONNECTED APPLICATIONS
@@ -112,6 +114,11 @@ export interface AppView {
   homepageUrl: string | null;
   status: string;
   permissions: string[];
+  /**
+   * What a request asked for, when this app is one. An approval can give
+   * part of it, and what is here and not in `permissions` was left out.
+   */
+  requestedPermissions: string[] | null;
   scopes: Record<string, string>;
   approvedAt: string | null;
   revokedAt: string | null;
@@ -216,6 +223,7 @@ export async function list(ctx: ServiceContext): Promise<AppView[]> {
         homepageUrl: app.homepageUrl,
         status: app.status,
         permissions: [...app.permissions],
+        requestedPermissions: app.requestedPermissions ? [...app.requestedPermissions] : null,
         scopes: { ...(app.scopes as Record<string, string>) },
         approvedAt: asDay(app.approvedAt),
         revokedAt: asDay(app.revokedAt),
@@ -570,7 +578,7 @@ export async function touch(db: Database, tokenId: string): Promise<void> {
  *      and a claim secret that only it holds.
  *   2. It sends a person at the company to that page. They see the app's own
  *      description of itself and every permission it asks for in the words the
- *      catalogue uses, and approve that exact list or refuse it.
+ *      catalogue uses, and approve all of it, part of it, or refuse it.
  *   3. The app comes back with the claim secret and collects its credential,
  *      once. Before approval it is told to wait; after a refusal it is told no.
  *
@@ -578,9 +586,10 @@ export async function touch(db: Database, tokenId: string): Promise<void> {
  * function that resolves tokens requires `active`, and a token cannot be
  * issued to it, because issuing requires `active` too. The approval goes
  * through `canDefineRole` exactly as an install does: the person approving
- * cannot give the app anything they do not hold, and an app asking for more
- * than they hold is refused rather than cut down, because the list is the
- * app's own and it can ask again for less.
+ * cannot give the app anything they do not hold. They can leave out what they
+ * do not hold, or anything else they would rather not give, and the app is
+ * told what was left out when it collects its credential. They cannot add to
+ * the list, because a grant the app never asked for is not an answer to it.
  */
 
 /** A request nobody answers in a week dies. */
@@ -648,11 +657,35 @@ export interface InstallRequestInput {
   scopes?: Record<string, string> | undefined;
   redirectUri?: string | undefined;
   state?: string | undefined;
+  /**
+   * The app's own claim secret, when it chooses one. What makes a retry safe:
+   * a request whose answer was lost is sent again with the same secret, and
+   * the first request comes back rather than a second one waiting beside it.
+   */
+  claimSecret?: string | undefined;
 }
+
+/** A claim secret an app chooses has to be as hard to guess as one this server would make. */
+const CHOSEN_SECRET = /^[A-Za-z0-9_-]{32,200}$/;
+
+/** Sorted copies, so two lists asking for the same things in another order are the same request. */
+const sameList = (a: readonly string[], b: readonly string[]) =>
+  JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+const sameScopes = (a: Record<string, string>, b: Record<string, string>) =>
+  sameList(Object.entries(a).map(([k, v]) => `${k}=${v}`), Object.entries(b).map(([k, v]) => `${k}=${v}`));
 
 /**
  * An app asks to be installed. Open: the app has no credential yet, which is
  * the whole point of asking.
+ *
+ * A RETRY IS THE FIRST REQUEST. An app on a bad connection that sends its
+ * request again with the same claim secret is handed back the request it
+ * already made, as it stands now, rather than leaving a second one waiting
+ * for somebody to refuse. Only with the same secret: the secret is what proves
+ * the retry comes from the app that asked, and an app that did not choose one
+ * gets a fresh request every time, as before. The same secret on a request
+ * asking for something else is refused, because "the first request" would
+ * then be an answer to a question the app did not ask this time.
  */
 export async function requestInstall(db: Database, input: InstallRequestInput, meta?: RequestMeta) {
   await countHit(db, `app-request:addr:${meta?.ip ?? "unknown"}`, REQUESTS_PER_ADDRESS, 3600);
@@ -666,10 +699,33 @@ export async function requestInstall(db: Database, input: InstallRequestInput, m
   if (!org) throw new NotFoundError("Company");
   if (org.suspendedAt) throw new OrganizationSuspendedError();
 
-  const secret = `otc_${randomBytes(32).toString("base64url")}`;
+  if (input.claimSecret !== undefined && !CHOSEN_SECRET.test(input.claimSecret)) {
+    throw new UnprocessableError("A claim secret the app chooses has to be 32 to 200 letters, digits, - or _.", [
+      { path: "claimSecret", message: "Use at least 32 random URL safe characters." },
+    ]);
+  }
+  const secret = input.claimSecret ?? `otc_${randomBytes(32).toString("base64url")}`;
   const now = new Date();
 
-  const app = await inTenant(systemCtx(db, org.id), async (tx) => {
+  const { app, repeated } = await inTenant(systemCtx(db, org.id), async (tx) => {
+    const sameRequest = async () => {
+      const [first] = await tx.select().from(schema.connectedApp)
+        .where(eq(schema.connectedApp.claimHash, claimHash(secret))).limit(1);
+      if (!first) return null;
+      if (first.name !== input.name
+          || !sameList(first.requestedPermissions ?? first.permissions, definition.permissions)
+          || !sameScopes(first.scopes as Record<string, string>, (definition.scopes ?? {}) as Record<string, string>)) {
+        throw new ConflictError(
+          "That claim secret is already on a request asking for something else. Choose a new secret for a new request.",
+        );
+      }
+      return first;
+    };
+    if (input.claimSecret !== undefined) {
+      const first = await sameRequest();
+      if (first) return { app: first, repeated: true };
+    }
+
     const [waiting] = await tx.select({ n: sql<number>`count(*)::int` })
       .from(schema.connectedApp)
       .where(and(
@@ -682,6 +738,11 @@ export async function requestInstall(db: Database, input: InstallRequestInput, m
       );
     }
 
+    /**
+     * `on conflict do nothing` for the one race left: the same retry arriving
+     * twice at once. The second waits for the first to commit, writes
+     * nothing, and reads back the row the first wrote.
+     */
     const [row] = await tx.insert(schema.connectedApp).values({
       organizationId: org.id,
       name: input.name,
@@ -691,30 +752,110 @@ export async function requestInstall(db: Database, input: InstallRequestInput, m
       status: "pending",
       source: "request",
       permissions: [...definition.permissions],
+      requestedPermissions: [...definition.permissions],
       scopes: (definition.scopes ?? {}) as Record<string, string>,
       redirectUri,
       requestState: input.state ?? null,
       requestedFrom: meta?.ip ?? null,
       requestExpiresAt: new Date(now.getTime() + REQUEST_TTL_MS),
       claimHash: claimHash(secret),
+    }).onConflictDoNothing({
+      target: [schema.connectedApp.organizationId, schema.connectedApp.claimHash],
     }).returning();
+    if (!row) {
+      const first = await sameRequest();
+      if (!first) throw new ConflictError("That request could not be written. Ask again.");
+      return { app: first, repeated: true };
+    }
 
-    await audit(tx, systemCtx(db, org.id, row!.id), "app.requested", "connectedApp", row!.id, null, {
-      name: row!.name, publisher: row!.publisher, permissions: row!.permissions, scopes: row!.scopes,
-      requestedFrom: row!.requestedFrom,
+    await audit(tx, systemCtx(db, org.id, row.id), "app.requested", "connectedApp", row.id, null, {
+      name: row.name, publisher: row.publisher, permissions: row.permissions, scopes: row.scopes,
+      requestedFrom: row.requestedFrom,
     });
-    return row!;
+    await tellApprovers(tx, org.id, row);
+    return { app: row, repeated: false };
   });
 
   const path = decisionPath(app.id);
   return {
     id: app.id,
-    status: "pending" as const,
+    status: app.status,
+    /** True when this was a retry, answered with the request the same secret already made. */
+    repeated,
     decisionPath: path,
     decisionUrl: `${portalBase()}${path}`,
     claimSecret: secret,
     expiresAt: app.requestExpiresAt!.toISOString(),
   };
+}
+
+/** The two things the request notice may do, and nothing else. See `email.ts`. */
+const NOTICE_GRANTS: Permission[] = ["message:send", "message:read"];
+
+/**
+ * Tell the people who can say yes that something is waiting.
+ *
+ * Without it a request sits on a screen nobody opens until it expires, and
+ * the app's maker is left asking the company by phone whether anybody saw it.
+ *
+ * WHO. Every active member of the company who could approve it: anybody
+ * holding `integration:write`, read the way their own session would be. Not
+ * just the owner, because the person who looks after the company's software
+ * is often not the owner, and not everybody, because a request is a question
+ * only some people may answer.
+ *
+ * ONLY WHEN THE COMPANY CAN SEND EMAIL. The ordinary sender decides: with no
+ * provider connected it refuses, quietly, and the request still stands on the
+ * Applications screen. A notice that could not go is not a reason to refuse
+ * the app's request.
+ *
+ * WHAT IT SAYS is the app's name, who it says made it, how many things it
+ * asks for and the page to decide on. Never the claim secret, and not the
+ * app's own description, which is words a stranger wrote and has no place in
+ * an email from the company's own address.
+ */
+async function tellApprovers(tx: Database, organizationId: string, app: AppRow): Promise<void> {
+  const people = await tx.execute<{ user_id: string; name: string | null; email: string }>(
+    sql`select user_id, name, email from app.organization_people()`,
+  );
+  const [org] = await tx.select({ name: schema.organization.name }).from(schema.organization)
+    .where(eq(schema.organization.id, organizationId)).limit(1);
+  const sender: ServiceContext = {
+    actor: { userId: SYSTEM_USER_ID, organizationId, roles: [], grants: NOTICE_GRANTS, agentId: "app-requests" },
+    db: tx,
+  };
+  const url = `${portalBase()}${decisionPath(app.id)}`;
+  const asked = app.permissions.length;
+  const seen = new Set<string>();
+  for (const person of people) {
+    const address = email.normalizeAddress(person.email ?? "");
+    if (address === "" || seen.has(address)) continue;
+    const actor = await memberActor(tx, organizationId, person.user_id);
+    if (!actor || !can(actor, "integration:write")) continue;
+    seen.add(address);
+    const lines = [
+      `Hello${person.name ? ` ${person.name.split(" ")[0]}` : ""},`,
+      "",
+      `${app.name}${app.publisher ? `, made by ${app.publisher},` : ""} is asking to connect to `
+        + `${org?.name ?? "your company"}. It asks for ${asked} ${asked === 1 ? "thing" : "things"}.`,
+      "",
+      `Nothing is given until somebody says yes. See exactly what it asks for, and approve all of it, part of it or none of it, here:`,
+      url,
+      "",
+      `If nobody answers, the request ends on ${app.requestExpiresAt?.toISOString().slice(0, 10) ?? "its own"}.`,
+    ];
+    try {
+      await email.queue(sender, {
+        to: address,
+        subject: `${app.name} is asking to connect`,
+        text: lines.join("\n"),
+        purpose: "transactional",
+      });
+    } catch (error) {
+      // A malformed address on one member is theirs to fix, not a reason to lose the request.
+      if (!(error instanceof ConflictError)) throw error;
+    }
+  }
 }
 
 /**
@@ -780,19 +921,32 @@ export async function claim(db: Database, input: { id: string; claimSecret: stri
       .where(eq(schema.connectedApp.id, app.id));
     await audit(tx, ctx, "app.credential_collected", "connectedApp", app.id, null, { tokenId: minted.id });
 
+    /**
+     * What the token may do, and what was asked for and not given, so an app
+     * approved for part of its list knows which part before its first call
+     * is refused, rather than learning it one refusal at a time.
+     */
+    const granted = [...app.permissions].sort();
+    const withheld = (app.requestedPermissions ?? []).filter((p) => !granted.includes(p)).sort();
     return {
       status: "approved" as const,
-      message: "Approved. Keep this token: it is not stored and will not be shown again.",
+      message: withheld.length > 0
+        ? `Approved in part: ${withheld.length} of what you asked for was left out. Keep this token: it is not stored and will not be shown again.`
+        : "Approved. Keep this token: it is not stored and will not be shown again.",
       token: minted.token,
       expiresAt: minted.expiresAt.toISOString(),
+      permissions: granted,
+      withheld,
     };
   });
 }
 
 export interface RequestReview {
   app: AppView;
-  /** Every permission asked for, in words, and whether the person looking holds it. */
-  asks: Array<{ permission: string; label: string; sensitive: boolean; held: boolean }>;
+  /** Every permission asked for, in words, whether the person looking holds it, and once answered whether it was given. */
+  asks: Array<{ permission: string; label: string; sensitive: boolean; held: boolean; granted: boolean | null }>;
+  /** Asked for and not given, once the request is approved. Empty while it waits or when all of it was given. */
+  leftOut: Array<{ permission: string; label: string }>;
   /** The record scope asked for on each resource, in words. */
   reach: Array<{ resource: string; scope: string; widerThanYours: boolean }>;
   /** Whether the person looking could approve it as it stands, and the reason when not. */
@@ -820,15 +974,31 @@ export async function review(ctx: ServiceContext, input: { id: string }): Promis
 
   const held = permissionsFor(ctx.actor);
   const sensitive = new Set<string>(SENSITIVE_PERMISSION_LIST);
-  const asks = [...app.permissions].sort().map((permission) => ({
+  const asked = app.requestedPermissions ?? app.permissions;
+  /**
+   * Every permission ASKED for, and whether it was given. While a request
+   * waits nothing is given yet; once approved, the ones not in the grant are
+   * what the approver left out, and this page says so to whoever opens it
+   * next, so "approved" never reads as "approved as asked" when it was not.
+   */
+  const asks = [...asked].sort().map((permission) => ({
     permission,
     label: (PERMISSION_WORDS as Record<string, string>)[permission] ?? permission,
     sensitive: sensitive.has(permission),
     held: held.has(permission as Permission),
+    granted: app.status === "active" ? app.permissions.includes(permission) : null,
   }));
+  const leftOut = app.status === "active" ? asks.filter((ask) => ask.granted === false) : [];
 
+  /**
+   * Whether the person looking could approve the part of it they hold. The
+   * reach is the app's as asked and is not narrowed here, so a reach wider
+   * than theirs blocks the approval outright; a permission they do not hold
+   * only means it is left out.
+   */
+  const holdable = asked.filter((permission) => held.has(permission as Permission));
   const decision = canDefineRole(ctx.actor, {
-    permissions: app.permissions as Permission[],
+    permissions: holdable as Permission[],
     scopes: app.scopes as Partial<Record<ScopedResource, Scope>>,
   });
   const wider = new Set<string>(!decision.ok && decision.reason === "widens_scope" ? decision.resources : []);
@@ -841,11 +1011,11 @@ export async function review(ctx: ServiceContext, input: { id: string }): Promis
   else if (app.request?.expired) blockedBecause = "This request has expired. The app has to ask again.";
   else if (!can(ctx.actor, "integration:write")) {
     blockedBecause = "Approving an app needs the permission that connects integrations.";
+  } else if (holdable.length === 0) {
+    blockedBecause = "It asks only for things you do not hold yourself, and nobody can give an app what they do not have. "
+      + "Somebody who holds them can approve it.";
   } else if (!decision.ok) {
-    blockedBecause = decision.reason === "missing_permission"
-      ? "It asks for things you do not hold yourself, and nobody can give an app what they do not have. "
-        + "Somebody who holds all of them can approve it, or the app can ask for less."
-      : "It asks to reach more records than you can reach yourself.";
+    blockedBecause = "It asks to reach more records than you can reach yourself.";
   }
 
   let returnTo: string | null = null;
@@ -855,7 +1025,10 @@ export async function review(ctx: ServiceContext, input: { id: string }): Promis
     if (row) returnTo = returnAddress(row, app.status === "active" ? "approved" : "refused");
   }
 
-  return { app, asks, reach, approvable: blockedBecause === null, blockedBecause, returnTo };
+  return {
+    app, asks, reach, approvable: blockedBecause === null, blockedBecause, returnTo,
+    leftOut: leftOut.map(({ permission, label }) => ({ permission, label })),
+  };
 }
 
 /** Where the person deciding goes next, carrying the outcome for the app. */
@@ -869,14 +1042,26 @@ function returnAddress(app: AppRow, status: "approved" | "refused"): string | nu
 }
 
 /**
- * Yes, to exactly what it asked.
+ * Yes, to all of what it asked or to part of it.
+ *
+ * PART OF IT, never more. `permissions`, when given, is the list the person
+ * left ticked, and every one has to be something the app asked for: a
+ * permission it did not ask for is refused rather than added, because a grant
+ * nobody requested, made under the app's name, is not an answer to its
+ * request. Nothing ticked is refused too; that is "Refuse". The record reach
+ * is the app's as asked and is not narrowed here.
+ *
+ * The approver must hold what they give, through the same `canDefineRole`
+ * as an install by hand, so somebody who holds three of the five things asked
+ * can approve those three and leave the other two out, which is what the
+ * consent screen offers them.
  *
  * Idempotent in the way revoking is: approving an app that is already
  * approved succeeds and changes nothing, because the retry after a lost
  * response is the common case and a refusal would tell the person their
  * approval failed when it did not.
  */
-export async function approve(ctx: ServiceContext, input: { id: string }) {
+export async function approve(ctx: ServiceContext, input: { id: string; permissions?: string[] | undefined }) {
   return guardedWrite(ctx, "integration:write", async (tx) => {
     const [before] = await tx.select().from(schema.connectedApp)
       .where(eq(schema.connectedApp.id, input.id)).for("update").limit(1);
@@ -891,20 +1076,39 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
       throw new ConflictError("This request has expired. The app has to ask again.");
     }
 
+    const asked = before.requestedPermissions ?? before.permissions;
+    let granted = asked;
+    if (input.permissions !== undefined) {
+      const chosen = [...new Set(input.permissions)];
+      const notAsked = chosen.filter((permission) => !asked.includes(permission));
+      if (notAsked.length > 0) {
+        throw new ConflictError(
+          `The app did not ask for ${notAsked.join(", ")}, so it cannot be given. Approve what it asked for, or part of it.`,
+        );
+      }
+      if (chosen.length === 0) {
+        throw new ConflictError("Nothing is ticked, so there is nothing to approve. Refuse it instead.");
+      }
+      granted = chosen;
+    }
+
     assertWithinAuthority(ctx, {
-      permissions: before.permissions as Permission[],
+      permissions: granted as Permission[],
       scopes: before.scopes as Partial<Record<ScopedResource, Scope>>,
     });
 
     const now = new Date();
     const [after] = await tx.update(schema.connectedApp).set({
       status: "active",
+      permissions: [...granted],
+      requestedPermissions: [...asked],
       approvedByUserId: ctx.actor.userId,
       approvedAt: now,
       updatedAt: now,
     }).where(eq(schema.connectedApp.id, input.id)).returning();
 
-    await audit(tx, ctx, "app.approved", "connectedApp", input.id, before, after);
+    const withheld = asked.filter((permission) => !granted.includes(permission));
+    await audit(tx, ctx, "app.approved", "connectedApp", input.id, before, { ...after, withheld });
     return { app: after!, returnTo: returnAddress(after!, "approved") };
   });
 }
@@ -1041,9 +1245,12 @@ export const handlers = {
 
   reviewAppRequest: (ctx: ServiceContext, input: { id: string }) => review(ctx, input),
 
-  approveAppRequest: async (ctx: ServiceContext, input: { id: string }) => {
-    const { app, returnTo } = await approve(ctx, input);
-    return { app: app.id, status: app.status, returnTo };
+  approveAppRequest: async (ctx: ServiceContext, input: { id: string; permissions?: string[] | undefined }) => {
+    const { app, returnTo } = await approve(ctx, {
+      id: input.id, ...(input.permissions !== undefined ? { permissions: input.permissions } : {}),
+    });
+    const withheld = (app.requestedPermissions ?? []).filter((p) => !app.permissions.includes(p)).sort();
+    return { app: app.id, status: app.status, returnTo, permissions: [...app.permissions].sort(), withheld };
   },
 
   refuseAppRequest: async (ctx: ServiceContext, input: { id: string; reason?: string | undefined }) => {

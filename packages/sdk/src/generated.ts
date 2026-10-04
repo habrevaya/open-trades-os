@@ -791,12 +791,16 @@ export interface ApplyVendorCatalogueOutput {
   itemCostsRevised: number;
 }
 
-export type ApproveAppRequestInput = Record<string, unknown>;
+export interface ApproveAppRequestInput {
+  permissions?: string[];
+}
 
 export interface ApproveAppRequestOutput {
   app: string;
   status: string;
   returnTo: string | null;
+  permissions: string[];
+  withheld: string[];
 }
 
 export interface ApproveEstimateInput {
@@ -1411,6 +1415,22 @@ export interface CancelMailCampaignOutput {
   state: string;
 }
 
+export type CancelWebhookReplayInput = Record<string, unknown>;
+
+export interface CancelWebhookReplayOutput {
+  id: string;
+  endpointId: string;
+  eventId: string | null;
+  fromSequence: number;
+  throughSequence: number;
+  position: number;
+  status: "pending" | "done" | "failed" | "cancelled";
+  failureCount: number;
+  lastError: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
 export type CheckCallTrackingInput = Record<string, unknown>;
 
 export type CheckCallTrackingOutput = {
@@ -1460,6 +1480,8 @@ export interface ClaimAppCredentialOutput {
   message: string;
   token?: string;
   expiresAt?: string;
+  permissions?: string[];
+  withheld?: string[];
 }
 
 export type ClaimTaskInput = Record<string, unknown>;
@@ -10160,6 +10182,7 @@ export interface ListAppsOutput {
     homepageUrl: string | null;
     status: string;
     permissions: string[];
+    requestedPermissions: string[] | null;
     scopes: Record<string, string>;
     approvedAt: string | null;
     revokedAt: string | null;
@@ -13834,7 +13857,7 @@ export interface ListWebhookReplaysOutput {
     fromSequence: number;
     throughSequence: number;
     position: number;
-    status: "pending" | "done" | "failed";
+    status: "pending" | "done" | "failed" | "cancelled";
     failureCount: number;
     lastError: string | null;
     createdAt: string;
@@ -16477,7 +16500,7 @@ export interface ReplayWebhookDeliveriesOutput {
   fromSequence: number;
   throughSequence: number;
   position: number;
-  status: "pending" | "done" | "failed";
+  status: "pending" | "done" | "failed" | "cancelled";
   failureCount: number;
   lastError: string | null;
   createdAt: string;
@@ -16532,11 +16555,13 @@ export interface RequestAppInstallInput {
   scopes?: Record<string, "own" | "crew" | "business_unit" | "location" | "all">;
   redirectUri?: string;
   state?: string;
+  claimSecret?: string;
 }
 
 export interface RequestAppInstallOutput {
   id: string;
-  status: "pending";
+  status: "pending" | "active" | "refused" | "revoked";
+  repeated: boolean;
   decisionPath: string;
   decisionUrl: string;
   claimSecret: string;
@@ -17088,6 +17113,7 @@ export interface ReviewAppRequestOutput {
     homepageUrl: string | null;
     status: string;
     permissions: string[];
+    requestedPermissions: string[] | null;
     scopes: Record<string, string>;
     approvedAt: string | null;
     revokedAt: string | null;
@@ -17118,11 +17144,16 @@ export interface ReviewAppRequestOutput {
     label: string;
     sensitive: boolean;
     held: boolean;
+    granted: boolean | null;
   }>;
   reach: Array<{
     resource: string;
     scope: string;
     widerThanYours: boolean;
+  }>;
+  leftOut: Array<{
+    permission: string;
+    label: string;
   }>;
   approvable: boolean;
   blockedBecause: string | null;
@@ -22290,6 +22321,11 @@ export interface CancelMailCampaignParams {
   id: string;
 }
 
+export interface CancelWebhookReplayParams {
+  id: string;
+  replayId: string;
+}
+
 export interface CheckInAssetParams {
   assetId: string;
 }
@@ -25196,6 +25232,7 @@ export interface OperationTypes {
   cancelAgreement: { input: CancelAgreementParams & CancelAgreementInput; output: CancelAgreementOutput };
   cancelCampaign: { input: CancelCampaignParams & CancelCampaignInput; output: CancelCampaignOutput };
   cancelMailCampaign: { input: CancelMailCampaignParams & CancelMailCampaignInput; output: CancelMailCampaignOutput };
+  cancelWebhookReplay: { input: CancelWebhookReplayParams & CancelWebhookReplayInput; output: CancelWebhookReplayOutput };
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
   checkInAsset: { input: CheckInAssetParams & CheckInAssetInput; output: CheckInAssetOutput };
   checkOutAsset: { input: CheckOutAssetParams & CheckOutAssetInput; output: CheckOutAssetOutput };
@@ -26158,6 +26195,7 @@ export const OPERATIONS = {
   cancelAgreement: { method: "POST", path: "/v1/agreements/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   cancelCampaign: { method: "POST", path: "/v1/campaigns/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   cancelMailCampaign: { method: "POST", path: "/v1/marketing/mail/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
+  cancelWebhookReplay: { method: "POST", path: "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel", pathParams: ["id","replayId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   checkInAsset: { method: "POST", path: "/v1/assets/{assetId}/check-in", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   checkOutAsset: { method: "POST", path: "/v1/assets/{assetId}/check-out", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
@@ -27394,7 +27432,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Approve exactly what an app asked for.
+   * Approve what an app asked for, or part of it.
    *
    * POST /v1/apps/{id}/approve. Needs integration:write.
    */
@@ -27634,6 +27672,15 @@ export abstract class GeneratedOperations {
    */
   cancelMailCampaign(input: CancelMailCampaignParams & CancelMailCampaignInput, options?: CallOptions): Promise<CancelMailCampaignOutput> {
     return this.call("cancelMailCampaign", input, options);
+  }
+
+  /**
+   * Stop a replay that is still waiting.
+   *
+   * POST /v1/webhooks/endpoints/{id}/replays/{replayId}/cancel. Needs integration:write.
+   */
+  cancelWebhookReplay(input: CancelWebhookReplayParams & CancelWebhookReplayInput, options?: CallOptions): Promise<CancelWebhookReplayOutput> {
+    return this.call("cancelWebhookReplay", input, options);
   }
 
   /**

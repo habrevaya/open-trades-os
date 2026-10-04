@@ -117,6 +117,15 @@ test("a failing receiver's answer is readable, filtered, and sent again from the
   await queued.$close();
   expect(replays).toEqual([{ status: "pending" }]);
 
+  /** Changed their mind before the worker came round: stopped, and nothing more of it goes. */
+  const asked = owner.getByRole("table", { name: "Sent again on request" }).getByRole("row").filter({ hasText: "Waiting" });
+  await asked.getByRole("button", { name: "Stop it" }).click();
+  await expect(asked.getByRole("status")).toContainText("Stopped. Nothing more of it is sent.");
+  await owner.reload();
+  const stoppedRow = owner.getByRole("table", { name: "Sent again on request" }).getByRole("row").filter({ hasText: "Stopped" });
+  await expect(stoppedRow).toContainText("before anything went");
+  await expect(stoppedRow.getByRole("button", { name: "Stop it" })).toHaveCount(0);
+
   /** And off again, so nothing in this database keeps a receiver that does not exist. */
   await owner.getByRole("table", { name: "Endpoints" }).getByRole("row").filter({ hasText: url })
     .getByRole("button", { name: "Remove" }).click();
