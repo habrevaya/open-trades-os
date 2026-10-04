@@ -64,6 +64,28 @@ export default async function PersonPage({ params }: { params: Promise<{ members
         <Fact label="Role">{person.roleLabel}</Fact>
         <Fact label="Email">{person.email}</Fact>
         <Fact label="Started">{person.employment?.startedOn ?? null}</Fact>
+        {/*
+          Said even when nobody is recorded, unlike the other facts: late work is sent
+          up this line, so "nobody" is something the office needs to see, not a blank.
+        */}
+        <div data-testid="reports-to">
+          <dt className="text-xs uppercase tracking-wide text-ink-500">Reports to</dt>
+          <dd className="mt-0.5 text-sm">
+            {person.reportsTo ? (
+              <>
+                <a href={`/people/${person.reportsTo.membershipId}`} className="hover:underline">
+                  {person.reportsTo.name ?? person.reportsTo.email}
+                </a>
+                {person.reportsTo.active ? null : <span className="ml-2 text-amber-700">no longer works here</span>}
+              </>
+            ) : (
+              <span className="text-ink-500">Nobody recorded</span>
+            )}
+            {writes ? (
+              <a href="/tasks/escalation" className="ml-3 text-xs text-ink-500 underline underline-offset-4">Change</a>
+            ) : null}
+          </dd>
+        </div>
       </Facts>
 
       <section className="mt-8" aria-labelledby="onboarding">

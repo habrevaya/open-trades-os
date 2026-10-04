@@ -40,6 +40,115 @@ describe("which day a recurring task is for", () => {
   });
 });
 
+describe("every other week", () => {
+  // 2026-10-05 is a Monday. Starting then, the on weeks are the weeks of the 5th, 19th, 2 Nov.
+  const everyOther = { frequency: "every_other_week" as const, weekday: 1, startsOn: MONDAY };
+
+  it("counts from the first such weekday on or after the day it starts", () => {
+    expect(occurrenceOnOrBefore(everyOther, MONDAY)).toBe(MONDAY);
+    expect(occurrenceOnOrBefore(everyOther, "2026-10-11")).toBe(MONDAY);
+    expect(occurrenceOnOrBefore(everyOther, "2026-10-12")).toBe(MONDAY);
+    expect(occurrenceOnOrBefore(everyOther, "2026-10-19")).toBe("2026-10-19");
+    expect(occurrenceOnOrBefore(everyOther, "2026-11-01")).toBe("2026-10-19");
+    expect(occurrenceOnOrBefore(everyOther, "2026-11-02")).toBe("2026-11-02");
+  });
+
+  it("starts on the weekday after the start day when the start day is another weekday", () => {
+    // Starting on a Wednesday, an every other Monday task is first due the Monday after.
+    const wed = { frequency: "every_other_week" as const, weekday: 1, startsOn: "2026-10-07" };
+    expect(occurrenceOnOrBefore(wed, "2026-10-11")).toBeNull();
+    expect(occurrenceOnOrBefore(wed, "2026-10-12")).toBe("2026-10-12");
+    expect(occurrenceAfter(wed, "2026-10-01")).toBe("2026-10-12");
+    expect(occurrenceAfter(wed, "2026-10-12")).toBe("2026-10-26");
+  });
+
+  it("keeps the same on weeks across a year end and a leap day", () => {
+    const winter = { frequency: "every_other_week" as const, weekday: 5, startsOn: "2027-12-03" };
+    expect(occurrenceAfter(winter, "2027-12-17")).toBe("2027-12-31");
+    expect(occurrenceAfter(winter, "2027-12-31")).toBe("2028-01-14");
+    const leap = { frequency: "every_other_week" as const, weekday: 2, startsOn: "2028-02-01" };
+    expect(occurrenceAfter(leap, "2028-02-15")).toBe("2028-02-29");
+    expect(occurrenceAfter(leap, "2028-02-29")).toBe("2028-03-14");
+  });
+
+  it("is never late for a worker that was down, and never raises the off week", () => {
+    expect(occurrenceToRaise(everyOther, "2026-10-14", "2026-10-05")).toBeNull();
+    expect(occurrenceToRaise(everyOther, "2026-10-19", "2026-10-05")).toBe("2026-10-19");
+    expect(occurrenceToRaise(everyOther, "2026-11-04", "2026-10-05")).toBe("2026-11-02");
+  });
+
+  it("is the first day for a schedule that has not started", () => {
+    expect(occurrenceAfter(everyOther, "2026-09-01")).toBe(MONDAY);
+  });
+});
+
+describe("weekdays only", () => {
+  const weekdays = { frequency: "weekdays" as const, startsOn: "2026-01-01" };
+
+  it("is today on a working day and the Friday before on a weekend", () => {
+    expect(occurrenceOnOrBefore(weekdays, MONDAY)).toBe(MONDAY);
+    expect(occurrenceOnOrBefore(weekdays, "2026-10-09")).toBe("2026-10-09");
+    expect(occurrenceOnOrBefore(weekdays, "2026-10-10")).toBe("2026-10-09");
+    expect(occurrenceOnOrBefore(weekdays, "2026-10-11")).toBe("2026-10-09");
+  });
+
+  it("raises nothing at the weekend once Friday's was raised", () => {
+    expect(occurrenceToRaise(weekdays, "2026-10-10", "2026-10-09")).toBeNull();
+    expect(occurrenceToRaise(weekdays, "2026-10-12", "2026-10-09")).toBe("2026-10-12");
+  });
+
+  it("skips the weekend when asked for the next one", () => {
+    expect(occurrenceAfter(weekdays, "2026-10-08")).toBe("2026-10-09");
+    expect(occurrenceAfter(weekdays, "2026-10-09")).toBe("2026-10-12");
+    expect(occurrenceAfter(weekdays, "2026-10-10")).toBe("2026-10-12");
+    expect(occurrenceAfter(weekdays, "2026-10-11")).toBe("2026-10-12");
+  });
+
+  it("has nothing before it starts, and nothing on a weekend before a first Monday", () => {
+    // Starting on a Saturday, the first one is the Monday after; there is no Friday before it to raise.
+    const saturday = { frequency: "weekdays" as const, startsOn: "2026-10-10" };
+    expect(occurrenceOnOrBefore(saturday, "2026-10-11")).toBeNull();
+    expect(occurrenceOnOrBefore(saturday, "2026-10-12")).toBe("2026-10-12");
+    expect(occurrenceAfter(saturday, "2026-10-01")).toBe("2026-10-12");
+  });
+});
+
+describe("the last given weekday of the month", () => {
+  const lastFriday = { frequency: "last_weekday_of_month" as const, weekday: 5, startsOn: "2026-01-01" };
+
+  it("is the fourth Friday in one month and the fifth in another", () => {
+    // October 2026 has five Fridays, the last on the 30th; November has four, the last on the 27th.
+    expect(occurrenceOnOrBefore(lastFriday, "2026-10-31")).toBe("2026-10-30");
+    expect(occurrenceOnOrBefore(lastFriday, "2026-11-30")).toBe("2026-11-27");
+  });
+
+  it("is the last day of the month when that day is the weekday", () => {
+    // 31 July 2026 is a Friday.
+    expect(occurrenceOnOrBefore(lastFriday, "2026-07-31")).toBe("2026-07-31");
+    expect(occurrenceAfter(lastFriday, "2026-07-30")).toBe("2026-07-31");
+  });
+
+  it("goes to last month before this month's has come", () => {
+    expect(occurrenceOnOrBefore(lastFriday, "2026-10-29")).toBe("2026-09-25");
+    expect(occurrenceOnOrBefore(lastFriday, "2026-01-30")).toBe("2026-01-30");
+    expect(occurrenceOnOrBefore(lastFriday, "2026-01-29")).toBeNull();
+  });
+
+  it("finds the next one across a year end and in a leap February", () => {
+    expect(occurrenceAfter(lastFriday, "2026-12-25")).toBe("2027-01-29");
+    expect(occurrenceAfter(lastFriday, "2026-12-31")).toBe("2027-01-29");
+    const leapMonday = { frequency: "last_weekday_of_month" as const, weekday: 2, startsOn: "2028-01-01" };
+    // The last Tuesday of February 2028 is the 29th, the leap day.
+    expect(occurrenceAfter(leapMonday, "2028-02-01")).toBe("2028-02-29");
+    expect(occurrenceAfter(leapMonday, "2028-02-29")).toBe("2028-03-28");
+  });
+
+  it("raises once, and not the month before when a worker was down over a month end", () => {
+    expect(occurrenceToRaise(lastFriday, "2026-11-02", "2026-09-25")).toBe("2026-10-30");
+    expect(occurrenceToRaise(lastFriday, "2026-10-31", "2026-10-30")).toBeNull();
+  });
+});
+
 describe("raising it once", () => {
   const daily = { frequency: "daily" as const, startsOn: "2026-01-01" };
 
@@ -76,6 +185,18 @@ describe("the schedule in words", () => {
     expect(describeSchedule({ frequency: "weekly", weekday: 1, startsOn: MONDAY })).toBe("Every Monday");
     expect(describeSchedule({ frequency: "monthly", monthDay: 1, startsOn: MONDAY })).toBe("On the 1st of every month");
     expect(describeSchedule({ frequency: "monthly", monthDay: 31, startsOn: MONDAY })).toContain("last day");
+    expect(describeSchedule({ frequency: "every_other_week", weekday: 5, startsOn: MONDAY })).toBe("Every other Friday");
+    expect(describeSchedule({ frequency: "weekdays", startsOn: MONDAY })).toBe("Every weekday, Monday to Friday");
+    expect(describeSchedule({ frequency: "last_weekday_of_month", weekday: 5, startsOn: MONDAY }))
+      .toBe("On the last Friday of every month");
+  });
+
+  it("wants a weekday for every other week and the last of the month, and none for weekdays only", () => {
+    expect(checkSchedule({ frequency: "every_other_week", startsOn: MONDAY }).ok).toBe(false);
+    expect(checkSchedule({ frequency: "last_weekday_of_month", weekday: 7, startsOn: MONDAY }).ok).toBe(false);
+    expect(checkSchedule({ frequency: "last_weekday_of_month", weekday: 0, startsOn: MONDAY }).ok).toBe(true);
+    expect(checkSchedule({ frequency: "every_other_week", weekday: 2, startsOn: MONDAY }).ok).toBe(true);
+    expect(checkSchedule({ frequency: "weekdays", startsOn: MONDAY }).ok).toBe(true);
   });
 
   it("refuses a weekly task with no weekday and a monthly one with no day", () => {

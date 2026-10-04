@@ -619,6 +619,12 @@ export interface PersonView {
   emergencyContacts: EmergencyContactView[];
   employment: EmploymentView | null;
   skills: SkillsView | null;
+  /**
+   * Who they report to, from the same line the escalation screen sets (M34), so the
+   * two cannot disagree. Null when nobody is recorded. `active` is false for a manager
+   * who has left, whose line is still there until somebody changes it.
+   */
+  reportsTo: { membershipId: string; name: string | null; email: string; active: boolean } | null;
   /** What they were asked to sign, and whether they have. */
   documents: { requestId: string; documentId: string; title: string; askedAt: string; signedAt: string | null; signedVia: string | null }[];
 }
@@ -633,6 +639,17 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
       .where(eq(schema.role.id, member.roleId)).limit(1) : [];
     const [technician] = await tx.select().from(schema.technician)
       .where(eq(schema.technician.membershipId, member.id)).limit(1);
+    const [manager] = member.reportsToUserId
+      ? await tx.select({ id: schema.membership.id, active: schema.membership.active }).from(schema.membership)
+        .where(and(
+          eq(schema.membership.organizationId, ctx.actor.organizationId),
+          eq(schema.membership.userId, member.reportsToUserId),
+        )).limit(1)
+      : [];
+    const [managerName] = manager
+      ? await tx.execute<{ name: string | null; email: string }>(
+        sql`select name, email from app.organization_people() where membership_id = ${manager.id}`)
+      : [];
     return {
       membershipId: member.id,
       name: directory?.name ?? null,
@@ -645,6 +662,9 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
       emergencyContacts: await contactsWithin(tx, member.id),
       employment: await employmentWithin(tx, member.id),
       skills: technician ? await skillsWithin(tx, technician) : null,
+      reportsTo: manager
+        ? { membershipId: manager.id, name: managerName?.name ?? null, email: managerName?.email ?? "", active: manager.active }
+        : null,
       documents: (await staffDocuments.ownWithin(tx, member.id)).map(({ body: _body, signerName: _signer, ...rest }) => rest),
     };
   });

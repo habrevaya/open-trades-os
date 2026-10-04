@@ -210,6 +210,12 @@ what they are paid: that is payroll's, behind `payroll:read`. All of it is the
 roster's, `user:read` to read and `user:write` to change, and it is on
 `/people`, where somebody with nobody on file to ring is said in words.
 
+A person's own page, `/people/{membershipId}`, also says who they report to
+("Reports to", linked to the manager's page, or "Nobody recorded"), and
+`GET /v1/people/{membershipId}` carries it as `reportsTo`. The line is the one the
+escalation screen sets (M34) and nothing here changes it; the page links there for
+somebody who may.
+
 ### Skills with dates and evidence
 
 `POST /v1/technicians/{technicianId}/skills` records a skill with since when

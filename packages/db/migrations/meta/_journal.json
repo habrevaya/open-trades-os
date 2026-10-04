@@ -673,6 +673,13 @@
       "when": 1791124543727,
       "tag": "0095_huge_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791147979481,
+      "tag": "0096_handy_adam_destine",
+      "breakpoints": true
     }
   ]
 }

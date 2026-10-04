@@ -39,7 +39,7 @@ export default async function RecurringTasksPage() {
       <div className="mt-1"><PageHeader title="Recurring tasks" count={templates.length} /></div>
 
       {templates.length === 0 ? (
-        <Empty title="Nothing recurs yet">Add the work that comes round every day, week or month, and it lands in the queue on the day.</Empty>
+        <Empty title="Nothing recurs yet">Add the work that comes round every day, week or month, or every other week or on the last Friday of the month, and it lands in the queue on the day.</Empty>
       ) : (
         <Table label="Recurring tasks" head={<><Th>Task</Th><Th>When</Th><Th>For</Th><Th>Next</Th><Th /></>}>
           {templates.map((t) => (
@@ -72,12 +72,15 @@ export default async function RecurringTasksPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <Select label="How often" name="frequency" options={[
                 { value: "daily", label: "Every day" },
+                { value: "weekdays", label: "Every weekday, Monday to Friday" },
                 { value: "weekly", label: "Every week" },
-                { value: "monthly", label: "Every month" },
+                { value: "every_other_week", label: "Every other week" },
+                { value: "monthly", label: "Every month, on a date" },
+                { value: "last_weekday_of_month", label: "The last one of every month" },
               ]} />
-              <Select label="On (weekly)" name="weekday" defaultValue="1"
+              <Select label="Day of the week (weekly, every other week, last of the month)" name="weekday" defaultValue="1"
                       options={WEEKDAYS.map((d, i) => ({ value: String(i), label: d }))} />
-              <TextField label="Day of the month (monthly)" name="monthDay" type="number" min={1} max={31} defaultValue="1" />
+              <TextField label="Date of the month (every month, on a date)" name="monthDay" type="number" min={1} max={31} defaultValue="1" />
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <TextField label="Due at" name="dueTime" type="time" defaultValue="17:00" />
@@ -85,6 +88,11 @@ export default async function RecurringTasksPage() {
               <Select label="Priority" name="priority" defaultValue="normal"
                       options={Object.entries(TASK_PRIORITY).map(([value, l]) => ({ value, label: l }))} />
             </div>
+            <p className="text-xs text-ink-500">
+              Every other week starts with the first of that day of the week on or after the starting day,
+              then every second one after it. The last one of every month is the last Friday, say, whether
+              that is the fourth or the fifth.
+            </p>
             <Select label="For" name="assigneeUserId"
                     options={[{ value: "", label: "Nobody yet (the queue)" }, ...people.map((p) => ({ value: p.userId, label: p.name }))]} />
             <TextArea label="Checklist, one item a line" name="checklist" rows={3} />

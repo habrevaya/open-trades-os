@@ -181,6 +181,43 @@ test("a unit is corrected and moved to another address from its own page", async
   expect(((await now.json()) as { propertyId: string }).propertyId).not.toBe(from);
 });
 
+test("who a person reports to is on their own page, and follows the escalation screen", async ({ owner }) => {
+  const roster = await owner.request.get("/api/v1/roster");
+  const active = ((await roster.json()) as { people: { membershipId: string; name: string | null; email: string; active: boolean }[] })
+    .people.filter((p) => p.active);
+  expect(active.length).toBeGreaterThan(1);
+  const [person, manager] = active as [typeof active[number], typeof active[number]];
+  const personName = person.name ?? person.email;
+  const managerName = manager.name ?? manager.email;
+
+  await owner.goto("/tasks/escalation");
+  const select = owner.getByLabel(`Manager of ${personName}`);
+  await select.selectOption({ label: managerName });
+  await select.locator("xpath=ancestor::form").getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => {
+    const lines = await owner.request.get("/api/v1/reporting-lines");
+    const all = (await lines.json()) as { people?: { name: string; reportsToUserId: string | null }[] };
+    return all.people?.find((l) => l.name === personName)?.reportsToUserId ?? null;
+  }, { message: "the line was set" }).not.toBeNull();
+
+  await owner.goto(`/people/${person.membershipId}`);
+  const line = owner.getByTestId("reports-to");
+  await expect(line).toContainText("Reports to");
+  await expect(line.getByRole("link", { name: managerName })).toHaveAttribute("href", `/people/${manager.membershipId}`);
+
+  // And taken off again, which the page says in words rather than leaving blank.
+  await owner.goto("/tasks/escalation");
+  await select.selectOption("");
+  await select.locator("xpath=ancestor::form").getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => {
+    const lines = await owner.request.get("/api/v1/reporting-lines");
+    const all = (await lines.json()) as { people?: { name: string; reportsToUserId: string | null }[] };
+    return all.people?.find((l) => l.name === personName)?.reportsToUserId ?? null;
+  }, { message: "the line was taken off" }).toBeNull();
+  await owner.goto(`/people/${person.membershipId}`);
+  await expect(owner.getByTestId("reports-to")).toContainText("Nobody recorded");
+});
+
 test("a category is added, and a price change is previewed, applied and undone", async ({ owner }) => {
   await owner.goto("/pricebook/categories");
   const shelf = `Shelf ${run}`;
@@ -277,10 +314,23 @@ test("a task with a checklist closes only when ticked or with a reason, and the 
   await owner.goto("/tasks/recurring");
   await owner.getByLabel("What needs doing").fill(`Check the vans ${run}`);
   await owner.getByLabel("How often").selectOption("weekly");
-  await owner.getByLabel("On (weekly)").selectOption("1");
+  await owner.getByLabel(/^Day of the week/).selectOption("1");
   await owner.getByLabel("Checklist, one item a line").fill("Tyres\nOil");
   await owner.getByRole("button", { name: "Add recurring task" }).click();
   await expect(owner.getByRole("row", { name: new RegExp(`Check the vans ${run}`) })).toContainText("Every Monday");
+
+  // The three newer schedules, each read back in words and with its next day.
+  const add = async (title: string, how: string, weekday?: string) => {
+    await owner.getByLabel("What needs doing").fill(title);
+    await owner.getByLabel("How often").selectOption(how);
+    if (weekday) await owner.getByLabel(/^Day of the week/).selectOption(weekday);
+    await owner.getByRole("button", { name: "Add recurring task" }).click();
+    return owner.getByRole("row", { name: new RegExp(title) });
+  };
+  await expect(await add(`Payroll check ${run}`, "every_other_week", "5")).toContainText("Every other Friday");
+  await expect(await add(`Open the shop ${run}`, "weekdays")).toContainText("Every weekday, Monday to Friday");
+  await expect(await add(`Month end count ${run}`, "last_weekday_of_month", "5"))
+    .toContainText("On the last Friday of every month");
 
   await owner.goto("/tasks/escalation");
   await owner.getByLabel("Name", { exact: true }).fill(`Late call backs ${run}`);

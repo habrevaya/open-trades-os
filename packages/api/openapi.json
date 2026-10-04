@@ -72636,7 +72636,7 @@
       ],
       "get": {
         "operationId": "getPersonRecord",
-        "summary": "One person: onboarding, emergency contacts, employment and skills",
+        "summary": "One person: who they report to, onboarding, emergency contacts, employment and skills",
         "description": "Certifications and continuing education are not here: they are compliance records, behind `compliance:read`, at `/v1/certifications` and `/v1/technicians/{technicianId}/continuing-education`.\n\nRequires a session holding: user:read.",
         "tags": [
           "M24"
@@ -72654,7 +72654,7 @@
         ],
         "responses": {
           "200": {
-            "description": "One person: onboarding, emergency contacts, employment and skills",
+            "description": "One person: who they report to, onboarding, emergency contacts, employment and skills",
             "content": {
               "application/json": {
                 "schema": {
@@ -94758,7 +94758,7 @@
       "get": {
         "operationId": "listReportingLines",
         "summary": "Who answers to whom",
-        "description": "Read by escalation and nothing else: \"tell the assignee's manager\" needs a person, and a role preset is not one.\n\nRequires a session holding: user:read.",
+        "description": "Read by escalation, where \"tell the assignee's manager\" needs a person and a role preset is not one, and shown on a person's own page (`reportsTo` on `GET /v1/people/{membershipId}`).\n\nRequires a session holding: user:read.",
         "tags": [
           "M34"
         ],
@@ -106996,8 +106996,8 @@
       ],
       "post": {
         "operationId": "createTaskTemplate",
-        "summary": "Make a task come round daily, weekly or monthly",
-        "description": "Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
+        "summary": "Make a task come round on a schedule",
+        "description": "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`) or `last_weekday_of_month` (needs `weekday`: the last Friday, say). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
         "tags": [
           "M34"
         ],
@@ -107024,7 +107024,7 @@
         },
         "responses": {
           "201": {
-            "description": "Make a task come round daily, weekly or monthly",
+            "description": "Make a task come round on a schedule",
             "content": {
               "application/json": {
                 "schema": {
@@ -137315,8 +137315,11 @@
             "type": "string",
             "enum": [
               "daily",
+              "weekdays",
               "weekly",
-              "monthly"
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
             ]
           },
           "weekday": {
@@ -137407,8 +137410,11 @@
             "type": "string",
             "enum": [
               "daily",
+              "weekdays",
               "weekly",
-              "monthly"
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
             ]
           },
           "weekday": {
@@ -159769,6 +159775,36 @@
               "ended"
             ]
           },
+          "reportsTo": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "membershipId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": "string"
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "membershipId",
+              "name",
+              "email",
+              "active"
+            ]
+          },
           "documents": {
             "type": "array",
             "items": {
@@ -159830,6 +159866,7 @@
           "emergencyContacts",
           "employment",
           "skills",
+          "reportsTo",
           "documents"
         ]
       },
@@ -187947,8 +187984,11 @@
                   "type": "string",
                   "enum": [
                     "daily",
+                    "weekdays",
                     "weekly",
-                    "monthly"
+                    "every_other_week",
+                    "monthly",
+                    "last_weekday_of_month"
                   ]
                 },
                 "weekday": {
@@ -226006,8 +226046,11 @@
             "type": "string",
             "enum": [
               "daily",
+              "weekdays",
               "weekly",
-              "monthly"
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
             ]
           },
           "weekday": {
@@ -226097,8 +226140,11 @@
             "type": "string",
             "enum": [
               "daily",
+              "weekdays",
               "weekly",
-              "monthly"
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
             ]
           },
           "weekday": {

@@ -140,10 +140,23 @@ and `POST /v1/tasks/{id}/checklist/{itemId}/remove`.
 
 ### Recurring tasks
 
-`/tasks/recurring` is the work that comes round every day, every week on a
-weekday, or every month on a day (the 31st is held to the last day of a
-shorter month), with who it goes to, when on the day it is due, its priority
-and a checklist. The worker raises each one on the day in the COMPANY'S
+`/tasks/recurring` is the work that comes round every day, every weekday
+(Monday to Friday), every week on a weekday, every other week on a weekday,
+every month on a date (the 31st is held to the last day of a shorter month) or
+on the last given weekday of every month (the last Friday, whether it is the
+fourth or the fifth), with who it goes to, when on the day it is due, its
+priority and a checklist. The rules for which day each one is for are in core's
+`tasks` module with unit tests, so the worker, the API and the screen cannot
+count differently.
+
+An every other week task is counted from its first day: the first of its
+weekday on or after "Starting", and every fourteenth day after that, so
+"Starting" is what says which of the two weeks is the on week, and editing it
+moves the on week. A weekdays task is never raised for a Saturday or a Sunday;
+a worker that was down over a weekend raises Friday's, as it raises the latest
+one of any schedule, and nothing more. In the API the frequencies are `daily`,
+`weekdays`, `weekly`, `every_other_week`, `monthly` and `last_weekday_of_month`,
+and the three that come round on a named day take `weekday`. The worker raises each one on the day in the COMPANY'S
 timezone, so Monday's task is not raised on Sunday evening in Chicago, and
 each is paused and resumed from the same screen.
 
@@ -172,7 +185,10 @@ rather than thrown. The late task is marked escalated, and its page lists every
 escalation with who was told and why those people.
 
 "The manager" is who the person answers to, which the same screen records
-(`user:write`, because it is a fact about people). With no manager recorded, an
+(`user:write`, because it is a fact about people), and which the person's own
+page at `/people/{membershipId}` shows as "Reports to", linked to the manager's
+page, with "Nobody recorded" when there is none and a note when the manager has
+since left (`GET /v1/people/{membershipId}` carries it as `reportsTo`). With no manager recorded, an
 unassigned task, nobody in the chosen role, or a named person who has left, the
 owners are told and the escalation says so in words.
 `GET /v1/task-escalation-rules`, `POST /v1/task-escalation-rules`,
@@ -267,14 +283,16 @@ again on the tasks it already acted on. The notice is a task and an email; there
 is no text message or push notification to staff, because the product has no
 staff messaging channel apart from email.
 
-Recurring tasks are daily, weekly on one weekday, or monthly on one day; there
-is no "every other week", no "last Friday of the month" and no "weekdays only".
-A change to a template applies to the tasks it raises from then on, and a missed
-occurrence is not backfilled, deliberately.
+Recurring tasks have no "first Monday of the month", no "every third week" and no
+choice of which weekdays beyond a named one: weekdays only is always Monday to
+Friday, and a company with a different working week uses a weekly task for each
+day. An every other week task cannot be told to skip a week for a holiday: the
+off week is the off week. A change to a template applies to the tasks it raises
+from then on, and a missed occurrence is not backfilled, deliberately.
 
-Reporting lines are recorded only for escalation, on the escalation screen;
-nothing else in the product reads them, and the person's own page at
-`/people/{membershipId}` (M24) does not show who they report to.
+Reporting lines are set only on the escalation screen, and are read by escalation
+and shown on the person's own page; nothing else in the product reads them, and
+the page does not change them.
 
 Obligations are raised by work finished on a cancelled visit, by a contract's
 clocks on a job (respond by, on site by, finished by, invoice by and claim by,

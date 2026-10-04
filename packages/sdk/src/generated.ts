@@ -3696,7 +3696,7 @@ export interface CreateTaskTemplateInput {
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
   queue?: string;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday?: number | null;
   monthDay?: number | null;
   dueMinutes?: number;
@@ -3712,7 +3712,7 @@ export interface CreateTaskTemplateOutput {
   assigneeUserId: string | null;
   assigneeName: string | null;
   queue: string | null;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday: number | null;
   monthDay: number | null;
   dueMinutes: number;
@@ -8063,6 +8063,12 @@ export interface GetPersonRecordOutput {
       endedOn: string | null;
       endedReason: string | null;
     }>;
+  } | null;
+  reportsTo: {
+    membershipId: string;
+    name: string | null;
+    email: string;
+    active: boolean;
   } | null;
   documents: Array<{
     requestId: string;
@@ -13419,7 +13425,7 @@ export interface ListTaskTemplatesOutput {
     assigneeUserId: string | null;
     assigneeName: string | null;
     queue: string | null;
-    frequency: "daily" | "weekly" | "monthly";
+    frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
     weekday: number | null;
     monthDay: number | null;
     dueMinutes: number;
@@ -21192,7 +21198,7 @@ export interface UpdateTaskTemplateInput {
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
   queue?: string;
-  frequency?: "daily" | "weekly" | "monthly";
+  frequency?: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday?: number | null;
   monthDay?: number | null;
   dueMinutes?: number;
@@ -21209,7 +21215,7 @@ export interface UpdateTaskTemplateOutput {
   assigneeUserId: string | null;
   assigneeName: string | null;
   queue: string | null;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday: number | null;
   monthDay: number | null;
   dueMinutes: number;
@@ -28306,7 +28312,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Make a task come round daily, weekly or monthly.
+   * Make a task come round on a schedule.
    *
    * POST /v1/task-templates. Needs task:write.
    */
@@ -29800,7 +29806,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * One person: onboarding, emergency contacts, employment and skills.
+   * One person: who they report to, onboarding, emergency contacts, employment and skills.
    *
    * GET /v1/people/{membershipId}. Needs user:read.
    */
