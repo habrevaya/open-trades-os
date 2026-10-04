@@ -287,7 +287,7 @@ matches anywhere in the value, ignoring case. `GET /v1/customers`,
 field's key, a colon and the value (`fields=plan:Annual&fields=has_pets:yes`), every
 one of which has to hold, up to ten; `fieldKey` and `fieldValue` still work and are
 one more beside them. A key the company has not declared on that record is refused
-in words rather than matching nobody, and so is a filter that is not `key:value`.
+in words rather than matching nobody, and so is a filter that is not a key, a colon and a value.
 
 In the report builder every field is a column, a filter and a grouping on the
 dataset its record is a row of (a job's fields on Jobs and Job profitability, an
