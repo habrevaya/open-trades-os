@@ -12,7 +12,7 @@ status: partial
 
 ## What it does
 
-Lets a company connect the model account it already pays for, and runs six
+Lets a company connect the model account it already pays for, and runs seven
 agents on it: intake (texts, emails, call transcripts and web forms into
 booking drafts), a website and text chat, a phone assistant that answers calls
 live, an estimate drafter, collections, a dispatch copilot, and a field assistant
