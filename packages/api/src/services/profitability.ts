@@ -54,8 +54,9 @@ export const CAVEATS = {
     + "The overtime premium is NOT included, because overtime is a property of a person's week rather than of a job: "
     + "the forty first hour is expensive because of forty hours worked on other jobs. The premium stays on the timesheet.",
   cost:
-    "Revenue and processing fees come from the ledger. Material and labour cost do not, because nothing in this product posts to COGS: "
+    "Revenue and processing fees come from the ledger. Material and labour cost mostly do not, because using stock does not post to cost of goods sold here: "
     + "they are read from the job lines and the timeclock, which are the records of consumption that exist. "
+    + "The exception is freight or duty billed after a delivery, on parts this job used: that is posted to cost of goods sold on the job and added to material cost. "
     + "Every figure traces to the rows listed beside it.",
   fees:
     "A card fee is posted against the customer rather than the job, because one payment can clear invoices on several jobs. "
@@ -136,6 +137,8 @@ export interface JobProfitability {
 
   caveats: typeof CAVEATS;
   revenueEntries: LedgerRow[];
+  /** Cost of goods sold posted to the job: late freight on parts it used. Added to material cost. */
+  costEntries: LedgerRow[];
   feeEntries: LedgerRow[];
   lines: CostedLine[];
   labour: LabourRow[];
@@ -254,7 +257,7 @@ export async function statement(
              le.amount::numeric(14,4)::text as amount, le.source_type, le.source_id, le.memo
       from public.ledger_entry le
       where le.job_id = ${input.jobId}::uuid
-        and le.account_code in ('4000', '4100', '4900', '6100')
+        and le.account_code in ('4000', '4100', '4900', '6100', '5000')
       order by le.occurred_at, le.account_code
     `);
 
@@ -441,7 +444,8 @@ export async function statement(
       labourRecorded,
 
       caveats: CAVEATS,
-      revenueEntries: ledger.filter((r) => r.account_code !== "6100").map(toLedgerRow),
+      revenueEntries: ledger.filter((r) => r.account_code !== "6100" && r.account_code !== "5000").map(toLedgerRow),
+      costEntries: ledger.filter((r) => r.account_code === "5000").map(toLedgerRow),
       feeEntries: [
         ...ledger.filter((r) => r.account_code === "6100").map(toLedgerRow),
         ...allocatedFees.map(toLedgerRow),

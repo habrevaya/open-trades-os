@@ -29,7 +29,22 @@ export const ACCOUNTS = {
    */
   RETAINAGE_RECEIVABLE: "1210",
   CASH: "1000",               // Undeposited funds
+  /**
+   * Stock. In this product it holds ONE thing: freight and duty billed after
+   * a delivery was received, on the parts still on a shelf. Receiving and
+   * using stock do not post here (job costing reads material from the job's
+   * lines, and stock value is the costing replay's), so this is not a
+   * perpetual inventory and does not pretend to be. Each use relieves the
+   * late freight it took, so the balance is always the late freight still on
+   * a shelf, which the stock screens can prove.
+   */
   INVENTORY: "1300",
+  /**
+   * Owed to a supplier. Only a late freight or duty bill posts here: it is the
+   * one supplier bill this product records, because it has to be spread onto
+   * stock and jobs. Paying it is the accountant's, in their own books.
+   */
+  ACCOUNTS_PAYABLE: "2000",
   CUSTOMER_DEPOSITS: "2300",  // Money held against work not yet done. A LIABILITY.
   DEFERRED_REVENUE: "2400",   // Unearned agreement revenue. A LIABILITY.
   TAX_PAYABLE: "2200",        // Sales tax collected, owed to a jurisdiction
@@ -866,6 +881,86 @@ export function postWriteOff(input: {
     entries: compact([
       dr(ACCOUNTS.WRITE_OFF, input.amount, "Balance written off", tag),
       cr(ACCOUNTS.AR, input.amount, "Receivable removed", tag),
+    ]),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stock: freight billed after the delivery
+// ---------------------------------------------------------------------------
+
+/**
+ * A FREIGHT OR DUTY BILL THAT ARRIVED AFTER THE DELIVERY.
+ *
+ * Owed to the carrier in full, and spread by `inventory.planLateLandedCost`:
+ * the share on parts still on a shelf is stock, the share on parts already
+ * used is each job's cost of goods sold (tagged with the job, so job costing
+ * reads it), and the share on parts already scrapped, short or sent back is a
+ * cost with no job. The amounts come in already allocated to the cent and
+ * must add up to the bill, which `assertBalanced` proves.
+ */
+export function postLateLandedCost(input: {
+  billId: string;
+  occurredAt: Date;
+  total: Money;
+  onShelf: Money;
+  byJob: readonly { jobId: string; amount: Money }[];
+  onGone: Money;
+}): Posting {
+  return assertBalanced({
+    sourceType: "landed_cost_bill",
+    sourceId: input.billId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.INVENTORY, input.onShelf, "Late freight on stock still on hand"),
+      ...input.byJob.map((job) => dr(ACCOUNTS.COGS, job.amount, "Late freight on parts used on this job", { jobId: job.jobId })),
+      dr(ACCOUNTS.COGS, input.onGone, "Late freight on stock no longer on hand"),
+      cr(ACCOUNTS.ACCOUNTS_PAYABLE, input.total, "Freight or duty bill owed"),
+    ]),
+  });
+}
+
+/**
+ * Parts carrying late freight leave a shelf: used on a job, scrapped, short
+ * on a count or sent back to the vendor. The late freight they carried leaves
+ * stock for cost of goods sold, on the job when there is one.
+ */
+export function postLateCostRelief(input: {
+  movementId: string;
+  occurredAt: Date;
+  amount: Money;
+  jobId?: string | null | undefined;
+}): Posting {
+  const tag = input.jobId ? { jobId: input.jobId } : undefined;
+  return assertBalanced({
+    sourceType: "stock_movement",
+    sourceId: input.movementId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.COGS, input.amount, input.jobId ? "Late freight on parts used on this job" : "Late freight on stock that left", tag),
+      cr(ACCOUNTS.INVENTORY, input.amount, "Late freight leaving stock"),
+    ]),
+  });
+}
+
+/**
+ * A unit back off a job, the reverse of what its use posted: the late
+ * freight it carried goes back into stock and off the job's cost.
+ */
+export function postLateCostReturn(input: {
+  movementId: string;
+  occurredAt: Date;
+  amount: Money;
+  jobId: string;
+}): Posting {
+  const tag = { jobId: input.jobId };
+  return assertBalanced({
+    sourceType: "stock_movement",
+    sourceId: input.movementId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.INVENTORY, input.amount, "Late freight back into stock"),
+      cr(ACCOUNTS.COGS, input.amount, "Late freight off the job: the part came back", tag),
     ]),
   });
 }

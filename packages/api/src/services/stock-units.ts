@@ -7,7 +7,7 @@ import {
 import { inForceAt } from "./pricebook";
 import * as once from "./once";
 import {
-  history, nextSequence, trackingOf, transfer, writeMovements, type UnitInput,
+  history, itemLabel, nextSequence, placeLabel, relieveLateFreight, trackingOf, transfer, writeMovements, type UnitInput,
 } from "./inventory";
 
 /**
@@ -83,12 +83,13 @@ export function jobByNumber(ctx: ServiceContext, input: { number: number }) {
 /**
  * Track an item by serial or lot, or stop tracking it (`mode: null`).
  *
- * TURNING IT ON IS REFUSED WHILE UNNUMBERED STOCK IS ON HAND. Four
- * compressors on the shelf with no numbers would become four units nobody
- * could ever issue, because every issue of a tracked item has to say which
- * one. The sentence says where they are, and the time to switch is before
- * the next delivery or when the shelf is empty. Turning it off is always
- * allowed: the numbers stay on the movements that carried them, as history.
+ * UNITS ALREADY ON HAND STAY WHERE THEY ARE, WITHOUT NUMBERS, until
+ * somebody reads their labels: `numberUnits` below gives them their numbers
+ * as a count by number for a location. Until then they cannot be moved,
+ * because every move of a tracked item has to say which units, and the
+ * answer says how many at each place are waiting for numbers. Turning it
+ * off is always allowed: the numbers stay on the movements that carried
+ * them, as history.
  */
 export function setTracking(ctx: ServiceContext, input: { itemId: string; mode: inv.TrackingMode | null }) {
   return guardedWrite(ctx, "inventory:adjust", async (tx) => {
@@ -96,39 +97,153 @@ export function setTracking(ctx: ServiceContext, input: { itemId: string; mode: 
       .from(schema.priceBookItem).where(eq(schema.priceBookItem.id, input.itemId)).limit(1);
     if (!item) throw new NotFoundError("Item");
     const current = await trackingOf(tx, input.itemId);
-    if (current === input.mode) return { itemId: input.itemId, mode: input.mode };
+    const answer = async () => ({
+      itemId: input.itemId, mode: input.mode, unnumbered: input.mode ? await unnumberedWithin(tx, input.itemId) : [],
+    });
+    if (current === input.mode) return answer();
 
     if (input.mode === null) {
       await tx.delete(schema.stockTracking).where(eq(schema.stockTracking.itemId, input.itemId));
+    } else if (current) {
+      /**
+       * Serial to lot or back is refused while numbered units are on hand: a
+       * serial is one unit and a lot is a batch, so every number already on
+       * the shelf would mean something else the moment it changed.
+       */
+      const numbered = inv.deriveUnitLevels(await history(tx, input.itemId)).some((u) => u.onHand > inv.ZERO_QUANTITY);
+      if (numbered) {
+        throw new ConflictError(
+          `${item.code} has units on hand with ${current === "serial" ? "serial numbers" : "lot numbers"}. `
+          + "Change how it is tracked when none are left, or stop tracking it first.",
+        );
+      }
+      await tx.update(schema.stockTracking).set({ mode: input.mode, setByUserId: ctx.actor.userId, updatedAt: new Date() })
+        .where(eq(schema.stockTracking.itemId, input.itemId));
     } else {
-      const movements = await history(tx, input.itemId);
-      const levels = inv.deriveLevels(movements);
-      const units = inv.deriveUnitLevels(movements);
-      for (const level of levels) {
-        const numbered = units.filter((u) => u.locationId === level.locationId)
-          .reduce((total, u) => total + u.onHand, inv.ZERO_QUANTITY);
-        const loose = level.onHand - numbered;
-        if (loose > inv.ZERO_QUANTITY) {
-          const [place] = await tx.select({ name: schema.location.name }).from(schema.location)
-            .where(eq(schema.location.id, level.locationId)).limit(1);
-          throw new ConflictError(
-            `${inv.quantityLabel(loose)} of ${item.code} ${loose === inv.quantity("1") ? "is" : "are"} on hand at ${place?.name ?? "a location"} with no `
-            + `${input.mode === "serial" ? "serial numbers" : "lot"}. Every move of a tracked item has to say which units, so those could never be `
-            + "used. Start tracking when the shelf is empty, or before the next delivery.",
-          );
-        }
-      }
-      if (current) {
-        await tx.update(schema.stockTracking).set({ mode: input.mode, setByUserId: ctx.actor.userId, updatedAt: new Date() })
-          .where(eq(schema.stockTracking.itemId, input.itemId));
-      } else {
-        await tx.insert(schema.stockTracking).values({
-          organizationId: ctx.actor.organizationId, itemId: input.itemId, mode: input.mode, setByUserId: ctx.actor.userId,
-        });
-      }
+      await tx.insert(schema.stockTracking).values({
+        organizationId: ctx.actor.organizationId, itemId: input.itemId, mode: input.mode, setByUserId: ctx.actor.userId,
+      });
     }
     await audit(tx, ctx, "stock_tracking.set", "price_book_item", input.itemId, { mode: current }, { mode: input.mode });
-    return { itemId: input.itemId, mode: input.mode };
+    return answer();
+  });
+}
+
+/** How many of a tracked item at each place have no numbers yet. */
+async function unnumberedWithin(tx: Database, itemId: string): Promise<{ locationId: string; locationName: string; quantity: string }[]> {
+  const movements = await history(tx, itemId);
+  const loose = inv.unnumberedByLocation(inv.deriveLevels(movements), inv.deriveUnitLevels(movements));
+  const out = [];
+  for (const row of loose) {
+    out.push({ locationId: row.locationId, locationName: await placeLabel(tx, row.locationId), quantity: inv.quantityLabel(row.quantity) });
+  }
+  return out;
+}
+
+/* ------------------------------------------- numbers for what is on hand */
+
+export interface NumberingResult {
+  /** Numbers given to units that had none. */
+  numbered: string[];
+  /** Numbers already on this shelf, counted again. Nothing changed for them. */
+  alreadyHere: string[];
+  /** Units at this place still without a number. */
+  stillUnnumbered: string;
+}
+
+/**
+ * GIVE NUMBERS TO UNITS ALREADY ON HAND, as a count by number for one
+ * location: somebody walks the shelf reading every label, and each new
+ * number takes one of the unnumbered units there (or, for a lot, the
+ * quantity said). Nothing moves and nothing is bought, so the item's level
+ * and its value do not change; the numbered units can now be moved, used
+ * and traced like any received by number.
+ *
+ * REFUSED DUPLICATES. A number already in stock somewhere else, already used
+ * on a job or gone is refused by name with where it is, because the same
+ * number twice is a misread label or a second unit, and either way a person
+ * has to look. A number read twice in one count is refused. More new numbers
+ * than unnumbered units is refused, because the extra units were never
+ * received and stock cannot appear without a cost. Fewer is allowed and
+ * said: a label that cannot be read today is still a unit on the shelf.
+ */
+export function numberUnits(ctx: ServiceContext, input: {
+  itemId: string; locationId: string; units: readonly UnitInput[];
+}): Promise<NumberingResult> {
+  return guardedWrite(ctx, "inventory:adjust", async (tx) => {
+    const seen = await once.replayed<NumberingResult>(tx, ctx, "inventory.numbered");
+    if (seen) return seen;
+
+    const label = await itemLabel(tx, input.itemId);
+    const mode = await trackingOf(tx, input.itemId);
+    if (!mode) {
+      throw new ConflictError(`${label} is not tracked by serial or lot. Choose how to track it first, then give the units on hand their numbers.`);
+    }
+    if (input.units.length === 0) throw new ConflictError("Read at least one number off the shelf.");
+    const [place] = await tx.select({ id: schema.location.id, name: schema.location.name }).from(schema.location)
+      .where(eq(schema.location.id, input.locationId)).limit(1);
+    if (!place) throw new NotFoundError("Location");
+
+    const movements = await history(tx, input.itemId);
+    const level = inv.deriveLevel(movements, input.itemId, input.locationId);
+    const unitLevels = inv.deriveUnitLevels(movements);
+    const loose = inv.unnumberedByLocation([level], unitLevels)[0]?.quantity ?? inv.ZERO_QUANTITY;
+
+    const picks: inv.UnitPick[] = [];
+    const numbers = new Map<string, string>();
+    for (const unit of input.units) {
+      const number = unit.number.trim();
+      if (number === "") throw new ConflictError("A serial or lot number cannot be blank.");
+      const [found] = await tx.select().from(schema.stockLot)
+        .where(and(eq(schema.stockLot.itemId, input.itemId), sql`lower(${schema.stockLot.number}) = lower(${number})`))
+        .limit(1);
+      let lotId = found?.id;
+      if (found && mode === "serial") {
+        const state = inv.serialState(movements, found.id);
+        if (state.state === "in_stock" && state.locationId !== input.locationId) {
+          throw new ConflictError(`Serial ${found.number} of ${label} is already in stock at ${await placeLabel(tx, state.locationId)}. The same number twice is a misread label or a second unit: look at both.`);
+        }
+        if (state.state === "used") {
+          throw new ConflictError(`Serial ${found.number} of ${label} was used on a job. If it came back, take it back off the job by its number instead.`);
+        }
+        if (state.state === "gone") {
+          throw new ConflictError(`Serial ${found.number} of ${label} was written off or sent back to the vendor. If it is on the shelf again, receive it with its cost.`);
+        }
+      }
+      if (!lotId) {
+        const [row] = await tx.insert(schema.stockLot).values({
+          organizationId: ctx.actor.organizationId, itemId: input.itemId, mode, number,
+          expiresOn: mode === "lot" ? unit.expiresOn ?? null : null,
+        }).returning({ id: schema.stockLot.id });
+        lotId = row!.id;
+      }
+      numbers.set(lotId, found?.number ?? number);
+      const quantity = unit.quantity?.trim()
+        ? inv.quantity(unit.quantity)
+        : mode === "serial" ? inv.quantity("1") : input.units.length === 1 ? loose : null;
+      if (quantity === null) throw new ConflictError(`Say how much of lot ${number} is on the shelf. With more than one lot, each needs its own quantity.`);
+      picks.push({ lotId, quantity });
+    }
+
+    const sequence = await nextSequence(tx, ctx.actor.organizationId);
+    const occurredAt = new Date();
+    const decision = inv.planNumbering({
+      mode, itemLabel: label, locationLabel: place.name, level, unitLevels, picks, numbers,
+      stamps: picks.map((_, i) => ({ id: crypto.randomUUID(), sequence: sequence + i, occurredAt })),
+    });
+    if (!decision.ok) throw new ConflictError(inv.explainUnitRefusal(decision));
+
+    await writeMovements(tx, ctx, decision.movements);
+    const answer: NumberingResult = {
+      numbered: decision.movements.map((mv) => numbers.get(mv.lotId!) ?? ""),
+      alreadyHere: decision.alreadyHere,
+      stillUnnumbered: inv.quantityLabel(decision.stillUnnumbered),
+    };
+    await audit(tx, ctx, "inventory.numbered", "price_book_item", input.itemId, null, {
+      locationId: input.locationId, ...answer,
+    });
+    await once.remember(tx, ctx, "inventory.numbered", decision.movements[0]?.id ?? null, answer);
+    return answer;
   });
 }
 
@@ -367,6 +482,20 @@ export function trace(ctx: ServiceContext, input: { id: string }) {
   });
 }
 
+/**
+ * THE TRACE ON THE CUSTOMER'S EQUIPMENT PAGE: every serial of ours that
+ * became this unit, each with its whole history from the order it arrived
+ * on. Usually one; a unit we replaced a compressor in twice has two.
+ */
+export function traceForEquipment(ctx: ServiceContext, input: { equipmentId: string }): Promise<UnitTrace[]> {
+  return guardedRead(ctx, "inventory:read", async (tx) => {
+    const lots = await tx.select({ id: schema.stockLot.id }).from(schema.stockLot)
+      .where(eq(schema.stockLot.equipmentId, input.equipmentId))
+      .orderBy(asc(schema.stockLot.createdAt));
+    return lots.map((lot) => lot.id);
+  }).then((ids) => Promise.all(ids.map((id) => trace(ctx, { id }))));
+}
+
 /* ------------------------------------------------------ writing a unit off */
 
 /**
@@ -424,6 +553,7 @@ export function writeOff(ctx: ServiceContext, input: {
     }
 
     const written = await writeMovements(tx, ctx, planned);
+    await relieveLateFreight(tx, ctx, input.itemId, planned.map((p) => p.id), occurredAt);
     await audit(tx, ctx, "inventory.written_off", "price_book_item", input.itemId, null, {
       locationId: input.locationId, reason, units: input.units.map((u) => u.number),
     });
@@ -566,7 +696,14 @@ export const handlers = {
   listStockLocations: async (ctx: ServiceContext): Promise<{ locations: { id: string; name: string; isWarehouse: boolean }[] }> =>
     ({ locations: await stockLocations(ctx) }),
   setStockTracking: (ctx: ServiceContext, input: { itemId: string; mode: inv.TrackingMode | null }):
-    Promise<{ itemId: string; mode: "serial" | "lot" | null }> => setTracking(ctx, input),
+    Promise<{ itemId: string; mode: "serial" | "lot" | null; unnumbered: { locationId: string; locationName: string; quantity: string }[] }> =>
+    setTracking(ctx, input),
+  numberStockUnits: (ctx: ServiceContext, input: {
+    itemId: string; locationId: string;
+    units: readonly { number: string; quantity?: string | undefined; expiresOn?: string | undefined }[];
+  }): Promise<NumberingResult> => numberUnits(ctx, input),
+  traceEquipmentStock: async (ctx: ServiceContext, input: { id: string }): Promise<{ units: UnitTrace[] }> =>
+    ({ units: await traceForEquipment(ctx, { equipmentId: input.id }) }),
   listTrackedItems: async (ctx: ServiceContext): Promise<{ items: TrackedItemView[] }> => ({ items: await trackedItems(ctx) }),
   listStockUnits: async (ctx: ServiceContext, input: {
     itemId?: string | undefined; locationId?: string | undefined; number?: string | undefined;

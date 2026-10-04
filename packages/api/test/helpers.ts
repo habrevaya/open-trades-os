@@ -111,6 +111,12 @@ const ORDER = [
   /** A customer's tags, one row each, written by a trigger from the customer's own list. */
   "customer_tag",
   "customer_property", "contact", "property", "customer",
+  /**
+   * An approval step can be for one vendor, one price book category or one
+   * location, so it goes before all three. A decision that copied it points
+   * at it with set null and does not hold it up.
+   */
+  "purchase_approval_rule",
   /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
   "vendor_item",
   "price_change_line", "price_change_batch",
@@ -133,9 +139,13 @@ const ORDER = [
   // A movement points at the serial or lot it moved and the delivery it came
   // on; a delivery's charges, an order's approvals and its sends point at
   // the order; truck minimums point at the item and the truck.
+  // A late freight bill and a return to a vendor are named by the movements
+  // they made, and point at the delivery, the order and the vendor.
   "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
+  "landed_cost_bill_charge", "landed_cost_bill", "vendor_return",
   "purchase_order_receipt_charge", "purchase_order_receipt",
-  "purchase_order_approval", "purchase_order_send", "purchase_approval_rule",
+  "purchase_order_approval_notice",
+  "purchase_order_approval", "purchase_order_send",
   "purchase_order_line", "purchase_order", "reorder_policy", "vendor",
   // A dashboard's tiles point at reports by id inside jsonb, which no foreign
   // key enforces, so the order here is for the reader rather than for the

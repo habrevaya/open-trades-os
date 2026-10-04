@@ -261,6 +261,9 @@ export interface AddPurchaseApprovalRuleInput {
   minimumTotal: string;
   approverRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
   approverRoleId?: string | null;
+  vendorId?: string | null;
+  categoryId?: string | null;
+  locationId?: string | null;
 }
 
 export interface AddPurchaseApprovalRuleOutput {
@@ -270,6 +273,10 @@ export interface AddPurchaseApprovalRuleOutput {
   approverRole: string | null;
   approverRoleId: string | null;
   roleLabel: string;
+  vendorId: string | null;
+  categoryId: string | null;
+  locationId: string | null;
+  scopeLabel: string;
 }
 
 export interface AddRentableAssetInput {
@@ -777,6 +784,13 @@ export interface ApplyVendorCatalogueOutput {
     itemCostAfter?: string | null;
     costHeldBack?: boolean;
     reason?: string;
+    pack?: string;
+    unit?: string | null;
+    breaks?: Array<{
+      minimum: string;
+      cost: string;
+    }>;
+    eachCost?: string;
   }>;
   counts: {
     create: number;
@@ -1942,7 +1956,7 @@ export interface CountStockOutput {
     id: string;
     itemId: string;
     locationId: string;
-    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release";
+    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release" | "numbered" | "revaluation";
     quantity: string;
     totalCost: string | null;
     jobId: string | null;
@@ -3782,6 +3796,41 @@ export interface CreateVendorOutput {
   name: string;
 }
 
+export interface CreateVendorReturnInput {
+  vendorId: string;
+  itemId: string;
+  locationId: string;
+  units: Array<{
+    number: string;
+    quantity?: string;
+  }>;
+  reason: string;
+  reference?: string | null;
+  creditExpected?: string | null;
+}
+
+export interface CreateVendorReturnOutput {
+  id: string;
+  number: number;
+  vendorId: string;
+  vendorName: string;
+  status: "awaiting_credit" | "credited";
+  reason: string;
+  reference: string | null;
+  creditExpected: string;
+  creditReceived: string | null;
+  creditReceivedAt: string | null;
+  creditReference: string | null;
+  createdAt: string;
+  units: Array<{
+    itemId: string;
+    itemName: string;
+    number: string;
+    quantity: string;
+    locationName: string;
+  }>;
+}
+
 export interface CreateWorkflowInput {
   name: string;
   description?: string;
@@ -3957,6 +4006,7 @@ export interface DecidePurchaseOrderOutput {
     decidedBy: string | null;
     decidedAt: string | null;
     note: string | null;
+    scopeLabel: string;
   }>;
 }
 
@@ -4803,6 +4853,26 @@ export interface DrillReportOutput {
   totals: Record<string, string | null>;
   count: number;
   truncated: boolean;
+}
+
+export interface EditPurchaseOrderInput {
+  defaultLocationId?: string;
+  expectedAt?: string | null;
+  notes?: string | null;
+  lines: Array<{
+    itemId?: string;
+    partNumber?: string;
+    locationId?: string;
+    quantity: string;
+    unitPrice?: string;
+  }>;
+}
+
+export interface EditPurchaseOrderOutput {
+  id: string;
+  total: string;
+  askedAgain: number[];
+  approval: string;
 }
 
 export interface EmailCustomerStatementInput {
@@ -7195,6 +7265,16 @@ export interface GetJobProfitabilityOutput {
     sourceId: string;
     memo: string | null;
   }>;
+  costEntries: Array<{
+    transactionId: string;
+    occurredAt: string;
+    accountCode: string;
+    direction: string;
+    amount: string;
+    sourceType: string;
+    sourceId: string;
+    memo: string | null;
+  }>;
   feeEntries: Array<{
     transactionId: string;
     occurredAt: string;
@@ -8575,6 +8655,7 @@ export interface GetPurchaseOrderApprovalsOutput {
     decidedBy: string | null;
     decidedAt: string | null;
     note: string | null;
+    scopeLabel: string;
   }>;
 }
 
@@ -8600,6 +8681,13 @@ export interface GetPurchaseOrderOutput {
     quantityOrdered: string;
     quantityReceived: string;
     unitPrice: string;
+    lineTotal: string;
+    packs: {
+      count: string;
+      size: string;
+      unit: string | null;
+      price: string;
+    } | null;
     tracking: "serial" | "lot" | null;
     landedCost: string;
     units: Array<{
@@ -8616,6 +8704,20 @@ export interface GetPurchaseOrderOutput {
       description: string;
       amount: string;
     }>;
+    lateBills: Array<{
+      id: string;
+      recordedAt: string;
+      reference: string | null;
+      basis: "value" | "quantity";
+      total: string;
+      onShelf: string;
+      onJobs: string;
+      onGone: string;
+      charges: Array<{
+        description: string;
+        amount: string;
+      }>;
+    }>;
   }>;
   approval: {
     state: "not_needed" | "waiting" | "approved" | "rejected";
@@ -8628,8 +8730,17 @@ export interface GetPurchaseOrderOutput {
       decidedBy: string | null;
       decidedAt: string | null;
       note: string | null;
+      scopeLabel: string;
     }>;
   };
+  approvalNotices: Array<{
+    step: number;
+    name: string;
+    destination: string;
+    state: string;
+    explanation: string | null;
+    at: string;
+  }>;
   sends: Array<{
     id: string;
     destination: string | null;
@@ -9903,7 +10014,7 @@ export interface IssueStockOutput {
     id: string;
     itemId: string;
     locationId: string;
-    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release";
+    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release" | "numbered" | "revaluation";
     quantity: string;
     totalCost: string | null;
     jobId: string | null;
@@ -12686,6 +12797,10 @@ export interface ListPurchaseApprovalRulesOutput {
     approverRole: string | null;
     approverRoleId: string | null;
     roleLabel: string;
+    vendorId: string | null;
+    categoryId: string | null;
+    locationId: string | null;
+    scopeLabel: string;
   }>;
 }
 
@@ -13704,6 +13819,37 @@ export interface ListVendorItemsOutput {
     description: string | null;
     cost: string | null;
     costUpdatedAt: string | null;
+    packQuantity: string;
+    purchaseUnit: string | null;
+    priceBreaks: Array<{
+      minimum: string;
+      cost: string;
+    }>;
+    eachCost: string | null;
+  }>;
+}
+
+export interface ListVendorReturnsOutput {
+  returns: Array<{
+    id: string;
+    number: number;
+    vendorId: string;
+    vendorName: string;
+    status: "awaiting_credit" | "credited";
+    reason: string;
+    reference: string | null;
+    creditExpected: string;
+    creditReceived: string | null;
+    creditReceivedAt: string | null;
+    creditReference: string | null;
+    createdAt: string;
+    units: Array<{
+      itemId: string;
+      itemName: string;
+      number: string;
+      quantity: string;
+      locationName: string;
+    }>;
   }>;
 }
 
@@ -14332,6 +14478,22 @@ export interface MoveProjectPhaseOutput {
     startsOn: string;
     endsOn: string;
   }>;
+}
+
+export interface NumberStockUnitsInput {
+  itemId: string;
+  locationId: string;
+  units: Array<{
+    number: string;
+    quantity?: string;
+    expiresOn?: string;
+  }>;
+}
+
+export interface NumberStockUnitsOutput {
+  numbered: string[];
+  alreadyHere: string[];
+  stillUnnumbered: string;
 }
 
 export interface OpenPortalLinkOutput {
@@ -15045,6 +15207,13 @@ export interface PreviewVendorCatalogueOutput {
     itemCostAfter?: string | null;
     costHeldBack?: boolean;
     reason?: string;
+    pack?: string;
+    unit?: string | null;
+    breaks?: Array<{
+      minimum: string;
+      cost: string;
+    }>;
+    eachCost?: string;
   }>;
   counts: {
     create: number;
@@ -15398,7 +15567,7 @@ export interface ReceiveStockOutput {
     id: string;
     itemId: string;
     locationId: string;
-    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release";
+    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release" | "numbered" | "revaluation";
     quantity: string;
     totalCost: string | null;
     jobId: string | null;
@@ -15589,6 +15758,30 @@ export interface RecordInspectionOutput {
   counts: Record<string, number>;
   nextDueOn: string | null;
   deficiencies: number;
+}
+
+export interface RecordLateLandedCostInput {
+  charges: Array<{
+    description: string;
+    amount: string;
+  }>;
+  basis?: "value" | "quantity";
+  reference?: string | null;
+}
+
+export interface RecordLateLandedCostOutput {
+  id: string;
+  receiptId: string;
+  purchaseOrderId: string;
+  total: string;
+  onShelf: string;
+  onJobs: string;
+  onGone: string;
+  jobs: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    amount: string;
+  }>;
 }
 
 export interface RecordMessagingBrandInput {
@@ -15912,6 +16105,33 @@ export interface RecordUnitOutcomeOutput {
   deficiencyCount: number;
 }
 
+export interface RecordVendorCreditInput {
+  amount: string;
+  reference?: string | null;
+}
+
+export interface RecordVendorCreditOutput {
+  id: string;
+  number: number;
+  vendorId: string;
+  vendorName: string;
+  status: "awaiting_credit" | "credited";
+  reason: string;
+  reference: string | null;
+  creditExpected: string;
+  creditReceived: string | null;
+  creditReceivedAt: string | null;
+  creditReference: string | null;
+  createdAt: string;
+  units: Array<{
+    itemId: string;
+    itemName: string;
+    number: string;
+    quantity: string;
+    locationName: string;
+  }>;
+}
+
 export type RefreshFinancingApplicationInput = Record<string, unknown>;
 
 export interface RefreshFinancingApplicationOutput {
@@ -16144,7 +16364,7 @@ export interface ReleaseStockOutput {
     id: string;
     itemId: string;
     locationId: string;
-    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release";
+    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release" | "numbered" | "revaluation";
     quantity: string;
     totalCost: string | null;
     jobId: string | null;
@@ -16735,7 +16955,7 @@ export interface ReserveStockOutput {
     id: string;
     itemId: string;
     locationId: string;
-    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release";
+    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release" | "numbered" | "revaluation";
     quantity: string;
     totalCost: string | null;
     jobId: string | null;
@@ -17012,6 +17232,25 @@ export interface ReturnAssetToServiceOutput {
   currentPropertyId: string | null;
   purchaseCost: string | null;
   active: boolean;
+}
+
+export interface ReturnStockFromJobInput {
+  itemId: string;
+  locationId: string;
+  numbers: string[];
+  note?: string | null;
+}
+
+export interface ReturnStockFromJobOutput {
+  returned: Array<{
+    number: string;
+    jobId: string | null;
+    jobNumber: number | null;
+  }>;
+  equipmentStillOnRecord: Array<{
+    number: string;
+    equipmentId: string;
+  }>;
 }
 
 export interface ReverseCommissionInput {
@@ -18848,6 +19087,11 @@ export interface SetStockTrackingInput {
 export interface SetStockTrackingOutput {
   itemId: string;
   mode: "serial" | "lot" | null;
+  unnumbered: Array<{
+    locationId: string;
+    locationName: string;
+    quantity: string;
+  }>;
 }
 
 export interface SetTechnicianCustomFieldsInput {
@@ -18932,6 +19176,12 @@ export interface SetVendorItemInput {
   partNumber: string;
   description?: string | null;
   cost?: string | null;
+  packQuantity?: string | null;
+  purchaseUnit?: string | null;
+  priceBreaks?: Array<{
+    minimum: string;
+    cost: string;
+  }> | null;
 }
 
 export interface SetVendorItemOutput {
@@ -18945,6 +19195,13 @@ export interface SetVendorItemOutput {
   description: string | null;
   cost: string | null;
   costUpdatedAt: string | null;
+  packQuantity: string;
+  purchaseUnit: string | null;
+  priceBreaks: Array<{
+    minimum: string;
+    cost: string;
+  }>;
+  eachCost: string | null;
 }
 
 export interface SetVisitCustomFieldsInput {
@@ -19562,6 +19819,54 @@ export interface TickTaskChecklistItemOutput {
   doneBy: string | null;
 }
 
+export interface TraceEquipmentStockOutput {
+  units: Array<{
+    unit: {
+      id: string;
+      itemId: string;
+      itemCode: string;
+      itemName: string;
+      mode: "serial" | "lot";
+      number: string;
+      expiresOn: string | null;
+      state: "in_stock" | "used" | "gone";
+      where: Array<{
+        locationId: string;
+        locationName: string;
+        quantity: string;
+      }>;
+      jobId: string | null;
+      jobNumber: number | null;
+      equipmentId: string | null;
+    };
+    steps: Array<{
+      at: string;
+      kind: string;
+      label: string;
+      quantity: string;
+      locationName: string;
+      jobId: string | null;
+      jobNumber: number | null;
+      purchaseOrderId: string | null;
+      purchaseOrderNumber: number | null;
+      vendorName: string | null;
+      cost: string | null;
+    }>;
+    equipment: {
+      id: string;
+      category: string;
+      tag: string | null;
+      manufacturer: string | null;
+      model: string | null;
+      serialNumber: string | null;
+      propertyId: string;
+      address: string;
+      customerId: string | null;
+      customerName: string | null;
+    } | null;
+  }>;
+}
+
 export interface TraceStockUnitOutput {
   unit: {
     id: string;
@@ -19641,7 +19946,7 @@ export interface TransferStockOutput {
     id: string;
     itemId: string;
     locationId: string;
-    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release";
+    kind: "receipt" | "issue" | "transfer_out" | "transfer_in" | "return_to_stock" | "return_to_vendor" | "adjustment_in" | "adjustment_out" | "scrap" | "commit" | "release" | "numbered" | "revaluation";
     quantity: string;
     totalCost: string | null;
     jobId: string | null;
@@ -22511,6 +22816,10 @@ export interface DrillMarketingFunnelInput {
   measure: "spend" | "calls" | "answered" | "missed" | "firstTime" | "leads" | "booked" | "completed" | "revenue";
 }
 
+export interface EditPurchaseOrderParams {
+  id: string;
+}
+
 export interface EmailCustomerStatementParams {
   id: string;
 }
@@ -24018,6 +24327,10 @@ export interface ListVendorItemsInput {
   vendorId?: string;
 }
 
+export interface ListVendorReturnsInput {
+  status?: "awaiting_credit" | "credited";
+}
+
 export type ListVendorsInput = Record<string, never>;
 
 export interface ListVisitChangeRequestsInput {
@@ -24266,6 +24579,10 @@ export interface RecordClaimPaymentParams {
   id: string;
 }
 
+export interface RecordLateLandedCostParams {
+  id: string;
+}
+
 export interface RecordProjectLienRecordParams {
   projectId: string;
 }
@@ -24293,6 +24610,10 @@ export interface RecordTechnicianSkillParams {
 export interface RecordUnitOutcomeParams {
   visitId: string;
   equipmentId: string;
+}
+
+export interface RecordVendorCreditParams {
+  id: string;
 }
 
 export interface RefreshFinancingApplicationParams {
@@ -24857,6 +25178,10 @@ export interface TickTaskChecklistItemParams {
   itemId: string;
 }
 
+export interface TraceEquipmentStockInput {
+  id: string;
+}
+
 export interface TraceStockUnitInput {
   id: string;
 }
@@ -25270,6 +25595,7 @@ export interface OperationTypes {
   createTerritory: { input: CreateTerritoryInput; output: CreateTerritoryOutput };
   createTrackingCampaign: { input: CreateTrackingCampaignInput; output: CreateTrackingCampaignOutput };
   createVendor: { input: CreateVendorInput; output: CreateVendorOutput };
+  createVendorReturn: { input: CreateVendorReturnInput; output: CreateVendorReturnOutput };
   createWorkflow: { input: CreateWorkflowInput; output: CreateWorkflowOutput };
   deactivateCommissionPlan: { input: DeactivateCommissionPlanInput; output: DeactivateCommissionPlanOutput };
   decideChangeOrder: { input: DecideChangeOrderParams & DecideChangeOrderInput; output: DecideChangeOrderOutput };
@@ -25324,6 +25650,7 @@ export interface OperationTypes {
   dismissIntakeDraft: { input: DismissIntakeDraftParams & DismissIntakeDraftInput; output: DismissIntakeDraftOutput };
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
+  editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
   emailCustomerStatement: { input: EmailCustomerStatementParams & EmailCustomerStatementInput; output: EmailCustomerStatementOutput };
   emailPurchaseOrder: { input: EmailPurchaseOrderParams & EmailPurchaseOrderInput; output: EmailPurchaseOrderOutput };
   endCustomerPortalSessions: { input: EndCustomerPortalSessionsParams & EndCustomerPortalSessionsInput; output: EndCustomerPortalSessionsOutput };
@@ -25701,6 +26028,7 @@ export interface OperationTypes {
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
   listUnsoldEstimates: { input: ListUnsoldEstimatesInput; output: ListUnsoldEstimatesOutput };
   listVendorItems: { input: ListVendorItemsInput; output: ListVendorItemsOutput };
+  listVendorReturns: { input: ListVendorReturnsInput; output: ListVendorReturnsOutput };
   listVendors: { input: ListVendorsInput; output: ListVendorsOutput };
   listVisitChangeRequests: { input: ListVisitChangeRequestsInput; output: ListVisitChangeRequestsOutput };
   listWageScales: { input: ListWageScalesInput; output: ListWageScalesOutput };
@@ -25737,6 +26065,7 @@ export interface OperationTypes {
   moveEquipment: { input: MoveEquipmentParams & MoveEquipmentInput; output: MoveEquipmentOutput };
   moveExternalWorkOrder: { input: MoveExternalWorkOrderParams & MoveExternalWorkOrderInput; output: MoveExternalWorkOrderOutput };
   moveProjectPhase: { input: MoveProjectPhaseParams & MoveProjectPhaseInput; output: MoveProjectPhaseOutput };
+  numberStockUnits: { input: NumberStockUnitsInput; output: NumberStockUnitsOutput };
   openPortalLink: { input: OpenPortalLinkInput; output: OpenPortalLinkOutput };
   openPortalRecord: { input: OpenPortalRecordInput; output: OpenPortalRecordOutput };
   openRegulatorySubmission: { input: OpenRegulatorySubmissionInput; output: OpenRegulatorySubmissionOutput };
@@ -25786,6 +26115,7 @@ export interface OperationTypes {
   recordClaimPayment: { input: RecordClaimPaymentParams & RecordClaimPaymentInput; output: RecordClaimPaymentOutput };
   recordDelivery: { input: RecordDeliveryInput; output: RecordDeliveryOutput };
   recordInspection: { input: RecordInspectionInput; output: RecordInspectionOutput };
+  recordLateLandedCost: { input: RecordLateLandedCostParams & RecordLateLandedCostInput; output: RecordLateLandedCostOutput };
   recordMessagingBrand: { input: RecordMessagingBrandInput; output: RecordMessagingBrandOutput };
   recordMessagingCampaign: { input: RecordMessagingCampaignInput; output: RecordMessagingCampaignOutput };
   recordPayment: { input: RecordPaymentInput; output: RecordPaymentOutput };
@@ -25799,6 +26129,7 @@ export interface OperationTypes {
   recordSpend: { input: RecordSpendInput; output: RecordSpendOutput };
   recordTechnicianSkill: { input: RecordTechnicianSkillParams & RecordTechnicianSkillInput; output: RecordTechnicianSkillOutput };
   recordUnitOutcome: { input: RecordUnitOutcomeParams & RecordUnitOutcomeInput; output: RecordUnitOutcomeOutput };
+  recordVendorCredit: { input: RecordVendorCreditParams & RecordVendorCreditInput; output: RecordVendorCreditOutput };
   refreshFinancingApplication: { input: RefreshFinancingApplicationParams & RefreshFinancingApplicationInput; output: RefreshFinancingApplicationOutput };
   refundDeposit: { input: RefundDepositParams & RefundDepositInput; output: RefundDepositOutput };
   refundPayment: { input: RefundPaymentParams & RefundPaymentInput; output: RefundPaymentOutput };
@@ -25868,6 +26199,7 @@ export interface OperationTypes {
   retryAccountingDocument: { input: RetryAccountingDocumentParams & RetryAccountingDocumentInput; output: RetryAccountingDocumentOutput };
   retryConversionSend: { input: RetryConversionSendParams & RetryConversionSendInput; output: RetryConversionSendOutput };
   returnAssetToService: { input: ReturnAssetToServiceParams & ReturnAssetToServiceInput; output: ReturnAssetToServiceOutput };
+  returnStockFromJob: { input: ReturnStockFromJobInput; output: ReturnStockFromJobOutput };
   reverseCommission: { input: ReverseCommissionInput; output: ReverseCommissionOutput };
   reverseJournalEntry: { input: ReverseJournalEntryParams & ReverseJournalEntryInput; output: ReverseJournalEntryOutput };
   reversePriceChange: { input: ReversePriceChangeParams & ReversePriceChangeInput; output: ReversePriceChangeOutput };
@@ -26016,6 +26348,7 @@ export interface OperationTypes {
   testLeadMapping: { input: TestLeadMappingInput; output: TestLeadMappingOutput };
   textCustomerStatement: { input: TextCustomerStatementParams & TextCustomerStatementInput; output: TextCustomerStatementOutput };
   tickTaskChecklistItem: { input: TickTaskChecklistItemParams & TickTaskChecklistItemInput; output: TickTaskChecklistItemOutput };
+  traceEquipmentStock: { input: TraceEquipmentStockInput; output: TraceEquipmentStockOutput };
   traceStockUnit: { input: TraceStockUnitInput; output: TraceStockUnitOutput };
   transcribeCall: { input: TranscribeCallParams & TranscribeCallInput; output: TranscribeCallOutput };
   transferStock: { input: TransferStockInput; output: TransferStockOutput };
@@ -26232,6 +26565,7 @@ export const OPERATIONS = {
   createTerritory: { method: "POST", path: "/v1/territories", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createTrackingCampaign: { method: "POST", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   createVendor: { method: "POST", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
+  createVendorReturn: { method: "POST", path: "/v1/vendor-returns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write","inventory:adjust"] },
   createWorkflow: { method: "POST", path: "/v1/workflows", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["workflow:write"] },
   deactivateCommissionPlan: { method: "POST", path: "/v1/commissions/plans/deactivate", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   decideChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:approve"] },
@@ -26286,6 +26620,7 @@ export const OPERATIONS = {
   dismissIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide"] },
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   emailCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   emailPurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   endCustomerPortalSessions: { method: "POST", path: "/v1/customers/{id}/portal-sessions/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:revoke"] },
@@ -26663,6 +26998,7 @@ export const OPERATIONS = {
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listUnsoldEstimates: { method: "GET", path: "/v1/unsold-estimates", pathParams: [], queryParams: ["sort","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listVendorItems: { method: "GET", path: "/v1/vendor-items", pathParams: [], queryParams: ["itemId","vendorId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
+  listVendorReturns: { method: "GET", path: "/v1/vendor-returns", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listVendors: { method: "GET", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVisitChangeRequests: { method: "GET", path: "/v1/visit-change-requests", pathParams: [], queryParams: ["status","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listWageScales: { method: "GET", path: "/v1/payroll/wage-scales", pathParams: [], queryParams: ["classification"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
@@ -26699,6 +27035,7 @@ export const OPERATIONS = {
   moveEquipment: { method: "POST", path: "/v1/equipment/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   moveExternalWorkOrder: { method: "POST", path: "/v1/external-work-orders/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   moveProjectPhase: { method: "POST", path: "/v1/project-phases/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  numberStockUnits: { method: "POST", path: "/v1/stock/numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   openPortalLink: { method: "GET", path: "/v1/portal/session", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openPortalRecord: { method: "POST", path: "/v1/portal/account/open", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -26748,6 +27085,7 @@ export const OPERATIONS = {
   recordClaimPayment: { method: "POST", path: "/v1/claims/{id}/payments", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect","invoice:read"] },
   recordDelivery: { method: "POST", path: "/v1/deliveries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   recordInspection: { method: "POST", path: "/v1/inspections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  recordLateLandedCost: { method: "POST", path: "/v1/purchase-order-receipts/{id}/late-charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordMessagingBrand: { method: "POST", path: "/v1/messaging/brands", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordMessagingCampaign: { method: "POST", path: "/v1/messaging/campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordPayment: { method: "POST", path: "/v1/payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
@@ -26761,6 +27099,7 @@ export const OPERATIONS = {
   recordSpend: { method: "POST", path: "/v1/marketing/spend", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   recordTechnicianSkill: { method: "POST", path: "/v1/technicians/{technicianId}/skills", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   recordUnitOutcome: { method: "POST", path: "/v1/visits/{visitId}/units/{equipmentId}/outcome", pathParams: ["visitId","equipmentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
+  recordVendorCredit: { method: "POST", path: "/v1/vendor-returns/{id}/credit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   refreshFinancingApplication: { method: "POST", path: "/v1/financing/applications/{id}/refresh", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   refundDeposit: { method: "POST", path: "/v1/deposits/{id}/refund", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:refund"] },
   refundPayment: { method: "POST", path: "/v1/payments/{paymentId}/refund", pathParams: ["paymentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
@@ -26830,6 +27169,7 @@ export const OPERATIONS = {
   retryAccountingDocument: { method: "POST", path: "/v1/accounting/problems/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   retryConversionSend: { method: "POST", path: "/v1/marketing/conversion-sends/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   returnAssetToService: { method: "POST", path: "/v1/rentable-assets/{id}/in-service", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  returnStockFromJob: { method: "POST", path: "/v1/stock/returns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   reverseCommission: { method: "POST", path: "/v1/commissions/reversals", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   reverseJournalEntry: { method: "POST", path: "/v1/ledger/journal-entries/{id}/reverse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post"] },
   reversePriceChange: { method: "POST", path: "/v1/pricebook/price-changes/{id}/reverse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -26978,6 +27318,7 @@ export const OPERATIONS = {
   testLeadMapping: { method: "POST", path: "/v1/lead-connectors/test", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   textCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/text", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   tickTaskChecklistItem: { method: "POST", path: "/v1/tasks/{id}/checklist/{itemId}/tick", pathParams: ["id","itemId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
+  traceEquipmentStock: { method: "GET", path: "/v1/equipment/{id}/stock-trace", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   traceStockUnit: { method: "GET", path: "/v1/stock/units/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   transcribeCall: { method: "POST", path: "/v1/calls/{id}/transcribe", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   transferStock: { method: "POST", path: "/v1/stock/transfers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -28303,6 +28644,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Send serials or lots back to a vendor for credit.
+   *
+   * POST /v1/vendor-returns. Needs po:write, inventory:adjust.
+   */
+  createVendorReturn(input: CreateVendorReturnInput, options?: CallOptions): Promise<CreateVendorReturnOutput> {
+    return this.call("createVendorReturn", input, options);
+  }
+
+  /**
    * Write a new automation, switched off.
    *
    * POST /v1/workflows. Needs workflow:write.
@@ -28786,6 +29136,15 @@ export abstract class GeneratedOperations {
    */
   drillReport(input: DrillReportInput, options?: CallOptions): Promise<DrillReportOutput> {
     return this.call("drillReport", input, options);
+  }
+
+  /**
+   * Change an order before it is sent.
+   *
+   * PUT /v1/purchase-orders/{id}. Needs po:write.
+   */
+  editPurchaseOrder(input: EditPurchaseOrderParams & EditPurchaseOrderInput, options?: CallOptions): Promise<EditPurchaseOrderOutput> {
+    return this.call("editPurchaseOrder", input, options);
   }
 
   /**
@@ -32182,6 +32541,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Units sent back to vendors, and the credit each owes.
+   *
+   * GET /v1/vendor-returns. Needs po:read.
+   */
+  listVendorReturns(input: ListVendorReturnsInput = {} as ListVendorReturnsInput, options?: CallOptions): Promise<ListVendorReturnsOutput> {
+    return this.call("listVendorReturns", input, options);
+  }
+
+  /**
    * List vendors.
    *
    * GET /v1/vendors. Needs vendor:read.
@@ -32503,6 +32871,15 @@ export abstract class GeneratedOperations {
    */
   moveProjectPhase(input: MoveProjectPhaseParams & MoveProjectPhaseInput, options?: CallOptions): Promise<MoveProjectPhaseOutput> {
     return this.call("moveProjectPhase", input, options);
+  }
+
+  /**
+   * Give numbers to units already on hand.
+   *
+   * POST /v1/stock/numbering. Needs inventory:adjust.
+   */
+  numberStockUnits(input: NumberStockUnitsInput, options?: CallOptions): Promise<NumberStockUnitsOutput> {
+    return this.call("numberStockUnits", input, options);
   }
 
   /**
@@ -32947,6 +33324,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Spread a freight or duty bill that came after the delivery.
+   *
+   * POST /v1/purchase-order-receipts/{id}/late-charges. Needs po:write.
+   */
+  recordLateLandedCost(input: RecordLateLandedCostParams & RecordLateLandedCostInput, options?: CallOptions): Promise<RecordLateLandedCostOutput> {
+    return this.call("recordLateLandedCost", input, options);
+  }
+
+  /**
    * Write down the business the carriers vetted.
    *
    * POST /v1/messaging/brands. Needs settings:write.
@@ -33061,6 +33447,15 @@ export abstract class GeneratedOperations {
    */
   recordUnitOutcome(input: RecordUnitOutcomeParams & RecordUnitOutcomeInput, options?: CallOptions): Promise<RecordUnitOutcomeOutput> {
     return this.call("recordUnitOutcome", input, options);
+  }
+
+  /**
+   * Record the vendor's credit for a return.
+   *
+   * POST /v1/vendor-returns/{id}/credit. Needs po:write.
+   */
+  recordVendorCredit(input: RecordVendorCreditParams & RecordVendorCreditInput, options?: CallOptions): Promise<RecordVendorCreditOutput> {
+    return this.call("recordVendorCredit", input, options);
   }
 
   /**
@@ -33682,6 +34077,15 @@ export abstract class GeneratedOperations {
    */
   returnAssetToService(input: ReturnAssetToServiceParams & ReturnAssetToServiceInput, options?: CallOptions): Promise<ReturnAssetToServiceOutput> {
     return this.call("returnAssetToService", input, options);
+  }
+
+  /**
+   * Take a serialised unit back off a job.
+   *
+   * POST /v1/stock/returns. Needs inventory:adjust.
+   */
+  returnStockFromJob(input: ReturnStockFromJobInput, options?: CallOptions): Promise<ReturnStockFromJobOutput> {
+    return this.call("returnStockFromJob", input, options);
   }
 
   /**
@@ -35014,6 +35418,15 @@ export abstract class GeneratedOperations {
    */
   tickTaskChecklistItem(input: TickTaskChecklistItemParams & TickTaskChecklistItemInput, options?: CallOptions): Promise<TickTaskChecklistItemOutput> {
     return this.call("tickTaskChecklistItem", input, options);
+  }
+
+  /**
+   * Where a customer's unit came from, when it came from our stock.
+   *
+   * GET /v1/equipment/{id}/stock-trace. Needs inventory:read.
+   */
+  traceEquipmentStock(input: TraceEquipmentStockInput, options?: CallOptions): Promise<TraceEquipmentStockOutput> {
+    return this.call("traceEquipmentStock", input, options);
   }
 
   /**
