@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { money, toString, sum, zero, add } from "../src/money/index.js";
 import {
   computeInvoice, postInvoice, postPayment, postRefund, postWriteOff,
-  postAgreementBilling, postAgreementRecognition, postDeferredRelease,
+  postAgreementBilling, postAgreementRecognition, postDeferredRelease, postAgreementBreakage,
   recognitionSchedule, imbalanceOf, assertBalanced, UnbalancedPostingError,
   ACCOUNTS, CONTROL_ACCOUNTS, type LedgerEntry, TaxAsAppliedError, totalsMismatch, postCreditApplication,
   postCreditNote, postCreditNotePayout, postRetainage,
@@ -94,6 +94,7 @@ describe("every posting balances", () => {
     ["agreement recognition", () => postAgreementRecognition({ agreementVisitId: "v1", occurredAt: at, amount: usd("114.00") })],
     ["deferred release to revenue", () => postDeferredRelease({ agreementId: "a1", occurredAt: at, amount: usd("57.00"), toRevenue: true })],
     ["deferred release to the customer", () => postDeferredRelease({ agreementId: "a2", occurredAt: at, amount: usd("57.00"), toRevenue: false })],
+    ["breakage at the end of a term", () => postAgreementBreakage({ agreementTermId: "t1", occurredAt: at, amount: usd("57.00") })],
     ["credit paid out", () => postCreditNotePayout({ payoutId: "o1", occurredAt: at, amount: usd("64.95") })],
     ["retainage held", () => postRetainage({ applicationId: "a1", occurredAt: at, change: usd("2250.00") })],
     ["retainage released", () => postRetainage({ applicationId: "a2", occurredAt: at, change: usd("-2250.00") })],

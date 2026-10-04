@@ -957,6 +957,36 @@ export function postDeferredRelease(input: {
   });
 }
 
+/**
+ * BREAKAGE: what a term owed and the member never took, earned when the term
+ * ends.
+ *
+ * A member pays for a year of cover that includes visits. A visit not taken
+ * by the end of the year is still paid for, and the company has been ready
+ * to deliver it all year, so on the day the term ends its slice is earned.
+ * Not before: a visit skipped in March can be put back in June, and revenue
+ * recognised in March for it would need reversing against a closed month.
+ * Liability down, agreement revenue up, the same accounts delivering a visit
+ * moves, sourced to the term so a second pass finds it already done.
+ */
+export function postAgreementBreakage(input: {
+  agreementTermId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "agreement_breakage",
+    sourceId: input.agreementTermId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.DEFERRED_REVENUE, input.amount, "Term ended with visits not taken", tag),
+      cr(ACCOUNTS.REVENUE_AGREEMENT, input.amount, "Agreement revenue earned at the end of the term", tag),
+    ]),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Commission
 // ---------------------------------------------------------------------------

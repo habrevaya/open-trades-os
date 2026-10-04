@@ -52,6 +52,16 @@ describe("the share held for members", () => {
     expect(cp.heldForMembers({ hold, whole: 8, memberJobs: 0, opensAt, now: exactly })).toBe(0);
   });
 
+  it("lets a member of a plan holding less into its own share and no further", () => {
+    const big = { share: 0.5, releaseHours: 24 };
+    /** Half of eight is four held; a quarter plan's member may use two of them. */
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 0, opensAt, now: early, ownShare: 0.25 })).toBe(2);
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 0, opensAt, now: early, ownShare: 0.5 })).toBe(0);
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 0, opensAt, now: early })).toBe(4);
+    /** Members' work uses the hold up for everybody, the smaller plan's members included. */
+    expect(cp.heldForMembers({ hold: big, whole: 8, memberJobs: 3, opensAt, now: early, ownShare: 0.25 })).toBe(0);
+  });
+
   it("holds nothing when the share is none", () => {
     expect(cp.heldForMembers({ hold: { share: 0, releaseHours: 24 }, whole: 8, memberJobs: 0, opensAt, now: early })).toBe(0);
   });

@@ -52,6 +52,13 @@ export interface DayOption {
   stop: PlanStop;
   /** Per technician working that day: null when they may, the sentence why not when they may not. */
   refusals: Record<string, string | null>;
+  /**
+   * The arrival window this day would put the visit in, when a share of it
+   * is held for members and this visit's customer is not let into it:
+   * `room` is how many more such visits the window takes before the hold.
+   * Absent when nothing is held from this visit there.
+   */
+  held?: { key: string; room: number } | undefined;
 }
 
 export interface DaysVisit {
@@ -207,13 +214,23 @@ export function rebalanceDays(input: {
     };
   };
 
+  /**
+   * THE HOLD FOR MEMBERS, KEPT. A visit moved to another day takes room in
+   * that day's arrival window like a booking does, so it may not take the
+   * share held for members from somebody who is not one: each held window
+   * takes only as many moved visits as it has room for outside the hold.
+   */
+  const heldUse = new Map<string, number>();
+  const heldBy = new Map<string, string>();
+  const fitsHold = (option: DayOption) => !option.held || (heldUse.get(option.held.key) ?? 0) < option.held.room;
+
   /* 2. Each visit that may move, tried on the other days it may go to. */
   for (let pass = 0; pass < maxPasses; pass++) {
     let moved = false;
     for (const v of visits) {
       if (v.locked) continue;
       const here = dayOf.get(v.id)!;
-      const elsewhere = v.options.filter((o) => o.date !== here && dayByDate.has(o.date))
+      const elsewhere = v.options.filter((o) => o.date !== here && dayByDate.has(o.date) && fitsHold(o))
         .sort((a, b) => a.date.localeCompare(b.date));
       if (elsewhere.length === 0) continue;
 
@@ -251,6 +268,16 @@ export function rebalanceDays(input: {
       if (!best) continue;
       if (owner) hereRoutes.set(owner, fromOrder);
       unplacedNow.delete(v.id);
+      const was = heldBy.get(v.id);
+      if (was !== undefined) {
+        heldUse.set(was, (heldUse.get(was) ?? 1) - 1);
+        heldBy.delete(v.id);
+      }
+      const takes = optionOf(v.id, best.date)?.held;
+      if (takes) {
+        heldUse.set(takes.key, (heldUse.get(takes.key) ?? 0) + 1);
+        heldBy.set(v.id, takes.key);
+      }
       routes.get(best.date)!.set(best.technicianId, best.order);
       dayOf.set(v.id, best.date);
       moved = true;

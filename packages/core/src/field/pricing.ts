@@ -77,6 +77,12 @@ export interface OnSiteMember {
   rate: string;
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
+  /**
+   * The price book items the plan's discount leaves out, flattened by the
+   * server from the categories and items the plan names, because the phone
+   * carries the price book without its categories. Absent for none.
+   */
+  excludedItemIds?: readonly string[] | undefined;
 }
 
 export interface OnSiteLine {
@@ -98,6 +104,8 @@ export interface OnSiteLine {
   itemKind?: string | null | undefined;
   /** "diagnostic" or "after_hours" when the line is a fee a plan may waive. */
   feeRole?: string | null | undefined;
+  /** The price book item the line came from, which decides whether the plan leaves it out. Null for a typed line. */
+  itemId?: string | null | undefined;
   /**
    * The member's discount already on the line, for a document the office
    * priced. When given, the line is shown as priced and nothing is worked
@@ -162,8 +170,10 @@ export function priceOnSite(
       if (net > 0n) {
         const waived = (line.feeRole === "diagnostic" && member.waivesDiagnosticFee)
           || (line.feeRole === "after_hours" && member.waivesAfterHoursRate);
+        const excluded = line.itemId !== null && line.itemId !== undefined
+          && (member.excludedItemIds ?? []).includes(line.itemId);
         if (waived) memberOff = net;
-        else if (usableRate(member.rate)) {
+        else if (!excluded && usableRate(member.rate)) {
           const off = toCents(times(net, member.rate));
           memberOff = off > net ? net : off;
         }

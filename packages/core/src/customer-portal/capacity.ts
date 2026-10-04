@@ -132,7 +132,15 @@ export interface MemberHold {
   releaseHours: number;
 }
 
-/** Jobs in a window still kept back from somebody who is not a member. */
+/**
+ * Jobs in a window still kept back from whoever is booking.
+ *
+ * `hold.share` is the largest share any live plan holds. Somebody who is not
+ * a member is kept out of all of what is still held. A member is kept out of
+ * only the part above what their own plan holds (`ownShare`), so a plan that
+ * holds a tenth lets its members into a tenth of the window and no further
+ * into the third a dearer plan keeps for its own.
+ */
 export function heldForMembers(input: {
   hold: MemberHold;
   /** What the window holds with nothing booked. */
@@ -141,10 +149,15 @@ export function heldForMembers(input: {
   memberJobs: number;
   opensAt: Date;
   now: Date;
+  /** The share the booker's own plan holds, 0 to 1. Absent or 0 for somebody who is not a member. */
+  ownShare?: number | undefined;
 }): number {
   const share = Math.min(Math.max(input.hold.share, 0), 1);
   const releasedAt = input.opensAt.getTime() - Math.max(input.hold.releaseHours, 0) * 3_600_000;
   if (share === 0 || input.now.getTime() >= releasedAt) return 0;
-  const reserved = Math.max(Math.ceil(input.whole * share - 0.5 - 1e-9), 0);
-  return Math.max(reserved - Math.max(input.memberJobs, 0), 0);
+  const jobsOf = (fraction: number) => Math.max(Math.ceil(input.whole * fraction - 0.5 - 1e-9), 0);
+  const reserved = jobsOf(share);
+  const own = Math.min(jobsOf(Math.min(Math.max(input.ownShare ?? 0, 0), 1)), reserved);
+  const stillHeld = Math.max(reserved - Math.max(input.memberJobs, 0), 0);
+  return Math.max(stillHeld - own, 0);
 }
