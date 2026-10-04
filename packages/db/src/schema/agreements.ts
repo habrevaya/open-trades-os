@@ -188,6 +188,21 @@ export const agreementPlan = pgTable("agreement_plan", {
   waivesAfterHoursRate: boolean("waives_after_hours_rate").notNull().default(false),
   extendedWarrantyMonths: integer("extended_warranty_months"),
   benefits: jsonb("benefits").$type<string[]>().notNull().default([]),
+  /**
+   * WHAT THE DISCOUNT LEAVES OUT: price book categories (with everything
+   * under them) and single items the member rate does not touch. A plan
+   * that discounts labour and not equipment says so here. Copied onto each
+   * agreement when it is sold, like the rate, because narrowing what the
+   * discount covers is cutting it.
+   */
+  discountExclusions: jsonb("discount_exclusions").$type<{ categoryIds: string[]; itemIds: string[] }>()
+    .notNull().default({ categoryIds: [], itemIds: [] }),
+  /**
+   * The share of each arrival window held for this plan's members, as a
+   * whole per cent. Null for the company's own figure on the booking
+   * screen, which is what every plan had before this column existed.
+   */
+  memberHoldPercent: integer("member_hold_percent"),
 
   /**
    * Where deferred revenue sits until a visit is delivered. Separate from the
@@ -241,6 +256,12 @@ export const agreement = pgTable("agreement", {
    * it. Null is a plan sold with no discount.
    */
   discountRate: rate("discount_rate"),
+  /**
+   * What the discount leaves out, frozen at sale with the rate. See the
+   * plan's column; empty is a discount on everything eligible.
+   */
+  discountExclusions: jsonb("discount_exclusions").$type<{ categoryIds: string[]; itemIds: string[] }>()
+    .notNull().default({ categoryIds: [], itemIds: [] }),
   billingFrequency: billingFrequency("billing_frequency").notNull(),
   autoRenews: boolean("auto_renews").notNull().default(true),
   renewalCount: integer("renewal_count").notNull().default(0),
@@ -316,6 +337,41 @@ export const agreementVisit = pgTable("agreement_visit", {
   agreementIdx: index("agreement_visit_agreement_idx").on(t.agreementId, t.sequence),
   /** The report that keeps an agreement book alive: owed and unscheduled. */
   owedIdx: index("agreement_visit_owed_idx").on(t.organizationId, t.dueOn, t.jobId),
+}));
+
+/**
+ * ONE TERM OF AN AGREEMENT, and what was released when it ended.
+ *
+ * A row per term, written when the term is (on sale and on each renewal), so
+ * "when did the second year end" is a fact rather than arithmetic on a plan
+ * whose term length may have been edited since. It is also where breakage is
+ * recorded: the deferred revenue behind visits a member never took, released
+ * to revenue on the day the term ends and not before. The unique index is the
+ * idempotency: one term, one release, however many passes reach it.
+ *
+ * Agreements sold before terms were recorded get a row for their current
+ * term the first time the renewal pass or a renewal reads them. Their earlier
+ * terms have none, and so are never released by the pass.
+ */
+export const agreementTerm = pgTable("agreement_term", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  agreementId: uuid("agreement_id").notNull().references(() => agreement.id, { onDelete: "cascade" }),
+  /** Counting from one, the same number `agreement_visit.term` carries. */
+  term: integer("term").notNull(),
+  /** Null for a term written before terms were recorded, other than the first. */
+  startsOn: date("starts_on"),
+  /** The first day without this term's cover. */
+  endsOn: date("ends_on").notNull(),
+  /** The day what was left deferred was released. Null until the term has ended and the pass has reached it. */
+  breakageReleasedOn: date("breakage_released_on"),
+  /** How much was released, and for how many visits never taken. Nothing when every visit was. */
+  breakageAmount: money("breakage_amount"),
+  breakageVisits: integer("breakage_visits"),
+  ...timestamps,
+}, (t) => ({
+  termIdx: uniqueIndex("agreement_term_idx").on(t.agreementId, t.term),
+  dueIdx: index("agreement_term_due_idx").on(t.organizationId, t.endsOn),
 }));
 
 // ---------------------------------------------------------------------------

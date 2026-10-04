@@ -673,6 +673,13 @@
       "when": 1791124543727,
       "tag": "0095_huge_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791147059696,
+      "tag": "0096_long_daredevil",
+      "breakpoints": true
     }
   ]
 }

@@ -1415,30 +1415,47 @@ grant execute on function app.due_deliveries(int) to background;
 -- The same shape as the three above and for the same reason: ids only, not
 -- callable by the role the request path uses. A company is returned when it
 -- has an active agreement whose end is inside the plan's notice window, with
--- a day to spare either side for timezones. Whether anything is actually due
--- is decided per agreement, in the company's own calendar, by the service.
+-- a day to spare either side for timezones, or a term that has ended and not
+-- yet released its breakage (what its visits never taken still hold
+-- deferred). Whether anything is actually due is decided per agreement, in
+-- the company's own calendar, by the service.
 -- =========================================================================
 
 create or replace function app.agreement_renewal_organizations(p_limit int default 100)
 returns table (organization_id uuid)
   language sql stable security definer set search_path = public, pg_temp
   as $$
-    select a.organization_id
-    from public.agreement a
-    join public.agreement_plan p on p.id = a.plan_id
-    where a.status = 'active'
-      and a.ends_on is not null
-      and (
-        a.ends_on <= current_date + 1
-        or (a.renewal_notice_sent_at is null
-            and a.ends_on <= current_date + p.renewal_notice_days + 1)
-      )
-      and not exists (
-        select 1 from public.organization o
-         where o.id = a.organization_id and o.suspended_at is not null
-      )
-    group by a.organization_id
-    order by min(a.ends_on)
+    select x.organization_id
+    from (
+      select a.organization_id, a.ends_on
+      from public.agreement a
+      join public.agreement_plan p on p.id = a.plan_id
+      where a.status = 'active'
+        and a.ends_on is not null
+        and (
+          a.ends_on <= current_date + 1
+          or (a.renewal_notice_sent_at is null
+              and a.ends_on <= current_date + p.renewal_notice_days + 1)
+        )
+      union all
+      -- A term that has ended and has not yet given up what it holds deferred.
+      select t.organization_id, t.ends_on
+      from public.agreement_term t
+      where t.breakage_released_on is null and t.ends_on <= current_date + 1
+      union all
+      -- A lapsed agreement sold before terms were recorded, whose current term has no row yet.
+      select a.organization_id, a.ends_on
+      from public.agreement a
+      where a.status = 'lapsed' and a.ends_on is not null
+        and not exists (select 1 from public.agreement_term t
+                         where t.agreement_id = a.id and t.term = a.renewal_count + 1)
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    group by x.organization_id
+    order by min(x.ends_on)
     limit p_limit
   $$;
 
