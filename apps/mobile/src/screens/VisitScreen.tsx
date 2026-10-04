@@ -5,6 +5,7 @@ import { useField } from "../state/FieldProvider";
 import { ETA_CHOICES, photoSummary, telUrl } from "../lib/format";
 import { Button, Notice, Section } from "../components/ui";
 import { ChecklistSection, InspectionsSection, PartsSection, PaymentSection, ReadingsSection } from "./VisitWork";
+import { AskSection, CashTipSection, InvoiceSection, SellSection } from "./VisitSell";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -176,11 +177,15 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
           </View>
         </Section>
 
+        <AskSection visit={visit} nav={nav} />
         <InspectionsSection visit={visit} nav={nav} />
         <ChecklistSection visit={visit} />
         <ReadingsSection visit={visit} />
         <PartsSection visit={visit} />
+        <SellSection visit={visit} nav={nav} />
+        <InvoiceSection visit={visit} nav={nav} />
         <PaymentSection visit={visit} />
+        <CashTipSection visit={visit} />
       </ScrollView>
     </View>
   );

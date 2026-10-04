@@ -7,9 +7,10 @@ import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
 import {
-  formatAmount, inspectionPayload, type BuiltInspection, type FieldInspectionProgram, type Problem,
-  type SyncEngine, type SyncReport,
+  formatAmount, inspectionPayload, type AssistantAnswer, type BuiltInspection, type FieldInspectionProgram,
+  type Problem, type SyncEngine, type SyncReport,
 } from "@opentradesos/field-client";
+import type { KeptSignature } from "../lib/sell";
 import type { Session } from "../lib/session";
 import { deviceInstallationId, sessionExpired } from "../lib/session";
 import {
@@ -73,6 +74,18 @@ interface FieldState {
   }): Promise<string | null>;
   resolve(problem: Problem, choice: "acknowledge" | "retry" | "discard"): Promise<void>;
   onMyWay(visitId: string, etaMinutes: number): Promise<string>;
+  /**
+   * A step of the sale (`lib/sell`), run against this phone's queue, then
+   * the screen redrawn from it and a send tried. The step decides what goes
+   * in and in what order; this only gives it the phone.
+   */
+  perform(step: (phone: Pick<FieldClient, "queue" | "uploads">) => Promise<unknown>): Promise<void>;
+  /** A signature drawn on the glass, kept on the phone's disk and hashed, ready to be recorded. */
+  keepDrawnSignature(dataUrl: string): Promise<KeptSignature | { problem: string }>;
+  /** The lender's application link for the visit's job, texted or handed to the share sheet. */
+  financingLink(visitId: string, how: "text" | "share"): Promise<string>;
+  /** A question for the field assistant. Needs a signal. */
+  ask(question: string, visitId: string | null): Promise<AssistantAnswer | { problem: string }>;
 }
 
 const Context = createContext<FieldState | null>(null);
@@ -423,12 +436,72 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const perform = useCallback<FieldState["perform"]>(async (step) => {
+    const c = clientRef.current;
+    if (!c) return;
+    await step(c);
+    await refreshView(c);
+    void sync(true);
+  }, [refreshView, sync]);
+
+  /**
+   * Kept on the phone's disk before anything names it, and hashed there, so
+   * the record of the customer's yes and the image of their signature cannot
+   * be separated by a dead battery.
+   */
+  const keepDrawnSignature = useCallback<FieldState["keepDrawnSignature"]>(async (dataUrl) => {
+    const png = pngFromDataUrl(dataUrl);
+    if (!png) return { problem: "The signature could not be saved. Ask them to sign again." };
+    const uploadId = Crypto.randomUUID();
+    try {
+      return { uploadId, ...(await keepSignature(png, uploadId)) };
+    } catch {
+      return { problem: "The signature could not be kept on this phone. Ask them to sign again." };
+    }
+  }, []);
+
+  /** The lender's link, asked for now or not at all, like the card link. */
+  const financingLink = useCallback<FieldState["financingLink"]>(async (visitId, how) => {
+    const c = clientRef.current;
+    if (!c) return "Not signed in.";
+    try {
+      const link = await c.api.financingLink(visitId, how === "text", Crypto.randomUUID());
+      if (how === "share" && link.url) {
+        await Share.share({ message: `Apply to pay ${formatAmount(link.amount)} over time with ${link.lender}: ${link.url}` });
+        return `A link to apply with ${link.lender}. The lender decides, and the office sees it once the loan is funded.`;
+      }
+      if (link.texted) return `Texted them a link to apply with ${link.lender} for ${formatAmount(link.amount)}.`;
+      return link.reason ?? "The link was made but not texted. Share it instead.";
+    } catch (error) {
+      const offline = typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true;
+      return offline
+        ? "No signal, so no financing link. Try again when you have a signal."
+        : error instanceof Error ? error.message : "The link could not be made.";
+    }
+  }, []);
+
+  const ask = useCallback<FieldState["ask"]>(async (question, visitId) => {
+    const c = clientRef.current;
+    if (!c) return { problem: "Not signed in." };
+    try {
+      return await c.api.askAssistant(question, visitId, Crypto.randomUUID());
+    } catch (error) {
+      const offline = typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true;
+      return {
+        problem: offline
+          ? "No signal, so the assistant cannot look. Try again when you have a signal."
+          : error instanceof Error ? error.message : "The assistant could not answer.",
+      };
+    }
+  }, []);
+
   const value = useMemo<FieldState>(() => ({
     status, session, view, syncing, report, signInEnded, push, locationPermission: permission,
     signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
-    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
+    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink, perform, keepDrawnSignature, financingLink, ask,
   }), [status, session, view, syncing, report, signInEnded, push, permission, signIn, requestCode, signInWithCode, signOut,
-    sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink]);
+    sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
+    perform, keepDrawnSignature, financingLink, ask]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
