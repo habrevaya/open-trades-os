@@ -22,6 +22,12 @@ import { type Money, add, subtract, zero, toString, isZero, isNegative, isPositi
  */
 export const ACCOUNTS = {
   AR: "1200",                 // Accounts receivable
+  /**
+   * Retainage a customer is holding back on an application for payment:
+   * earned and billed, owed when the job is done. An asset, and not the
+   * receivable, because the customer does not owe it yet.
+   */
+  RETAINAGE_RECEIVABLE: "1210",
   CASH: "1000",               // Undeposited funds
   INVENTORY: "1300",
   CUSTOMER_DEPOSITS: "2300",  // Money held against work not yet done. A LIABILITY.
@@ -803,6 +809,48 @@ export function postCreditNotePayout(input: {
   });
 }
 
+/**
+ * RETAINAGE HELD OR RELEASED ON AN APPLICATION FOR PAYMENT.
+ *
+ * The invoice an application becomes carries what is due now, net of the
+ * retainage held this period, and `postInvoice` books that as revenue. The
+ * work was done in full, so the share held back is revenue too, owed later:
+ * `change` positive debits the retainage receivable and credits revenue for
+ * it. When retainage is released, the release is a line on that period's
+ * invoice and `postInvoice` books it as revenue again, so `change` negative
+ * takes it off the retainage receivable and back off revenue: the customer
+ * now owes it on the invoice, and it was earned once, when it was billed.
+ *
+ * `reversal` marks the posting that takes an application's retainage back
+ * when its invoice is voided, so the register says why it moved.
+ */
+export function postRetainage(input: {
+  applicationId: string;
+  occurredAt: Date;
+  /** Held now less what is already on the books: positive held, negative released. */
+  change: Money;
+  customerId?: string | undefined;
+  reversal?: boolean | undefined;
+}): Posting {
+  const tag = { customerId: input.customerId };
+  const held = !isNegative(input.change);
+  const amount = held ? input.change : subtract(zero(input.change.currency), input.change);
+  return assertBalanced({
+    sourceType: input.reversal ? "retainage_reversal" : "retainage",
+    sourceId: input.applicationId,
+    occurredAt: input.occurredAt,
+    entries: compact(held
+      ? [
+        dr(ACCOUNTS.RETAINAGE_RECEIVABLE, amount, input.reversal ? "Released retainage put back" : "Retainage held by the customer", tag),
+        cr(ACCOUNTS.REVENUE, amount, input.reversal ? "Revenue restored" : "Revenue earned on retainage held", tag),
+      ]
+      : [
+        dr(ACCOUNTS.REVENUE, amount, input.reversal ? "Revenue on voided retainage reversed" : "Retainage released, earned when billed", tag),
+        cr(ACCOUNTS.RETAINAGE_RECEIVABLE, amount, input.reversal ? "Retainage voided" : "Retainage released onto the invoice", tag),
+      ]),
+  });
+}
+
 /** Writing off a balance. The receivable goes, and the loss is recognised. */
 export function postWriteOff(input: {
   invoiceId: string;
@@ -1075,6 +1123,7 @@ export function postTipPayout(input: {
  */
 export const CONTROL_ACCOUNTS: Readonly<Record<string, string>> = {
   [ACCOUNTS.AR]: "Accounts receivable follows the invoices. Correct it with a credit note, a write off or a payment.",
+  [ACCOUNTS.RETAINAGE_RECEIVABLE]: "Retainage receivable follows the applications for payment. It moves when retainage is held on one and when it is released.",
   [ACCOUNTS.CUSTOMER_DEPOSITS]: "Customer deposits follows the deposits and unapplied payments held. Apply, refund or forfeit the deposit instead.",
   [ACCOUNTS.TIPS_PAYABLE]: "Tips payable follows the tips owed to technicians. It is cleared through payroll.",
   [ACCOUNTS.COMMISSION_PAYABLE]: "Commission payable follows the commission records. Adjust those instead.",

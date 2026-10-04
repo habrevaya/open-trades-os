@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
+import * as retainage from "./retainage";
 import {
   approvedChangeOrders, lastInvoicedApplication, lineKey, loadProjectIn, rememberKey,
   scheduleOfValues, seenKey,
@@ -47,6 +48,14 @@ export interface ApplicationView {
   notes: string | null;
   invoiceId: string | null;
   invoicedAt: Date | null;
+  /**
+   * How this project's retainage is on the books: `receivable`, held on its
+   * own account when billed, or `net`, revenue when released, for a project
+   * billed before retainage was booked (see `services/retainage.ts`).
+   */
+  retainageBooking: retainage.RetainageBooking;
+  /** What invoicing this application moved on the retainage receivable. Null on a draft or the old way. */
+  retainageBooked: string | null;
   lines: (plan.ApplicationLine & { id: string })[];
   /** Null while the draft has something wrong with it; `problems` then says what. */
   totals: plan.ApplicationTotals | null;
@@ -158,6 +167,10 @@ async function viewIn(tx: Database, ctx: ServiceContext, id: string): Promise<Ap
     notes: row.notes,
     invoiceId: row.invoiceId,
     invoicedAt: row.invoicedAt,
+    retainageBooking: row.status === "invoiced"
+      ? (row.retainageBooked === null ? "net" : "receivable")
+      : await retainage.bookingOf(tx, row.projectId, row.id),
+    retainageBooked: row.retainageBooked,
     lines: decision.ok
       ? decision.lines.map((line) => ({ ...line, id: line.key }))
       : lines.map((line) => ({
@@ -529,8 +542,21 @@ export async function raise(ctx: ServiceContext, input: { id: string }): Promise
   }
 
   await guardedWrite(ctx, "invoice:write", async (tx) => {
+    /**
+     * Locked and checked: only the transaction that turns this draft into an
+     * invoiced application books its retainage, so a raise retried after it
+     * went books nothing twice.
+     */
+    const [still] = await tx.select({ status: schema.projectApplication.status }).from(schema.projectApplication)
+      .where(eq(schema.projectApplication.id, row.id)).for("update").limit(1);
+    if (still?.status !== "draft") return;
+    const booked = await retainage.bookOnInvoice(tx, ctx, {
+      applicationId: row.id, projectId: project.id, customerId: project.customerId,
+      totalRetainage: decision.totals.totalRetainage, at: new Date(),
+    });
     await tx.update(schema.projectApplication).set({
       status: "invoiced",
+      retainageBooked: booked,
       invoiceId: invoice.id,
       invoicedAt: new Date(),
       contractSum: decision.totals.contractSumToDate,

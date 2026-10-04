@@ -224,7 +224,12 @@ refused there, because a QuickBooks payment cannot link two customers' documents
 Credit paid back reaches QuickBooks as the cheque to the customer's receivable and
 not the receive payment that would link it to the credit memo, which QuickBooks'
 API is not documented to take: the customer's balance over there is right, and the
-credit memo shows as unapplied until a bookkeeper links the two by hand. There is no
+credit memo shows as unapplied until a bookkeeper links the two by hand.
+Retainage held on an application for payment is booked here to retainage
+receivable against revenue (M12) and not sent: the books there carry the
+application's invoice as billed, net of retainage, and revenue there is gross only
+once a bookkeeper posts the retainage by journal. The accounting settings do not ask
+for account 1210 to be mapped, because nothing sent lands on it. There is no
 reconciliation screen against a bank feed, and no fixed asset or depreciation
 handling: a company that needs those does them in the accounting system, which is
 where they belong.

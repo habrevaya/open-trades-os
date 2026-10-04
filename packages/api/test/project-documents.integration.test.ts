@@ -490,3 +490,106 @@ run("the contract guard reads the same billed total", () => {
       .rejects.toBeInstanceOf(ConflictError);
   });
 });
+
+run("retainage on the books", () => {
+  /** Net movement on one account across the company, debits positive, in cents. */
+  async function account(code: string): Promise<number> {
+    const [row] = await raw<{ net: string }[]>`
+      select coalesce(sum(case when direction = 'debit' then amount else -amount end), 0)::text as net
+      from public.ledger_entry where organization_id = ${ORG} and account_code = ${code}`;
+    return Math.round(Number(row!.net) * 100);
+  }
+  async function balanced(): Promise<boolean> {
+    return (await account("1000")) + (await account("1200")) + (await account("1210")) + (await account("2200"))
+      + (await account("2300")) + (await account("4000")) === 0;
+  }
+  const postingsFor = (applicationId: string) => raw<{ source_type: string; account_code: string; direction: string; amount: string }[]>`
+    select source_type, account_code, direction, amount::text from public.ledger_entry
+    where organization_id = ${ORG} and source_id = ${applicationId} order by account_code`;
+
+  it("books revenue gross when billed, holding the retainage on its own receivable", async () => {
+    const { project } = await fitout();
+    const app = await applications.create(owner(), { projectId: project.id, periodTo: "2026-11-30" });
+    await applications.updateDraft(owner(), { id: app.id, lines: [{ id: app.lines[0]!.id, workThisPeriod: "20000" }] });
+    const raised = await applications.raise(owner(), { id: app.id });
+    expect(raised.amount).toBe("18000.0000");
+
+    /** 20,000 of work: 18,000 billed now, 2,000 held, and all 20,000 earned. */
+    expect(await account("1200")).toBe(1_800_000);
+    expect(await account("1210")).toBe(200_000);
+    expect(await account("4000")).toBe(-2_000_000);
+    expect(await balanced()).toBe(true);
+    expect(await postingsFor(app.id)).toEqual([
+      { source_type: "retainage", account_code: "1210", direction: "debit", amount: "2000.0000" },
+      { source_type: "retainage", account_code: "4000", direction: "credit", amount: "2000.0000" },
+    ]);
+    const view = await applications.get(owner(), { id: app.id });
+    expect(view).toMatchObject({ retainageBooking: "receivable", retainageBooked: "2000.0000" });
+
+    /** Raised again, nothing more is posted. */
+    await applications.raise(owner(), { id: app.id });
+    expect(await account("1210")).toBe(200_000);
+  });
+
+  it("moves the retainage onto what is owed when it is released, without earning it twice", async () => {
+    const { project } = await fitout();
+    const first = await applications.create(owner(), { projectId: project.id, periodTo: "2026-11-30" });
+    await applications.updateDraft(owner(), { id: first.id, lines: [{ id: first.lines[0]!.id, workThisPeriod: "20000" }] });
+    await applications.raise(owner(), { id: first.id });
+
+    const second = await applications.create(owner(), { projectId: project.id, periodTo: "2026-12-31" });
+    const filled = await applications.updateDraft(owner(), {
+      id: second.id, retainageReleased: "3000",
+      lines: [{ id: second.lines[0]!.id, workThisPeriod: "10000" }],
+    });
+    /** 30,000 to date, 3,000 held on it and all 3,000 released: 12,000 due, 2,000 of it the earlier retainage. */
+    expect(filled.totals).toMatchObject({ totalRetainage: "0.0000", currentPaymentDue: "12000.0000" });
+    await applications.raise(owner(), { id: second.id });
+
+    expect(await account("1210")).toBe(0);
+    expect(await account("1200")).toBe(3_000_000);
+    /** Revenue is the 30,000 of work, once: the release line on the invoice is not new revenue. */
+    expect(await account("4000")).toBe(-3_000_000);
+    expect(await balanced()).toBe(true);
+    expect(await postingsFor(second.id)).toEqual([
+      { source_type: "retainage", account_code: "1210", direction: "credit", amount: "2000.0000" },
+      { source_type: "retainage", account_code: "4000", direction: "debit", amount: "2000.0000" },
+    ]);
+    expect((await applications.get(owner(), { id: second.id })).retainageBooked).toBe("-2000.0000");
+  });
+
+  it("takes the retainage back off when the application's invoice is voided", async () => {
+    const { project } = await fitout();
+    const app = await applications.create(owner(), { projectId: project.id, periodTo: "2026-11-30" });
+    await applications.updateDraft(owner(), { id: app.id, lines: [{ id: app.lines[0]!.id, workThisPeriod: "20000" }] });
+    const raised = await applications.raise(owner(), { id: app.id });
+    const billing = await import("../src/services/billing");
+    await billing.voidInvoice(owner(), { id: raised.invoiceId, reason: "Raised against the wrong period" });
+
+    expect(await account("1210")).toBe(0);
+    expect(await account("4000")).toBe(0);
+    expect(await account("1200")).toBe(0);
+    expect(await balanced()).toBe(true);
+    expect((await postingsFor(app.id)).map((p) => p.source_type).sort())
+      .toEqual(["retainage", "retainage", "retainage_reversal", "retainage_reversal"]);
+  });
+
+  it("leaves a project whose retainage was never booked on the old way for good, and says so", async () => {
+    const { project } = await fitout();
+    const first = await applications.create(owner(), { projectId: project.id, periodTo: "2026-11-30" });
+    await applications.updateDraft(owner(), { id: first.id, lines: [{ id: first.lines[0]!.id, workThisPeriod: "20000" }] });
+    await applications.raise(owner(), { id: first.id });
+    /** As an application invoiced before retainage was booked here reads. */
+    await raw`update public.project_application set retainage_booked = null where id = ${first.id}`;
+
+    const second = await applications.create(owner(), { projectId: project.id, periodTo: "2026-12-31" });
+    expect(second.retainageBooking).toBe("net");
+    await applications.updateDraft(owner(), {
+      id: second.id, retainageReleased: "3000", lines: [{ id: second.lines[0]!.id, workThisPeriod: "10000" }],
+    });
+    await applications.raise(owner(), { id: second.id });
+    /** Nothing is taken off a receivable it was never put on. */
+    expect(await postingsFor(second.id)).toEqual([]);
+    expect((await applications.get(owner(), { id: second.id })).retainageBooked).toBeNull();
+  });
+});

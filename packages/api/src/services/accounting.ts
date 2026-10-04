@@ -317,7 +317,13 @@ export async function unmappedAccountCodes(
     .where(eq(schema.accountMapping.connectionId, connectionId));
 
   const known = new Set(mapped.map((row) => row.accountCode));
-  return used.map((row) => row.accountCode).filter((code) => !known.has(code)).sort();
+  /**
+   * Retainage receivable is left off: nothing this bridge sends lands on it
+   * (the books carry an application's invoice as billed, net), so asking
+   * somebody to map it would be asking for a mapping nothing reads. M14 says so.
+   */
+  return used.map((row) => row.accountCode)
+    .filter((code) => !known.has(code) && code !== ledger.ACCOUNTS.RETAINAGE_RECEIVABLE).sort();
 }
 
 /* -------------------------------------------------------- period closing */

@@ -383,6 +383,15 @@ export const Application = z.object({
   notes: z.string().nullable(),
   invoiceId: Uuid.nullable(),
   invoicedAt: z.string().datetime().nullable(),
+  /**
+   * How the project's retainage is on the books: `receivable`, the work booked
+   * as revenue in full when billed and the retainage held on a receivable of
+   * its own until released; or `net`, revenue when released and invoiced, for
+   * a project an application was invoiced on before retainage was booked.
+   */
+  retainageBooking: z.enum(["receivable", "net"]),
+  /** What invoicing it moved on the retainage receivable: held positive, released negative. */
+  retainageBooked: MoneyString.nullable(),
   lines: z.array(z.object({
     id: Uuid,
     key: z.string(),

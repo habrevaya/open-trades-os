@@ -7,6 +7,7 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
+import * as retainage from "./retainage";
 import { listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
@@ -1962,6 +1963,9 @@ export async function voidInvoice(
       customerId: invoice.customerId,
       ...(invoice.jobId ? { jobId: invoice.jobId } : {}),
     }));
+
+    /** An application for payment's retainage goes back off with its invoice. */
+    await retainage.reverseOnVoid(tx, ctx, invoice.id);
 
     await tx.update(schema.invoice).set({
       status: "void",
