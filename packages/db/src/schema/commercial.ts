@@ -226,6 +226,12 @@ export const serviceContract = pgTable("service_contract", {
   autoRenews: boolean("auto_renews").notNull().default(false),
   /** Annual uplift, so year three billing is not a manual exercise. */
   escalationRate: rate("escalation_rate"),
+  /**
+   * The last anniversary the escalation was applied on, as new versions of
+   * the contract's cards (`services/contract-escalation.ts`). Null until the
+   * first. The next is a year after this, or after `startsOn`.
+   */
+  escalatedThrough: date("escalated_through"),
   /** Default ceiling for work under this contract, before a per-job override. */
   defaultNotToExceed: money("default_not_to_exceed"),
   /** Their PO covering the term, required on every invoice by many clients. */
@@ -312,6 +318,15 @@ export const rateCard = pgTable("rate_card", {
   standardEndMinute: integer("standard_end_minute").notNull().default(1020),
   /** The client's holidays, as `YYYY-MM-DD`. */
   holidays: jsonb("holidays").$type<string[]>().notNull().default([]),
+  /**
+   * The card this one is the next version of, when a contract's annual
+   * escalation made it: the same card risen by the rate, in force from the
+   * anniversary, with the earlier one ended the day before. Null on a card
+   * somebody loaded.
+   */
+  escalatedFromId: uuid("escalated_from_id"),
+  /** The rate it was risen by, as applied, beside the card it came from. */
+  escalationRate: rate("escalation_rate"),
   ...timestamps,
 }, (t) => ({ orgIdx: index("rate_card_org_idx").on(t.organizationId) }));
 

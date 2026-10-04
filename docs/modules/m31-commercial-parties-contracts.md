@@ -305,6 +305,29 @@ due, what is due within a day, and what is later. A clock already met since
 the worker last went round is not shown, because the read checks the facts
 itself rather than waiting for the record.
 
+## Annual escalation
+
+A contract that says rates rise by a percentage each year carries that rate in
+its terms ("Rates rise each year by, per cent" on `/contracts/{id}`). The
+contract's page then shows the next anniversary of its start date and, for every
+card in force the day before it, each listed price, hourly rate and trip charge
+now and after rising by the rate, to the cent, rounded half up once
+(`GET /v1/contracts/{contractId}/escalation`; markups are fractions of our cost and
+are kept). Nothing changes until a person presses **Apply year N prices**
+(`POST /v1/contracts/{contractId}/escalation`, `pricebook:write`), which is refused
+unless it names the anniversary and rate the page showed, so a rate changed in
+between is a different rise somebody has to look at again.
+
+Applying it writes a new version of each card, named for the year, in force from
+the anniversary, and ends the old card the day before. A card is a price list and
+is never edited in place: work done before the anniversary is priced by the old
+card and every invoice already raised keeps its prices. It can be applied from
+sixty days before the anniversary, so the prices are ready the morning they are
+owed, and any time after, for one that was missed; anniversaries are applied one
+at a time, oldest first, and the contract records the last one applied. It is
+refused, in words, when the contract has no start date or ends first, when no
+card is in force, or when a card is already loaded from the anniversary.
+
 ## Billing a job in parts
 
 `GET /v1/jobs/{id}/billing` prices every unbilled line on the job, plus a
@@ -429,8 +452,11 @@ Ariba or Coupa punchout, or a facilities network's invoice API, and the
 being claimed by a file somebody downloaded. The XML is this product's own
 shape, not any standard's.
 
-**No annual escalation.** A contract's escalation rate is stored and nothing
-applies it to the card; next year's rates are loaded as next year's card.
+**Escalation is one rate, applied by a person.** Nothing applies it on its own on
+the anniversary or raises a task when one is due; the contract's page shows it
+from sixty days ahead. A contract whose rises differ by year, or by trade, loads
+next year's card by hand. A rate typed with more than four decimal places of a
+percentage is rounded when it is saved.
 
 **Tax rates on a split.** The rate is one figure for the job's taxable lines,
 typed by whoever bills it, so a job whose taxable lines owe different rates

@@ -6,7 +6,8 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { contracts, rateCards, payerDelivery, priceBook } from "@opentradesos/api/services";
 import { attempt, field, refused, refusalOf, type FormState } from "@/lib/actions";
-import { cardLinesFromText, cardTermsFromForm, slaTermsFromForm } from "@/lib/contract-forms";
+import { cardLinesFromText, cardTermsFromForm, fractionOf, slaTermsFromForm } from "@/lib/contract-forms";
+import { contractEscalation } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 const reader = (form: FormData) => (name: string) => {
@@ -29,6 +30,7 @@ function termsFrom(form: FormData) {
     defaultNotToExceed: field(form, "defaultNotToExceed") ?? null,
     purchaseOrderNumber: field(form, "purchaseOrderNumber") ?? null,
     coveredScope: field(form, "coveredScope") ?? null,
+    escalationRate: fractionOf(field(form, "escalationRate") ?? ""),
   };
 }
 
@@ -138,4 +140,23 @@ export async function issuePayerLink(_previous: FormState, form: FormData): Prom
       link: link.url,
     };
   });
+}
+
+/**
+ * Apply the annual escalation the page showed, with the anniversary and the
+ * rate it showed, so a rate changed in between is refused rather than applied.
+ */
+export async function applyEscalation(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  const result = await attempt(form, async () => {
+    const done = await contractEscalation.apply(await ctx(), {
+      contractId, anniversary: field(form, "anniversary") ?? "", rate: field(form, "rate") ?? "",
+    });
+    return {
+      message: `${done.cards.length === 1 ? "One card" : `${done.cards.length} cards`} risen from ${done.anniversary}. `
+        + "The earlier prices stay in force until the day before.",
+    };
+  });
+  revalidatePath(`/contracts/${contractId}`);
+  return result;
 }

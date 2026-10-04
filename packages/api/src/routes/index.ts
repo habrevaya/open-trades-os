@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  apps, comms, consent, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
   dispatchMap, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
@@ -177,6 +177,8 @@ export const handlers = {
 
   // Commercial contracts. Whose price governs, when it is not ours.
   listContracts: contractService.handlers.listContracts,
+  previewContractEscalation: contractEscalation.handlers.previewContractEscalation,
+  applyContractEscalation: contractEscalation.handlers.applyContractEscalation,
   createContract: contractService.handlers.createContract,
   addContractSite: contractService.handlers.addContractSite,
   createRateCard: contractService.handlers.createRateCard,
