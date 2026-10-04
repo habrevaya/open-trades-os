@@ -106,7 +106,7 @@ export function CashTipSection({ visit }: { visit: DayVisit }) {
       <Text style={type.soft}>Kept by you. Recorded for your pay statement, where tips are reported.</Text>
       <View style={styles.row}>
         <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="Amount"
-                   placeholderTextColor={color.inkFaint} style={[styles.input, { flex: 1 }]} accessibilityLabel="Cash tip amount" />
+                   placeholderTextColor={color.inkFaint} style={[styles.input, { flex: 1 }]} accessibilityLabel="Cash tip, in dollars" />
         <View style={{ flex: 1 }}><Button label="Record tip" kind="secondary" onPress={() => void record()} /></View>
       </View>
       {problem ? <Text style={styles.problem}>{problem}</Text> : null}

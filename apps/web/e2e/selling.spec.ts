@@ -23,15 +23,27 @@ function companyNow(timeZone: string): { date: string; time: string } {
   return { date: `${parts["year"]}-${parts["month"]}-${parts["day"]}`, time: `${parts["hour"]}:${parts["minute"]}` };
 }
 
-/** A signature, drawn with a finger's worth of strokes on the pad. */
-async function sign(page: Page, pad: Locator) {
-  const box = (await pad.boundingBox())!;
-  await page.mouse.move(box.x + 20, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 3, box.y + 20, { steps: 8 });
-  await page.mouse.move(box.x + (2 * box.width) / 3, box.y + box.height - 20, { steps: 8 });
-  await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2, { steps: 8 });
-  await page.mouse.up();
+const ready = (page: Page) => page.waitForFunction(() => (window as { __otsReady?: boolean }).__otsReady === true);
+
+/**
+ * A signature, drawn with a finger's worth of strokes on the pad, until the
+ * pad has it. The mouse goes where it is told, on screen or not, and the day
+ * can redraw under it as the queue sends, so the pad is brought on screen and
+ * the stroke is tried again if it missed.
+ */
+async function sign(page: Page, pad: Locator, button: Locator) {
+  await expect(async () => {
+    await pad.scrollIntoViewIfNeeded();
+    const box = (await pad.boundingBox())!;
+    await page.mouse.move(box.x + 20, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 3, box.y + 20, { steps: 8 });
+    await page.mouse.move(box.x + (2 * box.width) / 3, box.y + box.height - 20, { steps: 8 });
+    await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect(button).toBeEnabled({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+  await button.click();
 }
 
 async function setTipping(owner: Page, on: boolean) {
@@ -67,6 +79,8 @@ test("a technician builds options on /my-day, the customer chooses and signs, an
   await setTipping(owner, true);
   try {
     await tech.goto("/my-day");
+    // Once React has the page, so the tap that opens the visit is not lost before it does.
+    await ready(tech);
     const visit = tech.getByRole("article").filter({ hasText: customer });
     await visit.getByRole("button").first().click();
 
@@ -93,8 +107,7 @@ test("a technician builds options on /my-day, the customer chooses and signs, an
     await present.getByRole("button", { name: "Add Smart thermostat, installed" }).click();
     await present.getByRole("button", { name: "Choose Better: $908.00" }).click();
     await expect(present.getByLabel("Name of the person signing")).toHaveValue(customer);
-    await sign(tech, present.getByRole("img", { name: "Customer's signature" }));
-    await present.getByRole("button", { name: "Sign", exact: true }).click();
+    await sign(tech, present.getByRole("img", { name: "Customer's signature" }), present.getByRole("button", { name: "Sign", exact: true }));
 
     const estimates = visit.getByRole("region", { name: "Estimates" });
     await expect(estimates).toContainText(`Approved, signed by ${customer}`);
@@ -106,8 +119,7 @@ test("a technician builds options on /my-day, the customer chooses and signs, an
     await invoice.getByRole("button", { name: "Show the customer" }).click();
     await expect(invoice).toContainText("Smart thermostat, installed");
     await expect(invoice).toContainText("$908.00");
-    await sign(tech, invoice.getByRole("img", { name: "Customer's signature on the invoice" }));
-    await invoice.getByRole("button", { name: "Sign", exact: true }).click();
+    await sign(tech, invoice.getByRole("img", { name: "Customer's signature on the invoice" }), invoice.getByRole("button", { name: "Sign", exact: true }));
     await expect(invoice).toContainText("Invoice raised here: $908.00");
 
     // Cash for the invoice, and twenty per cent on top for the crew.
@@ -118,9 +130,16 @@ test("a technician builds options on /my-day, the customer chooses and signs, an
     await visit.getByRole("button", { name: "Record cash payment" }).click();
     await expect(visit.getByText("Cash $908.00, tip $181.60,")).toBeVisible();
 
+    // And a twenty pressed into Ray's hand on the way out, his to keep, for his pay statement.
+    const cashTip = visit.getByRole("region", { name: "A cash tip for you" });
+    await cashTip.getByLabel("Cash tip, in dollars").fill("20");
+    await cashTip.getByRole("button", { name: "Record tip" }).click();
+    await expect(cashTip).toContainText("Cash tip $20.00");
+
     // Not just on the page: in the system, once the queue has sent it.
     await expect(tech.getByText(/All sent/)).toBeVisible();
     await tech.reload();
+    await ready(tech);
     const after = tech.getByRole("article").filter({ hasText: customer });
     await after.getByRole("button").first().click();
     await expect(after.getByRole("region", { name: "Invoice" })).toContainText(/Invoice \d+: \$908\.00, paid/);
@@ -138,6 +157,11 @@ test("a technician builds options on /my-day, the customer chooses and signs, an
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ status: "paid", total: "908.0000", signer: customer });
       invoiceId = rows[0]!.id;
+      const kept = await db.execute<{ amount: string }>(sql`
+        select c.amount::text as amount
+          from public.cash_tip c join public.job j on j.id = c.job_id
+         where j.summary = ${summary}`);
+      expect(kept.map((r) => r.amount)).toEqual(["20.0000"]);
     } finally {
       await db.$close();
     }

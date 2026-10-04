@@ -519,8 +519,8 @@ export function CashTip({ visit, onRecord }: { visit: DayVisit; onRecord: (amoun
       <p className="text-xs uppercase tracking-[0.08em] text-ink-500">A cash tip for you</p>
       <p className="text-sm text-ink-500">Kept by you. Recorded for your pay statement, where tips are reported.</p>
       <div className="flex gap-2">
-        <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" aria-label="Cash tip amount"
-               placeholder="Amount" className={`${field} flex-1`} />
+        <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" aria-label="Cash tip, in dollars"
+               placeholder="0.00" className={`${field} flex-1`} />
         <button type="button" className={`${button} flex-1`} onClick={async () => {
           const parsed = parseAmount(amount);
           if (!parsed) { setProblem("Enter the tip, like 20 or 20.50."); return; }

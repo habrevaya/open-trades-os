@@ -93,6 +93,17 @@ export function Day({
    * would and keeps showing it with no signal.
    */
   const [pendingOps, setPendingOps] = useState<QueuedOperation[]>([]);
+  /**
+   * What the server has just applied, kept on the page until the day it
+   * sends back has it. The queue lets go of an operation the moment it is
+   * applied, and the refreshed day arrives a beat later; without this an
+   * estimate the customer is looking at would vanish and come back in that
+   * gap, losing their choice. Kept against the day it was laid over, so it
+   * is never counted twice once the fresh day is here.
+   */
+  const [landed, setLanded] = useState<{ basis: Visit[]; operations: QueuedOperation[] } | null>(null);
+  const visitsRef = useRef(visits);
+  useEffect(() => { visitsRef.current = visits; }, [visits]);
 
   useEffect(() => {
     if (!WebStorage.available()) {
@@ -177,11 +188,26 @@ export function Day({
     void flush();
   }
 
+  /**
+   * One send at a time. Work recorded while one is going out is not left for
+   * the half minute timer: it goes in a second send the moment the first is
+   * done, so a payment taken just after a signature is not sat waiting.
+   */
+  const sendingRef = useRef(false);
+  const againRef = useRef(false);
   async function flush() {
     const queue = queueRef.current;
-    if (!queue || syncing) return;
+    if (!queue) return;
+    if (sendingRef.current) {
+      againRef.current = true;
+      return;
+    }
+    sendingRef.current = true;
     setSyncing(true);
     try {
+      const basis = visitsRef.current;
+      const before = new Map((await queue.pending()).map((op) => [op.clientId, op]));
+      const applied: QueuedOperation[] = [];
       await queue.flush({
         async send(input) {
           let result: Awaited<ReturnType<typeof sync>>;
@@ -203,9 +229,19 @@ export function Day({
             throw new Error(result.message);
           }
           refusalRef.current = null;
+          for (const outcome of result.results as Array<{ clientId: string; status: string }>) {
+            const op = before.get(outcome.clientId);
+            if (op && (outcome.status === "applied" || outcome.status === "conflicted")) applied.push(op);
+          }
           return { results: result.results as never, awaiting: [], snapshotRevision: 0 };
         },
       });
+      if (applied.length > 0) {
+        setLanded((kept) => ({
+          basis,
+          operations: kept && kept.basis === basis ? [...kept.operations, ...applied] : applied,
+        }));
+      }
       /**
        * Then the bytes of any photograph whose record has just landed, which
        * is the order the server needs them in. Over the API with this page's
@@ -218,7 +254,12 @@ export function Day({
       }
       await refresh(queue);
     } finally {
+      sendingRef.current = false;
       setSyncing(false);
+    }
+    if (againRef.current) {
+      againRef.current = false;
+      await flush();
     }
   }
 
@@ -298,7 +339,8 @@ export function Day({
   const projected = useMemo(() => projectDay({
     snapshot: { revision: 0, unchanged: false, visits, priceBook, openTimeEntry, tasks } as FieldSnapshot,
     operations: pendingOps,
-  }), [visits, priceBook, openTimeEntry, tasks, pendingOps]);
+    applied: landed && landed.basis === visits ? landed.operations : [],
+  }), [visits, priceBook, openTimeEntry, tasks, pendingOps, landed]);
   const projectedVisit = (id: string) => projected.visits.find((v) => v.id === id);
   const can: FieldAbilities = abilities ?? {
     writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
@@ -869,12 +911,13 @@ function Payment({ visit, projected, abilities, payments, onPay }: {
   const [busy, setBusy] = useState(false);
   const name = `method-${visit.id}`;
   const tipping = abilities.tipping.enabled;
-  const paying = parseAmount(amount);
-  const suggested = tipping && paying ? tipChoices(paying, abilities.tipping.presets) : [];
 
   /** The amount follows an invoice raised on this page, until somebody types their own. */
   const [typed, setTyped] = useState(false);
   const shown = typed ? amount : owing ? formatAmount(due!).replace(/[$,]/g, "") : amount;
+  /** Tips suggested on what is in the box, so an invoice raised a moment ago gets them too. */
+  const paying = parseAmount(shown);
+  const suggested = tipping && paying ? tipChoices(paying, abilities.tipping.presets) : [];
 
   const recordMoney = async () => {
     const parsed = parseAmount(shown);

@@ -271,18 +271,21 @@ export function PaymentSection({ visit }: { visit: DayVisit }) {
   const owing = isOwing(visit.amountDue);
   const invoice = visit.invoices.find((i) => i.status !== "paid" && i.status !== "draft" && isOwing(i.balance)) ?? null;
   const [method, setMethod] = useState<"cash" | "check" | "card" | "finance">("cash");
-  const [amount, setAmount] = useState(owing ? formatAmount(visit.amountDue!).replace(/[$,]/g, "") : "");
+  const [amount, setAmount] = useState("");
+  /** The amount follows what is owed, an invoice raised a moment ago included, until somebody types their own. */
+  const [typed, setTyped] = useState(false);
+  const shown = typed ? amount : owing ? formatAmount(visit.amountDue!).replace(/[$,]/g, "") : amount;
   const [tip, setTip] = useState("");
   const [checkNumber, setCheckNumber] = useState("");
   const [said, setSaid] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const tipping = abilities?.tipping.enabled === true;
-  const paying = parseAmount(amount);
+  const paying = parseAmount(shown);
   const suggested = tipping && paying ? tipChoices(paying, abilities!.tipping.presets) : [];
 
   const record = async () => {
-    const parsed = parseAmount(amount);
+    const parsed = parseAmount(shown);
     if (!parsed) return setProblem("Enter the amount they paid, like 120 or 120.50.");
     const tipAmount = tip.trim() === "" ? null : parseAmount(tip);
     if (tip.trim() !== "" && !tipAmount) return setProblem("Enter the tip in dollars and cents, like 15 or 12.50.");
@@ -294,6 +297,8 @@ export function PaymentSection({ visit }: { visit: DayVisit }) {
     }));
     setCheckNumber("");
     setTip("");
+    setTyped(false);
+    setAmount("");
   };
 
   const link = async (how: "text" | "share") => {
@@ -332,7 +337,7 @@ export function PaymentSection({ visit }: { visit: DayVisit }) {
       ) : (
         <View>
           <View style={styles.row}>
-            <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="Amount"
+            <TextInput value={shown} onChangeText={(text) => { setTyped(true); setAmount(text); }} keyboardType="decimal-pad" placeholder="Amount"
                        placeholderTextColor={color.inkFaint} style={[styles.input, { flex: 1 }]} accessibilityLabel="Amount" />
             {method === "check" ? (
               <TextInput value={checkNumber} onChangeText={setCheckNumber} keyboardType="number-pad" placeholder="Check no."
