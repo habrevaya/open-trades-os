@@ -1,4 +1,5 @@
 import { VisitChangeForm, type SendVisitChange } from "./VisitChangeForm";
+import { ProposalAnswer, type SendProposalAnswer } from "./ProposalAnswer";
 import type { visitChanges } from "@opentradesos/api/services";
 
 type ChangeOptions = visitChanges.ChangeOptions;
@@ -22,12 +23,14 @@ const when = (start: string, end: string | null, timezone: string) => {
  * longer be changed from here (the van is on its way), and the choice.
  */
 export function VisitChange({
-  token, send, options, path, visitId,
+  token, send, answer, options, path, visitId,
 }: {
   /** The link's token, on a link page. */
   token?: string;
   /** On a signed in page: an action bound to the company that reads the sign in on the server. */
   send?: SendVisitChange;
+  /** On a signed in page: the same, for answering a time the office offered. */
+  answer?: SendProposalAnswer;
   options: ChangeOptions;
   path: string;
   visitId?: string;
@@ -57,11 +60,42 @@ export function VisitChange({
         </section>
       ) : null}
 
-      {!options.pending && options.decided ? (
+      {options.proposal ? (
+        <section aria-label="Another time offered" className="rounded-md border border-amber-700 bg-amber-tint p-5 text-sm">
+          <p className="font-medium text-ink-900">
+            {options.organizationName} cannot do{" "}
+            {options.proposal.requestedStart
+              ? when(options.proposal.requestedStart, options.proposal.requestedEnd, timezone)
+              : "the time you asked for"}
+            . They offer {when(options.proposal.proposedStart, options.proposal.proposedEnd, timezone)} instead.
+          </p>
+          {options.proposal.response ? <p className="mt-1 text-ink-700">{options.proposal.response}</p> : null}
+          <p className="mt-1 text-ink-700">Your visit stays where it is until you say yes.</p>
+          {options.proposal.open ? (
+            <div className="mt-4">
+              <ProposalAnswer
+                {...(token ? { token } : {})}
+                {...(answer ? { send: answer } : {})}
+                {...(visitId ? { visitId } : { visitId: visit.id })}
+                offered={when(options.proposal.proposedStart, options.proposal.proposedEnd, timezone)}
+                path={path}
+              />
+            </div>
+          ) : (
+            <p className="mt-2 text-ink-700">That time can no longer be used. Reply to the message that brought you here.</p>
+          )}
+        </section>
+      ) : null}
+
+      {!options.pending && !options.proposal && options.decided ? (
         <section className="rounded-md border border-steel-200 bg-canvas p-5 text-sm text-ink-700">
           {options.decided.status === "approved"
             ? "Your last request about this visit was agreed."
-            : `Your last request about this visit was not agreed${options.decided.response ? `: ${options.decided.response}` : "."}`}
+            : options.decided.status === "accepted"
+              ? "You took the time the office offered, and your visit was moved to it."
+              : options.decided.status === "turned_down"
+                ? "You said no to the time the office offered. They will be in touch."
+                : `Your last request about this visit was not agreed${options.decided.response ? `: ${options.decided.response}` : "."}`}
         </section>
       ) : null}
 
@@ -77,7 +111,7 @@ export function VisitChange({
             organizationName={options.organizationName}
           />
         </section>
-      ) : !options.pending && options.changeBlockedBy ? (
+      ) : !options.pending && !options.proposal && options.changeBlockedBy ? (
         <p className="text-center text-sm text-ink-700">{options.changeBlockedBy}</p>
       ) : null}
     </>

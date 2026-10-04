@@ -112,8 +112,9 @@ export default async function RebalanceDaysPage({ searchParams }: {
         <p className="mt-2 text-xs text-ink-500">
           A visit moves to another day only when its customer agreed: a range of days set on the visit, the window of the
           agreement visit it delivers, or the days of the week set on the customer. Never onto or off today, never onto a day
-          you are closed, and only when it keeps a promise or the overtime limit, places work no day could take, cuts overtime,
-          or saves at least fifteen minutes of driving. {proposal.movable.length === 0
+          you are closed, never past how many you take online in that window, and only when it keeps a promise or the overtime
+          limit, places work no day could take, cuts overtime, or saves at least fifteen minutes of driving. Crews are planned
+          like people, and crew work only goes to a crew that has the kit and the people for it that day. {proposal.movable.length === 0
             ? "No visit in these days may move to another day."
             : `${proposal.movable.length} ${proposal.movable.length === 1 ? "visit in these days may" : "visits in these days may"} move to another day.`}{" "}
           {proposal.driveNote}
@@ -179,12 +180,16 @@ export default async function RebalanceDaysPage({ searchParams }: {
             {day.overtimeAfterMinutes > 0 ? `, ${hours(day.overtimeAfterMinutes)} overtime` : ""}.
           </p>
           <div className="mt-3 grid gap-4 md:grid-cols-2">
-            {day.technicians.map((t) => (
-              <article key={t.technicianId} aria-label={`${t.displayName} on ${dayName(day.date, true)}`}
+            {[
+              ...day.technicians.map((t) => ({ key: t.technicianId, name: t.displayName, color: t.color, timeOff: t.timeOff, crew: false, before: t.before, after: t.after })),
+              ...day.crews.map((c) => ({ key: c.crewId, name: c.name, color: c.color, timeOff: false, crew: true, before: c.before, after: c.after })),
+            ].map((t) => (
+              <article key={t.key} aria-label={`${t.crew ? "Crew " : ""}${t.name} on ${dayName(day.date, true)}`}
                        className="rounded-md border border-steel-200 bg-canvas p-4">
                 <h3 className="flex items-center gap-2 font-medium">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: t.color ?? "#64748B" }} aria-hidden />
-                  {t.displayName}
+                  <span className={`h-2.5 w-2.5 ${t.crew ? "rounded-sm" : "rounded-full"}`} style={{ background: t.color ?? (t.crew ? "#7C3AED" : "#64748B") }} aria-hidden />
+                  {t.name}
+                  {t.crew && <span className="text-xs font-normal text-ink-500">Crew</span>}
                   {t.timeOff && <span className="text-xs font-normal text-red-600">Off</span>}
                 </h3>
                 <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
@@ -222,8 +227,11 @@ export default async function RebalanceDaysPage({ searchParams }: {
               </article>
             ))}
           </div>
-          {(day.unplaced.length > 0 || day.leftOut.length > 0) && (
+          {(day.unplaced.length > 0 || day.leftOut.length > 0 || day.crewsLeftOut.length > 0) && (
             <ul className="mt-3 space-y-1 text-sm">
+              {day.crewsLeftOut.map((c) => (
+                <li key={c.crewId}><span className="font-medium">{c.name}</span> is left out. {c.reason}</li>
+              ))}
               {day.unplaced.map((u) => (
                 <li key={u.visitId}><span className="font-medium">{u.customerName}</span>: {u.reason}</li>
               ))}

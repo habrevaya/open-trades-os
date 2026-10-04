@@ -27,10 +27,10 @@ import { technicianChoices } from "@/lib/technicians";
 import { todayIn } from "@/lib/dates";
 import { rateFromPercent } from "@/lib/estimate-form";
 import { addVisit } from "../actions";
-import { approveVisitChange, completeVisitFromOffice, declineVisitChange, setJobStatus, shareJobPhoto } from "./actions";
+import { approveVisitChange, completeVisitFromOffice, declineVisitChange, proposeVisitChange, setJobStatus, shareJobPhoto } from "./actions";
 import { shareVisitNotes } from "./notes-actions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
-import { CompleteVisit, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
+import { CompleteVisit, CancelJob, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
 import { EstimateDrafts } from "./EstimateDrafts";
 
@@ -139,11 +139,25 @@ export default async function JobPage({ params, searchParams }: {
   const nameOf = new Map(technicians.map((t) => [t.id, t.displayName]));
   const completes = can(user.actor, "job:complete");
   const openVisits = job.visits.filter((v) => (OPEN_VISIT as readonly string[]).includes(v.status));
+  /** What cancelling the job would call off with it, and what it would leave. The service's own rule. */
+  const now = Date.now();
+  const visitsToCome = job.visits.filter((v) => ["unassigned", "scheduled", "dispatched"].includes(v.status)
+    && (() => { const until = v.windowEnd ?? v.windowStart; return until === null || new Date(until).getTime() > now; })()).length;
+  const visitsUnderWay = job.visits.filter((v) => v.status === "en_route" || v.status === "working").length;
   const used = (await jobs.lines(ctx, { id })).data;
   /** A customer asking from their link to move or cancel one of these visits. */
   const changeRequests = can(user.actor, "visit:read")
     ? await visitChanges.list(ctx, { status: "pending", jobId: id })
     : [];
+  /** Another time the office offered, waiting for the customer's yes or no. Nothing has moved. */
+  const offersWaiting = can(user.actor, "visit:read")
+    ? await visitChanges.list(ctx, { status: "proposed", jobId: id })
+    : [];
+  /** The times that could be offered instead, for each request to move, for somebody who may answer. */
+  const offerable = new Map(can(user.actor, "visit:reschedule")
+    ? await Promise.all(changeRequests.filter((r) => r.kind === "reschedule")
+      .map(async (r) => [r.id, await visitChanges.proposalTimes(ctx, { id: r.id })] as const))
+    : []);
   const invoices = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 50, jobId: id })).data
     : [];
@@ -397,6 +411,14 @@ export default async function JobPage({ params, searchParams }: {
         </Table>
       )}
 
+      {offersWaiting.map((offer) => (
+        <p key={offer.id} role="note" className="mt-4 rounded-md border border-steel-200 p-3 text-sm text-ink-700">
+          {offer.customerName} was offered{" "}
+          {offer.proposedStart ? formatIn(offer.proposedStart, user.organizationTimezone) : "another time"} instead of the
+          time they asked for. Waiting for them to say yes or no; the visit stays where it is until they do.
+        </p>
+      ))}
+
       {changeRequests.length > 0 && (
         <div className="mt-4 space-y-3">
           {changeRequests.map((request) => (
@@ -411,6 +433,8 @@ export default async function JobPage({ params, searchParams }: {
               approve={approveVisitChange}
               decline={declineVisitChange}
               canDecide={can(user.actor, "visit:reschedule")}
+              propose={proposeVisitChange}
+              times={offerable.get(request.id) ?? []}
             />
           ))}
         </div>
@@ -422,6 +446,11 @@ export default async function JobPage({ params, searchParams }: {
       ))}
 
       {writes && <JobLifecycle action={setJobStatus} jobId={id} status={job.status} openVisits={openVisits.length} />}
+      {writes && (
+        <CancelJob action={setJobStatus} jobId={id} status={job.status}
+                   toCome={visitsToCome} underWay={visitsUnderWay}
+                   mayCancelVisits={can(user.actor, "visit:reschedule")} />
+      )}
 
       {schedules && (
         <details className="mt-4 rounded-md border border-steel-200 p-4">

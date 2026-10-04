@@ -1,4 +1,4 @@
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import type { FormState } from "@/lib/actions";
 
 type Action = (previous: FormState, form: FormData) => Promise<FormState>;
@@ -37,14 +37,35 @@ const when = (start: string | null, end: string | null, timezone: string) => {
  * The decline box is sent to the customer as written, so it asks for words
  * they can act on.
  */
+/** A window the office could offer instead, as online booking offers it. */
+export interface OfferableTime {
+  date: string;
+  arrivalWindowId: string;
+  label: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+const clock = (value: string) => {
+  const [h = "0", m = "0"] = value.split(":");
+  const hour = Number(h);
+  return `${hour % 12 === 0 ? 12 : hour % 12}:${m.padStart(2, "0")} ${hour >= 12 ? "PM" : "AM"}`;
+};
+const offerLabel = (t: OfferableTime) =>
+  `${new Date(`${t.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}, ${clock(t.startsAt)} to ${clock(t.endsAt)}`;
+
 export function VisitChangeDecision({
-  request, timezone, approve, decline, canDecide,
+  request, timezone, approve, decline, canDecide, propose, times = [],
 }: {
   request: VisitChangeView;
   timezone: string;
   approve: Action;
   decline: Action;
   canDecide: boolean;
+  /** Offering a different time, for a request to move. Absent where it is not offered. */
+  propose?: Action;
+  /** The times that could be offered, from `visitChanges.proposalTimes`. */
+  times?: OfferableTime[];
 }) {
   const assigned = request.assigned ?? [];
   return (
@@ -90,6 +111,39 @@ export function VisitChangeDecision({
               />
             </ActionForm>
           </div>
+          {propose && request.kind === "reschedule" && (
+            /*
+              The third answer: not that time, this one. Nothing moves until
+              the customer says yes from their link, and the screen says so.
+            */
+            times.length === 0 ? (
+              <p className="mt-3 text-xs text-ink-700">No other times are open online to offer instead.</p>
+            ) : (
+              <ActionForm
+                action={propose}
+                submit="Offer this time instead"
+                tone="quiet"
+                hidden={{ id: request.id }}
+                className="mt-3 flex flex-wrap items-end gap-3"
+              >
+                <Select
+                  label="Another time"
+                  name="time"
+                  options={times.map((t) => ({ value: `${t.date}|${t.arrivalWindowId}`, label: offerLabel(t) }))}
+                />
+                <TextField
+                  label="What to tell them"
+                  name="response"
+                  placeholder="Thursday is full, but Friday morning is free."
+                  maxLength={1000}
+                  className="block w-72"
+                />
+                <p className="basis-full text-xs text-ink-700">
+                  They are sent the time with a link to say yes or no. The visit stays where it is until they say yes.
+                </p>
+              </ActionForm>
+            )
+          )}
         </>
       ) : null}
     </section>

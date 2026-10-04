@@ -150,9 +150,10 @@ export async function completeVisitFromOffice(_previous: FormState, form: FormDa
 export async function setJobStatus(_previous: FormState, form: FormData): Promise<FormState> {
   const jobId = field(form, "jobId") ?? "";
   const status = field(form, "status");
-  if (status !== "completed" && status !== "in_progress") return refused(form, "Nothing to do.");
+  if (status !== "completed" && status !== "in_progress" && status !== "cancelled") return refused(form, "Nothing to do.");
+  const cancelVisits = status === "cancelled" && field(form, "cancelVisits") === "1";
   const result = await attempt(form, async () => {
-    await jobs.update(await ctx(), { id: jobId, status });
+    await jobs.update(await ctx(), { id: jobId, status, ...(cancelVisits ? { cancelVisits } : {}) });
   });
   revalidatePath(`/jobs/${jobId}`);
   return result;
@@ -186,6 +187,27 @@ export async function declineVisitChange(_previous: FormState, form: FormData): 
       message: answered.notified === "queued"
         ? "Declined, and the customer has been told."
         : `Declined. The customer could not be told: ${answered.notified ?? "no way to reach them"}`,
+    };
+  });
+  revalidatePath("/tasks");
+  revalidatePath("/jobs");
+  return result;
+}
+
+/**
+ * Offering the customer a different time from the one they asked for. The
+ * service sends it with a link to say yes or no and moves nothing.
+ */
+export async function proposeVisitChange(_previous: FormState, form: FormData): Promise<FormState> {
+  const [date = "", arrivalWindowId = ""] = (field(form, "time") ?? "").split("|");
+  const result = await attempt(form, async () => {
+    const answered = await visitChanges.propose(await ctx(), {
+      id: field(form, "id") ?? "", date, arrivalWindowId, response: field(form, "response"),
+    });
+    return {
+      message: answered.notified === "queued"
+        ? "Offered. The customer has been sent it with a link to say yes or no."
+        : `Offered, but the customer could not be told: ${answered.notified ?? "no way to reach them"}`,
     };
   });
   revalidatePath("/tasks");

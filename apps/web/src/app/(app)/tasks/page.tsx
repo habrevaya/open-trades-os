@@ -10,7 +10,7 @@ import { TASK_PRIORITY, label } from "@/lib/labels";
 import { TaskActions } from "./TaskActions";
 import { ObligationActions } from "./ObligationActions";
 import { VisitChangeDecision } from "@/components/VisitChangeDecision";
-import { approveVisitChange, declineVisitChange } from "../jobs/[id]/actions";
+import { approveVisitChange, declineVisitChange, proposeVisitChange } from "../jobs/[id]/actions";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
 import { addTask } from "./rule-actions";
 
@@ -79,6 +79,12 @@ export default async function TasksPage({
       ? (await visitChanges.list(ctx, { ids: changeIds })).map((r) => [r.id, r] as const)
       : [],
   );
+
+  /** The times that could be offered instead, for each request to move still waiting, for somebody who may answer. */
+  const offerable = new Map(can(user.actor, "visit:reschedule")
+    ? await Promise.all([...changes.values()].filter((r) => r.status === "pending" && r.kind === "reschedule")
+      .map(async (r) => [r.id, await visitChanges.proposalTimes(ctx, { id: r.id })] as const))
+    : []);
 
   /**
    * Deadlines, above the queue.
@@ -250,6 +256,8 @@ export default async function TasksPage({
                       approve={approveVisitChange}
                       decline={declineVisitChange}
                       canDecide={can(user.actor, "visit:reschedule")}
+                      propose={proposeVisitChange}
+                      times={offerable.get(change.id) ?? []}
                     />
                   </div>
                 ) : null}
