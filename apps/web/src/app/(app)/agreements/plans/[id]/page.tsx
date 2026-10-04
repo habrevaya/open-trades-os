@@ -8,6 +8,7 @@ import { ActionForm } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
 import { PlanFields } from "../PlanFields";
 import { editPlan, setPlanOnSale } from "../actions";
+import { planBookChoices } from "@/lib/plan-book";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     throw error;
   });
   const writes = can(user.actor, "membership:write");
+  const book = writes ? await planBookChoices(ctx) : { categories: [], items: [] };
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -43,7 +45,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
       {writes ? (
         <>
           <ActionForm action={editPlan} submit="Save plan" done="Saved." hidden={{ id }} className="mt-6 space-y-6">
-            <PlanFields plan={plan} editing />
+            <PlanFields plan={plan} editing book={book} />
           </ActionForm>
           <section aria-label={plan.active ? "Retire" : "Put back on sale"} className="mt-10 rounded-md border border-steel-200 p-4">
             <h2 className="text-sm font-semibold">{plan.active ? "Retire this plan" : "Put it back on sale"}</h2>

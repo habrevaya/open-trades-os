@@ -447,7 +447,7 @@ test("Campaigns: an audience is read back as a sentence, and a send reports who 
 
   // An audience with no rules at all is refused rather than sent to everybody.
   await form.getByLabel("Name").fill(`Everybody ${run}`);
-  await form.getByLabel("Message").fill("Comfort Co here: $89 tune ups. Reply STOP to opt out.");
+  await form.getByRole("textbox", { name: "Message" }).fill("Comfort Co here: $89 tune ups. Reply STOP to opt out.");
   await form.getByRole("button", { name: "Save as a draft" }).click();
   await expect(form.getByRole("alert")).toContainText(/at least one rule/);
 

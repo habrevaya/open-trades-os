@@ -200,9 +200,11 @@ export function Hours({ current }: {
  * a number of hours before the window opens. The arithmetic is said beside
  * the numbers, because "25" means nothing until it is "two of eight".
  */
-export function MemberHold({ current, plansWithPriority }: {
+export function MemberHold({ current, plansWithPriority, plans = [] }: {
   current: { reservePercent: number; releaseHours: number };
   plansWithPriority: number;
+  /** The plans that promise priority, each with its own share or null for this one. */
+  plans?: { id: string; name: string; holdPercent: number | null }[];
 }) {
   const [state, actionForm, pending] = useKeptAction(saveMemberHold, {});
   return (
@@ -230,6 +232,23 @@ export function MemberHold({ current, plansWithPriority }: {
           ? " None of your plans promises priority dispatch, so nothing is held until one does."
           : ` Members of the ${plansWithPriority === 1 ? "plan" : `${plansWithPriority} plans`} that promise priority dispatch are offered the held share, from their own account and when they ask to move a visit; the public page never is.`}
       </p>
+      {plans.length > 0 ? (
+        <ul className="mt-2 space-y-0.5 text-sm text-ink-700" aria-label="Each plan's share">
+          {plans.map((plan) => (
+            <li key={plan.id}>
+              <a href={`/agreements/plans/${plan.id}`} className="underline underline-offset-4">{plan.name}</a>
+              {": "}
+              {plan.holdPercent === null ? "the figure above" : `${plan.holdPercent} per cent, set on the plan`}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {plans.length > 0 ? (
+        <p className="mt-1 text-sm text-ink-500">
+          A plan can hold its own share instead of the figure above. A window keeps back the largest share any plan holds,
+          and a member gets into as much of it as their own plan holds.
+        </p>
+      ) : null}
       <Note state={state} />
     </form>
   );

@@ -165,6 +165,12 @@ export function BillingPlanView({ jobId, plan, canBill, typedTax, taxRate }: {
                     </li>
                   ))}
                 </ul>
+                {Number(payer.memberDiscount) > 0 && (
+                  <p className="mt-1 flex justify-between gap-2 text-xs text-ink-700">
+                    <span>Member discount{plan.member ? `, ${plan.member.planName}` : ""}</span>
+                    <Money value={`-${payer.memberDiscount}`} />
+                  </p>
+                )}
                 {(Number(payer.taxTotal) > 0 || (payer.taxExempt && taxRate !== null)) && (
                   <p className="mt-1 flex justify-between gap-2 text-xs text-ink-700">
                     <span>{payer.taxExempt ? "Tax exempt, so no sales tax" : "Sales tax on their part"}</span>

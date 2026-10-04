@@ -50,6 +50,6 @@ export default async function BookingPage() {
 }
 
 async function memberHoldFor(ctx: Parameters<typeof booking.memberHold>[0]) {
-  const { plansWithPriority, ...current } = await booking.memberHold(ctx);
-  return { current, plansWithPriority };
+  const { plansWithPriority, plans, ...current } = await booking.memberHold(ctx);
+  return { current, plansWithPriority, plans };
 }
