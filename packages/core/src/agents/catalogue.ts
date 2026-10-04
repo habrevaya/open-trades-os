@@ -5,7 +5,7 @@ import { check, type JsonSchema } from "./schema.js";
 /**
  * THE AGENTS, AND EVERYTHING EACH ONE MAY DO
  *
- * Five agents, each a narrow job with a short list of actions. An action is
+ * Six agents, each a narrow job with a short list of actions. An action is
  * offered to the model as a tool, and it is the ONLY way the model can affect
  * anything: an answer in words is shown to a person or thrown away, and an
  * answer that is a tool call is checked here before anything reads it.
@@ -30,9 +30,9 @@ import { check, type JsonSchema } from "./schema.js";
  * by hand.
  */
 
-export type AgentKind = "intake" | "chat" | "estimate" | "collections" | "dispatch";
+export type AgentKind = "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
 
-export const AGENT_KINDS: readonly AgentKind[] = ["intake", "chat", "estimate", "collections", "dispatch"];
+export const AGENT_KINDS: readonly AgentKind[] = ["intake", "chat", "voice", "estimate", "collections", "dispatch"];
 
 export const isAgentKind = (value: string): value is AgentKind =>
   (AGENT_KINDS as readonly string[]).includes(value);
@@ -217,6 +217,121 @@ export const AGENTS: Readonly<Record<AgentKind, AgentDefinition>> = {
             text: text(600, "What to tell the customer now."),
           },
           required: ["reason"],
+        },
+      },
+    ],
+  },
+
+  voice: {
+    kind: "voice",
+    label: "Phone assistant",
+    description:
+      "Answers the calls a phone menu or your after hours setting sends to it. It says first that it is an "
+      + "automated assistant and that the call is written down, answers from the same facts as the chat, finds "
+      + "the caller by their number, offers your real booking windows and takes a booking request, takes a "
+      + "message, and puts the caller through to a person when they ask or it is unsure.",
+    basePermissions: ["message:read", "message:send", "customer:read", "booking:read"],
+    /**
+     * Always a request the office confirms, like the chat's: a booking taken
+     * from a stranger's voice at nine at night is not a visit on the board
+     * until a person has looked at it.
+     */
+    autoAllowed: false,
+    actions: [
+      {
+        name: "reply",
+        description:
+          "Say something to the caller. Use only the facts you were given and never state a price that is not in them. "
+          + "This is spoken aloud: short sentences, no lists, no links, nothing to spell out.",
+        permissions: ["message:send"],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: { text: text(600, "What to say, in plain spoken words.") },
+          required: ["text"],
+        },
+      },
+      {
+        name: "look_up_customer",
+        description:
+          "Look the caller up among the company's customers when they give a phone number, name or postal code "
+          + "different from the number they are calling from. You will be asked again with what was found.",
+        permissions: ["customer:read"],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: {
+            phone: text(40, "A phone number the caller gave."),
+            name: text(200, "The name the caller gave."),
+            postalCode: text(20, "The postal code the caller gave."),
+            text: text(200, "What to say while looking, such as \"One moment while I find you.\""),
+          },
+          required: ["text"],
+        },
+      },
+      {
+        name: "create_booking_request",
+        description:
+          "Ask for a booking once the caller has chosen an open window and given their name and the address. "
+          + "The phone number they are calling from is used unless they gave another. It is a request: the office confirms it.",
+        permissions: ["message:send"],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: {
+            bookableServiceId: id("The service, from the open windows list."),
+            date: DATE,
+            arrivalWindowId: id("The window's id, from the open windows list."),
+            contactName: text(200, "Their name."),
+            phone: text(40, "A phone number, only if they gave one other than the one they are calling from."),
+            address: ADDRESS,
+            notes: text(1000, "What is wrong, in their words."),
+            text: text(400, "What to tell the caller now."),
+          },
+          required: ["bookableServiceId", "date", "arrivalWindowId", "contactName", "address", "text"],
+        },
+      },
+      {
+        name: "take_message",
+        description: "Take a message for the office when the caller wants somebody to call them back.",
+        permissions: [],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: {
+            callerName: text(200, "Who is calling."),
+            callbackNumber: text(40, "A number to call back on, only if different from the one they are calling from."),
+            message: text(1000, "The message, in their words."),
+            text: text(400, "What to tell the caller now, such as that the office will call them back."),
+          },
+          required: ["message", "text"],
+        },
+      },
+      {
+        name: "transfer",
+        description:
+          "Put the caller through to a person: when they ask, when they are upset, when they describe danger (gas "
+          + "smell, flooding, sparks), or when you are unsure or the facts do not cover it.",
+        permissions: [],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: {
+            reason: text(300, "Why a person should take it, for the office."),
+            text: text(300, "What to tell the caller before they are put through."),
+          },
+          required: ["reason"],
+        },
+      },
+      {
+        name: "end_call",
+        description: "End the call when the caller has what they needed and says goodbye.",
+        permissions: [],
+        consequential: false,
+        inputSchema: {
+          type: "object",
+          properties: { text: text(300, "The goodbye.") },
+          required: ["text"],
         },
       },
     ],

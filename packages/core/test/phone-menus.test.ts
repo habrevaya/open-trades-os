@@ -31,6 +31,8 @@ const directory: Directory = {
     [NO_PHONE, { name: "Pat Office", phone: null }],
   ]),
   rotas: new Map(),
+  queues: new Map([["77777777-7777-4777-8777-777777777777", "Service line"]]),
+  assistant: false,
 };
 
 const menu = (overrides: Partial<PhoneMenu> = {}): PhoneMenu => ({
@@ -77,9 +79,18 @@ describe("saving a menu", () => {
     expect(!verdict.ok && verdict.reason).toContain("ring group that no longer exists");
   });
 
-  it("refuses a waiting line, because none is built", () => {
-    const verdict = checkMenu(menu({ noInputTo: { kind: "queue", id: "q" } }), directory);
-    expect(!verdict.ok && verdict.reason).toContain("not built yet");
+  it("refuses a waiting line that no longer exists, and takes one that does", () => {
+    const gone = checkMenu(menu({ noInputTo: { kind: "queue", id: "q" } }), directory);
+    expect(!gone.ok && gone.reason).toContain("waiting line that no longer exists");
+    expect(checkMenu(menu({ noInputTo: { kind: "queue", id: "77777777-7777-4777-8777-777777777777" } }), directory).ok)
+      .toBe(true);
+  });
+
+  it("refuses the phone assistant while it is switched off, and takes it once it is on", () => {
+    const off = checkMenu(menu({ afterHoursTo: { kind: "agent" } }), directory);
+    expect(!off.ok && off.reason).toContain("phone assistant, which is switched off");
+    expect(checkMenu(menu({ afterHoursTo: { kind: "agent" } }), { ...directory, assistant: true }).ok).toBe(true);
+    expect(describeIn(directory)({ kind: "agent" })).toBe("the phone assistant");
   });
 
   it("refuses sending a caller who presses nothing back to the same menu forever", () => {

@@ -20,9 +20,10 @@ import { Uuid } from "./common";
 const E164 = z.string().regex(/^\+[1-9]\d{6,14}$/, "A number in full international form: +15125550123");
 
 /**
- * Where a call goes, as core's router names it. A waiting line (`queue`) is
- * part of the router's vocabulary and refused on save, because nothing holds
- * callers in a line yet.
+ * Where a call goes, as core's router names it: a person, a ring group,
+ * another menu, the on call rota, voicemail, a number outside the company, a
+ * waiting line (`queue`, by its id) or the phone assistant (`agent`), which is
+ * refused on save while it is switched off.
  */
 export const Destination = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("person"), userId: Uuid }),
@@ -33,6 +34,7 @@ export const Destination = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("voicemail"), box: z.string().max(40).default("main") }),
   z.object({ kind: z.literal("forward"), e164: E164 }),
   z.object({ kind: z.literal("queue"), id: z.string().max(64) }),
+  z.object({ kind: z.literal("agent") }),
 ]);
 
 const MenuOption = z.object({
@@ -179,7 +181,7 @@ export const deleteRingGroup = defineRoute({
   method: "delete",
   path: "/v1/ring-groups/{id}",
   summary: "Delete a ring group",
-  description: "Refused while a menu or another group still rings it, naming which.",
+  description: "Refused while a menu, another group, a waiting line or the phone assistant still sends calls to it, naming which.",
   module: "M18",
   permissions: ["settings:write"],
   input: z.object({ id: Uuid }),

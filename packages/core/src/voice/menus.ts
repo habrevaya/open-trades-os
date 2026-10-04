@@ -3,6 +3,7 @@ import {
   type RoutingDestination, type RoutingTable,
 } from "../telephony/index.js";
 import { instantOfLocal as instantAt, isZone, wallTimeExists } from "../time/index.js";
+import { clientAddress } from "./softphone.js";
 
 /**
  * PHONE MENUS, RING GROUPS AND THE ON CALL WEEK
@@ -48,10 +49,18 @@ export interface Directory {
   people: ReadonlyMap<string, { name: string; phone: string | null }>;
   /** Branches that can have a rota of their own. The company wide one is always there. */
   rotas: ReadonlyMap<string, string>;
+  /** Waiting lines, by id, with their names. */
+  queues: ReadonlyMap<string, string>;
+  /**
+   * Whether the phone assistant is switched on with somebody to act as. A
+   * menu may only send callers to it while it is; switched off afterwards,
+   * its calls go to voicemail with the reason written on the call.
+   */
+  assistant: boolean;
 }
 
 export const emptyDirectory = (): Directory => ({
-  menus: new Map(), ringGroups: new Map(), people: new Map(), rotas: new Map(),
+  menus: new Map(), ringGroups: new Map(), people: new Map(), rotas: new Map(), queues: new Map(), assistant: false,
 });
 
 export type Check = { ok: true } | { ok: false; reason: string };
@@ -65,10 +74,9 @@ const E164 = /^\+[1-9]\d{7,14}$/;
  * (Billing)"), because an owner with eight options needs to know which one
  * to fix.
  *
- * A QUEUE IS REFUSED, honestly. Core's router models one, and holding callers
- * in a line with music and a place number is a call centre feature nothing in
- * this product runs yet. Accepting it here would save a menu whose option
- * rings into nothing.
+ * A waiting line and the phone assistant are checked like everything else:
+ * a line somebody deleted, or an assistant that is switched off, would save a
+ * menu whose option rings into nothing.
  */
 export function destinationProblem(to: RoutingDestination, directory: Directory, where: string): string | null {
   if (!DESTINATION_KINDS.includes(to.kind)) {
@@ -76,7 +84,11 @@ export function destinationProblem(to: RoutingDestination, directory: Directory,
   }
   switch (to.kind) {
     case "queue":
-      return `${capital(where)} sends calls to a waiting line, and holding callers in a line is not built yet. Send it to a ring group or to voicemail instead.`;
+      return directory.queues.has(to.id) ? null : `${capital(where)} sends calls to a waiting line that no longer exists.`;
+    case "agent":
+      return directory.assistant
+        ? null
+        : `${capital(where)} sends calls to the phone assistant, which is switched off. Turn it on under Settings, AI agents first, or choose somewhere else.`;
     case "forward":
       return E164.test(to.e164)
         ? null
@@ -120,7 +132,8 @@ export function describeIn(directory: Directory): (to: RoutingDestination) => st
           : `whoever is on call for ${directory.rotas.get(to.id) ?? "a branch that no longer exists"}`;
       case "voicemail": return "voicemail";
       case "forward": return to.e164;
-      case "queue": return "a waiting line";
+      case "queue": return `the ${directory.queues.get(to.id) ?? "deleted"} waiting line`;
+      case "agent": return "the phone assistant";
       default: return "somewhere this system does not know";
     }
   };
@@ -422,6 +435,7 @@ export function checkRingGroup(group: RingGroup, directory: Directory): Check {
 }
 
 export interface RingStep {
+  /** Numbers to dial, and browsers as `client:` addresses, rung together. */
   numbers: string[];
   labels: string[];
 }
@@ -441,8 +455,13 @@ export interface RingPlan {
  * people change phones and leave. A member who has since left or lost their
  * number is skipped with the reason written down, rather than failing the
  * whole group: the rest of the office is still there.
+ *
+ * A person with the office app open and "Take calls here" on (`online`) is
+ * rung in the browser INSTEAD of on their phone. Both at once would ring a
+ * person at their desk twice and leave the mobile in their pocket buzzing for
+ * a call already answered.
  */
-export function ringPlan(group: RingGroup, directory: Directory): RingPlan {
+export function ringPlan(group: RingGroup, directory: Directory, online: ReadonlySet<string> = new Set()): RingPlan {
   const reachable: { number: string; label: string }[] = [];
   const skipped: RingPlan["skipped"] = [];
 
@@ -451,6 +470,10 @@ export function ringPlan(group: RingGroup, directory: Directory): RingPlan {
       const person = directory.people.get(member.userId);
       if (!person) {
         skipped.push({ label: member.label, why: "is no longer at the company" });
+        continue;
+      }
+      if (online.has(member.userId)) {
+        reachable.push({ number: clientAddress(member.userId), label: person.name });
         continue;
       }
       if (!person.phone || !E164.test(person.phone)) {

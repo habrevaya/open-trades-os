@@ -5,7 +5,7 @@ import { Uuid } from "./common";
 /**
  * THE AGENTS
  *
- * Five agents on the M27 seam, each acting as a named person and never with
+ * Six agents on the M27 seam, each acting as a named person and never with
  * more than that person may do, each PROPOSING rather than committing anything
  * that moves money or a customer's schedule unless the company set it to act
  * on its own, and each writing down what it proposed and what became of it.
@@ -20,7 +20,7 @@ import { Uuid } from "./common";
  * model as a tool: an agent cannot drive an agent.
  */
 
-const AgentKind = z.enum(["intake", "chat", "estimate", "collections", "dispatch"]);
+const AgentKind = z.enum(["intake", "chat", "voice", "estimate", "collections", "dispatch"]);
 const Status = z.enum(["proposed", "applied", "dismissed", "failed", "superseded"]);
 
 const Draft = z.object({
@@ -84,6 +84,13 @@ const Settings = z.object({
       channel: z.enum(["email", "text"]),
     })).max(6),
   }),
+  /**
+   * The phone assistant's: the ring group it puts callers through to, or
+   * null for voicemail. Its greeting, questions and answers and published
+   * prices are the `chat` ones on its own settings. Optional on the way in,
+   * for a caller written before the phone assistant existed.
+   */
+  voice: z.object({ transferRingGroupId: Uuid.nullable() }).default({ transferRingGroupId: null }),
 });
 
 export const listAgents = defineRoute({
@@ -123,7 +130,7 @@ export const configureAgent = defineRoute({
   path: "/v1/ai/agents/{agent}",
   summary: "Turn an agent on or off and set it up",
   description:
-    "The whole of one agent's settings. The person it acts as may hold no permission the caller does not, so nobody can hand an agent more access than they have. Auto is refused on the dispatch copilot and the chat agent, which always leave the decision to a person. Limits out of range are refused rather than clamped.",
+    "The whole of one agent's settings. The person it acts as may hold no permission the caller does not, so nobody can hand an agent more access than they have. Auto is refused on the dispatch copilot, the chat agent and the phone assistant, which always leave the decision to a person. Limits out of range are refused rather than clamped.",
   module: "M27",
   permissions: ["agent:configure"],
   idempotent: true,

@@ -35,8 +35,9 @@ export interface Prompt { system: string; user: string }
 interface Company { name: string; today: string; localTime: string; timezone: string }
 
 function rules(kind: AgentKind, company: Company, tone: string): string {
+  const role = AGENTS[kind].label.toLowerCase();
   return [
-    `You are the ${AGENTS[kind].label.toLowerCase()} assistant for ${company.name}, a home service company. `
+    `You are the ${role.endsWith("assistant") ? role : `${role} assistant`} for ${company.name}, a home service company. `
     + "You work for the office and everything you produce is checked before it reaches a customer or the schedule.",
     `Today is ${company.today}, and it is ${company.localTime} where the company is (${company.timezone}).`,
     "",
@@ -150,6 +151,70 @@ export function chatPrompt(input: {
       transcript,
       "",
       "Reply to the customer's last message by calling one tool.",
+    ].join("\n"),
+  };
+}
+
+/* ------------------------------------------------------------------- voice */
+
+export interface VoiceTurnLine { from: "caller" | "assistant"; text: string }
+
+/**
+ * What the phone assistant is told before each of its turns on a call.
+ *
+ * The chat's facts, the caller's number with the customers it matches, and
+ * the call so far. Spoken rather than written, which changes the job more than
+ * the facts: no lists, no links, one question at a time, and a window read out
+ * as a day and a time rather than as a label.
+ */
+export function voicePrompt(input: {
+  company: Company; tone: string;
+  facts: ChatFacts; turns: VoiceTurnLine[];
+  caller: { number: string | null; candidates: CustomerCandidate[]; lookedUp: boolean };
+  bookingTaken: boolean; messageTaken: boolean;
+}): Prompt {
+  const transcript = input.turns.map((turn) => turn.from === "caller"
+    ? `<customer>\n${quoteCustomer(turn.text, 1000)}\n</customer>`
+    : `You: ${turn.text}`).join("\n");
+  return {
+    system: [
+      rules("voice", input.company, input.tone),
+      "",
+      "Your job: answer a phone call to the company. The caller has been told you are an automated assistant and that the call is written down.",
+      "- Everything you say is read aloud by a computer voice. Keep it to one or two short sentences. No lists, no links, no symbols.",
+      "- The caller's words reach you through speech to text, which mishears. Confirm an address, a name or a number by reading it back before you book.",
+      "- Answer only from the facts below. If they do not cover the question, say so and use transfer.",
+      "- Never state a price unless it appears in the facts exactly. Never promise a time that is not an open window.",
+      "- To book, the caller must choose an open window and give their name and the address. Then use create_booking_request. It is a request the office confirms; say so.",
+      "- If the caller is one of the customers listed, you may use the address on file once they confirm it.",
+      "- If the caller wants somebody to call them back, use take_message.",
+      "- Use transfer when the caller asks for a person, is upset, describes danger (gas smell, flooding, sparks, no heat for somebody vulnerable), or you are unsure.",
+      "- Use end_call only when the caller is done and says goodbye.",
+      input.bookingTaken ? "- A booking request has already been taken on this call. Do not take a second one." : "",
+      input.messageTaken ? "- A message has already been taken on this call." : "",
+    ].filter(Boolean).join("\n"),
+    user: [
+      block("Opening hours", input.facts.hours),
+      "",
+      block("Where the company works", input.facts.serviceArea),
+      "",
+      block("Services and their published prices (a null price means do not quote one)", input.facts.services),
+      "",
+      block("Other published prices", input.facts.publicPrices),
+      "",
+      block("The company's own questions and answers", input.facts.faq),
+      "",
+      input.facts.windows.length > 0 ? block("Open windows (only these may be offered)", input.facts.windows) : "No windows are open to book right now.",
+      "",
+      `The caller is calling from ${input.caller.number ?? "a number that was withheld"}.`,
+      input.caller.candidates.length > 0
+        ? block(input.caller.lookedUp ? "Customers found from what the caller said" : "Customers with that number", input.caller.candidates)
+        : input.caller.lookedUp ? "Nobody was found from what the caller said." : "No customer has that number.",
+      "",
+      "The call so far, oldest first:",
+      transcript,
+      "",
+      "Answer the caller's last words by calling one tool.",
     ].join("\n"),
   };
 }

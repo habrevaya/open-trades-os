@@ -19,6 +19,7 @@
     "@opentradesos/field-client": "workspace:*",
     "@opentradesos/trade-packs": "workspace:*",
     "@opentradesos/ui": "workspace:*",
+    "@twilio/voice-sdk": "^2.18.0",
     "drizzle-orm": "^0.36.4",
     "next": "^15.1.0",
     "react": "^19.0.0",

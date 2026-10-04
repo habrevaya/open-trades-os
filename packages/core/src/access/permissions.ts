@@ -155,6 +155,14 @@ export const PERMISSIONS = {
   // --- Grow ----------------------------------------------------------------
   "message:read": "View customer messages and call history",
   "message:send": "Send messages to customers",
+  /**
+   * Its own grant rather than part of sending messages, because a technician
+   * texts from the field and holds `message:send` for it, and ringing anybody
+   * from the browser as the company's number is a different thing: it puts the
+   * company's caller id on the call and the minutes on the company's bill. It
+   * is also what lets a browser ring when a customer calls.
+   */
+  "call:place": "Make and take calls from the company's numbers in the browser",
   "campaign:read": "View marketing campaigns",
   "campaign:write": "Create and send marketing campaigns",
   "adspend:read": "View ad spend and attribution",

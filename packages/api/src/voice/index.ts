@@ -8,3 +8,5 @@ export { createWhisperTranscription, segmentsFromWhisper } from "./whisper";
  */
 import "./twilio";
 import "./whisper";
+export { voiceAccessToken, type AccessTokenInput } from "./access-token";
+export * from "./relay";

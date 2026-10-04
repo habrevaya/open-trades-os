@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
 import { integrationConnection } from "./integrations";
-import { conversation } from "./comms";
+import { conversation, call } from "./comms";
 import { bookingRequest } from "./portal";
 
 /**
@@ -193,8 +193,8 @@ export const aiBudget = pgTable("ai_budget", {
  * query rather than a guess.
  */
 
-/** The five agents. `core/agents` holds what each one may do. */
-export const aiAgentKind = pgEnum("ai_agent_kind", ["intake", "chat", "estimate", "collections", "dispatch"]);
+/** The six agents. `core/agents` holds what each one may do. */
+export const aiAgentKind = pgEnum("ai_agent_kind", ["intake", "chat", "estimate", "collections", "dispatch", "voice"]);
 
 /**
  * How a company has set up one agent.
@@ -366,4 +366,66 @@ export const aiChatSession = pgTable("ai_chat_session", {
   tokenIdx: uniqueIndex("ai_chat_session_token_idx").on(t.tokenHash)
     .where(sql`${t.tokenHash} is not null`),
   conversationIdx: uniqueIndex("ai_chat_session_conversation_idx").on(t.conversationId),
+}));
+
+/** Where a call the phone assistant answered stands. */
+export const voiceAgentStatus = pgEnum("voice_agent_status", [
+  /** Sent to the assistant; the carrier has not opened the conversation yet. */
+  "waiting",
+  "talking",
+  /** Put through to a person, or to voicemail when nobody could take it. */
+  "transferred",
+  "ended",
+  /** The conversation broke off: the carrier hung up on it, or it never opened. */
+  "dropped",
+]);
+
+/**
+ * ONE CALL THE PHONE ASSISTANT ANSWERED.
+ *
+ * The call row is the call; this is what the assistant did on it. `turns` is
+ * what it heard and what it said, in order, which is what the model is shown
+ * on each turn and what becomes the call's transcript, redacted, when the call
+ * ends. `actions` is what it did, one sentence each (took a booking request,
+ * took a message, put the caller through and why), which the call screen
+ * shows under the transcript.
+ *
+ * The carrier's WebSocket arrives with a token in its address; only its hash
+ * is kept, for the reason every token here is hashed. The token says which
+ * call this is, and the carrier's signature over the address says it was the
+ * carrier that came.
+ */
+export const voiceAgentSession = pgTable("voice_agent_session", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  callId: uuid("call_id").notNull().references(() => call.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  status: voiceAgentStatus("status").notNull().default("waiting"),
+  turns: jsonb("turns").$type<{ from: "caller" | "assistant"; text: string; at: string }[]>().notNull().default([]),
+  actions: jsonb("actions").$type<{ action: string; detail: string; at: string }[]>().notNull().default([]),
+  /** Model turns taken, against the agent's limit. */
+  agentTurns: integer("agent_turns").notNull().default(0),
+  /**
+   * How many of each kind of thing were taken out of what the caller said
+   * before it was written down or shown to the model: a card number read out
+   * to an assistant is not one either of them should have.
+   */
+  redactions: jsonb("redactions").$type<Record<string, number>>().notNull().default({}),
+  /** Times running the assistant heard nothing, reset by anything heard. */
+  misses: integer("misses").notNull().default(0),
+  bookingRequestId: uuid("booking_request_id").references(() => bookingRequest.id, { onDelete: "set null" }),
+  messageTaken: boolean("message_taken").notNull().default(false),
+  /** Why the caller was put through, in words, for the call screen and the office. */
+  transferReason: text("transfer_reason"),
+  /** What the carrier says before doing what the assistant decided: the goodbye, or "putting you through". */
+  closingWords: text("closing_words"),
+  /** `transfer` or `hang_up`, decided by the assistant, read by the carrier's next request. */
+  ending: text("ending"),
+  connectedAt: timestamp("connected_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  callIdx: uniqueIndex("voice_agent_session_call_idx").on(t.callId),
+  tokenIdx: uniqueIndex("voice_agent_session_token_idx").on(t.tokenHash),
 }));

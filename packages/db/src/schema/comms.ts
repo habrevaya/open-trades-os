@@ -144,7 +144,8 @@ export type StoredDestination =
   | { kind: "forward"; e164: string }
   | { kind: "ivr"; menu: string }
   | { kind: "on_call_rota"; id: string }
-  | { kind: "person"; userId: string };
+  | { kind: "person"; userId: string }
+  | { kind: "agent" };
 
 /**
  * A PHONE MENU: "press 1 for service, 2 for billing".
@@ -193,6 +194,52 @@ export const ringGroup = pgTable("ring_group", {
   ...timestamps,
 }, (t) => ({
   orgIdx: index("ring_group_org_idx").on(t.organizationId),
+}));
+
+/**
+ * A WAITING LINE: callers held with music and told their place, answered by
+ * the next free person in a ring group, and sent on (to voicemail, usually)
+ * after the longest wait the company allows.
+ *
+ * The carrier holds the callers in a queue named after this row. What is kept
+ * here is what the carrier does not decide: whose phones ring, how long a
+ * caller may wait, what they hear about their place, and where they go after.
+ */
+export const callQueue = pgTable("call_queue", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /**
+   * Refused on delete while a line uses it, by the service, naming the line;
+   * the foreign key is the backstop for a delete that went round the service.
+   */
+  ringGroupId: uuid("ring_group_id").notNull().references(() => ringGroup.id, { onDelete: "restrict" }),
+  maxWaitSeconds: integer("max_wait_seconds").notNull().default(300),
+  announcePosition: boolean("announce_position").notNull().default(true),
+  holdMusicUrl: text("hold_music_url"),
+  overflowTo: jsonb("overflow_to").$type<StoredDestination>().notNull(),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: index("call_queue_org_idx").on(t.organizationId),
+}));
+
+/**
+ * WHETHER A PERSON'S BROWSER CAN TAKE A CALL RIGHT NOW.
+ *
+ * The office app says so once a minute while "Take calls here" is on, and a
+ * ring group rings that browser instead of the person's phone while it is
+ * fresh. One row per person per company, overwritten in place: this is a
+ * heartbeat, not a history, and the call itself records who answered.
+ */
+export const softphonePresence = pgTable("softphone_presence", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  available: boolean("available").notNull().default(false),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+}, (t) => ({
+  personIdx: uniqueIndex("softphone_presence_person_idx").on(t.organizationId, t.userId),
 }));
 
 /**
@@ -726,6 +773,22 @@ export const call = pgTable("call", {
    */
   menuChoices: jsonb("menu_choices").$type<{ menuId: string; menu: string; key: string | null; label: string; at: string }[]>()
     .notNull().default([]),
+  /**
+   * A call placed from the office app's browser phone: who pressed Call. Kept
+   * apart from `answered_by_user_id`, which is the person who picked up a
+   * call that came in.
+   */
+  placedByUserId: uuid("placed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * The waiting line the caller was held in, when one was: when they joined
+   * it, when its group was last rung for them and how many times, and how
+   * they left it (`bridged`, `leave`, `hangup`, as the carrier says).
+   */
+  queueId: uuid("queue_id").references(() => callQueue.id, { onDelete: "set null" }),
+  queuedAt: timestamp("queued_at", { withTimezone: true }),
+  queueRungAt: timestamp("queue_rung_at", { withTimezone: true }),
+  queueRings: integer("queue_rings").notNull().default(0),
+  queueResult: text("queue_result"),
   /** What the call was: booked, quote requested, wrong number, spam. */
   disposition: text("disposition"),
   attributionSource: text("attribution_source"),

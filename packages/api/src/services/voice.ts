@@ -1,6 +1,6 @@
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, voice, type Actor, type telephony as tel } from "@opentradesos/core";
+import { SYSTEM_USER_ID, can, voice, type Actor, type telephony as tel } from "@opentradesos/core";
 import {
   audit, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -11,8 +11,15 @@ import * as files from "./files";
 import * as phoneMenus from "./phone-menus";
 import * as onCall from "./on-call";
 import * as transcription from "./transcription";
+import * as voiceAgent from "./voice-agent";
+import * as callQueues from "./call-queues";
+import * as softphone from "./softphone";
+import { memberActor } from "./session";
 import { emit } from "./events";
 import { leaseForCall } from "./website-tracking";
+import {
+  DEFAULT_DEPS, baseOf, carrierFor, relayBaseOf, voiceWebhookPath, webhooksFor, type VoiceDeps,
+} from "./voice-carrier";
 /**
  * The barrel rather than the seam, so the Twilio adapter is registered by
  * whatever reaches this service: the settings screen buying a number has no
@@ -21,7 +28,7 @@ import { leaseForCall } from "./website-tracking";
  */
 import {
   createVoiceProvider, voiceCapableProviders,
-  type AvailableNumber, type NumberWebhooks, type VoiceProvider, type WebhookRequest,
+  type AvailableNumber, type VoiceProvider, type WebhookRequest,
 } from "../voice/index";
 
 /**
@@ -61,84 +68,9 @@ import {
 
 /* ------------------------------------------------------------- the seams */
 
-export type ReadSecret = (ref: string) => Promise<string>;
-
-export interface VoiceDeps {
-  readSecret: ReadSecret;
-  /** Injected so no test reaches Twilio and no deployment fakes one. */
-  provider?: VoiceProvider | undefined;
-  /** The deployment's public address, which every webhook URL is built from. */
-  publicBase?: string | undefined;
-}
-
-const secretFromEnvironment: ReadSecret = async (ref) => {
-  const value = process.env[ref];
-  if (!value) {
-    throw new ConflictError(
-      `No carrier credential in the environment under "${ref}". The Twilio connection names that secret and nothing is set there.`,
-    );
-  }
-  return value;
-};
-
-export const DEFAULT_DEPS: VoiceDeps = { readSecret: secretFromEnvironment };
-
-function baseOf(deps: VoiceDeps): string {
-  const base = deps.publicBase ?? process.env["PUBLIC_URL"];
-  if (!base) {
-    throw new ConflictError(
-      "PUBLIC_URL is not set, so there is no address to point a number's calls at. Set it to this installation's public address.",
-    );
-  }
-  return base.replace(/\/$/, "");
-}
-
-export const voiceWebhookPath = (token: string, step?: string) =>
-  `/api/webhooks/voice/${token}${step ? `/${step}` : ""}`;
-
-export function webhooksFor(base: string, token: string): NumberWebhooks {
-  return {
-    voiceUrl: `${base}${voiceWebhookPath(token)}`,
-    statusUrl: `${base}${voiceWebhookPath(token, "status")}`,
-    smsUrl: `${base}/api/webhooks/messaging/${token}`,
-  };
-}
-
-interface Carrier {
-  connectionId: string;
-  token: string;
-  provider: VoiceProvider;
-}
-
-/**
- * The company's carrier account, for calls.
- *
- * The messaging connection, because it is the same Twilio account and the
- * same credential: its settings hold the Account SID, its `credentialRef`
- * names the auth token, and its webhook token is the secret in every URL a
- * number is pointed at.
- */
-async function carrierFor(tx: Database, organizationId: string, deps: VoiceDeps): Promise<Carrier> {
-  const [row] = await tx.select().from(schema.integrationConnection)
-    .where(and(
-      eq(schema.integrationConnection.organizationId, organizationId),
-      eq(schema.integrationConnection.capability, "messaging"),
-      eq(schema.integrationConnection.status, "connected"),
-      isNull(schema.integrationConnection.deletedAt),
-    ));
-  if (!row || !voiceCapableProviders().includes(row.provider)) {
-    throw new ConflictError(
-      "Connect your Twilio account under Settings, Integrations first. Numbers are bought from your own account, "
-      + "and calls are routed through the same connection your texts use.",
-    );
-  }
-  const settings = (row.settings ?? {}) as Record<string, unknown>;
-  const token = typeof settings["webhookToken"] === "string" ? settings["webhookToken"] : "";
-  if (token.length < 32) throw new ConflictError("The Twilio connection has no webhook address yet. Reconnect it.");
-  const provider = deps.provider
-    ?? createVoiceProvider(row.provider, settings, row.credentialRef ? await deps.readSecret(row.credentialRef) : "");
-  return { connectionId: row.id, token, provider };
-}
+export {
+  DEFAULT_DEPS, voiceWebhookPath, webhooksFor, type ReadSecret, type VoiceDeps,
+} from "./voice-carrier";
 
 /* ------------------------------------------------------- buying numbers */
 
@@ -382,6 +314,12 @@ export async function resolveWebhook(db: Database, token: string, deps: VoiceDep
 
 export const STEPS = [
   "incoming", "connect", "whisper", "dialed", "voicemail-done", "voicemail", "recording", "status", "menu",
+  /** The phone assistant's conversation is over: put the caller through, or say goodbye. */
+  "agent-done",
+  /** A waiting line: each turn of the music, how the caller left, and the person answering. */
+  "queue-wait", "queue-done", "queue-answer", "queue-connect",
+  /** A call somebody placed from the browser, the question put to the person called, and how it ended. */
+  "softphone", "softphone-consent", "softphone-dialed",
 ] as const;
 export type Step = (typeof STEPS)[number];
 
@@ -440,19 +378,36 @@ export async function handle(
     return `${base}${voiceWebhookPath(connection.token, s)}${search}`;
   };
   const ctx: ServiceContext = { actor: voiceActor(connection.organizationId), db };
+  const wire: Wire = { connection, deps, url, now };
 
   switch (step) {
-    case "incoming": return incoming(db, ctx, form, url, now);
-    case "connect": return connect(ctx, form, url, now);
+    case "incoming": return incoming(db, ctx, form, wire);
+    case "connect": return connect(ctx, form, wire);
     case "whisper": return whisper(ctx, form);
-    case "dialed": return dialed(ctx, form, query, url, now);
-    case "menu": return menuStep(ctx, form, query, url, now);
+    case "dialed": return dialed(ctx, form, query, wire);
+    case "menu": return menuStep(ctx, form, query, wire);
     case "voicemail-done": return reply([{ verb: "hangup" }]);
     case "voicemail": return keepAudio(ctx, connection, form, "voicemail");
     case "recording": return keepAudio(ctx, connection, form, "recording");
     case "status": return status(ctx, form, now);
+    case "agent-done": return agentDone(ctx, form, query, wire);
+    case "queue-wait": return queueWait(ctx, form, query, wire);
+    case "queue-done": return queueDone(ctx, form, query, wire);
+    case "queue-answer": return queueAnswer(ctx, form, query, wire);
+    case "queue-connect": return queueConnect(ctx, form, query, now);
+    case "softphone": return softphoneCall(db, ctx, form, wire);
+    case "softphone-consent": return softphoneConsent(ctx, form, query, wire);
+    case "softphone-dialed": return softphoneDialed(ctx, form, now);
     default: return empty;
   }
+}
+
+/** What every step after the first carries: the carrier, the seams, the step addresses and the clock. */
+interface Wire {
+  connection: VoiceConnection;
+  deps: VoiceDeps;
+  url: StepUrl;
+  now: Date;
 }
 
 const count = (value: string | null, max: number): number => {
@@ -533,7 +488,11 @@ interface Leg {
   number: NumberRow;
   url: StepUrl;
   now: Date;
+  wire: Wire;
 }
+
+const legOf = (tx: Database, ctx: ServiceContext, call: CallRow, number: NumberRow, wire: Wire): Leg =>
+  ({ tx, ctx, call, number, url: wire.url, now: wire.now, wire });
 
 /**
  * Ring these numbers, with what the number is set to do on every dial: the
@@ -543,12 +502,17 @@ interface Leg {
  */
 function dialVerb(leg: Leg, numbers: readonly string[], timeoutSeconds: number, query: Record<string, string | number>): voice.Verb {
   const recording = leg.call.recordingStartedAt !== null && leg.call.recordingDeletedAt === null;
+  /**
+   * A browser in the dial always has the whisper step, said or silent,
+   * because that step is where the call learns which person picked up.
+   */
+  const browser = numbers.some(voice.isClientAddress);
   return {
     verb: "dial",
     to: numbers.length === 1 ? numbers[0]! : numbers,
     action: leg.url("dialed", query),
     timeoutSeconds,
-    ...(leg.number.whisper ? { whisperUrl: leg.url("whisper") } : {}),
+    ...(leg.number.whisper || browser ? { whisperUrl: leg.url("whisper") } : {}),
     ...(recording ? { recordingCallback: leg.url("recording") } : {}),
   };
 }
@@ -586,8 +550,40 @@ async function answer(leg: Leg, to: tel.RoutingDestination, hops: number): Promi
 
   switch (to.kind) {
     case "voicemail":
-    case "queue":
       return voicemail();
+
+    case "queue": {
+      const queue = await callQueues.loadQueue(leg.tx, org, to.id);
+      if (!queue) {
+        await note(leg.tx, leg.call, "The waiting line it was sent to has been deleted, so it went to voicemail.");
+        return voicemail();
+      }
+      await leg.tx.update(schema.call).set({
+        queueId: queue.id, queuedAt: leg.now, queueRungAt: null, queueRings: 0, queueResult: null, updatedAt: leg.now,
+      }).where(eq(schema.call.id, leg.call.id));
+      const q = { q: queue.id, ...query };
+      return {
+        verbs: [{
+          verb: "enqueue", queue: voice.carrierQueueName(queue.id),
+          waitUrl: leg.url("queue-wait", q), action: leg.url("queue-done", q),
+        }],
+        voicemail: false,
+      };
+    }
+
+    case "agent": {
+      const begun = await voiceAgent.begin(leg.tx, org, leg.call, {
+        webhookToken: leg.wire.connection.token,
+        actionUrl: leg.url("agent-done", hops > 0 ? { h: hops } : {}),
+        relayBase: relayBaseOf(leg.wire.deps),
+      });
+      if (!begun.ok) {
+        await note(leg.tx, leg.call, begun.why);
+        return answer(leg, begun.to, hops + 1);
+      }
+      await note(leg.tx, leg.call, "The phone assistant answered.");
+      return { verbs: [begun.verb], voicemail: false };
+    }
 
     case "forward":
       return { verbs: [dialVerb(leg, [to.e164], 20, query)], voicemail: false };
@@ -637,7 +633,8 @@ async function answer(leg: Leg, to: tel.RoutingDestination, hops: number): Promi
         await note(leg.tx, leg.call, "The ring group it was sent to has been deleted, so it went to voicemail.");
         return voicemail();
       }
-      const plan = voice.ringPlan(group, await phoneMenus.directoryFor(leg.tx, org));
+      const online = await softphone.onlineUsers(leg.tx, org, leg.now);
+      const plan = voice.ringPlan(group, await phoneMenus.directoryFor(leg.tx, org), online);
       if (plan.skipped.length > 0) {
         await note(leg.tx, leg.call, `Not rung: ${plan.skipped.map((s) => `${s.label} ${s.why}`).join("; ")}.`);
       }
@@ -667,8 +664,9 @@ async function proceed(leg: Leg): Promise<VoiceReply> {
 }
 
 async function incoming(
-  db: Database, ctx: ServiceContext, form: Record<string, string>, url: StepUrl, now: Date,
+  db: Database, ctx: ServiceContext, form: Record<string, string>, wire: Wire,
 ): Promise<VoiceReply> {
+  const { url, now } = wire;
   const sid = form["CallSid"];
   const from = form["From"] ?? "";
   const to = form["To"] ?? "";
@@ -747,13 +745,13 @@ async function incoming(
         { verb: "redirect", url: url("connect") },
       ]);
     }
-    const answered = await answer({ tx, ctx, call, number: found.number, url, now }, routed.destination, 0);
+    const answered = await answer(legOf(tx, ctx, call, found.number, wire), routed.destination, 0);
     return reply(answered.verbs);
   });
 }
 
 async function connect(
-  ctx: ServiceContext, form: Record<string, string>, url: StepUrl, now: Date,
+  ctx: ServiceContext, form: Record<string, string>, wire: Wire,
 ): Promise<VoiceReply> {
   return inTenant(ctx, async (tx) => {
     const call = await callBySid(tx, form["CallSid"]);
@@ -777,7 +775,7 @@ async function connect(
     }
     /** Read again, so the dial sees the decision just written. */
     const [decided] = await tx.select().from(schema.call).where(eq(schema.call.id, call.id)).limit(1);
-    return proceed({ tx, ctx, call: decided ?? call, number, url, now });
+    return proceed(legOf(tx, ctx, decided ?? call, number, wire));
   });
 }
 
@@ -789,14 +787,15 @@ async function connect(
  * answers is told it by the whisper.
  */
 async function menuStep(
-  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, url: StepUrl, now: Date,
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
 ): Promise<VoiceReply> {
+  const { url, now } = wire;
   return inTenant(ctx, async (tx) => {
     const call = await callBySid(tx, form["CallSid"]);
     if (!call) return reply([{ verb: "hangup" }]);
     const number = await numberOf(tx, call);
     if (!number) return reply([{ verb: "say", text: voice.NOT_IN_SERVICE }, { verb: "hangup" }]);
-    const leg: Leg = { tx, ctx, call, number, url, now };
+    const leg = legOf(tx, ctx, call, number, wire);
     const hops = count(query.get("h"), MAX_HOPS + 1);
     const menu = await phoneMenus.loadMenu(tx, ctx.actor.organizationId, query.get("m") ?? "");
     if (!menu) {
@@ -826,6 +825,18 @@ async function whisper(ctx: ServiceContext, form: Record<string, string>): Promi
   return inTenant(ctx, async (tx) => {
     const call = await callBySid(tx, form["ParentCallSid"] ?? form["CallSid"]);
     if (!call) return empty;
+    /**
+     * Who picked up: a browser by its identity, a phone by the number the
+     * company rings that person on. Written here because this step is the
+     * one that runs on the answering leg, before the two are connected.
+     */
+    const answeredBy = await whoAnswered(tx, ctx.actor.organizationId, form["To"] ?? "");
+    if (answeredBy && !call.answeredByUserId) {
+      await tx.update(schema.call).set({ answeredByUserId: answeredBy, updatedAt: new Date() })
+        .where(eq(schema.call.id, call.id));
+    }
+    const number = await numberOf(tx, call);
+    if (number && !number.whisper) return empty;
     const [channel] = call.channelId
       ? await tx.select({ name: schema.marketingChannel.name }).from(schema.marketingChannel)
         .where(eq(schema.marketingChannel.id, call.channelId)).limit(1)
@@ -855,8 +866,9 @@ async function whisper(ctx: ServiceContext, form: Record<string, string>): Promi
  * the group's behalf was not missed.
  */
 async function dialed(
-  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, url: StepUrl, now: Date,
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
 ): Promise<VoiceReply> {
+  const { url, now } = wire;
   return inTenant(ctx, async (tx) => {
     const call = await callBySid(tx, form["CallSid"]);
     if (!call) return reply([{ verb: "hangup" }]);
@@ -875,10 +887,11 @@ async function dialed(
     const number = groupId ? await numberOf(tx, call) : null;
     if (groupId && number) {
       const hops = count(query.get("h"), MAX_HOPS + 1);
-      const leg: Leg = { tx, ctx, call, number, url, now };
+      const leg = legOf(tx, ctx, call, number, wire);
       const group = await phoneMenus.loadRingGroup(tx, ctx.actor.organizationId, groupId);
       if (group) {
-        const plan = voice.ringPlan(group, await phoneMenus.directoryFor(tx, ctx.actor.organizationId));
+        const online = await softphone.onlineUsers(tx, ctx.actor.organizationId, now);
+        const plan = voice.ringPlan(group, await phoneMenus.directoryFor(tx, ctx.actor.organizationId), online);
         const next = count(query.get("i"), voice.MAX_RING_MEMBERS) + 1;
         if (next < plan.steps.length) {
           return reply([dialVerb(leg, plan.steps[next]!.numbers, group.ringSeconds, {
@@ -911,7 +924,11 @@ async function status(ctx: ServiceContext, form: Record<string, string>, now: Da
     if (!call) return empty;
     const reported = voice.providerCallStatus(form["CallStatus"]);
     if (!reported || reported === "ringing" || reported === "in_progress") return empty;
-    const unanswered = call.answeredAt === null;
+    /**
+     * A call the office placed is never a missed call: nobody rang the
+     * company. Its own dial result says whether the person called picked up.
+     */
+    const unanswered = call.direction === "inbound" && call.answeredAt === null;
     const next = reported === "completed" && unanswered ? "abandoned" : reported;
     const seconds = Number(form["CallDuration"]);
     await tx.update(schema.call).set({
@@ -994,6 +1011,321 @@ async function keepAudio(
 
   if (stored) await connection.provider.deleteRecording(recordingId);
   return empty;
+}
+
+/* ------------------------------------------------------ the phone assistant */
+
+/**
+ * Who picked up a leg: a browser by its identity, or a phone by the number the
+ * company rings one person on. Null when it cannot be said for certain, such as
+ * a number two people share or one outside the company.
+ */
+async function whoAnswered(tx: Database, organizationId: string, to: string): Promise<string | null> {
+  const user = voice.userOfIdentity(to);
+  if (user) return user;
+  if (!/^\+[1-9]\d{7,14}$/.test(to)) return null;
+  const rows = await tx.select({ userId: schema.answeringPhone.userId }).from(schema.answeringPhone)
+    .where(and(eq(schema.answeringPhone.organizationId, organizationId), eq(schema.answeringPhone.e164, to))).limit(2);
+  return rows.length === 1 ? rows[0]!.userId : null;
+}
+
+/**
+ * The phone assistant's conversation is over. What the caller hears next, and
+ * where they go, is what the assistant decided during the call: a goodbye, or
+ * being put through. A conversation that never opened or broke off puts the
+ * caller through too, with the reason written on the call.
+ */
+async function agentDone(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await callBySid(tx, form["CallSid"]);
+    if (!call) return reply([{ verb: "hangup" }]);
+    const after = await voiceAgent.afterRelay(tx, ctx, call);
+    const said: voice.Verb[] = after.say ? [{ verb: "say", text: after.say }] : [];
+    if (after.then === "hang_up") return reply([...said, { verb: "hangup" }]);
+    await note(tx, call, after.why);
+    const number = await numberOf(tx, call);
+    if (!number) return reply([...said, ...voicemailVerbs(wire.url)]);
+    const hops = count(query.get("h"), MAX_HOPS + 1);
+    const answered = await answer(legOf(tx, ctx, call, number, wire), after.to, hops + 1);
+    if (answered.voicemail) await callTracking.emitMissed(tx, ctx, call.id);
+    return reply([...said, ...answered.verbs]);
+  });
+}
+
+/* ----------------------------------------------------------- waiting lines */
+
+/**
+ * Each time the hold music comes round: has the caller waited long enough,
+ * what are they told about their place, and is it time to ring the group
+ * again.
+ *
+ * The group is rung by placing calls from the company's own account to each
+ * phone or browser in this round, each answered by `queue-answer`. They are
+ * placed after the transaction commits, so a slow carrier holds no
+ * connection, and a failure to ring one phone is written on the call rather
+ * than keeping the caller from their music.
+ */
+async function queueWait(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  const org = ctx.actor.organizationId;
+  const queueId = query.get("q") ?? "";
+  const plan = await inTenant(ctx, async (tx) => {
+    const call = await callBySid(tx, form["CallSid"]);
+    if (!call) return { verbs: [{ verb: "leave" }] as voice.Verb[], ring: null };
+    const queue = await callQueues.loadQueue(tx, org, queueId);
+    if (!queue || call.queueId !== queue.id) return { verbs: [{ verb: "leave" }] as voice.Verb[], ring: null };
+    const group = await phoneMenus.loadRingGroup(tx, org, queue.ringGroupId);
+    const position = Number(form["QueuePosition"]);
+    const step = voice.waitStep({
+      queue, position: Number.isInteger(position) && position > 0 ? position : 1,
+      waitedSeconds: Number(form["QueueTime"]), rungAt: call.queueRungAt, ringSeconds: group?.ringSeconds ?? 20,
+      now: wire.now,
+    });
+    if (step.kind === "leave") return { verbs: [{ verb: "leave" }] as voice.Verb[], ring: null };
+
+    let ring: { numbers: string[]; from: string; timeoutSeconds: number; callId: string } | null = null;
+    if (step.ring && group) {
+      const online = await softphone.onlineUsers(tx, org, wire.now);
+      const round = voice.ringRound(voice.ringPlan(group, await phoneMenus.directoryFor(tx, org), online), call.queueRings);
+      const from = call.receivedOnE164 ?? (await numberOf(tx, call))?.e164 ?? null;
+      if (round && from) {
+        ring = { numbers: round.numbers, from, timeoutSeconds: group.ringSeconds, callId: call.id };
+        await tx.update(schema.call).set({
+          queueRungAt: wire.now, queueRings: call.queueRings + 1, updatedAt: wire.now,
+        }).where(eq(schema.call.id, call.id));
+      } else if (call.queueRings === 0 && call.queueRungAt === null) {
+        await note(tx, call, `Nobody in the ${group.name} ring group could be rung for the ${queue.name} waiting line.`);
+        await tx.update(schema.call).set({ queueRungAt: wire.now, updatedAt: wire.now }).where(eq(schema.call.id, call.id));
+      }
+    }
+    return {
+      verbs: [
+        ...(step.say ? [{ verb: "say" as const, text: step.say }] : []),
+        { verb: "play" as const, url: queue.holdMusicUrl ?? voice.DEFAULT_HOLD_MUSIC },
+      ] as voice.Verb[],
+      ring,
+    };
+  });
+
+  if (plan.ring) {
+    const failed: string[] = [];
+    for (const to of plan.ring.numbers) {
+      const placed = await wire.connection.provider.placeCall({
+        to, from: plan.ring.from, url: wire.url("queue-answer", { q: queueId }), timeoutSeconds: plan.ring.timeoutSeconds,
+      });
+      if (!placed.ok) failed.push(`${voice.isClientAddress(to) ? "a browser" : to} (${placed.message})`);
+    }
+    if (failed.length > 0) {
+      const callId = plan.ring.callId;
+      await inTenant(ctx, async (tx) => {
+        const [call] = await tx.select().from(schema.call).where(eq(schema.call.id, callId)).limit(1);
+        if (call) await note(tx, call, `Could not ring ${failed.join(", ")} for the waiting line.`);
+      });
+    }
+  }
+  return reply(plan.verbs);
+}
+
+/**
+ * A person in the line's group picked up. Put them through to whoever is at
+ * the front, or tell them somebody else already has the caller.
+ */
+async function queueAnswer(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  const org = ctx.actor.organizationId;
+  return inTenant(ctx, async (tx) => {
+    const queue = await callQueues.loadQueue(tx, org, query.get("q") ?? "");
+    if (!queue) return reply([{ verb: "say", text: "That waiting line no longer exists." }, { verb: "hangup" }]);
+    const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.call).where(and(
+      eq(schema.call.queueId, queue.id),
+      isNull(schema.call.queueResult),
+      sql`${schema.call.queuedAt} is not null`,
+      sql`${schema.call.answeredAt} is null`,
+    ));
+    if (!waiting || waiting.n === 0) {
+      return reply([{ verb: "say", text: "Thanks. The caller has already been answered." }, { verb: "hangup" }]);
+    }
+    const user = await whoAnswered(tx, org, form["To"] ?? "");
+    return reply([
+      { verb: "say", text: `A ${queue.name} caller is waiting. Putting you through.` },
+      { verb: "dialQueue", queue: voice.carrierQueueName(queue.id), url: wire.url("queue-connect", { q: queue.id, ...(user ? { u: user } : {}) }) },
+    ]);
+  });
+}
+
+/** Said on the caller's side as they are taken off hold: the moment they were answered, and by whom. */
+async function queueConnect(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, now: Date,
+): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await callBySid(tx, form["CallSid"]);
+    if (!call) return empty;
+    const user = query.get("u");
+    await tx.update(schema.call).set({
+      status: voice.laterStatus(call.status, "in_progress"),
+      answeredAt: call.answeredAt ?? now,
+      ...(user && /^[0-9a-f-]{36}$/i.test(user) && !call.answeredByUserId ? { answeredByUserId: user } : {}),
+      updatedAt: now,
+    }).where(eq(schema.call.id, call.id));
+    return empty;
+  });
+}
+
+/**
+ * The caller left the line: answered, gave up, or waited as long as the line
+ * keeps anybody and goes where it overflows to, usually voicemail.
+ */
+async function queueDone(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await callBySid(tx, form["CallSid"]);
+    if (!call) return reply([{ verb: "hangup" }]);
+    const queue = await callQueues.loadQueue(tx, ctx.actor.organizationId, query.get("q") ?? "");
+    const waited = Number(form["QueueTime"]);
+    const outcome = voice.queueOutcome(form["QueueResult"], Number.isFinite(waited) ? waited : 0);
+    await tx.update(schema.call).set({
+      queueResult: (form["QueueResult"] ?? "unknown").slice(0, 40), updatedAt: wire.now,
+    }).where(eq(schema.call.id, call.id));
+    if (outcome.kind === "answered") return reply([{ verb: "hangup" }]);
+    if (outcome.kind === "gone") {
+      await note(tx, call, outcome.why);
+      await tx.update(schema.call).set({ status: voice.laterStatus(call.status, "abandoned"), updatedAt: wire.now })
+        .where(eq(schema.call.id, call.id));
+      await callTracking.emitMissed(tx, ctx, call.id);
+      return reply([{ verb: "hangup" }]);
+    }
+    await note(tx, call, queue ? outcome.why : "The waiting line was deleted while the caller waited, so it went to voicemail.");
+    const number = await numberOf(tx, call);
+    if (!number) return reply(voicemailVerbs(wire.url));
+    const hops = count(query.get("h"), MAX_HOPS + 1);
+    const answered = await answer(legOf(tx, ctx, call, number, wire), queue?.overflowTo ?? { kind: "voicemail", box: "main" }, hops + 1);
+    if (answered.voicemail) await callTracking.emitMissed(tx, ctx, call.id);
+    return reply(answered.verbs);
+  });
+}
+
+/* --------------------------------------------------------- the browser phone */
+
+/**
+ * Somebody pressed Call in the office app. The carrier asks here what to do,
+ * naming the person's browser and the number they typed.
+ *
+ * Checked again here, whatever the pass said an hour ago: the person is still
+ * an active member who may place calls, the number is one a phone can dial
+ * and not an emergency number, and browser calling is still set up. Then the
+ * call is logged the way every call is, matched to a customer by the number,
+ * and dialled from the company's number. On a number set to record calls the
+ * person called is asked first, as a caller is asked on the way in, and
+ * recording starts only on their yes.
+ */
+async function softphoneCall(
+  db: Database, ctx: ServiceContext, form: Record<string, string>, wire: Wire,
+): Promise<VoiceReply> {
+  const org = ctx.actor.organizationId;
+  const sid = form["CallSid"];
+  const userId = voice.userOfIdentity(form["From"] ?? form["Caller"] ?? "");
+  const refuse = (text: string) => reply([{ verb: "say", text }, { verb: "hangup" }]);
+  if (!sid || !userId) return refuse("This call cannot be placed.");
+  const target = voice.dialable(form["To"] ?? "");
+  if (!target.ok) return refuse(target.reason);
+
+  return inTenant(ctx, async (tx) => {
+    const actor = await memberActor(tx, org, userId);
+    if (!actor || !can(actor, "call:place")) return refuse("You are not allowed to place calls from the browser.");
+    const number = await softphone.callerIdFor(tx, org);
+    if (!number) return refuse("Browser calling is not set up. Ask an owner to set it up on Settings, Phone menus.");
+
+    const digits = target.e164.replace(/\D/g, "").slice(-10);
+    const [customer] = await tx.select({ id: schema.customer.id }).from(schema.customer).where(and(
+      isNull(schema.customer.deletedAt),
+      sql`right(regexp_replace(coalesce(${schema.customer.phone}, ''), '[^0-9]', '', 'g'), 10) = ${digits}`,
+    )).limit(1);
+    const inserted = await tx.insert(schema.call).values({
+      organizationId: org, direction: "outbound", phoneNumberId: number.id,
+      fromE164: number.e164, toE164: target.e164, customerId: customer?.id ?? null,
+      placedByUserId: userId, status: "ringing", startedAt: wire.now, providerCallId: `twilio:${sid}`,
+    }).onConflictDoNothing().returning();
+    const call = inserted[0] ?? await callBySid(tx, sid);
+    if (!call) return refuse("This call cannot be placed.");
+    if (inserted[0]) {
+      await audit(tx, { ...ctx, actor }, "call.placed", "call", call.id, null, { to: target.e164, from: number.e164 });
+    }
+    return reply([{
+      verb: "dial", to: target.e164, action: wire.url("softphone-dialed"), timeoutSeconds: 30, callerId: number.e164,
+      ...(number.recordCalls ? { whisperUrl: wire.url("softphone-consent", { c: call.id, a: "ask" }) } : {}),
+    }]);
+  });
+}
+
+/**
+ * On a call the office placed, said to the person called when they pick up:
+ * may it be recorded. `ask` puts the question; `answer` is their key press.
+ * Anything but 1, including nothing, connects them without recording.
+ */
+async function softphoneConsent(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  const org = ctx.actor.organizationId;
+  const callId = query.get("c") ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(callId)) return empty;
+  const decided = await inTenant(ctx, async (tx) => {
+    const [call] = await tx.select().from(schema.call)
+      .where(and(eq(schema.call.organizationId, org), eq(schema.call.id, callId))).limit(1);
+    if (!call || call.direction !== "outbound") return { verbs: [] as voice.Verb[], record: null };
+    if (query.get("a") === "ask") {
+      const [company] = await tx.select({ name: schema.organization.name }).from(schema.organization)
+        .where(eq(schema.organization.id, org)).limit(1);
+      return {
+        verbs: [{
+          verb: "gather" as const, action: wire.url("softphone-consent", { c: call.id, a: "answer" }), numDigits: 1,
+          timeoutSeconds: 6, say: voice.calleeRecordingQuestion(company?.name ?? "We are"),
+        }] as voice.Verb[],
+        record: null,
+      };
+    }
+    const asked = voice.recordingDecision({
+      callerPressedOne: form["Digits"] === "1", policies: await telephony.policies(tx, org), outside: "callee",
+    });
+    try {
+      await telephony.decideRecordingIn(tx, ctx, { callId: call.id, parties: asked.parties, announcementPlayed: true });
+    } catch (error) {
+      if (!(error instanceof ConflictError)) throw error;
+      return { verbs: [] as voice.Verb[], record: null };
+    }
+    const parent = call.providerCallId?.replace(/^twilio:/, "") ?? null;
+    return { verbs: [] as voice.Verb[], record: asked.decision.ok && parent ? parent : null };
+  });
+  if (decided.record) {
+    const started = await wire.connection.provider.startRecording({ callSid: decided.record, recordingCallback: wire.url("recording") });
+    if (!started.ok) {
+      await inTenant(ctx, (tx) => audit(tx, ctx, "call.recording_not_started", "call", callId, null, { reason: started.message }));
+    }
+  }
+  return reply(decided.verbs);
+}
+
+/** How a call placed from the browser ended: whether the person called picked up, and for how long. */
+async function softphoneDialed(ctx: ServiceContext, form: Record<string, string>, now: Date): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await callBySid(tx, form["CallSid"]);
+    if (!call) return reply([{ verb: "hangup" }]);
+    const outcome = voice.dialOutcome(form["DialCallStatus"]);
+    const talked = Number(form["DialCallDuration"] ?? 0);
+    await tx.update(schema.call).set({
+      status: voice.laterStatus(call.status, outcome.status),
+      ...(outcome.answered && !call.answeredAt
+        ? { answeredAt: new Date(now.getTime() - (Number.isFinite(talked) ? talked : 0) * 1000) }
+        : {}),
+      ...(Number.isFinite(talked) && talked > 0 ? { durationSeconds: talked } : {}),
+      updatedAt: now,
+    }).where(eq(schema.call.id, call.id));
+    return reply([{ verb: "hangup" }]);
+  });
 }
 
 /* ----------------------------------------------------------- housekeeping */

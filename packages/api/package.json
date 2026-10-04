@@ -28,6 +28,7 @@
     "test": "vitest run",
     "openapi": "tsx src/lib/generate-openapi.ts && pnpm --filter @opentradesos/sdk run generate",
     "worker": "tsx src/bin/worker.ts",
+    "voice-relay": "tsx src/bin/voice-relay.ts",
     "seed": "tsx src/seed/index.ts",
     "mcp": "tsx src/bin/mcp-stdio.ts"
   },
@@ -38,12 +39,14 @@
     "@opentradesos/trade-packs": "workspace:*",
     "drizzle-orm": "^0.36.4",
     "nodemailer": "^10.0.13",
+    "ws": "^8.18.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@opentradesos/field-client": "workspace:*",
     "@types/node": "^22.10.1",
     "@types/nodemailer": "^8.0.2",
+    "@types/ws": "^8.5.13",
     "postgres": "^3.4.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
