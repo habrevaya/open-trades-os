@@ -456,6 +456,22 @@ run("the bounds it runs under", () => {
     expect(row!.routed_because).toContain("could not be reached");
   });
 
+  it("puts nobody through when the caller hung up mid conversation", async () => {
+    const call = await callToAssistant();
+    const fake = await carrierConnects(call.relayAddress, call.sid);
+    script = () => tool("reply", { text: "Sure, what is the address?" });
+    await fake.say("I need a plumber.");
+    fake.close();
+    const next = await webhook("agent-done", { CallSid: call.sid, CallStatus: "completed" }, "");
+    expect(next.twiml).toBe('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+    const [row] = await raw<{ id: string; routed_because: string }[]>`
+      select id, routed_because from public.call where provider_call_id = ${`twilio:${call.sid}`}`;
+    expect(row!.routed_because).not.toContain("put through");
+    const view = await voiceAgent.forCall(owner(), row!.id);
+    expect(view!.status).toBe("dropped");
+    expect(view!.turns.map((t) => t.from)).toEqual(["assistant", "caller", "assistant"]);
+  });
+
   it("sends calls where it puts callers through when it is switched off, and says why", async () => {
     await agents.configure(owner(), {
       agent: "voice", settings: { ...coreAgents.defaultSettings("voice"), enabled: false, runAsUserId: OWNER, voice: { transferRingGroupId: groupId } },

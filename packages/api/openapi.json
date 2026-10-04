@@ -3474,6 +3474,7 @@
               "enum": [
                 "intake",
                 "chat",
+                "voice",
                 "estimate",
                 "collections",
                 "dispatch"
@@ -3684,7 +3685,7 @@
       "put": {
         "operationId": "configureAgent",
         "summary": "Turn an agent on or off and set it up",
-        "description": "The whole of one agent's settings. The person it acts as may hold no permission the caller does not, so nobody can hand an agent more access than they have. Auto is refused on the dispatch copilot and the chat agent, which always leave the decision to a person. Limits out of range are refused rather than clamped.\n\nRequires a session holding: agent:configure.",
+        "description": "The whole of one agent's settings. The person it acts as may hold no permission the caller does not, so nobody can hand an agent more access than they have. Auto is refused on the dispatch copilot, the chat agent and the phone assistant, which always leave the decision to a person. Limits out of range are refused rather than clamped.\n\nRequires a session holding: agent:configure.",
         "tags": [
           "M27"
         ],
@@ -3698,6 +3699,7 @@
               "enum": [
                 "intake",
                 "chat",
+                "voice",
                 "estimate",
                 "collections",
                 "dispatch"
@@ -14314,6 +14316,471 @@
         ]
       }
     },
+    "/v1/call-queues": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createCallQueue",
+        "summary": "Make a waiting line",
+        "description": "A caller sent to a waiting line hears hold music and, when announcePosition is on, their place in line each time the music comes round. The people in ringGroupId are rung (all at once, or one after another round by round, as the group says, and in the browser for anybody taking calls there) until one answers and is put through to the caller at the front. After maxWaitSeconds the caller goes to overflowTo, usually voicemail. The wait is checked each time the music finishes, so a long track lets a caller wait longer than the setting.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCallQueueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Make a waiting line",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateCallQueueOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "get": {
+        "operationId": "listCallQueues",
+        "summary": "The company's waiting lines",
+        "description": "Requires a session holding: settings:read.",
+        "tags": [
+          "M18"
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's waiting lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCallQueuesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/call-queues/{id}": {
+      "description": "Served at this path: DELETE, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PUT"
+      ],
+      "delete": {
+        "operationId": "deleteCallQueue",
+        "summary": "Delete a waiting line",
+        "description": "Refused while a menu, a ring group or another line still sends callers to it, naming which.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteCallQueueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Delete a waiting line",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteCallQueueOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "put": {
+        "operationId": "updateCallQueue",
+        "summary": "Change a waiting line",
+        "description": "Requires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCallQueueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a waiting line",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateCallQueueOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/call-tracking": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -15082,6 +15549,115 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GetCallOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:read"
+        ]
+      }
+    },
+    "/v1/calls/{id}/assistant": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getCallAssistant",
+        "summary": "What the phone assistant heard, said and did on a call",
+        "description": "Everything said, in order, with card numbers and security codes the caller read out already removed, and one sentence for each thing it did: a booking request taken, a message taken, the caller put through and why. Not found for a call the assistant did not answer.\n\nRequires a session holding: message:read.",
+        "tags": [
+          "M27"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the phone assistant heard, said and did on a call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCallAssistantOutput"
                 }
               }
             }
@@ -86466,7 +87042,7 @@
       "delete": {
         "operationId": "deleteRingGroup",
         "summary": "Delete a ring group",
-        "description": "Refused while a menu or another group still rings it, naming which.\n\nRequires a session holding: settings:write.",
+        "description": "Refused while a menu, another group, a waiting line or the phone assistant still sends calls to it, naming which.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M18"
         ],
@@ -91537,6 +92113,453 @@
         "x-authorization": "session",
         "x-permissions": [
           "settings:read"
+        ]
+      }
+    },
+    "/v1/softphone": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getSoftphone",
+        "summary": "Whether you can use the browser phone",
+        "description": "Requires a session holding: call:place.",
+        "tags": [
+          "M18"
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether you can use the browser phone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSoftphoneOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "call:place"
+        ]
+      },
+      "put": {
+        "operationId": "setUpSoftphone",
+        "summary": "Set up calling from the browser",
+        "description": "Takes an API key made in the Twilio console (its SID, and the NAME of the secret in this installation's secret store that holds its secret, never the secret) and the company number calls are shown from, which must be one answered here. Creates, or points again, the application on the company's own Twilio account that browser calls are placed through.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUpSoftphoneInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set up calling from the browser",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetUpSoftphoneOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/softphone/presence": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setSoftphonePresence",
+        "summary": "Take calls in this browser, or stop",
+        "description": "Sent once a minute by the office app while \"Take calls here\" is on. A ring group rings a person's browser instead of their phone while their last word was on and is under two and a half minutes old.\n\nRequires a session holding: call:place.",
+        "tags": [
+          "M18"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSoftphonePresenceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take calls in this browser, or stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetSoftphonePresenceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "call:place"
+        ]
+      }
+    },
+    "/v1/softphone/token": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "mintSoftphoneToken",
+        "summary": "A pass for your browser to make and take calls, good for an hour",
+        "description": "For the person asking only. The carrier's browser library registers with it and places calls through the company's application; every call it places is checked again when it is made, so a person who has lost the permission since cannot use a pass they still hold.\n\nRequires a session holding: call:place.",
+        "tags": [
+          "M18"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MintSoftphoneTokenInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "A pass for your browser to make and take calls, good for an hour",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintSoftphoneTokenOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "call:place"
         ]
       }
     },
@@ -104605,6 +105628,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -106771,6 +107795,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -108229,6 +109254,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -111592,6 +112618,24 @@
                 "required": [
                   "steps"
                 ]
+              },
+              "voice": {
+                "type": "object",
+                "properties": {
+                  "transferRingGroupId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  }
+                },
+                "default": {
+                  "transferRingGroupId": null
+                },
+                "required": [
+                  "transferRingGroupId"
+                ]
               }
             },
             "required": [
@@ -111620,6 +112664,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -111790,6 +112835,24 @@
                 },
                 "required": [
                   "steps"
+                ]
+              },
+              "voice": {
+                "type": "object",
+                "properties": {
+                  "transferRingGroupId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  }
+                },
+                "default": {
+                  "transferRingGroupId": null
+                },
+                "required": [
+                  "transferRingGroupId"
                 ]
               }
             },
@@ -113842,6 +114905,388 @@
           "feedPath"
         ]
       },
+      "CreateCallQueueInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "ringGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxWaitSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 1800
+          },
+          "announcePosition": {
+            "type": "boolean"
+          },
+          "holdMusicUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "overflowTo": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "person"
+                    ]
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "userId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ring_group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ivr"
+                    ]
+                  },
+                  "menu": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "menu"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "on_call_rota"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "voicemail"
+                    ]
+                  },
+                  "box": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "default": "main"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "forward"
+                    ]
+                  },
+                  "e164": {
+                    "type": "string",
+                    "pattern": "^\\+[1-9]\\d{6,14}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "e164"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "queue"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "ringGroupId",
+          "overflowTo"
+        ]
+      },
+      "CreateCallQueueOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ringGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ringGroupName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxWaitSeconds": {
+            "type": "integer"
+          },
+          "announcePosition": {
+            "type": "boolean"
+          },
+          "holdMusicUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overflowTo": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "person"
+                    ]
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "userId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ring_group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ivr"
+                    ]
+                  },
+                  "menu": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "menu"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "on_call_rota"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "voicemail"
+                    ]
+                  },
+                  "box": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "default": "main"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "forward"
+                    ]
+                  },
+                  "e164": {
+                    "type": "string",
+                    "pattern": "^\\+[1-9]\\d{6,14}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "e164"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "queue"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "ringGroupId",
+          "ringGroupName",
+          "maxWaitSeconds",
+          "announcePosition",
+          "holdMusicUrl",
+          "overflowTo"
+        ]
+      },
       "CreateCampaignInput": {
         "type": "object",
         "properties": {
@@ -115188,6 +116633,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -115841,6 +117287,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -115974,6 +117421,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -117916,6 +119364,20 @@
                         "kind",
                         "id"
                       ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
                     }
                   ]
                 }
@@ -118064,6 +119526,20 @@
                   "kind",
                   "id"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
               }
             ]
           },
@@ -118201,6 +119677,20 @@
                 "required": [
                   "kind",
                   "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
               },
               {
@@ -118384,6 +119874,20 @@
                         "kind",
                         "id"
                       ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
                     }
                   ]
                 }
@@ -118530,6 +120034,20 @@
                   "kind",
                   "id"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
               }
             ]
           },
@@ -118667,6 +120185,20 @@
                 "required": [
                   "kind",
                   "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
               },
               {
@@ -120317,6 +121849,20 @@
                   "kind",
                   "id"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
               }
             ]
           }
@@ -120511,6 +122057,20 @@
                 "required": [
                   "kind",
                   "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
               }
             ]
@@ -123679,6 +125239,29 @@
           "fields"
         ]
       },
+      "DeleteCallQueueInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DeleteCallQueueOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "deleted"
+        ]
+      },
       "DeleteCampaignInput": {
         "type": "object",
         "properties": {}
@@ -124587,6 +126170,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -124750,6 +126334,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -124868,6 +126453,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -124986,6 +126572,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -128572,6 +130159,114 @@
           "attributionSource",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "GetCallAssistantOutput": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "talking",
+              "transferred",
+              "ended",
+              "dropped"
+            ]
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "enum": [
+                    "caller",
+                    "assistant"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "text",
+                "at"
+              ]
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action",
+                "detail",
+                "at"
+              ]
+            }
+          },
+          "transferReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bookingRequestId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "messageTaken": {
+            "type": "boolean"
+          },
+          "redactions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "connectedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "turns",
+          "actions",
+          "transferReason",
+          "bookingRequestId",
+          "messageTaken",
+          "redactions",
+          "connectedAt",
+          "endedAt"
         ]
       },
       "GetCallTrackingConnectionOutput": {
@@ -139223,6 +140918,20 @@
                         "kind",
                         "id"
                       ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
                     }
                   ]
                 }
@@ -139369,6 +141078,20 @@
                   "kind",
                   "id"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
               }
             ]
           },
@@ -139506,6 +141229,20 @@
                 "required": [
                   "kind",
                   "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
               },
               {
@@ -144350,6 +146087,35 @@
           "standing"
         ]
       },
+      "GetSoftphoneOutput": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "callerId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "takingCalls": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ready",
+          "reason",
+          "callerId",
+          "takingCalls"
+        ]
+      },
       "GetStatementScheduleOutput": {
         "type": "object",
         "properties": {
@@ -147983,6 +149749,7 @@
                   "enum": [
                     "intake",
                     "chat",
+                    "voice",
                     "estimate",
                     "collections",
                     "dispatch"
@@ -148078,6 +149845,7 @@
                   "enum": [
                     "intake",
                     "chat",
+                    "voice",
                     "estimate",
                     "collections",
                     "dispatch"
@@ -148257,6 +150025,24 @@
                       },
                       "required": [
                         "steps"
+                      ]
+                    },
+                    "voice": {
+                      "type": "object",
+                      "properties": {
+                        "transferRingGroupId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "uuid"
+                        }
+                      },
+                      "default": {
+                        "transferRingGroupId": null
+                      },
+                      "required": [
+                        "transferRingGroupId"
                       ]
                     }
                   },
@@ -149950,6 +151736,213 @@
           "feeds"
         ]
       },
+      "ListCallQueuesOutput": {
+        "type": "object",
+        "properties": {
+          "queues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ringGroupId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "ringGroupName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxWaitSeconds": {
+                  "type": "integer"
+                },
+                "announcePosition": {
+                  "type": "boolean"
+                },
+                "holdMusicUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "overflowTo": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "person"
+                          ]
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "userId"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "ring_group"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "ivr"
+                          ]
+                        },
+                        "menu": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "menu"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "on_call_rota"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "voicemail"
+                          ]
+                        },
+                        "box": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "default": "main"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "forward"
+                          ]
+                        },
+                        "e164": {
+                          "type": "string",
+                          "pattern": "^\\+[1-9]\\d{6,14}$"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "e164"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "queue"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "ringGroupId",
+                "ringGroupName",
+                "maxWaitSeconds",
+                "announcePosition",
+                "holdMusicUrl",
+                "overflowTo"
+              ]
+            }
+          }
+        },
+        "required": [
+          "queues"
+        ]
+      },
       "ListCallsOutput": {
         "type": "object",
         "properties": {
@@ -151057,6 +153050,7 @@
                   "enum": [
                     "intake",
                     "chat",
+                    "voice",
                     "estimate",
                     "collections",
                     "dispatch"
@@ -153944,6 +155938,7 @@
                   "enum": [
                     "intake",
                     "chat",
+                    "voice",
                     "estimate",
                     "collections",
                     "dispatch"
@@ -154551,6 +156546,7 @@
                   "enum": [
                     "intake",
                     "chat",
+                    "voice",
                     "estimate",
                     "collections",
                     "dispatch"
@@ -155768,6 +157764,7 @@
                   "enum": [
                     "intake",
                     "chat",
+                    "voice",
                     "estimate",
                     "collections",
                     "dispatch"
@@ -159437,6 +161434,20 @@
                               "kind",
                               "id"
                             ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "agent"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ]
                           }
                         ]
                       }
@@ -159583,6 +161594,20 @@
                         "kind",
                         "id"
                       ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
                     }
                   ]
                 },
@@ -159720,6 +161745,20 @@
                       "required": [
                         "kind",
                         "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
                       ]
                     },
                     {
@@ -162967,6 +165006,20 @@
                       "required": [
                         "kind",
                         "id"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
                       ]
                     }
                   ]
@@ -168447,6 +170500,29 @@
           "name",
           "moved",
           "filled"
+        ]
+      },
+      "MintSoftphoneTokenInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "MintSoftphoneTokenOutput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "identity",
+          "expiresAt"
         ]
       },
       "MoveEquipmentInput": {
@@ -182796,6 +184872,7 @@
             "enum": [
               "intake",
               "chat",
+              "voice",
               "estimate",
               "collections",
               "dispatch"
@@ -187347,6 +189424,28 @@
           "active"
         ]
       },
+      "SetSoftphonePresenceInput": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available"
+        ]
+      },
+      "SetSoftphonePresenceOutput": {
+        "type": "object",
+        "properties": {
+          "takingCalls": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "takingCalls"
+        ]
+      },
       "SetStatementScheduleInput": {
         "type": "object",
         "properties": {
@@ -187680,6 +189779,52 @@
           "locationId",
           "minimum",
           "target"
+        ]
+      },
+      "SetUpSoftphoneInput": {
+        "type": "object",
+        "properties": {
+          "apiKeySid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "apiKeySecretRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "callerIdNumberId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "apiKeySid",
+          "apiKeySecretRef",
+          "callerIdNumberId"
+        ]
+      },
+      "SetUpSoftphoneOutput": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "applicationSid": {
+            "type": "string"
+          },
+          "callerId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ready",
+          "applicationSid",
+          "callerId"
         ]
       },
       "SetVendorItemInput": {
@@ -191419,6 +193564,388 @@
           "active"
         ]
       },
+      "UpdateCallQueueInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "ringGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxWaitSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 1800
+          },
+          "announcePosition": {
+            "type": "boolean"
+          },
+          "holdMusicUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "overflowTo": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "person"
+                    ]
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "userId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ring_group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ivr"
+                    ]
+                  },
+                  "menu": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "menu"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "on_call_rota"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "voicemail"
+                    ]
+                  },
+                  "box": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "default": "main"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "forward"
+                    ]
+                  },
+                  "e164": {
+                    "type": "string",
+                    "pattern": "^\\+[1-9]\\d{6,14}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "e164"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "queue"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "ringGroupId",
+          "overflowTo"
+        ]
+      },
+      "UpdateCallQueueOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ringGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ringGroupName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxWaitSeconds": {
+            "type": "integer"
+          },
+          "announcePosition": {
+            "type": "boolean"
+          },
+          "holdMusicUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overflowTo": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "person"
+                    ]
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "userId"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ring_group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ivr"
+                    ]
+                  },
+                  "menu": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "menu"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "on_call_rota"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "voicemail"
+                    ]
+                  },
+                  "box": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "default": "main"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "forward"
+                    ]
+                  },
+                  "e164": {
+                    "type": "string",
+                    "pattern": "^\\+[1-9]\\d{6,14}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "e164"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "queue"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "ringGroupId",
+          "ringGroupName",
+          "maxWaitSeconds",
+          "announcePosition",
+          "holdMusicUrl",
+          "overflowTo"
+        ]
+      },
       "UpdateCampaignInput": {
         "type": "object",
         "properties": {
@@ -194556,6 +197083,20 @@
                         "kind",
                         "id"
                       ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
                     }
                   ]
                 }
@@ -194704,6 +197245,20 @@
                   "kind",
                   "id"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
               }
             ]
           },
@@ -194841,6 +197396,20 @@
                 "required": [
                   "kind",
                   "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
               },
               {
@@ -195024,6 +197593,20 @@
                         "kind",
                         "id"
                       ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
                     }
                   ]
                 }
@@ -195170,6 +197753,20 @@
                   "kind",
                   "id"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
               }
             ]
           },
@@ -195307,6 +197904,20 @@
                 "required": [
                   "kind",
                   "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
               },
               {
@@ -196678,6 +199289,20 @@
                   "kind",
                   "id"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
               }
             ]
           }
@@ -196872,6 +199497,20 @@
                 "required": [
                   "kind",
                   "id"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
               }
             ]

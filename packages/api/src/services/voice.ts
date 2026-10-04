@@ -1041,7 +1041,9 @@ async function agentDone(
   return inTenant(ctx, async (tx) => {
     const call = await callBySid(tx, form["CallSid"]);
     if (!call) return reply([{ verb: "hangup" }]);
-    const after = await voiceAgent.afterRelay(tx, ctx, call);
+    /** The carrier says how the call stands; a caller who hung up mid conversation is not put through to anybody. */
+    const gone = ["completed", "canceled", "busy", "failed", "no-answer"].includes(form["CallStatus"] ?? "");
+    const after = await voiceAgent.afterRelay(tx, ctx, call, gone);
     const said: voice.Verb[] = after.say ? [{ verb: "say", text: after.say }] : [];
     if (after.then === "hang_up") return reply([...said, { verb: "hangup" }]);
     await note(tx, call, after.why);

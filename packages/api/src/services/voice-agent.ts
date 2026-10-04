@@ -114,10 +114,14 @@ export async function begin(tx: Database, organizationId: string, call: CallRow,
   const token = randomBytes(32).toString("base64url");
   const company = await companyOf(tx, organizationId, new Date());
   const greeting = a.openingWords(company.name, settings.chat.greeting);
-  await tx.insert(schema.voiceAgentSession).values({
+  /** One session per call: a carrier delivering the same step twice at once opens it once. */
+  const [made] = await tx.insert(schema.voiceAgentSession).values({
     organizationId, callId: call.id, tokenHash: hash(token), status: "waiting",
     turns: [{ from: "assistant", text: greeting, at: new Date().toISOString() }],
-  });
+  }).onConflictDoNothing().returning({ id: schema.voiceAgentSession.id });
+  if (!made) {
+    return { ok: false, why: "The caller had already spoken with the phone assistant on this call, so it went to voicemail.", to: { kind: "voicemail", box: "main" } };
+  }
   return {
     ok: true,
     verb: {
@@ -525,7 +529,7 @@ export type After =
  * from anything the carrier hands back, so the decision is the one made in
  * code during the call.
  */
-export async function afterRelay(tx: Database, ctx: ServiceContext, call: CallRow): Promise<After> {
+export async function afterRelay(tx: Database, ctx: ServiceContext, call: CallRow, callerGone = false): Promise<After> {
   const organizationId = ctx.actor.organizationId;
   const [session] = await tx.select().from(schema.voiceAgentSession)
     .where(eq(schema.voiceAgentSession.callId, call.id)).limit(1);
@@ -540,6 +544,14 @@ export async function afterRelay(tx: Database, ctx: ServiceContext, call: CallRo
   if (session.ending === "transfer") {
     await finish(tx, ctx, session.id);
     return { say: session.closingWords, then: "transfer", to, why: `The phone assistant put the caller through: ${session.transferReason ?? "they asked"}` };
+  }
+
+  /** The caller hung up mid conversation: there is nobody to put through, and nothing to say about it but that. */
+  if (callerGone) {
+    await tx.update(schema.voiceAgentSession).set({ status: "dropped", updatedAt: new Date() })
+      .where(eq(schema.voiceAgentSession.id, session.id));
+    await finish(tx, ctx, session.id);
+    return { say: null, then: "hang_up" };
   }
 
   /**

@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { agents, ai, team, priceBook } from "@opentradesos/api/services";
+import { agents, ai, team, priceBook, phoneMenus } from "@opentradesos/api/services";
 import { can, type agents as coreAgents } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { PageHeader, Empty } from "@/components/Table";
@@ -33,6 +33,10 @@ const ACTION_WORDS: Record<string, string> = {
   cannot_estimate: "Say when notes are not enough",
   draft_reminder: "Draft and send overdue reminders",
   propose_assignments: "Propose assignments",
+  look_up_customer: "Look callers up among your customers",
+  take_message: "Take messages for the office",
+  transfer: "Put callers through to a person",
+  end_call: "Say goodbye when the caller is done",
 };
 
 const KIND_WORDS: Record<string, string> = {
@@ -61,11 +65,12 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   }
 
   const writes = can(user.actor, "agent:configure");
-  const [listed, status, roster, items] = await Promise.all([
+  const [listed, status, roster, items, ringGroups] = await Promise.all([
     agents.list(ctx),
     ai.status(ctx),
     can(user.actor, "user:read") ? team.roster(ctx) : Promise.resolve([]),
     can(user.actor, "pricebook:read") ? priceBook.list(ctx, { limit: 200, includeInactive: false }).then((r) => r.data) : Promise.resolve([]),
+    can(user.actor, "settings:read") ? phoneMenus.listRingGroups(ctx) : Promise.resolve([]),
   ]);
   const filter = listed.agents.some((x) => x.agent === params.agent) ? params.agent as coreAgents.AgentKind : undefined;
   const log = await agents.activity(ctx, { agent: filter, limit: 100 });
@@ -146,8 +151,9 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                            defaultValue={String(agent.settings.limits.runsPerDay)} />
                 <TextField label="Longest answer, in tokens" name="maxOutputTokens" type="number" min={200} max={16000}
                            defaultValue={String(agent.settings.limits.maxOutputTokens)} />
-                {agent.agent === "chat" ? (
-                  <TextField label="Replies in one chat before a person takes over" name="messagesPerChat" type="number" min={2} max={100}
+                {agent.agent === "chat" || agent.agent === "voice" ? (
+                  <TextField label={agent.agent === "voice" ? "Replies on one call before it puts the caller through" : "Replies in one chat before a person takes over"}
+                             name="messagesPerChat" type="number" min={2} max={100}
                              defaultValue={String(agent.settings.limits.messagesPerChat)} />
                 ) : <input type="hidden" name="messagesPerChat" value={String(agent.settings.limits.messagesPerChat)} />}
               </div>
@@ -170,6 +176,37 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                     <label className={CHECK}><input type="checkbox" name="forms" value="yes" defaultChecked={agent.settings.intake.forms} />Web forms</label>
                   </div>
                 </fieldset>
+              ) : null}
+
+              {agent.agent === "voice" ? (
+                <>
+                  <TextField label="What it says after saying it is automated" name="greeting" defaultValue={agent.settings.chat.greeting} maxLength={300} />
+                  <TextArea label="Your questions and answers (question on the first line, the answer under it, a blank line between each)"
+                            name="faq" rows={6}
+                            defaultValue={agent.settings.chat.faq.map((f) => `${f.question}\n${f.answer}`).join("\n\n")} />
+                  {items.length > 0 ? (
+                    <label className="block">
+                      <span className="text-sm font-medium text-ink-700">
+                        Prices it may say out loud (your online booking prices are always public)
+                      </span>
+                      <select name="publicPriceItemIds" multiple size={6} defaultValue={agent.settings.chat.publicPriceItemIds}
+                              className="mt-1 w-full rounded border border-steel-300 bg-canvas px-3 py-2 text-sm">
+                        {items.map((item) => <option key={item.id} value={item.id}>{`${item.name}, ${item.price}`}</option>)}
+                      </select>
+                    </label>
+                  ) : null}
+                  <Select label="When a caller asks for a person, or it is unsure, it puts them through to" name="transferRingGroupId"
+                          defaultValue={agent.settings.voice.transferRingGroupId ?? ""} className="block"
+                          options={[
+                            { value: "", label: "Voicemail" },
+                            ...ringGroups.map((g) => ({ value: g.id, label: `The ${g.name} ring group` })),
+                          ]} />
+                  <p className="text-sm text-ink-500">
+                    It always says first that it is an automated assistant and that the call is written down, and puts
+                    the caller through when they ask for a person or press 0. Send calls to it from a menu option or after
+                    hours on <a href="/settings/phone" className="underline underline-offset-4">Phone menus</a>.
+                  </p>
+                </>
               ) : null}
 
               {agent.agent === "chat" ? (
@@ -201,7 +238,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                     your website with the snippet on <a href="/settings/website" className="underline underline-offset-4">Website</a>.
                   </p>
                 </>
-              ) : (
+              ) : agent.agent === "voice" ? null : (
                 agent.settings.chat.publicPriceItemIds.map((value) => <input key={value} type="hidden" name="publicPriceItemIds" value={value} />)
               )}
 

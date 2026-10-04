@@ -4,8 +4,10 @@ import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { phoneMenus, voice } from "@opentradesos/api/services";
-import { createPhoneMenu, createRingGroup, type Destination } from "@opentradesos/api/contracts";
+import { phoneMenus, voice, callQueues, softphone } from "@opentradesos/api/services";
+import {
+  createPhoneMenu, createRingGroup, createCallQueue, setUpSoftphone, type Destination,
+} from "@opentradesos/api/contracts";
 import type { z } from "zod";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -15,7 +17,8 @@ const refresh = () => revalidatePath("/settings/phone");
  * WHERE A PICKER POINTS, read back from the form.
  *
  * Every destination picker posts `kind:id` (`ring_group:...`, `person:...`,
- * `voicemail:main`, `on_call_rota:company`), and "a number outside the
+ * `voicemail:main`, `on_call_rota:company`, `queue:...`, or `agent` for the
+ * phone assistant), and "a number outside the
  * company" posts `forward` with the number typed beside it. Parsed by the
  * route's own schema afterwards, so the screen is exactly as strict as the
  * API.
@@ -31,6 +34,8 @@ function destination(value: string | undefined, number: string | undefined): z.i
     case "on_call_rota": return { kind: "on_call_rota", id: id || "company" };
     case "voicemail": return { kind: "voicemail", box: "main" };
     case "forward": return { kind: "forward", e164: (number ?? "").replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1") };
+    case "queue": return { kind: "queue", id };
+    case "agent": return { kind: "agent" };
     default: return null;
   }
 }
@@ -134,6 +139,44 @@ export async function answerHere(_previous: FormState, form: FormData): Promise<
 
 export async function stopAnswering(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => voice.stopAnswering(await ctx(), { id: field(form, "id") ?? "" }));
+  refresh();
+  return state;
+}
+
+/** A waiting line, new or changed, parsed by the route's own schema. */
+export async function saveQueue(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const input = parsed(createCallQueue.input, {
+      name: field(form, "name") ?? "",
+      ringGroupId: field(form, "ringGroupId") ?? "",
+      maxWaitSeconds: Number(field(form, "maxWaitSeconds") ?? 300),
+      announcePosition: form.get("announcePosition") === "on",
+      holdMusicUrl: field(form, "holdMusicUrl") ?? null,
+      overflowTo: destination(field(form, "overflowTo"), field(form, "overflowNumber")) ?? { kind: "voicemail", box: "main" },
+    });
+    const id = field(form, "id");
+    await callQueues.saveQueue(await ctx(), { ...input, ...(id ? { id } : {}) });
+  });
+  refresh();
+  return state;
+}
+
+export async function deleteQueue(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => callQueues.deleteQueue(await ctx(), field(form, "id") ?? ""));
+  refresh();
+  return state;
+}
+
+/** Browser calling, set up or changed on the company's own Twilio account. */
+export async function setUpBrowserCalling(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const input = parsed(setUpSoftphone.input, {
+      apiKeySid: field(form, "apiKeySid") ?? "",
+      apiKeySecretRef: field(form, "apiKeySecretRef") ?? "",
+      callerIdNumberId: field(form, "callerIdNumberId") ?? "",
+    });
+    await softphone.setup(await ctx(), input);
+  });
   refresh();
   return state;
 }

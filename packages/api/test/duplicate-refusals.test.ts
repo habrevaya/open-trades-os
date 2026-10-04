@@ -276,6 +276,10 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   ai_chat_session_token_idx: "A random token's hash, generated here. A collision is a bug, not a duplicate somebody typed.",
   ai_chat_session_conversation_idx:
     "One chat per conversation. A text conversation's is inserted with on conflict do nothing, and a website chat makes its own conversation.",
+  voice_agent_session_call_idx:
+    "One phone assistant conversation per call. Inserted with on conflict do nothing, and a call that already had one goes to voicemail.",
+  voice_agent_session_token_idx: "A random token's hash, generated here. A collision is a bug, not a duplicate somebody typed.",
+  softphone_presence_person_idx: "One heartbeat row per person per company, upserted every minute while they take calls in the browser.",
   discount_policy_org_idx: "One policy per company, upserted.",
   setup_step_key_idx: "One row per setup step per company, upserted when a step is marked done or reopened.",
   asset_compliance_kind_idx: "One expiry per asset per kind, upserted by `setAssetObligation`.",

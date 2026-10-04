@@ -74,6 +74,7 @@ export async function saveAgent(_previous: FormState, form: FormData): Promise<F
       ? { texts: ticked("texts"), emails: ticked("emails"), calls: ticked("calls"), forms: ticked("forms") }
       : base.intake,
     collections: { steps: kind === "collections" ? steps : base.collections.steps },
+    voice: { transferRingGroupId: kind === "voice" ? field(form, "transferRingGroupId") ?? null : base.voice.transferRingGroupId },
   };
 
   const state = await attempt(form, () => agents.configure(ctx, parsed(configureAgent.input, { agent: kind, settings })));

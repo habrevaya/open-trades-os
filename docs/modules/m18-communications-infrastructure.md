@@ -12,8 +12,10 @@ status: partial
 
 ## What it does
 
-Sends and receives texts and email, logs calls, keeps a thread per customer, and
-enforces consent, suppression and quiet hours on every send.
+Sends and receives texts and email, answers and logs calls (phone menus, ring
+groups, waiting lines, the phone assistant, and calls made and taken in the
+browser), keeps a thread per customer, and enforces consent, suppression and
+quiet hours on every send.
 
 ## The problem
 
@@ -113,8 +115,11 @@ the recording check allows it. JustCall has no voice adapter. Other calls reach
 this product as records, from a call tracking provider (CallRail, M19) or
 logged through `POST /v1/calls`. `docs/self-hosting/voice.md` is the operator's
 side of the calls. `/settings/phone` (Settings, Phone menus) builds the phone
-menus and ring groups the company's own number answers with, and says which
-phone each person answers on. `/settings` holds the phone numbers and the call recording
+menus, ring groups and waiting lines the company's own number answers with,
+says which phone each person answers on, and sets up calling from the
+browser. The phone assistant is switched on and set up on `/settings/agents`
+(M27), and its conversations need the voice relay running beside the web app
+(`VOICE_RELAY_URL`, `docs/self-hosting/voice.md`). `/settings` holds the phone numbers and the call recording
 policy. A2P 10DLC brand and campaign registration is recorded through
 `POST /v1/messaging/brands` and `POST /v1/messaging/campaigns`, and the setup
 wizard flags it as needing somebody else's review queue.
@@ -175,8 +180,8 @@ never a tracking one, and never to somebody who replied STOP. Recording policy p
 
 `/settings/phone` builds a menu: what callers hear first, then each option
 read out from its own label ("For Billing, press 2"), each ringing a person, a
-ring group, voicemail, another menu, whoever is on call, or a number outside
-the company. A caller who presses a wrong key is told so and hears it again;
+ring group, voicemail, another menu, whoever is on call, a number outside
+the company, a waiting line, or the phone assistant. A caller who presses a wrong key is told so and hears it again;
 one who presses nothing hears it three times and then goes where the menu says.
 Outside the business hours online booking keeps, calls go where the menu's
 after hours setting says, usually whoever is on call. Every save is checked
@@ -212,6 +217,65 @@ already on call adds nothing.
 On the call screen, "What they pressed" lists each menu choice in order and
 "Where it went" says where the call ended up and why (nobody was on call, the
 group had nobody left to ring).
+
+### Waiting lines
+
+"All our team are on other calls." A waiting line, made on `/settings/phone`,
+holds a caller with hold music (the carrier's own, or an MP3 the company
+names) and, unless switched off, tells them their place in line each time the
+music comes round. While they wait, the people in the line's ring group are
+rung: all of them each round when the group rings all at once, the next person
+each round when it rings one after another, and in the browser for anybody
+taking calls there. A round is given the group's ring time and ten seconds
+before the next. Whoever picks up hears which line the caller is waiting on
+and is put through to the caller at the front; somebody who picks up a moment
+after a colleague is told the caller has been answered. After the longest wait
+the line allows (thirty seconds to thirty minutes) the caller goes where it
+overflows to, voicemail unless the owner chose otherwise, and the call says how
+long they waited. A caller who hangs up while waiting is a missed call.
+
+`GET /v1/call-queues`, `POST /v1/call-queues`, `PUT /v1/call-queues/{id}` and
+`DELETE /v1/call-queues/{id}`, `settings:read` to read and `settings:write` to
+change, the same as menus. A line, and the group it rings, cannot be deleted
+while something still sends callers to it.
+
+### The phone assistant
+
+A menu option, after hours, a ring group nobody answers or a waiting line's
+overflow can send a call to the phone assistant: the company's own AI model
+answering the call, through Twilio's ConversationRelay, which turns speech into
+text and back. It says first, in words no model wrote and that cannot be talked
+over, that it is an automated assistant and that the call is written down. What
+it may do, who it acts as and the log of what it did are M27's; on the call
+screen it shows what it heard, what it said and what it did. When it puts a
+caller through, they go to the ring group chosen on its settings, or voicemail.
+When it is switched off, or this installation runs no relay, a call sent to it
+goes there too, with the reason under "Where it went".
+
+### Calling from the browser
+
+`/phone` (Phone) is a phone in the office app: ring a customer from the
+company's number, with the keypad for a menu at the other end, mute and hang
+up; and, with "Take calls here" on, be rung there instead of on your own phone
+by any ring group you are in. The page says while it is taking calls once a
+minute, and a browser that stops saying so is rung on the person's phone again
+within two and a half minutes. Each call is logged with who placed it or picked
+it up. A call placed from the browser on a number that records calls asks the
+person called to press 1 before anything is recorded, the same question a
+caller is asked on the way in, and recording starts only on their yes.
+
+An owner sets it up once on `/settings/phone`: an API key made in the Twilio
+console (its SID, and the name of the secret in this installation's secret
+store that holds its secret) and the number calls show, which must be one
+answered here. This product then makes the application on the company's own
+Twilio account that browser calls go through. `PUT /v1/softphone` sets it up
+(`settings:write`); `GET /v1/softphone`, `POST /v1/softphone/token` (a pass
+for the person's own browser, good for an hour) and
+`PUT /v1/softphone/presence` need `call:place`, which the office manager,
+dispatcher and customer service roles hold and technicians do not. Every call
+a browser places is checked again when it is made: the person is still a
+member who may, the number is one a phone can dial, and it is not an emergency
+number, which a browser cannot be located for.
 
 ### Transcripts
 
@@ -260,9 +324,9 @@ template is a standing decision about what the company says.
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | Reads and sends, manages consent and suppression |
-| Dispatcher | Reads and sends, so they can text a customer about the day |
-| CSR | Reads and sends |
+| Office manager | Reads and sends, manages consent and suppression, calls from the browser |
+| Dispatcher | Reads and sends, so they can text a customer about the day, calls from the browser |
+| CSR | Reads and sends, calls from the browser |
 | Technician | Reads and sends, scoped to their own conversations |
 | Accountant | Neither |
 
@@ -288,6 +352,12 @@ holds `message:send` because they text from the field. Without that scope,
 | `POST /v1/ring-groups` | `settings:write` |
 | `PUT /v1/answering-phones/{userId}` | `settings:write` |
 | `POST /v1/phone-numbers/{id}/answer-here` | `settings:write` |
+| `GET /v1/call-queues` | `settings:read` |
+| `POST /v1/call-queues` | `settings:write` |
+| `PUT /v1/softphone` | `settings:write` |
+| `GET /v1/softphone` | `call:place` |
+| `POST /v1/softphone/token` | `call:place` |
+| `PUT /v1/softphone/presence` | `call:place` |
 | `GET /v1/public/unsubscribe/{token}` | nothing: the token is the authority |
 | `POST /v1/public/unsubscribe/{token}` | nothing |
 
@@ -312,11 +382,30 @@ Nothing checks that the unsubscribe URL handed to the email sender points at the
 page this product serves, so a caller can satisfy the gate with any string,
 including a 404. Campaigns supply the real one; another caller might not.
 
-Calls: nothing places a call from the browser, there is no waiting line with
-hold music (a menu option cannot send callers to a queue, and saying so is
-refused), no voice agent and no call deflection. A menu takes key presses only,
-not spoken answers. Business hours come from online booking and have no holiday
-list. JustCall has no voice adapter.
+Calls: none of the waiting line, the phone assistant or the browser phone has
+been tried on a live phone line. Each is built from Twilio's documentation and
+tested against a fake carrier: signed webhooks, a WebSocket client playing
+ConversationRelay's part, and a fake REST API. A menu takes key presses only,
+not spoken answers. Business hours come from online booking and have no
+holiday list. JustCall has no voice adapter.
+
+Waiting lines: the longest wait and the caller's place are checked each time
+the hold music finishes, so a long track lets a caller wait past the limit by
+up to its length. There is no estimated wait, no offer to be called back
+instead of waiting, and nobody is skipped for being on another call already:
+everybody in the round is rung, and each round is an outbound call on the
+company's carrier bill.
+
+Browser phone: a call lasts only as long as the `/phone` page stays open, so
+somebody taking calls keeps it in a tab of its own. There is no transfer to a
+colleague, no hold, no conference and no second call while on one (a second
+call to the browser is declined and rings the rest of the group). A browser
+whose page was closed without switching off may be rung for up to two and a
+half minutes before its owner's phone is rung again. The technician app has no
+browser phone.
+
+The phone assistant: see M27's "What is not built". The audio of its part of a
+call is never recorded; what it heard is kept as text.
 
 Transcripts do not tell voices apart: a recorded call reads as one stream of
 words. Only the Whisper API is an adapter; Twilio's own transcription is not
