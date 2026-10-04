@@ -8,9 +8,9 @@ import { Uuid } from "./common";
  * A branch is a business unit (`/v1/business-units` creates, renames and
  * retires one). These routes are what make it mean something: putting
  * people and work in one, and the names a list's branch filter offers.
- * Limiting what somebody sees to their branch is a scope on a custom role
- * (`business_unit`), applied by every list and report the scope already
- * narrows.
+ * Limiting what somebody sees to their branch is a scope on a role
+ * (`business_unit`): the branch manager preset's, or a custom role's,
+ * applied by every list, report, board and timesheet the scope narrows.
  */
 
 export const listBranchOptions = defineRoute({
@@ -79,6 +79,52 @@ export const setMemberBranch = defineRoute({
   output: z.object({ membershipId: Uuid, businessUnitId: Uuid.nullable() }),
 });
 
+export const setMemberLocation = defineRoute({
+  method: "post",
+  path: "/v1/memberships/{membershipId}/location",
+  summary: "Say which shop somebody works from",
+  description:
+    "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them, the jobs with a visit dispatched from it. Taking it away is refused while their role or their own limits show them only their shop.",
+  module: "M01",
+  permissions: ["membership:write"],
+  /** Setting a state. */
+  idempotent: true,
+  input: z.object({ membershipId: Uuid, locationId: Uuid.nullable() }),
+  output: z.object({ membershipId: Uuid, locationId: Uuid.nullable() }),
+});
+
+const Numbering = z.object({
+  jobs: z.boolean(),
+  invoices: z.boolean(),
+  /** Live branches whose code cannot be printed in front of a number (blank, or not up to eight letters and digits). */
+  unusableCodes: z.array(z.string()),
+});
+
+export const getBranchNumbering = defineRoute({
+  method: "get",
+  path: "/v1/branch-numbering",
+  summary: "Whether branch codes are printed in front of job and invoice numbers",
+  module: "M01",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: Numbering,
+});
+
+export const setBranchNumbering = defineRoute({
+  method: "put",
+  path: "/v1/branch-numbering",
+  summary: "Print branch codes in front of new job and invoice numbers, or stop",
+  description:
+    "Numbers stay one sequence for the whole company. Turned on, a job or invoice made from then on in a branch with a code of up to eight letters and digits is printed with it (\"AUS-1042\"). Numbers already given out keep what they were printed with, whatever changes later: the setting, the branch's code, or the branch a job is in.",
+  module: "M01",
+  permissions: ["settings:write"],
+  /** Setting a state. */
+  idempotent: true,
+  input: z.object({ jobs: z.boolean(), invoices: z.boolean() }),
+  output: Numbering,
+});
+
 export const branchRoutes = {
-  listBranchOptions, getBranchOverview, assignJobsToBranch, setMemberBranch,
+  listBranchOptions, getBranchOverview, assignJobsToBranch, setMemberBranch, setMemberLocation,
+  getBranchNumbering, setBranchNumbering,
 } as const;

@@ -32,6 +32,7 @@ import {
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
+  me, staffDocuments,
 } from "../services/index";
 
 /**
@@ -630,6 +631,7 @@ export const handlers = {
   requestTimeOff: timeOff.handlers.requestTimeOff,
   listTimeOff: timeOff.handlers.listTimeOff,
   pendingTimeOff: timeOff.handlers.pendingTimeOff,
+  upcomingTimeOff: timeOff.handlers.upcomingTimeOff,
   approveTimeOff: timeOff.handlers.approveTimeOff,
   declineTimeOff: timeOff.handlers.declineTimeOff,
   withdrawTimeOff: timeOff.handlers.withdrawTimeOff,
@@ -980,6 +982,7 @@ export const handlers = {
   getPortalBookingAvailability: portalBooking.handlers.getPortalBookingAvailability,
   requestPortalBooking: portalBooking.handlers.requestPortalBooking,
   payTips: payroll.handlers.payTips,
+  getMyPayStatements: payroll.handlers.getMyPayStatements,
 
   // Setup, the team and branches (M02, M01)
   getSetup: setup.handlers.getSetup,
@@ -1001,6 +1004,9 @@ export const handlers = {
   getBranchOverview: branches.handlers.getBranchOverview,
   assignJobsToBranch: branches.handlers.assignJobsToBranch,
   setMemberBranch: branches.handlers.setMemberBranch,
+  setMemberLocation: branches.handlers.setMemberLocation,
+  getBranchNumbering: branches.handlers.getBranchNumbering,
+  setBranchNumbering: branches.handlers.setBranchNumbering,
 
   listConversionAdjustments: ads.handlers.listConversionAdjustments,
   getMarketingOverview: ads.handlers.getMarketingOverview,
@@ -1040,6 +1046,9 @@ export const handlers = {
   ...rentalBilling.handlers,
   // Onboarding, emergency contacts, employment, skills, continuing education, a job's own skills (M24)
   ...peopleRecords.handlers,
+  // A person's own record, and the documents the company asks its people to sign (M24)
+  ...me.handlers,
+  ...staffDocuments.handlers,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

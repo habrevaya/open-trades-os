@@ -371,6 +371,7 @@ export interface RuleView {
 
 const ROLE_WORDS: Record<string, string> = {
   owner: "the owners", admin: "the administrators", office_manager: "the office managers",
+  branch_manager: "the branch managers",
   dispatcher: "the dispatchers", csr: "the customer service team", technician: "the technicians",
   crew_lead: "the crew leads", accountant: "the accountants", readonly: "the read only users",
 };

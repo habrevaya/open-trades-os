@@ -131,6 +131,12 @@ export const job = pgTable("job", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   /** Human-facing sequential number, per organization. Generated, never the uuid. */
   number: integer("number").notNull(),
+  /**
+   * The branch's mark printed in front of the number ("AUS-1042"), written
+   * once when the job is made and only when the company prints branch marks.
+   * Never worked out again: see the same column on `invoice`.
+   */
+  numberPrefix: text("number_prefix"),
   customerId: uuid("customer_id").notNull().references(() => customer.id),
   propertyId: uuid("property_id").notNull().references(() => property.id),
   jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),

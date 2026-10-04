@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, can, geo, qualification as q, routing, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
+  audit, guardedRead, guardedWrite, timezoneOf, scopeOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
+import { jobVisibility, technicianScopeFilter } from "./scope";
 import { qualify, workSkills } from "./qualification";
 import { travelMatrix, describeSource, type TravelMatrix } from "./travel-times";
 import * as location from "./location";
@@ -272,11 +273,31 @@ interface Day {
 }
 
 /**
+ * WHAT ONE PERSON MAY SEE OF A DAY: the visits on jobs their visit scope
+ * reaches, and the people their scope reaches plus anybody on one of those
+ * visits. The board applies the same two conditions (`dispatch.board`), so
+ * a branch manager's map, suggestions and rebalance are of their branch's
+ * day and cannot place, propose or move another branch's work.
+ *
+ * Required rather than defaulted, so a new reader of a day has to say whose
+ * day it is reading.
+ */
+export interface DayScope { visits: SQL | undefined; people: SQL | undefined }
+
+export function dayScopeOf(ctx: ServiceContext): DayScope {
+  const scope = scopeOf(ctx, "visit");
+  return {
+    visits: jobVisibility(scope, ctx.actor, sql`${schema.job.id}`),
+    people: technicianScopeFilter(scope, ctx.actor),
+  };
+}
+
+/**
  * Everything the three reads need about one day, in a handful of queries.
  * The same window and the same `isLate` rule as `dispatch.board`, so the map
  * and the board cannot disagree about which visits are on the day or late.
  */
-async function loadDay(tx: Database, organizationId: string, date: string): Promise<Day> {
+async function loadDay(tx: Database, organizationId: string, date: string, scope: DayScope): Promise<Day> {
   const zone = await timezoneOf(tx, organizationId);
   const { start: dayStart, end: dayEnd } = time.dayBoundsIn(date, zone);
   const travel = await travelOf(tx, organizationId);
@@ -290,6 +311,7 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
     skills: schema.technician.skills,
     homeLocationId: schema.technician.homeLocationId,
     workday: schema.technician.workday,
+    inScope: scope.people ? sql<boolean>`${scope.people}` : sql<boolean>`true`,
   }).from(schema.technician)
     .where(and(eq(schema.technician.organizationId, organizationId), eq(schema.technician.active, true)))
     .orderBy(asc(schema.technician.displayName));
@@ -340,6 +362,7 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
       eq(schema.visit.organizationId, organizationId),
       gte(schema.visit.windowStart, dayStart),
       lte(schema.visit.windowStart, dayEnd),
+      scope.visits,
     ))
     .orderBy(asc(schema.visit.routeOrder), asc(schema.visit.windowStart), asc(schema.visit.id));
 
@@ -372,9 +395,12 @@ async function loadDay(tx: Database, organizationId: string, date: string): Prom
   }).from(schema.crewMember).where(inArray(schema.crewMember.crewId, crewIds));
 
   const done = new Set<string>(["completed", "cancelled", "no_show", "completed_after_cancellation"]);
+  /** The people on the day: those in scope, and anybody on a visit in it. */
+  const onVisibleWork = new Set(assignments.map((a) => a.technicianId));
+  const crewPeople = new Set(crewMembers.map((m) => m.technicianId));
   return {
     date, zone, origin: dayStart, travel, routeMinutes, workday,
-    technicians: people.map((p) => ({
+    technicians: people.filter((p) => p.inScope || onVisibleWork.has(p.id) || crewPeople.has(p.id)).map((p) => ({
       id: p.id, displayName: p.displayName, color: p.color, skills: p.skills ?? [],
       timeOff: offToday.has(p.id), start: startOf(p.homeLocationId),
       hours: p.workday && HHMM.test(p.workday.startsAt) && HHMM.test(p.workday.endsAt) ? p.workday : null,
@@ -422,7 +448,7 @@ const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 export async function map(ctx: ServiceContext, input: { date: string }) {
   return guardedRead(ctx, "visit:read", async (tx) => {
-    const day = await loadDay(tx, ctx.actor.organizationId, input.date);
+    const day = await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx));
     const connected = async (capability: "maps" | "routing") => {
       const [row] = await tx.select({ provider: schema.integrationConnection.provider })
         .from(schema.integrationConnection)
@@ -445,8 +471,13 @@ export async function map(ctx: ServiceContext, input: { date: string }) {
      * not where anybody will be.
      */
     const isToday = time.dateIn(new Date(), day.zone) === day.date;
-    const live = can(ctx.actor, "visit:dispatch") && isToday
+    const everybody = can(ctx.actor, "visit:dispatch") && isToday
       ? await location.latestWithin(tx, ctx.actor.organizationId)
+      : null;
+    /** Only the vans of people on this person's day: another branch's are not theirs to watch. */
+    const onDay = new Set(day.technicians.map((t) => t.id));
+    const live = everybody
+      ? { ...everybody, positions: everybody.positions.filter((p) => onDay.has(p.technicianId)) }
       : null;
 
     return {
@@ -586,7 +617,7 @@ function startingPoint(day: Day, technicianId: string, stops: DayVisit[], starts
 /* -------------------------------------------------------------- optimise */
 
 export async function optimise(ctx: ServiceContext, input: { date: string; technicianId: string }) {
-  const day = await guardedRead(ctx, "visit:read", (tx) => loadDay(tx, ctx.actor.organizationId, input.date));
+  const day = await guardedRead(ctx, "visit:read", (tx) => loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx)));
   const technician = day.technicians.find((t) => t.id === input.technicianId);
   if (!technician) throw new NotFoundError("Technician");
 
@@ -697,7 +728,7 @@ function refusalFor(
 
 export async function suggestions(ctx: ServiceContext, input: { date: string }) {
   const { day, verdictOf } = await guardedRead(ctx, "visit:read", async (tx) => {
-    const day = await loadDay(tx, ctx.actor.organizationId, input.date);
+    const day = await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx));
     const open = day.visits.filter((v) => v.technicianIds.length === 0 && v.status === "unassigned" && v.place !== null);
     return { day, verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, open) };
   });
@@ -789,7 +820,7 @@ const clockOf = (day: Day, minutes: number) => new Date(day.origin.getTime() + m
 
 export async function rebalance(ctx: ServiceContext, input: { date: string }) {
   const { day, verdictOf } = await guardedRead(ctx, "visit:read", async (tx) => {
-    const day = await loadDay(tx, ctx.actor.organizationId, input.date);
+    const day = await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx));
     return { day, verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, day.visits.filter((v) => plannable(day, v))) };
   });
   const visitById = new Map(day.visits.map((v) => [v.id, v]));
@@ -957,7 +988,7 @@ export async function applyRebalance(ctx: ServiceContext, input: {
     const prior = await replayed<{ ok: true; moved: number; reordered: number }>(tx, ctx, "dispatch_rebalance");
     if (prior) return prior;
 
-    const day = await loadDay(tx, ctx.actor.organizationId, input.date);
+    const day = await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx));
     if (basisOf(day) !== input.basis) {
       throw new ConflictError("The board has changed since this was proposed. Propose it again to see the day as it is now.");
     }

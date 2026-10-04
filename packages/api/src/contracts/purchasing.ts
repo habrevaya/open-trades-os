@@ -17,7 +17,7 @@ import { PurchaseOrderApprovalState, PurchaseOrderStatus } from "./inventory";
  */
 
 const RoleName = z.enum([
-  "owner", "admin", "office_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly",
+  "owner", "admin", "office_manager", "branch_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly",
 ]);
 
 const Rule = z.object({

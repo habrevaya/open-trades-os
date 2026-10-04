@@ -6,6 +6,7 @@ import { customer, contact } from "./crm";
 import { job } from "./work";
 import { marketingChannel, acquisitionCampaign } from "./acquisition";
 import { integrationConnection } from "./integrations";
+import { membershipInvite } from "./people";
 
 /**
  * CUSTOMER COMMUNICATIONS
@@ -612,6 +613,18 @@ export const message = pgTable("message", {
   /** Set when an automation sent it rather than a person. */
   automationRef: text("automation_ref"),
   templateId: uuid("template_id"),
+  /**
+   * An invite to work here, whose sign in link is added by the outbox at
+   * the moment it hands the email to the provider and is kept nowhere.
+   *
+   * The body stored here says where the link goes instead of carrying it,
+   * because everybody who reads the inbox can read this table, and a link
+   * that lets somebody choose a new colleague's password, sitting in a
+   * dispatcher's inbox, is a way into an account the dispatcher was never
+   * given. The sign in codes for the phone app go straight to the provider
+   * for the same reason (`field-devices.ts`).
+   */
+  sealedInviteId: uuid("sealed_invite_id").references(() => membershipInvite.id, { onDelete: "set null" }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   readAt: timestamp("read_at", { withTimezone: true }),

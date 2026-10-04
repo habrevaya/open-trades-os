@@ -103,7 +103,7 @@ export const updateTaskTemplate = defineRoute({
 
 const Target = z.enum(["manager", "role", "person"]);
 const MemberRole = z.enum([
-  "owner", "admin", "office_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly",
+  "owner", "admin", "office_manager", "branch_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly",
 ]);
 
 const Rule = z.object({

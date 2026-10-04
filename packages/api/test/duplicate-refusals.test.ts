@@ -187,6 +187,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One copy of each checklist line per person. Starting onboarding inserts with on conflict do nothing, so starting again adds only the new lines.",
   employment_record_person_idx:
     "One employment record per person, written with on conflict do update: saving it again replaces it.",
+  staff_document_request_person_idx:
+    "One request per person per document. Asking inserts with on conflict do nothing, so asking somebody already asked asks once.",
   vendor_item_vendor_item_idx:
     "One link per item per vendor: setting a part number updates the item's existing link to that vendor rather than inserting another.",
 

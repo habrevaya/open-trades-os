@@ -44,3 +44,31 @@ describe("continuing education hours", () => {
     expect(() => people.hundredths("-1")).toThrow(RangeError);
   });
 });
+
+describe("signing a document the office gave somebody", () => {
+  it("takes a typed name or a drawing, and refuses both or neither", () => {
+    expect(people.checkSignature({ typedName: "  Ray Ortiz ", drawn: false, ownName: "Ray Ortiz" }))
+      .toEqual({ ok: true, method: "typed", signerName: "Ray Ortiz" });
+    expect(people.checkSignature({ drawn: true, ownName: "Ray Ortiz" }))
+      .toEqual({ ok: true, method: "drawn", signerName: "Ray Ortiz" });
+    expect(people.checkSignature({ typedName: "Ray", drawn: true, ownName: "Ray Ortiz" }).ok).toBe(false);
+    expect(people.checkSignature({ typedName: "   ", drawn: false, ownName: "Ray Ortiz" }).ok).toBe(false);
+    expect(people.checkSignature({ typedName: "R", drawn: false, ownName: "Ray Ortiz" }).ok).toBe(false);
+  });
+});
+
+describe("where an invite stands", () => {
+  const now = new Date("2026-10-04T15:00:00Z");
+  it("says when the link stops working, and whether it was emailed", () => {
+    expect(people.inviteStanding({ expiresAt: new Date("2026-10-11T15:00:00Z"), now, email: "sent", expiresOn: "Oct 11" }))
+      .toEqual({ expired: false, sentence: "Emailed. The link works until Oct 11." });
+    expect(people.inviteStanding({
+      expiresAt: new Date("2026-10-11T15:00:00Z"), now, email: "not_sent", emailNote: "no email provider is connected", expiresOn: "Oct 11",
+    }).sentence).toBe("Not emailed (no email provider is connected), so send them the link yourself. The link works until Oct 11.");
+  });
+
+  it("is expired from the instant the link stops working", () => {
+    expect(people.inviteStanding({ expiresAt: now, now, email: "sent", expiresOn: "Oct 4" }))
+      .toEqual({ expired: true, sentence: "The invite ran out on Oct 4. Send a new one." });
+  });
+});

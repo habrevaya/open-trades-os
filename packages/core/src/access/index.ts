@@ -1,6 +1,6 @@
 import { type Permission, SENSITIVE_PERMISSIONS } from "./permissions";
 import { ROLE_PRESETS, type RoleId } from "./roles";
-import { type Scope, type ScopedResource, scopeFor, widest, narrowest, DEFAULT_SCOPES } from "./scopes";
+import { type Scope, type ScopedResource, scopeFor, widest, narrowest, DEFAULT_SCOPES, SCOPED_RESOURCES } from "./scopes";
 
 export * from "./permissions";
 export * from "./roles";
@@ -326,6 +326,23 @@ export function canDefineRole(actor: Actor, definition: RoleDefinition): RoleCha
   }
 
   return { ok: true };
+}
+
+/**
+ * A PRESET AS A DEFINITION, WITH EVERY SCOPE SAID OUT LOUD.
+ *
+ * `DEFAULT_SCOPES` leaves out what a preset sees in full, because for a role
+ * "not mentioned" resolves to the whole company. A definition handed to
+ * `canDefineRole` cannot leave it out: there, a scope not mentioned is a scope
+ * not checked, so a branch manager handing out the office manager preset was
+ * checked against nothing and could give somebody the whole company. Every
+ * check of a preset goes through this, which names all of them.
+ */
+export function presetDefinition(role: RoleId): RoleDefinition {
+  return {
+    permissions: ROLE_PRESETS[role].permissions,
+    scopes: Object.fromEntries(SCOPED_RESOURCES.map((resource) => [resource, scopeFor(role, resource)])),
+  };
 }
 
 /**

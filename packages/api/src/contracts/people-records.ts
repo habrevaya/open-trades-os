@@ -16,7 +16,7 @@ import { Uuid } from "./common";
 const DateString = z.string().date();
 const Kind = z.enum(["document", "training", "equipment", "other"]);
 const RoleName = z.enum([
-  "owner", "admin", "office_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly",
+  "owner", "admin", "office_manager", "branch_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly",
 ]);
 
 const Progress = z.object({
@@ -29,13 +29,17 @@ const Progress = z.object({
 const TemplateItem = z.object({
   id: Uuid, role: z.string().nullable(), roleId: Uuid.nullable(), roleLabel: z.string(),
   kind: z.string(), label: z.string(), required: z.boolean(), sortOrder: z.number().int(),
+  /** A document the person signs themselves to do this line, and its title. */
+  staffDocumentId: Uuid.nullable(), documentTitle: z.string().nullable(),
 });
 
 const Onboarding = z.object({
   lines: z.array(z.object({
     id: Uuid, kind: z.string(), label: z.string(), required: z.boolean(),
     doneAt: z.string().datetime().nullable(), doneBy: z.string().nullable(), note: z.string().nullable(),
-    companyAssetId: Uuid.nullable(),
+    companyAssetId: Uuid.nullable(), doneByUserId: Uuid.nullable(),
+    /** Done by the person signing this document, which ticks it. */
+    staffDocumentId: Uuid.nullable(),
   })),
   progress: Progress,
 });
@@ -105,6 +109,11 @@ export const getPersonRecord = defineRoute({
     membershipId: Uuid, name: z.string().nullable(), email: z.string(), role: z.string(), roleLabel: z.string(),
     active: z.boolean(), technicianId: Uuid.nullable(),
     onboarding: Onboarding, emergencyContacts: z.array(Contact), employment: Employment.nullable(), skills: Skills.nullable(),
+    /** What they were asked to sign, and whether and how they did. */
+    documents: z.array(z.object({
+      requestId: Uuid, documentId: Uuid, title: z.string(), askedAt: z.string().datetime(),
+      signedAt: z.string().datetime().nullable(), signedVia: z.enum(["typed", "drawn"]).nullable(),
+    })),
   }),
 });
 
@@ -122,13 +131,14 @@ export const addOnboardingTemplateItem = defineRoute({
   method: "post",
   path: "/v1/onboarding-checklist",
   summary: "Add a line to a role's onboarding checklist",
-  description: "A document to collect, training to give, or equipment to hand over, for a preset role (`role`) or one of the company's own (`roleId`), exactly one.",
+  description: "A document to collect, training to give, or equipment to hand over, for a preset role (`role`) or one of the company's own (`roleId`), exactly one. A document line can name a document the person signs themselves (`staffDocumentId`): starting their onboarding asks them to sign it, and their signature ticks the line.",
   module: "M24",
   permissions: ["user:write"],
   idempotent: true,
   input: z.object({
     role: RoleName.nullable().optional(), roleId: Uuid.nullable().optional(),
     kind: Kind, label: z.string().min(1).max(300), required: z.boolean().optional(),
+    staffDocumentId: Uuid.nullable().optional(),
   }),
   output: TemplateItem,
 });

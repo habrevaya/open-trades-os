@@ -51,6 +51,12 @@ export const InvoiceLine = z.object({
 export const Invoice = z.object({
   id: Uuid,
   number: z.number().int(),
+  /**
+   * The branch's code printed in front of the number ("AUS-1042"), when the
+   * company prints branch codes and this was made in a branch with one.
+   * Written once, when it was made: see `/v1/branch-numbering`.
+   */
+  numberPrefix: z.string().nullable().optional(),
   status: InvoiceStatus,
   customerId: Uuid,
   /** Frequently not the customer: a warranty company, a carrier, an owner. */
