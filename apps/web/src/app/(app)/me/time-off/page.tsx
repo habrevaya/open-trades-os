@@ -30,7 +30,9 @@ export default async function MyTimeOffPage() {
       <h1 className="mt-1 text-xl font-semibold">Time off</h1>
     </>
   );
-  if (!can(user.actor, "timeclock:own") || !(await fieldOps.isTechnician(ctx))) {
+  /** A place on the board, which is what time off here is days off from. Asked only of somebody who clocks in. */
+  const onTheBoard = can(user.actor, "timeclock:own") && await fieldOps.isTechnician(ctx).catch(() => false);
+  if (!onTheBoard) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-6">
         {header}

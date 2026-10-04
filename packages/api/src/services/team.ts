@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  canDefineRole, presetDefinition, people, ROLE_PRESETS, ROLE_IDS, DEFAULT_SCOPES, type Actor, type RoleId,
+  can, canDefineRole, presetDefinition, people, ROLE_PRESETS, ROLE_IDS, DEFAULT_SCOPES, type Actor, type RoleId,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
@@ -361,11 +361,16 @@ async function send(tx: Database, ctx: ServiceContext, input: {
       inviter: inviter?.name ?? null,
       expiresOn: invites.expiresOn(expiresAt, await timezoneOf(tx, ctx.actor.organizationId)),
     });
-    const outcome = await email.queueIn(tx, transportContext(ctx, tx), {
-      to: input.email, subject: words.subject, text: words.text, html: words.html,
-      purpose: "transactional", sealedInviteId: invite!.id,
-    });
-    if (!outcome.queued) emailNote = shortRefusal(outcome.reason);
+    const transport = transportContext(ctx, tx);
+    if (!can(transport.actor, "message:send")) {
+      emailNote = "sending email has been taken away from you";
+    } else {
+      const outcome = await email.queueIn(tx, transport, {
+        to: input.email, subject: words.subject, text: words.text, html: words.html,
+        purpose: "transactional", sealedInviteId: invite!.id,
+      });
+      if (!outcome.queued) emailNote = shortRefusal(outcome.reason);
+    }
   }
   if (emailNote) {
     await tx.update(schema.membershipInvite).set({ emailRefusal: emailNote, updatedAt: now })

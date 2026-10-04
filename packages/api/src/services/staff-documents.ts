@@ -118,8 +118,13 @@ export function list(ctx: ServiceContext): Promise<StaffDocumentSummary[]> {
   return guardedRead(ctx, "user:read", async (tx) => {
     const rows = await tx.select({
       doc: schema.staffDocument,
-      asked: sql<number>`(select count(*)::int from public.staff_document_request r where r.document_id = ${schema.staffDocument.id})`,
-      signed: sql<number>`(select count(*)::int from public.staff_document_request r where r.document_id = ${schema.staffDocument.id} and r.signed_at is not null)`,
+      /**
+       * The outer id written out, not interpolated: in a select list drizzle
+       * renders a column bare, and a bare `id` inside the subquery is the
+       * request's own (test/sql-fragments.test.ts).
+       */
+      asked: sql<number>`(select count(*)::int from public.staff_document_request r where r.document_id = "staff_document"."id")`,
+      signed: sql<number>`(select count(*)::int from public.staff_document_request r where r.document_id = "staff_document"."id" and r.signed_at is not null)`,
     }).from(schema.staffDocument)
       .where(eq(schema.staffDocument.organizationId, ctx.actor.organizationId))
       .orderBy(desc(schema.staffDocument.createdAt));

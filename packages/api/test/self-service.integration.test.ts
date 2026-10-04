@@ -346,6 +346,8 @@ run("a person ticks their own onboarding and signs what they were given", () => 
     expect(record.onboarding.lines.find((l) => l.staffDocumentId === handbook)?.doneAt).not.toBeNull();
     expect(record.onboarding.progress.complete).toBe(true);
 
+    const listed = (await staffDocuments.list(owner())).find((d) => d.id === handbook)!;
+    expect(listed).toMatchObject({ asked: 2, signed: 1 });
     const officeView = await staffDocuments.get(owner(), { id: handbook });
     expect(officeView.requests.find((r) => r.membershipId === rayMembership)).toMatchObject({ signedVia: "typed", signerName: "Ray Ortiz" });
   });
