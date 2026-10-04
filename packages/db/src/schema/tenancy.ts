@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { pk, timestamps, geocodeColumns } from "./_shared";
 
 /**
@@ -107,6 +107,25 @@ export const organization = pgTable("organization", {
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   /** Why, in the operator's words. Shown to nobody but the operator. */
   suspendedReason: text("suspended_reason"),
+  /**
+   * A SANDBOX: a practice copy of a company's configuration, set on the copy
+   * and naming the company it was copied from.
+   *
+   * A real tenant rather than a flag on records, so everything row level
+   * security already guarantees about two companies is what keeps practice
+   * data out of the real one: nothing tried in a sandbox can reach a real
+   * customer's record, because no query in the sandbox can see one. See
+   * `services/sandbox.ts`.
+   */
+  sandboxOfOrganizationId: uuid("sandbox_of_organization_id").references((): AnyPgColumn => organization.id, { onDelete: "set null" }),
+  /**
+   * On the real company, its current sandbox. Kept on this side too because
+   * row level security hides the sandbox's own row from the real company,
+   * and "open my sandbox" has to find it from here.
+   */
+  sandboxOrganizationId: uuid("sandbox_organization_id").references((): AnyPgColumn => organization.id, { onDelete: "set null" }),
+  /** When the sandbox was thrown away. Its people are signed out of it and it is never opened again. */
+  sandboxDiscardedAt: timestamp("sandbox_discarded_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   slugIdx: uniqueIndex("organization_slug_idx").on(t.slug),
@@ -421,5 +440,10 @@ export const technician = pgTable("technician", {
    */
   mobilePhone: text("mobile_phone"),
   active: boolean("active").notNull().default(true),
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({ orgIdx: index("technician_org_idx").on(t.organizationId) }));

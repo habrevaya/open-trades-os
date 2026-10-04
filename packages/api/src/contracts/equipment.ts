@@ -55,6 +55,8 @@ const EquipmentFields = {
   installedByUs: z.boolean(),
   location: z.string().nullable(),
   attributes: z.record(z.unknown()),
+  /** The company's own fields (M29), by key. Saved with `PUT .../custom-fields`. */
+  customFields: z.record(z.unknown()).optional(),
   active: z.boolean(),
   retired: z.boolean(),
   /** Whole years, floor. Nobody says a furnace is eleven and a half. */

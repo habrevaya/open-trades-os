@@ -233,6 +233,21 @@ export const PERMISSIONS = {
   "audit:read": "View the audit log",
   "customfield:write": "Define custom fields and objects",
   /**
+   * THE COMPANY'S OWN KINDS OF RECORD: permits, warranty registrations, truck
+   * inspections. The defaults each kind starts with; a kind can name any
+   * other permission instead, so "only the office sees permits" and
+   * "technicians file the truck inspection" are a choice on the definition
+   * rather than a new role.
+   */
+  "record:read": "View the company's own kinds of record, like permits",
+  "record:write": "Add and change the company's own kinds of record",
+  /**
+   * A practice copy of the company's settings, and copying chosen settings
+   * back. Its own permission because the copy back changes how the real
+   * company runs, in one press, from somewhere nobody else is looking.
+   */
+  "sandbox:manage": "Make a practice copy of the company's settings and copy chosen settings back",
+  /**
    * Seeing what is automated is a different question from being able to
    * change it. An owner asking "why did this customer get that text" needs
    * the first; the answer to the second is a much smaller list of people.

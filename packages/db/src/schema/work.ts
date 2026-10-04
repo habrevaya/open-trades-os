@@ -273,6 +273,11 @@ export const visit = pgTable("visit", {
   checklist: jsonb("checklist").$type<Array<{ id: string; label: string; required: boolean; doneAt: string | null }>>().notNull().default([]),
   signatureUrl: text("signature_url"),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("visit_source_ref_idx", t),

@@ -7,7 +7,7 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
-import { CATALOGUE } from "./report-catalogue";
+import { catalogueFor } from "./report-company";
 import {
   deliverReport, sourceOf, mayReceive, companyPeople, cleanAddresses,
   type ReportSource, type DeliveryRecipient,
@@ -118,7 +118,7 @@ async function checkReportSchedule(tx: Database, ctx: ServiceContext, input: Rep
   const named = await sourceOf(tx, source);
   if (!named) throw new NotFoundError("Report");
 
-  const decision = reporting.resolveReport(named.definition, CATALOGUE, permissionsFor(ctx.actor));
+  const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
   if (!decision.ok) {
     throw new ConflictError(
       `You cannot schedule a report you cannot run yourself. ${reporting.explainRefusal(decision)}`,
@@ -311,7 +311,7 @@ export function sendReportScheduleNow(
     const source: ReportSource = row.builtInReport ? { builtIn: row.builtInReport } : { reportId: row.reportId ?? "" };
     const named = await sourceOf(tx, source);
     if (!named) throw new ConflictError("The report this schedule sends has been deleted, so there is nothing to send.");
-    const decision = reporting.resolveReport(named.definition, CATALOGUE, permissionsFor(ctx.actor));
+    const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
     if (!decision.ok) {
       throw new ConflictError(`You cannot send a report you cannot run yourself. ${reporting.explainRefusal(decision)}`);
     }

@@ -3,7 +3,7 @@ import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueInde
 import { pk, timestamps, sourceRef, sourceRefIndex, money, currency, rate } from "./_shared";
 import { organization, businessUnit, user } from "./tenancy";
 import { customer, property } from "./crm";
-import { job } from "./work";
+import { job, jobType } from "./work";
 import { priceBookItemVersion } from "./pricebook";
 
 /**
@@ -22,6 +22,61 @@ import { priceBookItemVersion } from "./pricebook";
  * 5. Every call out to Stripe carries an idempotency key written to
  *    integration_event BEFORE the call fires.
  */
+
+/**
+ * HOW A COMPANY LAYS OUT ITS PROPOSALS
+ *
+ * The proposal used to have one fixed shape: the options, then the terms. A
+ * contractor selling a system against a competitor's glossy folder wants a
+ * cover with a photograph of a finished install, a page about who they are,
+ * the warranty in their own words, financing, what other customers said, and
+ * the small print, in the order they sell in. This is that order, saved, by
+ * name, and optionally the one a job type starts with.
+ *
+ * The layout is DATA in a closed vocabulary (`core/estimate/proposal-layout`),
+ * checked before it is stored: a section kind this build cannot draw is
+ * refused at the save rather than skipped on a customer's screen.
+ *
+ * An estimate COPIES the layout when one is applied (`estimate.proposal_layout`)
+ * rather than pointing at this row, for the reason it copies the terms: a
+ * company rewording its warranty page in March must not change what a
+ * customer was shown in February. Editing a template changes the estimates it
+ * is applied to from then on, and none before.
+ */
+export const proposalTemplate = pgTable("proposal_template", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /**
+   * The job type whose estimates start with this layout. One template per
+   * job type at most, and none is fine: those estimates take the company's
+   * default, or the fixed layout when there is no default either.
+   */
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),
+  /** The layout every estimate starts with when its job type names none. */
+  isDefault: boolean("is_default").notNull().default(false),
+  /**
+   * The cover page: a headline, a sentence under it, and the photograph by
+   * its stored file key. Null is no cover; the proposal opens on its first
+   * section.
+   */
+  cover: jsonb("cover").$type<{ headline: string; intro: string | null; photoKey: string | null } | null>(),
+  /** The sections in the order they are drawn. See core for the vocabulary. */
+  sections: jsonb("sections").$type<Array<Record<string, unknown>>>().notNull().default([]),
+  /** Whether each option shows the photographs attached to it on the estimate. */
+  showOptionPhotos: boolean("show_option_photos").notNull().default(true),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  nameIdx: uniqueIndex("proposal_template_name_idx").on(t.organizationId, t.name)
+    .where(sql`${t.deletedAt} is null`),
+  /** One layout per job type, or which one a new estimate starts with depends on the heap. */
+  jobTypeIdx: uniqueIndex("proposal_template_job_type_idx").on(t.organizationId, t.jobTypeId)
+    .where(sql`${t.deletedAt} is null and ${t.jobTypeId} is not null`),
+  /** One default, for the same reason. */
+  defaultIdx: uniqueIndex("proposal_template_default_idx").on(t.organizationId)
+    .where(sql`${t.deletedAt} is null and ${t.isDefault}`),
+}));
 
 export const estimateStatus = pgEnum("estimate_status", [
   "draft", "sent", "viewed", "approved", "declined", "expired", "converted",
@@ -62,6 +117,17 @@ export const estimate = pgTable("estimate", {
    * agreed includes the small print that was on the page.
    */
   terms: text("terms"),
+  /**
+   * The proposal layout this estimate is drawn in, COPIED from a template when
+   * one was applied, with the template's id and name for the record. Null is
+   * the fixed layout: the options, then the terms. Copied rather than read
+   * live, like `terms` above, so editing a template never changes a proposal
+   * a customer has already been sent.
+   */
+  proposalTemplateId: uuid("proposal_template_id").references(() => proposalTemplate.id, { onDelete: "set null" }),
+  proposalLayout: jsonb("proposal_layout").$type<Record<string, unknown> | null>(),
+  /** The company's own fields. See `services/custom-fields.ts`. */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   currency: currency(),
   ...sourceRef,
   ...timestamps,
@@ -337,6 +403,11 @@ export const invoice = pgTable("invoice", {
   memo: text("memo"),
   voidedAt: timestamp("voided_at", { withTimezone: true }),
   ...sourceRef,
+  /**
+   * The company's own fields, checked against the definitions in M29 by the
+   * service that writes them. See `services/custom-fields.ts`.
+   */
+  customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
   sourceRefIdx: sourceRefIndex("invoice_source_ref_idx", t),

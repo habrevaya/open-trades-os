@@ -34,6 +34,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ id: s
         proposal={proposal}
         logoSrc={proposal.company.hasLogo ? `/brand/logo?v=${proposal.company.version}` : null}
         timezone={user.organizationTimezone}
+        photoSrc={(photoId) => `/estimates/${id}/proposal/photos/${photoId}`}
       />
     </div>
   );

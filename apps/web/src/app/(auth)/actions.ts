@@ -186,7 +186,11 @@ export async function completeWelcome(_prev: ActionState, formData: FormData): P
     .from(schema.membership)
     .innerJoin(schema.organization, eq(schema.organization.id, schema.membership.organizationId))
     .where(and(eq(schema.membership.userId, userId), eq(schema.membership.active, true)))
-    .orderBy(sql`${schema.organization.suspendedAt} is not null`)
+    /**
+     * A real company before its sandbox: signing in lands in the company,
+     * and the sandbox is opened on purpose from Settings, Sandbox.
+     */
+    .orderBy(sql`${schema.organization.suspendedAt} is not null`, sql`${schema.organization.sandboxOfOrganizationId} is not null`)
     .limit(1);
 
   // The password is set either way, so the honest next step is the sign in

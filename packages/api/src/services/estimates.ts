@@ -8,6 +8,8 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf,
 } from "./context";
+import { listFilter } from "./custom-fields";
+import { layoutForNew } from "./proposal-templates";
 import { admitDate, requireImport } from "./history";
 import { estimateScopeFilter, estimateBranchFilter } from "./scope";
 import { claimNumber, nextNumber } from "./jobs";
@@ -158,6 +160,11 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
       expiresOn: input.expiresOn ?? (input.outcome?.status === "expired" ? input.outcome.on : null),
       status: "draft",
       terms,
+      /**
+       * The layout its job type starts with, or the company's default,
+       * copied on like the terms. See `proposal-templates.ts`.
+       */
+      ...(await layoutForNew(tx, input.jobId ?? null)),
       ...provenance(input.externalRef),
     }).returning({ id: schema.estimate.id });
 
@@ -360,6 +367,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
       currency: schema.estimate.currency,
       sourceSystem: schema.estimate.sourceSystem,
       sourceId: schema.estimate.sourceId,
+      customFields: schema.estimate.customFields,
       createdAt: schema.estimate.createdAt,
       updatedAt: schema.estimate.updatedAt,
     })
@@ -373,6 +381,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,
         input.businessUnitId ? estimateBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.estimate, input),
+        await listFilter(tx, ctx.actor.organizationId, "estimate", input, sql`${schema.estimate.customFields}`),
         after ? lt(schema.estimate.id, after) : undefined,
       ))
       .orderBy(desc(schema.estimate.id))

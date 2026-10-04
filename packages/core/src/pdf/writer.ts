@@ -1,10 +1,13 @@
+import type { PdfImage } from "./image.js";
+
 /**
  * A PDF, WRITTEN BY HAND
  *
  * Every document this product hands a customer or an accountant as a file is
  * text, ruled lines and filled boxes: an invoice, a proposal, a statement, a
- * report with its chart. None of it needs an embedded font, an image decoder
- * or a layout engine, and all of it has to be produced in two places that are
+ * report with its chart, and on a proposal the company's photographs, which
+ * PDF takes as the JPEG or PNG data they already are (`image.ts`). None of it
+ * needs an embedded font, an image decoder or a layout engine, and all of it has to be produced in two places that are
  * not a browser: a Next route handler and the worker that emails a report at
  * seven in the morning.
  *
@@ -169,6 +172,8 @@ export class PdfPage {
   readonly width: number;
   readonly height: number;
   private readonly ops: string[] = [];
+  /** The photographs this page draws, by the name its content stream calls each one. */
+  readonly images: Array<{ name: string; image: PdfImage }> = [];
 
   constructor(size: { width: number; height: number } = LETTER) {
     this.width = size.width;
@@ -217,6 +222,19 @@ export class PdfPage {
       + rest.map((p) => `${num(p.x)} ${num(this.height - p.y)} l`).join(" ")
       + " S",
     );
+  }
+
+  /**
+   * A photograph with its top left corner at (`x`, `y`), drawn at the size
+   * given. The same image drawn twice on a page is one resource.
+   */
+  image(image: PdfImage, x: number, y: number, width: number, height: number): void {
+    let found = this.images.find((entry) => entry.image === image);
+    if (!found) {
+      found = { name: `Im${this.images.length + 1}`, image };
+      this.images.push(found);
+    }
+    this.ops.push(`q ${num(width)} 0 0 ${num(height)} ${num(x)} ${num(this.height - y - height)} cm /${found.name} Do Q`);
   }
 
   /** The content stream, as PDF operators. */
@@ -289,12 +307,27 @@ export function renderPdf(pages: PdfPage[], meta: PdfMeta, options: RenderOption
   ].join(" ");
   object(5, [ascii(`<< ${info} >>`)]);
 
+  /**
+   * Photographs come after the pages, one object each however many pages
+   * draw them, so the numbering of everything before stays as it was.
+   */
+  const imageIds = new Map<PdfImage, number>();
+  let nextId = firstPage + list.length * 2;
+  for (const page of list) {
+    for (const { image } of page.images) {
+      if (!imageIds.has(image)) { imageIds.set(image, nextId); nextId += 1; }
+    }
+  }
+
   list.forEach((page, i) => {
     const pageId = firstPage + i * 2;
     const contentId = pageId + 1;
+    const xobjects = page.images.length > 0
+      ? ` /XObject << ${page.images.map(({ name, image }) => `/${name} ${imageIds.get(image)} 0 R`).join(" ")} >>`
+      : "";
     object(pageId, [ascii(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(page.width)} ${num(page.height)}] `
-      + `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentId} 0 R >>`,
+      + `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xobjects} >> /Contents ${contentId} 0 R >>`,
     )]);
     const plain = ascii(page.content());
     const body = options.deflate ? options.deflate(plain) : plain;
@@ -305,7 +338,19 @@ export function renderPdf(pages: PdfPage[], meta: PdfMeta, options: RenderOption
     ]);
   });
 
-  const count = firstPage + list.length * 2;
+  for (const [image, id] of imageIds) {
+    object(id, [
+      ascii(
+        `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} `
+        + `/ColorSpace /${image.colorSpace} /BitsPerComponent 8 /Filter /${image.filter}`
+        + `${image.extra ? ` ${image.extra}` : ""} /Length ${image.data.length} >>\nstream\n`,
+      ),
+      image.data,
+      ascii("\nendstream"),
+    ]);
+  }
+
+  const count = nextId;
   const xref = length;
   push(ascii(`xref\n0 ${count}\n0000000000 65535 f\r\n`));
   for (let id = 1; id < count; id += 1) {

@@ -92,6 +92,13 @@ export interface Dataset {
    * silently broken scope on every report.
    */
   from: string;
+  /**
+   * Which rows of `from` belong to this dataset, when not all of them do,
+   * written by us like `from`. A company's own kind of record is one dataset
+   * per kind over the one table every kind shares, so its dataset carries the
+   * kind's id here and the rows of every other kind never reach its numbers.
+   */
+  where?: string;
   permission: Permission;
   /**
    * Which scope filter applies. A report is a read like any other: a

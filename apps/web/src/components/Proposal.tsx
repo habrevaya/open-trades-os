@@ -32,6 +32,21 @@ export interface ProposalData {
       isOptional: boolean; isSelected: boolean;
     }[];
   }[];
+  /**
+   * The company's layout as copied onto this estimate, or the fixed one (the
+   * options, then the terms) when none was applied. Absent on a document
+   * read before layouts existed, which draws in the fixed one.
+   */
+  layout?: {
+    templateName: string | null;
+    cover: { headline: string; intro: string | null; photoKey: string | null } | null;
+    sections: {
+      kind: string; title: string; body: string | null;
+      reviews?: { author: string | null; rating: number; body: string | null; postedAt: string }[] | undefined;
+    }[];
+    showOptionPhotos: boolean;
+    optionPhotos: Record<string, { id: string }[]>;
+  };
 }
 
 const quantity = (value: string) => {
@@ -44,9 +59,11 @@ const quantity = (value: string) => {
  *
  * Shared by the office and the customer's own link, so the two can never
  * show different numbers, and laid out for paper as much as for a screen:
- * the company first, who it is for, the options side by side so the
- * customer compares them across rather than scrolling between them, the
- * terms, and a line to sign.
+ * the company first, a cover when the company's layout has one, who it is
+ * for, then the layout's sections in the company's order (the options side
+ * by side so the customer compares them across rather than scrolling between
+ * them, about us, the warranty, financing, reviews, the terms), and a line
+ * to sign. The PDF draws the same sections in the same order.
  *
  * THE COMPANY'S COLOUR IS A VARIABLE, set on the article from Branding, so a
  * company that never chose one gets the product's own ink and nothing reads
@@ -55,12 +72,20 @@ const quantity = (value: string) => {
  *
  * Nothing here can show cost: the document it draws was built without it.
  */
-export function ProposalView({ proposal, logoSrc, timezone }: {
+export function ProposalView({ proposal, logoSrc, timezone, photoSrc }: {
   proposal: ProposalData;
   /** Where the logo is served from for this reader, or nothing when the company has none. */
   logoSrc: string | null;
   timezone: string;
+  /**
+   * Where one of the proposal's own photographs is served for this reader:
+   * the office's screen or the customer's link. `cover` for the cover.
+   */
+  photoSrc?: (photoId: string) => string;
 }) {
+  const sections = proposal.layout?.sections
+    ?? [{ kind: "options", title: "Your options", body: null }, { kind: "terms", title: "Terms", body: null }];
+  const cover = proposal.layout?.cover ?? null;
   const palette = {
     "--brand": proposal.company.color ?? "#111827",
     "--brand-on": proposal.company.on ?? "#ffffff",
@@ -99,6 +124,16 @@ export function ProposalView({ proposal, logoSrc, timezone }: {
         </dl>
       </header>
 
+      {cover ? (
+        <section aria-label="Cover" className="break-after-page space-y-4 text-center">
+          <h1 className="text-3xl font-semibold" style={{ color: "var(--brand-text)" }}>{cover.headline}</h1>
+          {cover.photoKey && photoSrc ? (
+            <img src={photoSrc("cover")} alt="" className="mx-auto max-h-[420px] w-full rounded-md object-cover" />
+          ) : null}
+          {cover.intro ? <p className="mx-auto max-w-2xl whitespace-pre-line text-base text-ink-700">{cover.intro}</p> : null}
+        </section>
+      ) : null}
+
       <section aria-label="Prepared for" className="flex flex-wrap justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Prepared for</p>
@@ -113,82 +148,122 @@ export function ProposalView({ proposal, logoSrc, timezone }: {
         ) : null}
       </section>
 
-      <section aria-label="Options" className={`grid gap-4 ${columns}`}>
-        {proposal.options.map((option) => {
-          const base = option.lines.filter((l) => !l.isOptional);
-          const extras = option.lines.filter((l) => l.isOptional);
-          const chosen = proposal.selectedOptionId === option.id;
+      {sections.map((section, index) => {
+        if (section.kind === "options") {
           return (
-            <div key={option.id} aria-label={option.name}
-                 className="flex break-inside-avoid flex-col rounded-md border-2 border-steel-200 p-4"
-                 style={option.isRecommended || chosen ? { borderColor: "var(--brand)" } : undefined}>
-              <div className="flex min-h-[1.5rem] flex-wrap items-center gap-2">
-                {option.tier ? (
-                  <span className="rounded px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.08em]"
-                        style={{ background: "var(--brand)", color: "var(--brand-on)" }}>
-                    {option.tier}
-                  </span>
-                ) : null}
-                {option.isRecommended ? <span className="text-xs font-medium" style={{ color: "var(--brand-text)" }}>Recommended</span> : null}
-                {chosen && approved ? <span className="text-xs font-medium text-green-700">Chosen</span> : null}
-              </div>
-              <h2 className="mt-2 text-base font-semibold">{option.name}</h2>
-              {option.description ? <p className="mt-1 text-sm text-ink-700">{option.description}</p> : null}
+            <div key={`section-${index}`} className="space-y-3">
+              {proposal.layout?.templateName ? <h2 className="text-base font-semibold">{section.title}</h2> : null}
+        <section aria-label="Options" className={`grid gap-4 ${columns}`}>
+          {proposal.options.map((option) => {
+            const base = option.lines.filter((l) => !l.isOptional);
+            const extras = option.lines.filter((l) => l.isOptional);
+            const chosen = proposal.selectedOptionId === option.id;
+            return (
+              <div key={option.id} aria-label={option.name}
+                   className="flex break-inside-avoid flex-col rounded-md border-2 border-steel-200 p-4"
+                   style={option.isRecommended || chosen ? { borderColor: "var(--brand)" } : undefined}>
+                <div className="flex min-h-[1.5rem] flex-wrap items-center gap-2">
+                  {option.tier ? (
+                    <span className="rounded px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.08em]"
+                          style={{ background: "var(--brand)", color: "var(--brand-on)" }}>
+                      {option.tier}
+                    </span>
+                  ) : null}
+                  {option.isRecommended ? <span className="text-xs font-medium" style={{ color: "var(--brand-text)" }}>Recommended</span> : null}
+                  {chosen && approved ? <span className="text-xs font-medium text-green-700">Chosen</span> : null}
+                </div>
+                <h2 className="mt-2 text-base font-semibold">{option.name}</h2>
+                {option.description ? <p className="mt-1 text-sm text-ink-700">{option.description}</p> : null}
+                {photoSrc && proposal.layout?.showOptionPhotos !== false
+                  ? (proposal.layout?.optionPhotos[option.id] ?? []).map((photo) => (
+                    <img key={photo.id} src={photoSrc(photo.id)} alt={`${option.name}, photograph`}
+                         className="mt-3 max-h-56 w-full rounded object-cover" />
+                  ))
+                  : null}
 
-              <ul className="mt-3 flex-1 space-y-2 text-sm">
-                {base.map((line) => (
-                  <li key={line.id}>
-                    <div className="flex justify-between gap-3">
-                      <span>
-                        {line.name}
-                        {Number(line.quantity) !== 1 ? <span className="text-ink-500"> × {quantity(line.quantity)}</span> : null}
-                      </span>
-                      <Money value={line.lineTotal} />
-                    </div>
-                    {line.description ? <p className="text-xs text-ink-500">{line.description}</p> : null}
-                    <Saving line={line} />
+                <ul className="mt-3 flex-1 space-y-2 text-sm">
+                  {base.map((line) => (
+                    <li key={line.id}>
+                      <div className="flex justify-between gap-3">
+                        <span>
+                          {line.name}
+                          {Number(line.quantity) !== 1 ? <span className="text-ink-500"> × {quantity(line.quantity)}</span> : null}
+                        </span>
+                        <Money value={line.lineTotal} />
+                      </div>
+                      {line.description ? <p className="text-xs text-ink-500">{line.description}</p> : null}
+                      <Saving line={line} />
+                    </li>
+                  ))}
+                </ul>
+
+                {extras.length > 0 ? (
+                  <div className="mt-3 border-t border-steel-200 pt-2">
+                    <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Add if you like</p>
+                    <ul className="mt-1 space-y-1 text-sm">
+                      {extras.map((line) => (
+                        <li key={line.id} className="flex justify-between gap-3">
+                          <span>
+                            {line.name}
+                            {line.isSelected ? <span className="ml-1 text-xs text-green-700">(included)</span> : null}
+                          </span>
+                          <Money value={line.lineTotal} muted={!line.isSelected} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                <dl className="mt-4 space-y-0.5 border-t border-steel-200 pt-3 text-sm">
+                  <div className="flex justify-between"><dt className="text-ink-500">Subtotal</dt><dd><Money value={option.subtotal} /></dd></div>
+                  {Number(option.discountTotal) > 0 ? (
+                    <div className="flex justify-between"><dt className="text-ink-500">Discount</dt><dd><Money value={`-${option.discountTotal}`} /></dd></div>
+                  ) : null}
+                  {Number(option.taxTotal) > 0 ? (
+                    <div className="flex justify-between"><dt className="text-ink-500">Tax</dt><dd><Money value={option.taxTotal} /></dd></div>
+                  ) : null}
+                  <div className="flex justify-between pt-1 text-base font-semibold"><dt>Total</dt><dd><Money value={option.total} /></dd></div>
+                </dl>
+              </div>
+            );
+          })}
+        </section>
+            </div>
+          );
+        }
+        if (section.kind === "terms") {
+          return proposal.terms ? (
+            <section key={`section-${index}`} aria-label={section.title} className="break-inside-avoid">
+              <h2 className="text-sm font-semibold">{section.title}</h2>
+              <p className="mt-1 whitespace-pre-line text-sm text-ink-700">{proposal.terms}</p>
+            </section>
+          ) : null;
+        }
+        if (section.kind === "reviews") {
+          const reviews = section.reviews ?? [];
+          if (reviews.length === 0 && !section.body) return null;
+          return (
+            <section key={`section-${index}`} aria-label={section.title} className="break-inside-avoid">
+              <h2 className="text-base font-semibold">{section.title}</h2>
+              {section.body ? <p className="mt-1 whitespace-pre-line text-sm text-ink-700">{section.body}</p> : null}
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+                {reviews.map((review, i) => (
+                  <li key={i} className="rounded-md border border-steel-200 p-3 text-sm">
+                    <p className="font-medium">{review.rating} out of 5{review.author ? `, ${review.author}` : ""}</p>
+                    {review.body ? <p className="mt-1 text-ink-700">{review.body}</p> : null}
                   </li>
                 ))}
               </ul>
-
-              {extras.length > 0 ? (
-                <div className="mt-3 border-t border-steel-200 pt-2">
-                  <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Add if you like</p>
-                  <ul className="mt-1 space-y-1 text-sm">
-                    {extras.map((line) => (
-                      <li key={line.id} className="flex justify-between gap-3">
-                        <span>
-                          {line.name}
-                          {line.isSelected ? <span className="ml-1 text-xs text-green-700">(included)</span> : null}
-                        </span>
-                        <Money value={line.lineTotal} muted={!line.isSelected} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              <dl className="mt-4 space-y-0.5 border-t border-steel-200 pt-3 text-sm">
-                <div className="flex justify-between"><dt className="text-ink-500">Subtotal</dt><dd><Money value={option.subtotal} /></dd></div>
-                {Number(option.discountTotal) > 0 ? (
-                  <div className="flex justify-between"><dt className="text-ink-500">Discount</dt><dd><Money value={`-${option.discountTotal}`} /></dd></div>
-                ) : null}
-                {Number(option.taxTotal) > 0 ? (
-                  <div className="flex justify-between"><dt className="text-ink-500">Tax</dt><dd><Money value={option.taxTotal} /></dd></div>
-                ) : null}
-                <div className="flex justify-between pt-1 text-base font-semibold"><dt>Total</dt><dd><Money value={option.total} /></dd></div>
-              </dl>
-            </div>
+            </section>
           );
-        })}
-      </section>
-
-      {proposal.terms ? (
-        <section aria-label="Terms" className="break-inside-avoid">
-          <h2 className="text-sm font-semibold">Terms</h2>
-          <p className="mt-1 whitespace-pre-line text-sm text-ink-700">{proposal.terms}</p>
-        </section>
-      ) : null}
+        }
+        return section.body ? (
+          <section key={`section-${index}`} aria-label={section.title} className="break-inside-avoid">
+            <h2 className="text-base font-semibold">{section.title}</h2>
+            <p className="mt-1 whitespace-pre-line text-sm text-ink-700">{section.body}</p>
+          </section>
+        ) : null;
+      })}
 
       <section aria-label="Signature" className="break-inside-avoid">
         {approved && proposal.signerName ? (

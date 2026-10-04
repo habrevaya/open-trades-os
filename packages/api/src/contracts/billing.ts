@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 import { CoverageSource } from "./jobs";
 
 export const InvoiceStatus = z.enum(["draft", "open", "partially_paid", "paid", "void", "written_off"]);
@@ -72,6 +73,8 @@ export const Invoice = z.object({
   memo: z.string().nullable(),
   lines: z.array(InvoiceLine),
   externalRef: ExternalRef.nullable(),
+  /** The company's own fields (M29), by key. Saved with `PUT .../custom-fields`. */
+  customFields: z.record(z.unknown()).optional(),
 }).merge(Timestamps);
 
 /** A line as a caller writes it. Shared by a new invoice and a draft being edited. */
@@ -197,6 +200,7 @@ export const listInvoices = defineRoute({
     businessUnitId: Uuid.optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Invoice.omit({ lines: true }).extend({ customerName: z.string() })),
 });

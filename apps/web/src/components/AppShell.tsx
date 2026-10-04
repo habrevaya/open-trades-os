@@ -33,10 +33,16 @@ import { can } from "@opentradesos/core";
  * and it leaks the shape of the system to people who should not have it.
  */
 export async function AppShell({
-  user, brand, children,
+  user, brand, sandboxOf = null, children,
 }: {
   user: CurrentUser;
   brand: branding.Branding | null;
+  /**
+   * The real company, when the one signed in is its sandbox. Every screen
+   * says so in a band above the page, because a practice copy that looks
+   * exactly like the real thing is one somebody types a real customer into.
+   */
+  sandboxOf?: { id: string; name: string } | null;
   children: React.ReactNode;
 }) {
   // Set by middleware, because a server component cannot ask for its own URL.
@@ -272,6 +278,13 @@ export async function AppShell({
           </details>
         </header>
 
+        {sandboxOf ? (
+          <div role="note" aria-label="Sandbox" className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-amber-700 bg-amber-tint px-4 py-2 text-sm text-amber-700 lg:px-6">
+            <span className="font-semibold">Sandbox.</span>
+            <span>A practice copy of {sandboxOf.name}. Nothing here reaches your real customers.</span>
+            <a href="/settings/sandbox" className="underline underline-offset-4">Copy settings back, or go back</a>
+          </div>
+        ) : null}
         <main className="flex-1 bg-canvas-raised">{children}</main>
       </div>
     </div>

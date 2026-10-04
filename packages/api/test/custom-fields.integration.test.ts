@@ -124,13 +124,14 @@ run("what a definition has to be", () => {
 
   it("refuses a field on something with nowhere to store a value", async () => {
     /**
-     * The worst failure available here. `invoice` has no `custom_fields`
-     * column, so the field would render, somebody would type into it, the
-     * save would succeed because the save never looked, and the value would
-     * be gone. Nobody reports that as a bug.
+     * The worst failure available here. `payment` has no `custom_fields`
+     * column (an invoice grew one, a payment has not), so the field would
+     * render, somebody would type into it, the save would succeed because the
+     * save never looked, and the value would be gone. Nobody reports that as
+     * a bug.
      */
     await expect(fields.define(owner(), {
-      entityType: "invoice", key: "po_number", label: "PO number",
+      entityType: "payment", key: "po_number", label: "PO number",
     })).rejects.toThrow(/not something this product can hold a custom field on/i);
   });
 
@@ -492,7 +493,7 @@ run("checking a record against the definitions", () => {
   });
 
   it("refuses to check against an entity with no custom fields at all", async () => {
-    await expect(fields.validate(owner(), "invoice", {})).rejects.toBeInstanceOf(ConflictError);
+    await expect(fields.validate(owner(), "payment", {})).rejects.toBeInstanceOf(ConflictError);
   });
 });
 

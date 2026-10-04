@@ -303,8 +303,8 @@ run("permission and scope", () => {
   });
 
   it("offers only the datasets a reader may actually run", async () => {
-    expect(reports.available(dispatcher()).map((d) => d.key)).not.toContain("invoices");
-    expect(reports.available(owner()).map((d) => d.key)).toContain("invoices");
+    expect((await reports.available(dispatcher())).map((d) => d.key)).not.toContain("invoices");
+    expect((await reports.available(owner())).map((d) => d.key)).toContain("invoices");
   });
 
   it("offers only the built-in reports a reader may actually run", async () => {

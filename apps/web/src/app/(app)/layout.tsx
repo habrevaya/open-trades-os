@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding } from "@opentradesos/api/services";
+import { branding, sandbox } from "@opentradesos/api/services";
 import { AppShell } from "@/components/AppShell";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -14,6 +14,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
    * day, and they are the one person who would have seen it unbranded.
    */
   const brand = await branding.current({ actor: user.actor, db: getDb() });
+  /** Whether this company is a sandbox, which every screen then says. Read by everybody, like the brand. */
+  const where = await sandbox.current({ actor: user.actor, db: getDb() });
 
   return (
     <>
@@ -32,7 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {brand?.hasFavicon && (
         <link rel="icon" href={`/brand/favicon?v=${brand.version}`} />
       )}
-      <AppShell user={user} brand={brand}>{children}</AppShell>
+      <AppShell user={user} brand={brand} sandboxOf={where.production}>{children}</AppShell>
     </>
   );
 }

@@ -47,6 +47,7 @@ const OFFICE_BASE: Permission[] = [
   "report:read",
   "asset:read", "document:read",
   "safety:report",
+  "record:read", "record:write",
 ];
 
 const TECHNICIAN_BASE: Permission[] = [
@@ -80,6 +81,12 @@ const TECHNICIAN_BASE: Permission[] = [
   "document:read",
   // Anybody on a job can report what went wrong on it. Reading the register is not here.
   "safety:report",
+  /**
+   * Reads the company's own records, the permit on the job they are at.
+   * Adding one is the office's unless a kind says otherwise: a truck
+   * inspection can name a permission technicians hold.
+   */
+  "record:read",
 ];
 
 export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; permissions: Permission[] }> = {
@@ -149,6 +156,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "report:read",
       "pricebook:read",
       "safety:report",
+      "record:read",
     ],
   },
 
@@ -172,6 +180,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "message:read", "message:send", "call:place",
       "report:read",
       "safety:report",
+      "record:read", "record:write",
     ],
   },
 
@@ -236,6 +245,7 @@ export const ROLE_PRESETS: Record<RoleId, { label: string; description: string; 
       "invoice:read", "payment:read", "deposit:read",
       "booking:read",
       "report:read", "asset:read", "document:read",
+      "record:read",
     ],
   },
 };

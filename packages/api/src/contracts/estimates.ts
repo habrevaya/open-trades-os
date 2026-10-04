@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup, CompanyContact } from "./common";
+import { CustomFieldListFilter } from "./custom-fields";
 
 export const EstimateStatus = z.enum([
   "draft", "sent", "viewed", "approved", "declined", "expired", "converted",
@@ -81,6 +82,8 @@ export const Estimate = z.object({
   /** Presented most expensive first, with any recommended option pulled up. */
   options: z.array(EstimateOption),
   externalRef: ExternalRef.nullable(),
+  /** The company's own fields (M29), by key. Saved with `PUT .../custom-fields`. */
+  customFields: z.record(z.unknown()).optional(),
 }).merge(Timestamps);
 
 const LineInput = z.object({
@@ -191,6 +194,7 @@ export const listEstimates = defineRoute({
     businessUnitId: Uuid.optional(),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
+    ...CustomFieldListFilter,
   }),
   output: pageOf(Estimate.omit({ options: true, terms: true }).extend({
     customerName: z.string(),
@@ -319,6 +323,29 @@ export const Proposal = z.object({
       isSelected: z.boolean(),
     })),
   })),
+  /**
+   * How it is laid out: the company's template as copied onto this estimate
+   * when one was applied, or the fixed layout, the options then the terms.
+   * Each section's words, the reviews the reviews section shows, and each
+   * option's photographs by id (`/estimates/{id}/proposal/photos/{photoId}`
+   * on the office's screen, `cover` for the cover).
+   */
+  layout: z.object({
+    templateName: z.string().nullable(),
+    cover: z.object({ headline: z.string(), intro: z.string().nullable(), photoKey: z.string().nullable() }).nullable(),
+    sections: z.array(z.object({
+      kind: z.enum(["options", "about", "warranty", "financing", "reviews", "terms", "custom"]),
+      title: z.string(),
+      body: z.string().nullable(),
+      minRating: z.number().int().optional(),
+      count: z.number().int().optional(),
+      reviews: z.array(z.object({
+        author: z.string().nullable(), rating: z.number().int(), body: z.string().nullable(), postedAt: z.string(),
+      })).optional(),
+    })),
+    showOptionPhotos: z.boolean(),
+    optionPhotos: z.record(z.array(z.object({ id: Uuid, storageKey: z.string(), contentType: z.string().nullable() }))),
+  }),
 });
 
 export const getEstimateProposal = defineRoute({

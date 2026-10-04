@@ -455,6 +455,69 @@ revoke all on function app.create_session(uuid, text, uuid, timestamptz) from pu
 revoke all on function app.revoke_session(text) from public;
 
 -- -------------------------------------------------------------------------
+-- SANDBOXES
+-- A sandbox is a second company holding a practice copy of a real one's
+-- configuration (services/sandbox.ts). Two doors, both narrow.
+--
+-- Moving a session between the two halves of a pair. The session table is
+-- not the application's to write, so this is a function like creating a
+-- session, and it is where the check lives: the person is an active member
+-- of where they are going, and where they are going is THIS company's own
+-- sandbox (not thrown away) or the company this sandbox was copied from.
+-- Any other organization id answers false and moves nothing.
+drop function if exists app.switch_session_organization(text, uuid);
+create function app.switch_session_organization(p_token_hash text, p_organization_id uuid)
+  returns boolean
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_user uuid;
+    v_current uuid;
+    v_ok boolean;
+  begin
+    select s.user_id, s.active_organization_id into v_user, v_current
+      from public.session s
+     where s.token_hash = p_token_hash and s.revoked_at is null and s.expires_at > now();
+    if v_user is null or v_current is null then return false; end if;
+    select exists (
+      select 1
+        from public.organization target
+        join public.organization cur on cur.id = v_current
+        join public.membership m on m.organization_id = target.id and m.user_id = v_user and m.active
+       where target.id = p_organization_id
+         and target.suspended_at is null
+         and (
+           (target.sandbox_of_organization_id = cur.id and cur.sandbox_organization_id = target.id
+             and target.sandbox_discarded_at is null)
+           or cur.sandbox_of_organization_id = target.id
+         )
+    ) into v_ok;
+    if not v_ok then return false; end if;
+    update public.session set active_organization_id = p_organization_id where token_hash = p_token_hash;
+    return true;
+  end
+  $$;
+revoke all on function app.switch_session_organization(text, uuid) from public;
+
+-- The other half's name and when it was made, for the band that says which
+-- one you are in. Row level security hides the other company's row, rightly;
+-- this answers only for the current company's own sandbox or the company it
+-- is a sandbox of, and only those two facts.
+drop function if exists app.sandbox_pair(uuid);
+create function app.sandbox_pair(p_other uuid)
+  returns table (name text, created_at timestamptz)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.name, o.created_at
+      from public.organization o
+      join public.organization cur on cur.id = (select app.current_organization_id())
+     where o.id = p_other
+       and (cur.sandbox_organization_id = o.id or cur.sandbox_of_organization_id = o.id)
+  $$;
+revoke all on function app.sandbox_pair(uuid) from public;
+grant execute on function app.sandbox_pair(uuid) to authenticated;
+
+-- -------------------------------------------------------------------------
 -- PORTAL GRANTS
 --
 -- A customer approving an estimate has no session and never will. Resolution

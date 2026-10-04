@@ -37,3 +37,4 @@ export * from "./setup";
 export * from "./proposals";
 export * from "./ads";
 export * from "./finance";
+export * from "./custom-objects";

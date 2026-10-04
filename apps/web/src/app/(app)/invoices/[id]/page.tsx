@@ -3,9 +3,10 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
-  claims as claimService, entitlements, financing,
+  claims as claimService, entitlements, financing, customFields,
 } from "@opentradesos/api/services";
 import { can, claims, rates } from "@opentradesos/core";
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
@@ -343,6 +344,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           </ul>
         </section>
       )}
+      <CustomFieldsPanel
+        entityType="invoice" id={id}
+        definitions={await customFields.formFields(ctx, "invoice")}
+        values={await customFields.valuesFor(ctx, { entityType: "invoice", id })}
+        canWrite={can(user.actor, "invoice:write")}
+        back={`/invoices/${id}`}
+      />
     </div>
   );
 }

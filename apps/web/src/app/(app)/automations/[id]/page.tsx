@@ -8,6 +8,7 @@ import { formatIn } from "@/lib/dates";
 import { PageHeader, Empty } from "@/components/Table";
 import { EnableSwitch } from "../EnableSwitch";
 import { EditForm } from "./EditForm";
+import { ConditionPaths } from "../ConditionPaths";
 import { DeleteButton } from "./DeleteButton";
 import { withStepChoices } from "@/lib/step-choices";
 
@@ -186,6 +187,7 @@ export default async function AutomationPage({
               steps: (version?.steps as { kind: string; config?: Record<string, unknown> }[]) ?? [],
             }}
           />
+          <ConditionPaths ctx={ctx} />
           <div className="mt-8 border-t border-steel-200 pt-4">
             <DeleteButton id={workflow.id} name={workflow.name} />
           </div>

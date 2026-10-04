@@ -6,6 +6,7 @@ import { can } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
 import { CreateForm } from "./CreateForm";
 import { withStepChoices } from "@/lib/step-choices";
+import { ConditionPaths } from "../ConditionPaths";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function NewAutomationPage() {
       </p>
 
       <CreateForm events={events} steps={steps} shapes={shapes} />
+      <ConditionPaths ctx={ctx} />
     </div>
   );
 }

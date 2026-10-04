@@ -136,6 +136,14 @@ export const NAV: NavGroup[] = [
         ],
       },
       /**
+       * The company's own kinds of record: permits, registrations, the truck
+       * inspection. Under Customers because most of them are about a
+       * customer, an address or a job; the kinds themselves are the
+       * company's, so this is one door to a page listing them rather than an
+       * item per kind the rail cannot know about.
+       */
+      { href: "/records", label: "Records", permission: "record:read", icon: "records" },
+      /**
        * Under Customers rather than under Money, because the question it
        * answers is about a client ("whose price governs for them?") rather
        * than about a number. Somebody opens this before quoting, not while
@@ -189,6 +197,8 @@ export const NAV: NavGroup[] = [
           { href: "/estimates", label: "Estimates" },
           /** The small print copied onto every proposal when it is written. */
           { href: "/estimates/terms", label: "Proposal terms" },
+          /** How the proposal reads: a cover, the sections in the company's order, saved per job type. */
+          { href: "/estimates/templates", label: "Proposal layouts" },
         ],
       },
       {
@@ -451,6 +461,8 @@ export const NAV: NavGroup[] = [
           { href: "/settings/branches", label: "Branches" },
           { href: "/settings/roles", label: "Roles" },
           { href: "/settings/custom-fields", label: "Custom fields" },
+          /** The company's own kinds of record and their fields. Beside the fields, because they are defined the same way. */
+          { href: "/settings/records", label: "Kinds of record" },
           { href: "/settings/service-area", label: "Service area" },
           /**
            * Labour burden and overhead rates, with their dates, which turn the
@@ -523,6 +535,12 @@ export const NAV: NavGroup[] = [
            * withholding.
            */
           { href: "/settings/export", label: "Take a copy" },
+          /**
+           * A practice copy of the settings to try things in, and copying
+           * chosen settings back. Shown under `settings:read`; making one
+           * needs `sandbox:manage`, and the page says so.
+           */
+          { href: "/settings/sandbox", label: "Sandbox" },
         ],
       },
     ],

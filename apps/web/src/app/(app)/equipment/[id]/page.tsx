@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { equipment, inTenant, NotFoundError } from "@opentradesos/api/services";
+import { customFields, equipment, inTenant, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -12,6 +12,8 @@ import { Empty, Table, Th, Td } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import { JOB_STATUS, JOB_TONE, label, tone, enumText } from "@/lib/labels";
 import { followUp } from "../../customers/warranties/actions";
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -243,6 +245,14 @@ export default async function EquipmentPage({ params }: { params: Promise<{ id: 
           </ul>
         </section>
       )}
+      <CustomFieldsPanel
+        entityType="equipment" id={id}
+        definitions={await customFields.formFields(ctx, "equipment")}
+        values={await customFields.valuesFor(ctx, { entityType: "equipment", id })}
+        canWrite={can(user.actor, "equipment:write")}
+        back={`/equipment/${id}`}
+      />
+      <RecordsPanel ctx={ctx} link="equipment" id={id} back={`/equipment/${id}`} />
     </div>
   );
 }

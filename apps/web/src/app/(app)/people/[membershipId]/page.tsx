@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { peopleRecords, people as peopleService, NotFoundError } from "@opentradesos/api/services";
+import { customFields, peopleRecords, people as peopleService, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip } from "@opentradesos/ui";
 import { Crumb, Fact, Facts } from "@/components/Detail";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
@@ -224,6 +225,16 @@ export default async function PersonPage({ params }: { params: Promise<{ members
             </ActionForm>
           ) : null}
         </section>
+      ) : null}
+      {/* A technician's own fields: somebody who is not a technician has none to fill in. */}
+      {person.technicianId ? (
+        <CustomFieldsPanel
+          entityType="technician" id={person.technicianId}
+          definitions={await customFields.formFields(ctx, "technician")}
+          values={await customFields.valuesFor(ctx, { entityType: "technician", id: person.technicianId })}
+          canWrite={can(user.actor, "user:write")}
+          back={`/people/${membershipId}`}
+        />
       ) : null}
     </div>
   );

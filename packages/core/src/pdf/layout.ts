@@ -1,4 +1,5 @@
 import { PdfPage, renderPdf, wrap, fit, widthOf, LETTER, type FontKey, type Rgb, type RenderOptions } from "./writer.js";
+import { fitWithin, type PdfImage } from "./image.js";
 import { money as parseMoney, format as formatMoney } from "../money/index.js";
 
 /**
@@ -182,6 +183,23 @@ export class Flow {
       this.y += height;
       this.page.line(this.left, this.y, this.right, this.y, { color: RULE, width: 0.4 });
     });
+  }
+
+  /**
+   * A photograph, as large as fits the width and `maxHeight`, on a new page
+   * when it does not fit on this one. Centred, with a caption under it when
+   * there is one.
+   */
+  image(image: PdfImage, options: { maxHeight?: number; caption?: string | null | undefined } = {}): void {
+    const size = fitWithin(image, this.width, Math.min(options.maxHeight ?? 320, this.bottom - MARGIN - 40));
+    this.ensure(size.height + (options.caption ? 20 : 8));
+    this.page.image(image, this.left + (this.width - size.width) / 2, this.y, size.width, size.height);
+    this.y += size.height;
+    if (options.caption) {
+      this.y += 12;
+      this.page.text(this.left + this.width / 2, this.y, fit(options.caption, "regular", 8, this.width), { size: 8, color: MUTED, align: "center" });
+    }
+    this.y += 8;
   }
 
   /** Totals, right aligned under a table: label then figure. */

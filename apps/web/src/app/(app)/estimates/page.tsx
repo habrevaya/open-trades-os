@@ -1,11 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { estimates, branches } from "@opentradesos/api/services";
+import { estimates, branches, customFields } from "@opentradesos/api/services";
 import { Chip, Money } from "@opentradesos/ui";
 import { money } from "@opentradesos/core";
 import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
+import { CustomFieldFilter } from "@/components/CustomFieldFilter";
+import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function EstimatesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string; branch?: string }>;
+  searchParams: Promise<{ sort?: string; branch?: string; field?: string; value?: string }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -24,8 +26,12 @@ export default async function EstimatesPage({
   const sort = params.sort === "value" ? "value" as const : "age" as const;
   const options = await branches.options(ctx);
   const branch = chosenBranch(options, params.branch);
-  const [page, waiting] = await Promise.all([
-    estimates.list(ctx, { limit: 100, ...(branch ? { businessUnitId: branch } : {}) }),
+  const declared = await customFields.formFields(ctx, "estimate");
+  const { fieldKey, fieldValue, byField } = fieldFrom(params);
+  const [{ page, refusal }, waiting] = await Promise.all([
+    withFieldFilter((withField) => estimates.list(ctx, {
+      limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
+    })),
     estimates.unsold(ctx, { sort, limit: 50 }),
   ]);
   const waitingTotal = money.toString(money.sum(waiting.map((e) => money.money(e.value)), "USD"));
@@ -92,7 +98,9 @@ export default async function EstimatesPage({
         list: an estimate belongs to a branch through its job, and the unsold
         pipeline above is the company's follow up list.
       */}
-      <BranchFilter options={options} action="/estimates" current={branch} keep={{ sort: params.sort }} />
+      <BranchFilter options={options} action="/estimates" current={branch} keep={{ sort: params.sort, field: fieldKey, value: fieldValue }} />
+      <CustomFieldFilter action="/estimates" declared={declared} keep={{ sort: params.sort, branch }}
+                         fieldKey={fieldKey} fieldValue={fieldValue} refusal={refusal} noun="estimates" />
       {page.data.length === 0 ? (
         branch ? (
           <Empty title="No estimates in that branch">
