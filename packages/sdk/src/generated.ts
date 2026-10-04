@@ -4864,6 +4864,14 @@ export interface GetCompanyDetailsOutput {
   name: string;
   legalName: string | null;
   timezone: string;
+  /** E.164. */
+  phone: string | null;
+  email: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
 }
 
 export interface GetComplianceSummaryOutput {
@@ -5145,6 +5153,16 @@ export interface GetCustomerStatementOutput {
   customerId: string;
   customerName: string;
   organizationName: string;
+  organizationContact: {
+    /** E.164. */
+    phone: string | null;
+    email: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+  };
   from: string;
   to: string;
   openingBalance: string;
@@ -5567,6 +5585,16 @@ export interface GetEstimateProposalOutput {
     hasLogo: boolean;
     version: number;
     timezone: string;
+    contact: {
+      /** E.164. */
+      phone: string | null;
+      email: string | null;
+      addressLine1: string | null;
+      addressLine2: string | null;
+      city: string | null;
+      state: string | null;
+      postalCode: string | null;
+    };
   };
   id: string;
   number: number;
@@ -12009,6 +12037,7 @@ export interface ListWorkflowTemplatesOutput {
       platform: string;
       displayName: string;
     }>;
+    onForNewCompanies: boolean;
   }>;
 }
 
@@ -15354,7 +15383,7 @@ export interface SendCollectionReminderOutput {
 }
 
 export interface SendEstimateInput {
-  channel?: "email" | "sms" | "link";
+  channel?: "email" | "sms" | "both" | "link";
   to?: string;
   message?: string;
   expiresInDays?: number;
@@ -15431,6 +15460,15 @@ export interface SendEstimateOutput {
     error: string | null;
     createdAt: string;
   };
+  deliveries: Array<{
+    id: string;
+    channel: "email" | "sms" | "link";
+    destination: string | null;
+    state: "interrupted" | "refused" | "link_issued" | "queued" | "sent" | "delivered" | "bounced" | "failed";
+    messageId: string | null;
+    error: string | null;
+    createdAt: string;
+  }>;
 }
 
 export interface SendFinancingLinkInput {
@@ -17325,12 +17363,27 @@ export interface UpdateChannelOutput {
 export interface UpdateCompanyDetailsInput {
   name: string;
   legalName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
 }
 
 export interface UpdateCompanyDetailsOutput {
   name: string;
   legalName: string | null;
   timezone: string;
+  /** E.164. */
+  phone: string | null;
+  email: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
 }
 
 export interface UpdateContractInput {
@@ -19586,7 +19639,7 @@ export interface GetAssignmentSuggestionsInput {
 export interface GetAvailabilityInput {
   organizationSlug: string;
   bookableServiceId: string;
-  from: string;
+  from?: string;
   days?: number;
   postalCode?: string;
 }
@@ -25346,7 +25399,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * What the company is called, and the zone its days run in.
+   * What the company is called, how customers reach it, and the zone its days run in.
    *
    * GET /v1/company. Needs settings:read.
    */
@@ -30755,7 +30808,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Rename the company, or set its legal name.
+   * Rename the company, set its legal name, or set how customers reach it.
    *
    * PATCH /v1/company. Needs settings:write.
    */

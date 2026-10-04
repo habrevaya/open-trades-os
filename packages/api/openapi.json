@@ -19588,14 +19588,14 @@
       ],
       "get": {
         "operationId": "getCompanyDetails",
-        "summary": "What the company is called, and the zone its days run in",
+        "summary": "What the company is called, how customers reach it, and the zone its days run in",
         "description": "Requires a session holding: settings:read.",
         "tags": [
           "M02"
         ],
         "responses": {
           "200": {
-            "description": "What the company is called, and the zone its days run in",
+            "description": "What the company is called, how customers reach it, and the zone its days run in",
             "content": {
               "application/json": {
                 "schema": {
@@ -19680,8 +19680,8 @@
       },
       "patch": {
         "operationId": "updateCompanyDetails",
-        "summary": "Rename the company, or set its legal name",
-        "description": "The name is what customers see on every invoice, text and portal page; the legal name is what goes on a document with legal weight and is often not the name on the van. The time zone is changed on its own, from Settings, because of what changing it does.\n\nRequires a session holding: settings:write.",
+        "summary": "Rename the company, set its legal name, or set how customers reach it",
+        "description": "The name is what customers see on every invoice, text and portal page; the legal name is what goes on a document with legal weight and is often not the name on the van. The phone, email and postal address are printed on proposals, invoices, statements, their PDFs and the portal's header. A contact field left out keeps what it had and an empty string or null clears it; the phone is stored in E.164, and an address with a street and no town, or a town and no street, is refused. The time zone is changed on its own, from Settings, because of what changing it does.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M02"
         ],
@@ -19697,7 +19697,7 @@
         },
         "responses": {
           "200": {
-            "description": "Rename the company, or set its legal name",
+            "description": "Rename the company, set its legal name, or set how customers reach it",
             "content": {
               "application/json": {
                 "schema": {
@@ -36858,7 +36858,7 @@
       "post": {
         "operationId": "sendEstimate",
         "summary": "Send an estimate to the customer",
-        "description": "`email` and `sms` compose the message, with the approval link, and queue it through the same consent and suppression checks as every other message, into the customer's conversation thread. `link` only issues the link, for handing over another way. A send the transport refuses (they replied STOP, no consent, no sender connected) is recorded with the reason and changes nothing else: the estimate keeps its status, any link the customer already holds still works, and `approvalUrl` is null. A send that goes withdraws every earlier link.\n\nRequires a session holding: estimate:send, portal:grant.",
+        "description": "`email` and `sms` compose the message, with the approval link, and queue it through the same consent and suppression checks as every other message, into the customer's conversation thread. `both` sends the email and the text at once, to the customer's own address and number, carrying one link; `to` is refused with it, and so is a customer missing either. `link` only issues the link, for handing over another way. Every attempt is a row in `deliveries`, one per channel, and `delivery` is the first of them. A send the transport refuses on every channel (they replied STOP, no consent, no sender connected) is recorded with the reason and changes nothing else: the estimate keeps its status, any link the customer already holds still works, and `approvalUrl` is null. By both at once, one channel refused and the other gone is a send that went, with the refusal recorded on its own row. A send that goes withdraws every earlier link.\n\nRequires a session holding: estimate:send, portal:grant.",
         "tags": [
           "M07"
         ],
@@ -75786,7 +75786,7 @@
           {
             "name": "from",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "format": "date"
@@ -129184,12 +129184,62 @@
           },
           "timezone": {
             "type": "string"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "E.164."
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "name",
           "legalName",
-          "timezone"
+          "timezone",
+          "phone",
+          "email",
+          "addressLine1",
+          "addressLine2",
+          "city",
+          "state",
+          "postalCode"
         ]
       },
       "GetComplianceSummaryOutput": {
@@ -130542,6 +130592,63 @@
           "organizationName": {
             "type": "string"
           },
+          "organizationContact": {
+            "type": "object",
+            "properties": {
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "E.164."
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "addressLine1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "addressLine2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "phone",
+              "email",
+              "addressLine1",
+              "addressLine2",
+              "city",
+              "state",
+              "postalCode"
+            ]
+          },
           "from": {
             "type": "string",
             "format": "date"
@@ -130722,6 +130829,7 @@
           "customerId",
           "customerName",
           "organizationName",
+          "organizationContact",
           "from",
           "to",
           "openingBalance",
@@ -132848,6 +132956,63 @@
               },
               "timezone": {
                 "type": "string"
+              },
+              "contact": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "E.164."
+                  },
+                  "email": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "addressLine1": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "addressLine2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "city": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "state": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "postalCode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "phone",
+                  "email",
+                  "addressLine1",
+                  "addressLine2",
+                  "city",
+                  "state",
+                  "postalCode"
+                ]
               }
             },
             "required": [
@@ -132858,7 +133023,8 @@
               "text",
               "hasLogo",
               "version",
-              "timezone"
+              "timezone",
+              "contact"
             ]
           },
           "id": {
@@ -166829,6 +166995,9 @@
                       "displayName"
                     ]
                   }
+                },
+                "onForNewCompanies": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -166839,7 +167008,8 @@
                 "parameters",
                 "installed",
                 "blockedBy",
-                "platforms"
+                "platforms",
+                "onForNewCompanies"
               ]
             }
           }
@@ -182901,6 +183071,7 @@
             "enum": [
               "email",
               "sms",
+              "both",
               "link"
             ],
             "default": "email"
@@ -183340,13 +183511,79 @@
               "error",
               "createdAt"
             ]
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms",
+                    "link"
+                  ]
+                },
+                "destination": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "interrupted",
+                    "refused",
+                    "link_issued",
+                    "queued",
+                    "sent",
+                    "delivered",
+                    "bounced",
+                    "failed"
+                  ]
+                },
+                "messageId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "channel",
+                "destination",
+                "state",
+                "messageId",
+                "error",
+                "createdAt"
+              ]
+            }
           }
         },
         "required": [
           "estimate",
           "approvalUrl",
           "expiresAt",
-          "delivery"
+          "delivery",
+          "deliveries"
         ]
       },
       "SendFinancingLinkInput": {
@@ -192178,6 +192415,55 @@
               "null"
             ],
             "maxLength": 200
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 254
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
           }
         },
         "required": [
@@ -192198,12 +192484,62 @@
           },
           "timezone": {
             "type": "string"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "E.164."
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addressLine1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addressLine2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "name",
           "legalName",
-          "timezone"
+          "timezone",
+          "phone",
+          "email",
+          "addressLine1",
+          "addressLine2",
+          "city",
+          "state",
+          "postalCode"
         ]
       },
       "UpdateContractInput": {
