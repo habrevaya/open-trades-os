@@ -2679,7 +2679,7 @@ returns table (organization_id uuid)
       join public.organization o on o.id = c.organization_id
       left join public.sync_run r on r.connection_id = c.id
      where c.provider in ('google_ads', 'google_lsa', 'meta_ads', 'ga4', 'google_business_profile',
-                          'bing_ads', 'meta_lead_ads', 'search_console', 'ga4_data')
+                          'bing_ads', 'meta_lead_ads', 'search_console', 'ga4_data', 'facebook_page')
        and c.status = 'connected'
        and c.deleted_at is null
        and o.suspended_at is null

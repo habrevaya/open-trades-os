@@ -44,7 +44,9 @@ export type AdsProvider =
   /** What people searched before they arrived, read back from Search Console. */
   | "search_console"
   /** Sessions by source read back from Google Analytics, as opposed to `ga4`, which is sent events. */
-  | "ga4_data";
+  | "ga4_data"
+  /** A Facebook Page's ratings and recommendations, read in and replied to. */
+  | "facebook_page";
 
 /**
  * Who a person signs in with to grant access. GA4's Measurement Protocol has
@@ -208,6 +210,25 @@ export const PROVIDERS: Readonly<Record<AdsProvider, ProviderSpec>> = {
     pullsLeads: false,
     pullsReviews: false,
     pullsAnalytics: true,
+    sends: [],
+    answersFor: [],
+    personalData: false,
+  },
+  facebook_page: {
+    provider: "facebook_page",
+    label: "Facebook Page reviews",
+    oauth: "meta",
+    /**
+     * `pages_show_list` and `pages_read_engagement` find the Page and read
+     * its token, `pages_read_user_content` reads the ratings and
+     * recommendations people left on it, and `pages_manage_engagement` is
+     * what lets a reply be posted as the Page. All four are Meta app review.
+     */
+    scopes: ["pages_show_list", "pages_read_engagement", "pages_read_user_content", "pages_manage_engagement"],
+    pullsSpend: false,
+    pullsLeads: false,
+    pullsReviews: true,
+    pullsAnalytics: false,
     sends: [],
     answersFor: [],
     personalData: false,
@@ -666,6 +687,34 @@ const STARS: Readonly<Record<string, number>> = { ONE: 1, TWO: 2, THREE: 3, FOUR
 export function starRating(value: unknown): number | null {
   if (typeof value === "number") return Number.isInteger(value) && value >= 1 && value <= 5 ? value : null;
   if (typeof value === "string") return STARS[value.trim().toUpperCase()] ?? null;
+  return null;
+}
+
+/**
+ * A Facebook Page rating as stars, which is what the reviews module counts in.
+ *
+ * Facebook moved Pages from star ratings to recommendations in 2018: a person
+ * now says yes or no to "Do you recommend this business?" and writes why.
+ * Older ratings still carry stars and are read as they are. A recommendation
+ * has none, so a yes counts as five and a no as one. That is a choice, and
+ * it is made here once rather than in every reader: a no has to start the
+ * recovery clock the way a one star review on Google does, because it is the
+ * same unhappy customer, and a yes is the best thing a person can say there.
+ * It does mean a company's average counts a yes as a perfect score.
+ * Neither is a rating, null, and the review is left out rather than guessed.
+ */
+export function facebookRating(raw: { rating?: unknown; has_rating?: unknown; recommendation_type?: unknown }): number | null {
+  const stars = starRating(raw.rating);
+  if (stars !== null && raw.has_rating !== false) return stars;
+  if (raw.recommendation_type === "positive") return 5;
+  if (raw.recommendation_type === "negative") return 1;
+  return null;
+}
+
+/** A recommendation, said in words, for the review's text when the person wrote none. */
+export function facebookVerdict(raw: { recommendation_type?: unknown }): string | null {
+  if (raw.recommendation_type === "positive") return "Recommends you on Facebook.";
+  if (raw.recommendation_type === "negative") return "Does not recommend you on Facebook.";
   return null;
 }
 

@@ -42,14 +42,15 @@ export async function markCalled(_previous: unknown, form: FormData) {
   return { done: true };
 }
 
-/** "Fetch from Google now": read the connected listings and post the replies waiting. */
+/** "Fetch from Google now", or Facebook: read every connected listing and post the replies waiting. */
 export async function syncListings(_previous: FormState, form: FormData): Promise<FormState> {
   const result = await attempt(form, async () => {
     const outcome = await reviewSync.syncNow(await ctx());
     const failed = outcome.listings.find((l) => l.error);
     if (failed) throw new ConflictError(failed.error!);
     const read = outcome.listings.reduce((n, l) => n + l.read, 0);
-    return { message: `Read ${read} review${read === 1 ? "" : "s"} from Google.` };
+    const from = outcome.listings.length === 1 ? reviewSync.siteName(outcome.listings[0]!.provider) : "your listings";
+    return { message: `Read ${read} review${read === 1 ? "" : "s"} from ${from}.` };
   });
   revalidatePath("/reviews");
   return result;

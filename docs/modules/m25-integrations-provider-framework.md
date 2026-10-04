@@ -34,7 +34,7 @@ catalogue cannot drift into optimism.
 
 **What counts as built is deliberately narrow.** A parser with no transport is not a
 connector. A connector is built when a company can set it up from the settings screen
-and data arrives. Thirty six entries are built today and one is declared.
+and data arrives. Thirty seven entries are built today and one is declared.
 
 **A capability is a seam, not a vendor.** Payments, email, accounting, messaging,
 telephony, ads, lead source, reviews, maps, tax, payroll, financing, storage,
@@ -187,12 +187,13 @@ catalogue says why.
 settings screen shows it. Stripe, Wisetack, QuickBooks Online, Xero, Twilio, JustCall, Resend,
 SMTP, CallRail, the AI model providers, the OpenStreetMap and Mapbox geocoders,
 the OSRM, Mapbox and OpenRouteService routing services,
-Google Ads, Google Local Services, Meta Ads, Google Analytics and Google Business
-Profile are the ones a company can set up and see data arrive from. The last
-five are tested against fakes of each, not live accounts, and four of them need
-the platform's own developer approval first: Google Ads (a developer token),
-Local Services and Business Profile (Google's API access), and Meta (app review
-for some permissions). Google Analytics needs only a Measurement Protocol secret
+Google Ads, Google Local Services, Meta Ads, Google Analytics, Google Business
+Profile and Facebook Page reviews are the ones a company can set up and see data
+arrive from. The last six are tested against fakes of each, not live accounts, and
+five of them need the platform's own developer approval first: Google Ads (a
+developer token), Local Services and Business Profile (Google's API access), Meta
+Ads (app review for some permissions) and Facebook Page reviews (app review for
+reading and answering a Page's ratings, without which nothing is read). Google Analytics needs only a Measurement Protocol secret
 from the company's own data stream, which nobody has to approve.
 
 **Where do the map's pictures come from?** Raster tiles from `MAP_TILE_URL`,

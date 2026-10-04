@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { ads } from "@opentradesos/core";
 import {
@@ -12,13 +12,15 @@ import {
 import { PlatformRefusedError } from "../ads/index";
 
 /**
- * GOOGLE BUSINESS PROFILE REVIEWS, READ AND ANSWERED FROM HERE
+ * GOOGLE BUSINESS PROFILE AND FACEBOOK PAGE REVIEWS, READ AND ANSWERED FROM HERE
  *
  * Every hour the listing's reviews are read into the ordinary review table,
  * through the same `record` a person typing one in uses, so the recovery
  * clock, the work list and the rating are the reviews module's own and not a
  * second copy of them. A reply written on the review screen is posted back to
- * Google by the next pass, or at once from "Fetch and post now".
+ * the listing by the next pass, or at once from "Fetch and post now". Nothing
+ * here knows which listing it is: every connection whose provider
+ * `pullsReviews` is read the same way, through its adapter.
  *
  * WHO WROTE IT IS A SUGGESTION. A reviewer chooses their own display name.
  * Core suggests the customer whose name and recently finished job fit, the
@@ -32,9 +34,19 @@ import { PlatformRefusedError } from "../ads/index";
  */
 
 const ctxFor = (db: Database, organizationId: string): ServiceContext => ({ actor: adsActor(organizationId), db });
+/** The site a listing is, as the review screen says it: "read from Google", "refused by Facebook". */
+const SITE: Record<string, string> = {
+  google_business_profile: "Google", facebook_page: "Facebook", google: "Google", facebook: "Facebook",
+};
+
+/** A listing's provider or a review's platform key, as the site's own name. */
+export const siteName = (key: string): string => SITE[key] ?? (key.charAt(0).toUpperCase() + key.slice(1));
+
+/** The review platform key a listing's reviews are recorded under, which the review policy names. */
+const DEFAULT_PLATFORM: Record<string, string> = { google_business_profile: "google", facebook_page: "facebook" };
 const platformKey = (row: Connection) => {
   const value = (row.settings as Record<string, unknown> | null)?.["platform"];
-  return typeof value === "string" && value.trim() !== "" ? value.trim() : "google";
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : DEFAULT_PLATFORM[row.provider] ?? row.provider;
 };
 
 /** Read the listing, and post the replies that are waiting. */
@@ -237,7 +249,7 @@ export async function listings(ctx: ServiceContext) {
   return guardedRead(ctx, "review:respond", async (tx) => {
     const rows = await tx.select().from(schema.integrationConnection).where(and(
       eq(schema.integrationConnection.organizationId, ctx.actor.organizationId),
-      eq(schema.integrationConnection.provider, "google_business_profile"),
+      inArray(schema.integrationConnection.provider, ads.ADS_PROVIDERS.filter((p) => ads.PROVIDERS[p].pullsReviews)),
       isNull(schema.integrationConnection.deletedAt),
       sql`${schema.integrationConnection.status} <> 'disconnected'`,
     ));
@@ -248,6 +260,8 @@ export async function listings(ctx: ServiceContext) {
         .orderBy(desc(schema.syncRun.startedAt)).limit(1);
       out.push({
         provider: row.provider,
+        label: ads.isAdsProvider(row.provider) ? ads.PROVIDERS[row.provider].label : row.provider,
+        site: siteName(row.provider),
         status: row.status,
         lastError: row.lastError,
         lastReadAt: last?.finishedAt?.toISOString() ?? null,
