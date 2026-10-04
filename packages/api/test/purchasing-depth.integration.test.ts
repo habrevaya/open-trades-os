@@ -139,6 +139,8 @@ run("numbers for units already on the shelf, and a unit back off a job", () => {
 
     await expect(stockUnits.numberUnits(owner(), { itemId: compressor, locationId: van, units: [{ number: "A1" }] }))
       .rejects.toThrow(/Serial A1 of Compressor, 3 ton is already in stock at Shop/);
+    await expect(stockUnits.numberUnits(owner(), { itemId: compressor, locationId: shop, units: [{ number: "Z1" }, { number: "z1" }] }))
+      .rejects.toThrow("Z1 is named twice. Each unit moves once.");
     await expect(stockUnits.numberUnits(owner(), { itemId: compressor, locationId: shop, units: [{ number: "A9" }] }))
       .rejects.toThrow(/Every Compressor, 3 ton at Shop already has its number/);
 

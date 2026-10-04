@@ -275,11 +275,12 @@ test("Purchasing: a draft is changed, sent, received, and a freight bill that ca
   // Sent, then received in full.
   await owner.goto("/purchasing");
   await owner.getByRole("row").filter({ hasText: vendor }).getByRole("button", { name: "Send to vendor" }).click();
-  await expect(owner.getByRole("row").filter({ hasText: vendor })).toContainText("submitted");
+  await expect(owner.getByRole("row").filter({ hasText: vendor }).filter({ hasText: "#" })).toContainText("submitted");
   await owner.goto(orderUrl);
   const receive = owner.getByRole("region", { name: "Receive a delivery" });
   await receive.getByRole("button", { name: "Receive" }).click();
-  await expect(receive.getByRole("status")).toContainText("Received. The order is received");
+  // Received in full, the order closes and its delivery is listed.
+  await expect(owner.getByRole("region", { name: "Deliveries" })).toContainText("no freight or fees");
 
   // The carrier's bill a week later: all of it onto parts still on the shelf.
   await owner.reload();

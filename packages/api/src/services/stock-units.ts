@@ -189,6 +189,15 @@ export function numberUnits(ctx: ServiceContext, input: {
     const unitLevels = inv.deriveUnitLevels(movements);
     const loose = inv.unnumberedByLocation([level], unitLevels)[0]?.quantity ?? inv.ZERO_QUANTITY;
 
+    /** The same label read twice is said as such, before either is looked up. */
+    const read = new Map<string, string>();
+    for (const unit of input.units) {
+      const key = unit.number.trim().toLowerCase();
+      const earlier = read.get(key);
+      if (earlier !== undefined) throw new ConflictError(`${earlier} is named twice. Each unit moves once.`);
+      read.set(key, unit.number.trim());
+    }
+
     const picks: inv.UnitPick[] = [];
     const numbers = new Map<string, string>();
     for (const unit of input.units) {
@@ -198,7 +207,8 @@ export function numberUnits(ctx: ServiceContext, input: {
         .where(and(eq(schema.stockLot.itemId, input.itemId), sql`lower(${schema.stockLot.number}) = lower(${number})`))
         .limit(1);
       let lotId = found?.id;
-      if (found && mode === "serial") {
+      /** A number on file that no movement has ever named is a number and nothing more: free to give. */
+      if (found && mode === "serial" && movements.some((mv) => mv.lotId === found.id)) {
         const state = inv.serialState(movements, found.id);
         if (state.state === "in_stock" && state.locationId !== input.locationId) {
           throw new ConflictError(`Serial ${found.number} of ${label} is already in stock at ${await placeLabel(tx, state.locationId)}. The same number twice is a misread label or a second unit: look at both.`);
