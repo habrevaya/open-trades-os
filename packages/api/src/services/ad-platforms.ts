@@ -776,9 +776,9 @@ export async function mapPlatformCampaign(
  * credited to the platform's channel, with no webhook token because nothing
  * posts to it.
  */
-const LEAD_CONNECTOR: Partial<Record<ads.AdsProvider, { source: string; displayName: string }>> = {
-  google_lsa: { source: "google_lsa", displayName: "Google Local Services Ads" },
-  meta_lead_ads: { source: "meta_ads", displayName: "Meta instant forms" },
+const LEAD_CONNECTOR: Partial<Record<ads.AdsProvider, { source: string; displayName: string; through: string; nameless: string }>> = {
+  google_lsa: { source: "google_lsa", displayName: "Google Local Services Ads", through: "Google Local Services", nameless: "Local Services lead" },
+  meta_lead_ads: { source: "meta_ads", displayName: "Meta instant forms", through: "Meta", nameless: "Instant form lead" },
 };
 
 async function platformLeadConnector(tx: Database, row: Connection): Promise<string> {
@@ -788,7 +788,7 @@ async function platformLeadConnector(tx: Database, row: Connection): Promise<str
       eq(schema.leadSourceConnector.connectionId, row.id),
     )).limit(1);
   if (existing) return existing.id;
-  const spec = LEAD_CONNECTOR[row.provider as ads.AdsProvider] ?? { source: "marketplace", displayName: row.provider };
+  const spec = LEAD_CONNECTOR[row.provider as ads.AdsProvider] ?? { source: "marketplace", displayName: row.provider, through: row.provider, nameless: "Lead" };
   const [created] = await tx.insert(schema.leadSourceConnector).values({
     organizationId: row.organizationId,
     connectionId: row.id,
@@ -856,7 +856,7 @@ const LEAD_TYPE: Record<string, string> = { PHONE_CALL: "A call", MESSAGE: "A me
 export async function ingestLeads(tx: Database, row: Connection, leads: readonly PulledLead[]): Promise<{ written: number; offers: string[] }> {
   const provider = row.provider as ads.AdsProvider;
   const connectorId = await platformLeadConnector(tx, row);
-  const label = ads.PROVIDERS[provider]?.label ?? provider;
+  const label = LEAD_CONNECTOR[provider]?.through ?? ads.PROVIDERS[provider]?.label ?? provider;
   let written = 0;
   const offers: string[] = [];
   for (const lead of leads) {
@@ -867,7 +867,7 @@ export async function ingestLeads(tx: Database, row: Connection, leads: readonly
       campaignId,
       lead: {
         externalId: lead.externalId,
-        contactName: lead.name ?? `${label} lead`,
+        contactName: lead.name ?? LEAD_CONNECTOR[provider]?.nameless ?? "Lead",
         contactEmail: lead.email,
         contactPhone: lead.phone,
         addressLine1: lead.address?.line1 ?? null,

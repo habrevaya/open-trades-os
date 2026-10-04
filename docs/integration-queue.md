@@ -79,6 +79,16 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `meta_ads` | ads | Spend per campaign per day, and booked and paid jobs through the Conversions API with hashed details only where consent allows. Meta's sign in lasts sixty days. |
 | `ga4` | analytics | Leads and purchases through the Measurement Protocol, tied to the visit by the analytics id the website snippet reads. An API secret, no sign in. |
 | `google_business_profile` | reviews | Reviews read hourly into the review work list, replies posted back, and who wrote one suggested rather than asserted. Needs Google's separate approval for the API. |
+| `bing_ads` | ads | Microsoft Advertising spend through its report job: submitted, polled, the zipped CSV downloaded with no token on the signed address. Microsoft's sign in rotates its refresh token and the new one is kept sealed. Spend only; tested against a fake. |
+| `meta_lead_ads` | ads | Meta's instant form leads, posted to one deployment wide address signed with the app's secret and read back with the Page's token, and pulled every ten minutes in case a post was missed. App review for five scopes. |
+| `search_console` | analytics | Search queries per day with clicks, impressions and position, read twice a day onto the marketing overview. A sign in with Google. |
+| `ga4_data` | analytics | Sessions by source and medium per day from the Data API, beside the leads each source brought. A sign in, as distinct from `ga4`, which only sends. |
+| `angi` | lead_source | Leads Angi posts, authenticated with the company's key, the fee recorded as spend. Angi's CRM integration program approves partners by hand. |
+| `thumbtack` | lead_source | Leads and messages Thumbtack posts with HTTP Basic, the price recorded as spend, replies sent back through Thumbtack. Its partner API is approval gated. |
+| `yelp` | lead_source | Request a Quote: Yelp posts only an id and the lead and its messages are read back with the token; replies go back through Yelp. Partners only. |
+| `nextdoor` | lead_source | No API exists for a business's enquiries, so built as the lead email reader for Nextdoor's notifications. |
+| `lead_email` | lead_source | One inbox address per company that every marketplace's lead emails are forwarded to, read by their labels into lead offers. The way in for every marketplace without API access. |
+| `lob` | direct_mail | Postcards and letters, each under its own id as Lob's idempotency key with a QR code to its own address. A `test_` key prints nothing. |
 | `wisetack` | financing | Consumer financing: an application link for an invoice or estimate, the decision read back from Wisetack after every signed webhook, and the funded loan recorded as a payment with Wisetack's fee as an expense. Tested against a fake of its API; needs a Wisetack merchant account. |
 
 ---
