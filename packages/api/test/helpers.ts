@@ -106,6 +106,8 @@ const ORDER = [
    * goes before all three.
    */
   "referral_reward",
+  /** A customer's tags, one row each, written by a trigger from the customer's own list. */
+  "customer_tag",
   "customer_property", "contact", "property", "customer",
   /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
   "vendor_item",

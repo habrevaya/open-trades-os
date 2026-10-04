@@ -19,6 +19,7 @@ import { purgePass } from "./retention";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import { purgePositions } from "./location";
+import { purgeUnusedClients } from "./oauth";
 import type { PushProvider } from "../push/provider";
 
 /**
@@ -275,10 +276,18 @@ export interface PassOptions {
    * needs a delete every five seconds.
    */
   positions?: false;
+  /**
+   * Whether this pass also removes OAuth client registrations no company ever
+   * approved, a week after they were made. At most hourly; `false` turns it
+   * off.
+   */
+  oauthClients?: false;
 }
 
 let positionsPurgedAt = 0;
 const POSITION_PURGE_INTERVAL_MS = 10 * 60_000;
+let clientsPurgedAt = 0;
+const CLIENT_PURGE_INTERVAL_MS = 60 * 60_000;
 
 /**
  * ONE PASS: the clock, then the log, then whatever the drain left to send.
@@ -417,6 +426,20 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       positionsPurgedAt = Date.now();
     } catch (error) {
       console.error("[worker] positions:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Registrations by MCP clients that no company went on to approve. Its own
+   * try and its own clock, like the positions: nothing about a week old
+   * registration is urgent, and nothing else may wait on it.
+   */
+  if (options.oauthClients !== false && Date.now() - clientsPurgedAt >= CLIENT_PURGE_INTERVAL_MS) {
+    try {
+      await purgeUnusedClients(options.db);
+      clientsPurgedAt = Date.now();
+    } catch (error) {
+      console.error("[worker] oauth registrations:", (error as Error).message);
     }
   }
 

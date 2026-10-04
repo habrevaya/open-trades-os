@@ -70,6 +70,16 @@ export const tradePackApplication = pgTable("trade_pack_application", {
    * warranty, exactly as the pack declared them.
    */
   seeded: jsonb("seeded").$type<Record<string, Record<string, unknown>>>().notNull().default({}),
+  /**
+   * The rest of what this version set up, as it set it up: the service report
+   * template, each inspection programme, each retention rule and the portal
+   * layout, by the key `core/setup` gives each. What the next upgrade
+   * compares the company's rows against to tell an untouched one from one
+   * somebody here changed. Empty on an application recorded before this was
+   * kept, and an upgrade over one of those decides by the rows' own version
+   * numbers and dates instead, keeping anything it cannot be sure of.
+   */
+  seededSetup: jsonb("seeded_setup").$type<Record<string, Record<string, unknown>>>().notNull().default({}),
   /** What happened: counts of items and job types added, updated, kept and skipped. */
   result: jsonb("result").$type<Record<string, unknown>>().notNull().default({}),
   appliedByUserId: uuid("applied_by_user_id").references(() => user.id, { onDelete: "set null" }),

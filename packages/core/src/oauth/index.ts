@@ -148,6 +148,37 @@ export function resolveScopes(requested: readonly string[], held: ReadonlySet<st
   };
 }
 
+export type Narrowing =
+  | { ok: true; granted: Permission[] }
+  | { ok: false; message: string };
+
+/**
+ * What the person ticked on the consent page, checked against what the page
+ * offered.
+ *
+ * The person approving may give less than the client asked for: an
+ * assistant asking for `customers` that only needs to look people up can be
+ * left without `customer:write`. Only ever less. A permission that was not
+ * offered (the client did not ask for it, or the approver does not hold it)
+ * is refused by name rather than dropped or granted, because the form is
+ * posted by a browser and the page is not what decides. Nothing ticked is
+ * refused too: an app that can do nothing is a "Do not connect" pressed the
+ * long way round, and saying so beats installing it.
+ */
+export function narrowGrant(offered: readonly Permission[], chosen: readonly string[]): Narrowing {
+  const allowed = new Set<string>(offered);
+  const extra = [...new Set(chosen)].filter((p) => !allowed.has(p));
+  if (extra.length > 0) {
+    return { ok: false, message: `Not offered on this page, so it cannot be given: ${extra.join(", ")}.` };
+  }
+  const picked = new Set(chosen);
+  const granted = offered.filter((p) => picked.has(p));
+  if (granted.length === 0) {
+    return { ok: false, message: "Tick at least one thing it may do, or choose Do not connect." };
+  }
+  return { ok: true, granted };
+}
+
 /** The permissions that expose money, flagged on the consent page. */
 export const isSensitive = (permission: string): boolean =>
   (SENSITIVE_PERMISSIONS as readonly string[]).includes(permission);

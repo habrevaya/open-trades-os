@@ -14,8 +14,9 @@ export const dynamic = "force-dynamic";
  * desktop) sends the person here to ask for access to their company. The page
  * says who is asking, where the answer goes, and what it would be able to do,
  * every permission in the catalogue's own words, with the ones that expose
- * money marked and the ones the person cannot give named as left out. The
- * answer is yes to that list or no.
+ * money marked and the ones the person cannot give named as left out. Each
+ * one is a box, ticked, and the person can untick any of them: the answer is
+ * yes to what is still ticked, or no.
  *
  * A yes makes the assistant a connected app of this company, listed under
  * Settings, Applications beside every other, with its own credential that
@@ -47,7 +48,15 @@ export default async function AuthorizePage({
   const consent = oauth.consentFor(check.scopes, held);
   const allowed = can(user.actor, "integration:write");
   const returnsTo = new URL(check.redirectUri).host || check.redirectUri;
-  const hidden = Object.entries(params).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  /**
+   * The request's own parameters ride along, and nothing else from the
+   * address. The address is written by the client, and a `decision=approve`
+   * or a `grant=...` it added would otherwise post ahead of the person's own
+   * button and boxes: the first value of a field is the one read.
+   */
+  const hidden = oauth.AUTHORIZE_PARAMS
+    .map((name) => [name, params[name]] as const)
+    .filter((entry): entry is readonly [string, string] => typeof entry[1] === "string");
 
   return (
     <>
@@ -67,14 +76,28 @@ export default async function AuthorizePage({
       {consent.granted.length === 0 ? (
         <p className="mt-1 text-sm text-red-600">You hold none of what it asks for, so there is nothing you can give it.</p>
       ) : (
-        <ul className="mt-1.5 space-y-1 text-sm" aria-label="What it would be able to do">
-          {consent.granted.map((item) => (
-            <li key={item.permission}>
-              {item.label}
-              {item.sensitive ? <span className="ml-1.5 text-xs font-medium text-amber-700">shows money</span> : null}
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className="mt-1 text-sm text-ink-500">Untick anything you would rather it could not do.</p>
+          {/*
+            Boxes in the same form as the buttons, so they post with the
+            answer. `narrow` says the boxes were on the page, which is how an
+            all unticked answer is told apart from a form with no boxes.
+          */}
+          <ul className="mt-1.5 space-y-1 text-sm" aria-label="What it would be able to do">
+            {consent.granted.map((item) => (
+              <li key={item.permission}>
+                <label className="inline-flex items-start gap-2">
+                  <input type="checkbox" name="grant" value={item.permission} defaultChecked form="oauth-answer"
+                         className="mt-0.5 h-4 w-4" />
+                  <span>
+                    {item.label}
+                    {item.sensitive ? <span className="ml-1.5 text-xs font-medium text-amber-700">shows money</span> : null}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {consent.withheld.length > 0 ? (
         <>
@@ -95,8 +118,9 @@ export default async function AuthorizePage({
         </p>
       )}
 
-      <form action={answer} className="mt-6 flex gap-3">
+      <form id="oauth-answer" action={answer} className="mt-6 flex gap-3">
         {hidden.map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
+        {consent.granted.length > 0 ? <input type="hidden" name="narrow" value="1" /> : null}
         {allowed && consent.granted.length > 0 ? (
           <button type="submit" name="decision" value="approve"
                   className="inline-flex h-10 items-center rounded bg-ink-900 px-4 text-sm font-medium text-white hover:bg-ink-700">

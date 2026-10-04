@@ -673,23 +673,34 @@ grant execute on function app.count_public_hit(text, integer) to authenticated;
 alter table public.oauth_client enable row level security;
 alter table public.oauth_client force row level security;
 
+-- A confidential client registers with a secret, of which only the SHA-256
+-- reaches this table. The four argument form from before confidential
+-- clients existed is dropped so nothing can register a client without saying
+-- which kind it is.
+drop function if exists app.oauth_register_client(text, text, jsonb, text);
 create or replace function app.oauth_register_client(
-  p_client_id text, p_name text, p_redirect_uris jsonb, p_from text
+  p_client_id text, p_name text, p_redirect_uris jsonb, p_from text,
+  p_auth_method text, p_secret_hash text
 ) returns void
   language sql volatile security definer set search_path = public, pg_temp
   as $$
-    insert into public.oauth_client (client_id, name, redirect_uris, registered_from)
-    values (p_client_id, left(p_name, 200), p_redirect_uris, left(p_from, 100))
+    insert into public.oauth_client
+      (client_id, name, redirect_uris, registered_from, token_endpoint_auth_method, secret_hash)
+    values (p_client_id, left(p_name, 200), p_redirect_uris, left(p_from, 100), p_auth_method, p_secret_hash)
   $$;
 
-revoke all on function app.oauth_register_client(text, text, jsonb, text) from public;
-grant execute on function app.oauth_register_client(text, text, jsonb, text) to authenticated;
+revoke all on function app.oauth_register_client(text, text, jsonb, text, text, text) from public;
+grant execute on function app.oauth_register_client(text, text, jsonb, text, text, text) to authenticated;
 
+-- Which kind of client it is, but never its secret's hash: a client proves
+-- its secret through `oauth_client_secret_matches` below, so the hash does
+-- not leave the database even as far as the application.
+drop function if exists app.oauth_client(text);
 create or replace function app.oauth_client(p_client_id text)
-  returns table (client_id text, name text, redirect_uris jsonb)
+  returns table (client_id text, name text, redirect_uris jsonb, auth_method text)
   language sql stable security definer set search_path = public, pg_temp
   as $$
-    select c.client_id, c.name, c.redirect_uris
+    select c.client_id, c.name, c.redirect_uris, c.token_endpoint_auth_method
     from public.oauth_client c
     where c.client_id = p_client_id
     limit 1
@@ -697,6 +708,51 @@ create or replace function app.oauth_client(p_client_id text)
 
 revoke all on function app.oauth_client(text) from public;
 grant execute on function app.oauth_client(text) to authenticated;
+
+-- Whether a confidential client presented its own secret. The caller hashes
+-- what was sent, so the secret itself is never a parameter here or in a log.
+-- A public client has no secret and never matches.
+create or replace function app.oauth_client_secret_matches(p_client_id text, p_secret_hash text)
+  returns boolean
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select coalesce((
+      select c.secret_hash is not null and c.secret_hash = p_secret_hash
+      from public.oauth_client c
+      where c.client_id = p_client_id
+      limit 1
+    ), false)
+  $$;
+
+revoke all on function app.oauth_client_secret_matches(text, text) from public;
+grant execute on function app.oauth_client_secret_matches(text, text) to authenticated;
+
+-- REGISTRATIONS NOBODY EVER USED.
+-- A client registers before anybody at any company has been asked, and many
+-- register on every attempt to connect, so a burst of rows that no company
+-- ever approved is normal. One that is a week old with no connected app and
+-- no code at any company is junk, and the worker removes it. One that any
+-- company ever approved is kept for good, even after the company turned it
+-- off, because its id is on that company's connected app and audit lines.
+create or replace function app.oauth_purge_unused_clients(p_older_than_days int default 7, p_limit int default 1000)
+  returns int
+  language sql volatile security definer set search_path = public, pg_temp
+  as $$
+    with doomed as (
+      select c.client_id
+      from public.oauth_client c
+      where c.created_at < now() - make_interval(days => greatest(p_older_than_days, 1))
+        and not exists (select 1 from public.connected_app a where a.oauth_client_id = c.client_id)
+        and not exists (select 1 from public.oauth_code k where k.client_id = c.client_id)
+      limit p_limit
+    ), gone as (
+      delete from public.oauth_client c using doomed d where c.client_id = d.client_id returning 1
+    )
+    select count(*)::int from gone
+  $$;
+
+revoke all on function app.oauth_purge_unused_clients(int, int) from public;
+grant execute on function app.oauth_purge_unused_clients(int, int) to background;
 
 -- The token endpoint is called by a client holding a code or a refresh token
 -- and nothing else: no cookie, no tenant. These answer WHICH company a code
@@ -730,6 +786,28 @@ create or replace function app.oauth_refresh_organization(p_token_hash text)
 
 revoke all on function app.oauth_refresh_organization(text) from public;
 grant execute on function app.oauth_refresh_organization(text) to authenticated;
+
+-- The same question for an access token, which is an ordinary app token: the
+-- revocation and introspection endpoints are handed one by a client with no
+-- tenant. Only a token of an app that came through OAuth answers. A token an
+-- operator issued by hand is not any OAuth client's to ask about, so to these
+-- endpoints it is unknown, exactly like a string nobody issued.
+create or replace function app.oauth_access_organization(p_token_hash text)
+  returns uuid
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select t.organization_id
+    from public.app_token t
+    join public.connected_app a on a.id = t.app_id
+    join public.organization o on o.id = t.organization_id
+    where t.token_hash = p_token_hash
+      and a.oauth_client_id is not null
+      and o.suspended_at is null
+    limit 1
+  $$;
+
+revoke all on function app.oauth_access_organization(text) from public;
+grant execute on function app.oauth_access_organization(text) to authenticated;
 
 -- An app that asked to be installed comes back for its credential holding
 -- the request id and the secret it was given, and no tenant. This answers
@@ -2256,6 +2334,50 @@ drop trigger if exists job_default_branch on public.job;
 create trigger job_default_branch
   before insert on public.job
   for each row execute function app.default_job_branch();
+
+-- ---- A customer's tags, one row each, kept by the database ----------------
+-- `customer_tag` is what the tag filter, the tag counts and a campaign's
+-- `tagged_any` read, under an index on the case blind key. The customer's
+-- own list stays the record of what they carry, and this rebuilds the rows
+-- from it whenever the list or the customer's deleted state changes, in the
+-- same statement as the change. Nothing else writes the table, so nothing
+-- can leave it disagreeing with the lists: an import, a restore, a rename
+-- across the book and a row inserted by hand all pass through here.
+--
+-- Security invoker. It writes rows for the customer the statement just
+-- wrote, under the tenant that statement was already allowed to write in.
+-- The key is the one `core/tags` compares by: trimmed, inner spaces run
+-- together, lower cased, so a key worked out in TypeScript finds these rows.
+create or replace function app.sync_customer_tags() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  begin
+    if tg_op = 'UPDATE'
+       and new.tags is not distinct from old.tags
+       and (new.deleted_at is null) = (old.deleted_at is null) then
+      return null;
+    end if;
+    if tg_op = 'UPDATE' then
+      delete from public.customer_tag where customer_id = new.id;
+    end if;
+    if new.deleted_at is null then
+      insert into public.customer_tag (organization_id, customer_id, position, tag, tag_key)
+      select new.organization_id, new.id, (t.ord - 1)::int, t.tag,
+             lower(regexp_replace(regexp_replace(t.tag, '\s+', ' ', 'g'), '^ | $', '', 'g'))
+      from jsonb_array_elements_text(
+        case when jsonb_typeof(new.tags) = 'array' then new.tags else '[]'::jsonb end
+      ) with ordinality as t(tag, ord)
+      where t.tag is not null;
+    end if;
+    return null;
+  end;
+  $$;
+
+drop trigger if exists customer_tags_sync on public.customer;
+create trigger customer_tags_sync
+  after insert or update of tags, deleted_at on public.customer
+  for each row execute function app.sync_customer_tags();
 
 -- ---- Inviting somebody to work here ----------------------------------------
 -- The setup wizard's team step, and Settings > Team. Until these two

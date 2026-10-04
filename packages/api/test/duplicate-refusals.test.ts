@@ -248,6 +248,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   task_escalation_once_idx:
     "One escalation per task per rule, inserted first with on conflict do nothing, so only the "
     + "pass whose insert landed tells anybody.",
+  customer_tag_slot_idx:
+    "One row per place in a customer's tag list, written only by the trigger that rebuilds a "
+    + "customer's rows from the list. Nobody types into it, so there is nothing to refuse.",
   customer_not_duplicate_pair_idx:
     "The ordered pair of two customers somebody said are different people, inserted with on "
     + "conflict do nothing: saying it twice is not news.",

@@ -1,7 +1,7 @@
 import type { Database } from "@opentradesos/db";
 import { TooManyRequestsError } from "../services/context";
 import {
-  OAuthError, registerClient, exchange, authorizationServerMetadata, protectedResourceMetadata,
+  OAuthError, registerClient, exchange, revoke, introspect, authorizationServerMetadata, protectedResourceMetadata,
 } from "../services/oauth";
 
 /**
@@ -58,7 +58,13 @@ export const preflight = (): Response => new Response(null, { status: 204, heade
 
 function refusal(error: unknown): Response {
   if (error instanceof OAuthError) {
-    return jsonResponse({ error: error.error, error_description: error.description }, error.status);
+    /**
+     * A client that failed to prove who it is gets a 401 naming Basic, as
+     * RFC 6749 section 5.2 asks, so a library that tried the form first
+     * knows the header is accepted too.
+     */
+    const challenge = error.status === 401 ? { "www-authenticate": 'Basic realm="OpenTradesOS", charset="UTF-8"' } : {};
+    return jsonResponse({ error: error.error, error_description: error.description }, error.status, challenge);
   }
   if (error instanceof TooManyRequestsError) {
     return jsonResponse(
@@ -95,12 +101,12 @@ export async function handleRegister(request: Request, db: Database): Promise<Re
 }
 
 /**
- * The token endpoint. Form encoded per RFC 6749, and JSON accepted too,
- * because more than one MCP client library sends JSON and refusing it would
- * be strictness that helps nobody.
+ * A POST to the token, revocation or introspection endpoint, as fields.
+ * Form encoded per RFC 6749, and JSON accepted too, because more than one MCP
+ * client library sends JSON and refusing it would be strictness that helps
+ * nobody. A Response when the request cannot be read at all.
  */
-export async function handleToken(request: Request, db: Database): Promise<Response> {
-  if (request.method === "OPTIONS") return preflight();
+async function readForm(request: Request): Promise<Record<string, string | undefined> | Response> {
   if (request.method !== "POST") return jsonResponse({ error: "invalid_request", error_description: "POST only." }, 405);
   const text = await request.text();
   const form: Record<string, string | undefined> = {};
@@ -115,8 +121,47 @@ export async function handleToken(request: Request, db: Database): Promise<Respo
   } else {
     for (const [key, value] of new URLSearchParams(text)) form[key] = value;
   }
+  return form;
+}
+
+/** What a client sent to prove who it is, beside the form. */
+const credentialsOf = (request: Request) => ({ authorization: request.headers.get("authorization") });
+
+/** The token endpoint: a code with its verifier, or a refresh token, for a token pair. */
+export async function handleToken(request: Request, db: Database): Promise<Response> {
+  if (request.method === "OPTIONS") return preflight();
+  const form = await readForm(request);
+  if (form instanceof Response) return form;
   try {
-    return jsonResponse(await exchange(db, form, addressOf(request)));
+    return jsonResponse(await exchange(db, form, addressOf(request), credentialsOf(request)));
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+/**
+ * RFC 7009 revocation. A 200 with an empty object whether or not the token
+ * existed, which the RFC requires so the answer says nothing about it.
+ */
+export async function handleRevoke(request: Request, db: Database): Promise<Response> {
+  if (request.method === "OPTIONS") return preflight();
+  const form = await readForm(request);
+  if (form instanceof Response) return form;
+  try {
+    await revoke(db, form, addressOf(request), credentialsOf(request));
+    return jsonResponse({});
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+/** RFC 7662 introspection: whether one of the caller's own tokens is live. */
+export async function handleIntrospect(request: Request, db: Database): Promise<Response> {
+  if (request.method === "OPTIONS") return preflight();
+  const form = await readForm(request);
+  if (form instanceof Response) return form;
+  try {
+    return jsonResponse(await introspect(db, form, publicOrigin(request), addressOf(request), credentialsOf(request)));
   } catch (error) {
     return refusal(error);
   }
