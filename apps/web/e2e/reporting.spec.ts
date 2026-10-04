@@ -113,14 +113,14 @@ test("Statements: one is emailed from the statement page, the refusal is kept, a
 
   const monthly = owner.getByRole("region", { name: "Monthly statements" });
   await expect(monthly).toContainText("Off.");
-  await monthly.getByRole("checkbox").check();
+  await monthly.getByRole("checkbox", { name: /Send every customer/ }).check();
   await monthly.getByLabel("Only if they owe more than ($)").fill("25");
   await monthly.getByRole("button", { name: "Save" }).click();
   await expect(monthly).toContainText("On. Every customer owing more than $25.00");
   await expect(monthly).toContainText("Next:");
 
   // Off again, so a later run of the suite starts where this one did.
-  await monthly.getByRole("checkbox").uncheck();
+  await monthly.getByRole("checkbox", { name: /Send every customer/ }).uncheck();
   await monthly.getByRole("button", { name: "Save" }).click();
   await expect(monthly).toContainText("Off.");
 });

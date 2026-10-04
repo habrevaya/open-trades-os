@@ -121,6 +121,8 @@ test("a new company runs every setup step and the wizard remembers each one", as
   // A step reopened is outstanding again, and carrying on goes to it.
   await page.goto("/setup/payments");
   await page.getByRole("button", { name: "Not done after all" }).click();
+  // Leaving before the step is saved would cancel the save.
+  await expect(page.getByRole("button", { name: /^This step is done/ })).toBeVisible();
   await page.goto("/setup");
   await expect(page.getByText("9 of 10 total")).toBeVisible();
   await expect(page.getByRole("link", { name: "Carry on: Payments" })).toBeVisible();
