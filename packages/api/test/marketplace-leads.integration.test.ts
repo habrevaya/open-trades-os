@@ -220,6 +220,9 @@ run("Angi", () => {
       interview: [{ question: "Gas or electric?", answer: "Gas" }],
     };
     expect((await post(tokenOf(path), lead, { authorization: basic("nope") })).status).toBe(401);
+    expect((await post(tokenOf(path), lead, { "x-api-key": "nope" })).status).toBe(401);
+    /** Angi's own way: the key in a header. */
+    expect((await post(tokenOf(path), { ...lead, leadOid: 4410099 }, { "x-api-key": made.password! })).status).toBe(201);
     const answer = await post(tokenOf(path), lead, { authorization: basic(made.password!) });
     expect(answer.status).toBe(201);
     const offerId = answer.body["offerId"] as string;

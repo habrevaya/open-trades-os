@@ -43,17 +43,23 @@ export default async function MailingPage({ params }: { params: Promise<{ id: st
       <Crumb href="/marketing/mail">Direct mail</Crumb>
       <PageHeader title={mailing.name} />
       <p className="mt-1 text-sm text-ink-700">
-        {mailing.kind === "letter" ? "A letter" : `A ${mailing.size ?? "4x6"} postcard`}
-        {mailing.sentence ? ` to ${mailing.sentence}` : ""}, credited to {mailing.trackingCampaign ?? "its tracking campaign"}.
+        {mailing.kind === "letter" ? "A letter" : `A ${mailing.size ?? "4x6"} postcard`}, credited to{" "}
+        {mailing.trackingCampaign ?? "its tracking campaign"}. {mailing.sentence ?? ""}
       </p>
 
       {preview && "error" in preview ? <p className="mt-4 text-sm text-red-600">{preview.error}</p> : null}
       {preview && !("error" in preview) ? (
         <section className="mt-6" aria-labelledby="before-heading">
           <h2 id="before-heading" className="text-base font-semibold">Before it goes</h2>
+          {/*
+            The count, then core's sentence, which is a whole sentence of its
+            own ("Customers who are tagged..."), so it is not wrapped in a
+            second one, the mistake the texts screen made once.
+          */}
           <p className="mt-2 text-sm" role="note">
-            {preview.postable} {preview.postable === 1 ? "customer" : "customers"} {preview.sentence}, at an estimated{" "}
-            <Money value={preview.estimatedCost} />.
+            <span className="text-xl font-semibold tabular-nums">{preview.postable.toLocaleString("en-US")}</span>{" "}
+            {preview.postable === 1 ? "piece to post." : "pieces to post."}{" "}
+            <span className="text-ink-700">{preview.sentence}</span> Estimated cost <Money value={preview.estimatedCost} />.
             {preview.noAddress > 0 ? ` ${preview.noAddress} more have no address that can be posted to and will be skipped.` : ""}
             {preview.overflow ? " More are selected than one mailing takes; it goes to the first twenty five thousand by name, which is not a sample." : ""}
           </p>

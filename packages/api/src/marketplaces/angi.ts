@@ -1,5 +1,5 @@
 import {
-  amountOf, basicPasswordMatches, objectBody, questionsAsNotes, registerMarketplace, str,
+  amountOf, basicPasswordMatches, headerSecretMatches, objectBody, questionsAsNotes, registerMarketplace, str,
   type MarketplaceAdapter, type MarketplaceInput,
 } from "./provider";
 
@@ -7,7 +7,9 @@ import {
  * ANGI LEADS (AND HOMEADVISOR)
  *
  * Angi posts each lead it sells to the address a CRM partner registered, as
- * JSON, with HTTP Basic credentials the partner chose. There is no message
+ * JSON, authenticated with the key the partner gave it in an `X-API-KEY`
+ * header (or, where Angi's onboarding sets it up that way, as an HTTP Basic
+ * password); either is the company's own password, compared in constant time. There is no message
  * thread to take part in and no API to write back with: a lead from Angi is
  * answered by ringing the customer, which is what the offer's number is for.
  *
@@ -24,7 +26,8 @@ function createAngi(input: MarketplaceInput): MarketplaceAdapter {
     platform: "angi",
 
     verify(request) {
-      return basicPasswordMatches(request.headers, input.webhookSecret);
+      return headerSecretMatches(request.headers, "x-api-key", input.webhookSecret)
+        || basicPasswordMatches(request.headers, input.webhookSecret);
     },
 
     parse(request) {

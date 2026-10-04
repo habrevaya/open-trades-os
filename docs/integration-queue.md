@@ -149,10 +149,15 @@ with an HMAC signature. What none of them offers is self-serve credentials.
 - Same shape: Modernize, Home Solutions, WinGen, SmartAC, Building36,
   ActiveProspect, The Home Depot, ServiceChannel, ResQ, FlowPath.
 
-**So the honest sequencing is: do not build adapters for these.** Document how
-to point each one at the generic lead webhook, and spend the effort on the
-field-mapping screen that makes an unanticipated sender a settings change
-rather than a release. One piece of work serves all sixteen.
+**Built since, for the three with a documented shape:** Angi, Thumbtack and
+Yelp each have an adapter on the marketplace seam (M19, "Lead marketplaces"),
+verified their own way and tested against fakes of their documentation,
+because a partner who is approved should not have to translate a
+marketplace's post into the generic webhook's signature. The approval itself is
+still the gate, and nothing here gets around it. For every marketplace without
+API access, and the rest of the list above, the lead emails are read from one
+inbox address per company, and the generic webhook with its field mapping
+serves any sender who can post.
 
 ---
 

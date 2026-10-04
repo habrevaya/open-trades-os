@@ -128,6 +128,13 @@ export function basicPasswordMatches(headers: Record<string, string>, secret: st
   return timingSafeEqual(given, wanted);
 }
 
+/** Whether a header carries the secret exactly, compared over hashes in constant time. */
+export function headerSecretMatches(headers: Record<string, string>, name: string, secret: string | null): boolean {
+  const given = headers[name.toLowerCase()];
+  if (!secret || !given) return false;
+  return timingSafeEqual(createHash("sha256").update(given.trim()).digest(), createHash("sha256").update(secret).digest());
+}
+
 /** A parsed JSON object body, or null. */
 export function objectBody(body: string): Record<string, unknown> | null {
   try {
