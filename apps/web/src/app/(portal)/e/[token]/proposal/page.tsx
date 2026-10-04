@@ -43,6 +43,7 @@ export default async function PortalProposalPage({ params }: { params: Promise<{
           logoSrc={proposal.company.hasLogo
             ? `/brand/logo?t=${encodeURIComponent(token)}&v=${proposal.company.version}` : null}
           timezone={proposal.company.timezone}
+          photoSrc={(photoId) => `/e/${encodeURIComponent(token)}/proposal/photos/${photoId}`}
         />
       </div>
       {offers.length > 0 ? (

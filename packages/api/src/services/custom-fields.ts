@@ -1082,7 +1082,7 @@ async function valuesOf(
     }
     case "estimate": {
       const [row] = await tx.select({ values: schema.estimate.customFields }).from(schema.estimate)
-        .where(and(eq(schema.estimate.id, id), isNull(schema.estimate.deletedAt),
+        .where(and(eq(schema.estimate.id, id),
           estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor))).limit(1);
       return row?.values ?? null;
     }
@@ -1120,6 +1120,22 @@ async function writeValues(tx: Database, entityType: ValueEntity, id: string, va
 const NOUN: Record<ValueEntity, string> = {
   invoice: "Invoice", estimate: "Estimate", visit: "Visit", equipment: "Unit", technician: "Technician",
 };
+
+/**
+ * The values one of the five holds now, under the record's own read
+ * permission and scope, for a page drawing its "Your fields" panel or a form
+ * building the bag it saves on top of.
+ */
+export async function valuesFor(ctx: ServiceContext, input: { entityType: ValueEntity; id: string }) {
+  if (!(VALUE_ENTITIES as readonly string[]).includes(input.entityType)) {
+    throw new ConflictError(`Fields on ${input.entityType} are read with that record.`);
+  }
+  return guardedRead(ctx, READ_OF[input.entityType], async (tx) => {
+    const values = await valuesOf(tx, ctx, input.entityType, input.id);
+    if (values === null) throw new NotFoundError(NOUN[input.entityType]);
+    return values;
+  });
+}
 
 /**
  * Save the fields on one of the five.

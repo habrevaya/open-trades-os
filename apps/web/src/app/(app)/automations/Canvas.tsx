@@ -760,6 +760,7 @@ function BranchFields({
               value={condition.path}
               onChange={(e) => write(all.map((c, i) => (i === index ? { ...c, path: e.target.value } : c)))}
               placeholder="invoice.total"
+              list="condition-paths"
               aria-label={`What to check, condition ${index + 1}`}
               className="h-8 w-48 rounded border border-steel-300 px-2 font-mono text-xs"
             />
@@ -793,8 +794,9 @@ function BranchFields({
         Add a condition
       </button>
       <p className="mt-2 text-xs text-ink-500">
-        A path into the event, like <span className="font-mono">invoice.total</span> or
-        {" "}<span className="font-mono">job.status</span>. Comparisons are on the values the event
+        A path into the event, like <span className="font-mono">invoice.total</span>,
+        {" "}<span className="font-mono">job.status</span>, or for one of your own records
+        {" "}<span className="font-mono">record.type</span> and <span className="font-mono">record.fields.status</span>. Comparisons are on the values the event
         carried, so nothing here reads the database and a branch cannot change its mind on a resume.
       </p>
     </div>

@@ -20,11 +20,17 @@ export const LINKS: Record<string, (id: string) => string> = {
   equipment: (id) => `/equipment/${id}`,
   /** Raised when somebody reports an incident, and by every follow up added to one. */
   incident_report: (id) => `/compliance/incidents/${id}`,
+  /**
+   * One of the company's own records, raised about by an automation on
+   * `record.created`. Its address carries its kind, which the task does not
+   * know, so it opens through `any` and the page sends it on.
+   */
+  custom_object_record: (id) => `/records/any/${id}`,
 };
 
 /** The words for a link to one, said the way the queue says them. */
 export const RECORD_NOUN: Record<string, string> = {
   job: "job", customer: "customer", invoice: "invoice", conversation: "conversation",
   estimate: "estimate", agreement: "agreement", task: "late task", incident_report: "incident report",
-  visit: "visit", equipment: "unit",
+  visit: "visit", equipment: "unit", custom_object_record: "record",
 };

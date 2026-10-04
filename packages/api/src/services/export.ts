@@ -263,6 +263,9 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
   custom_field_definition: {
     key: "The field's own name in the API, which is configuration a company rebuilds elsewhere.",
   },
+  custom_object_type: {
+    key: "The name a company's own kind of record goes by in the API, such as permit. Configuration.",
+  },
   deficiency: {
     checkpoint_key: "Which checkpoint on the inspection programme the fault was found at.",
   },

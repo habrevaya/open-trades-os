@@ -1,4 +1,5 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { RecordsPanel } from "@/components/RecordsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -531,6 +532,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         values={(job.customFields ?? {}) as Record<string, unknown>}
         canWrite={can(user.actor, "job:write")}
       />
+      <RecordsPanel ctx={ctx} link="job" id={id} back={`/jobs/${id}`} />
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { visits, files, NotFoundError } from "@opentradesos/api/services";
+import { customFields, visits, files, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
@@ -236,6 +237,13 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
           </ul>
         </nav>
       )}
+      <CustomFieldsPanel
+        entityType="visit" id={id}
+        definitions={await customFields.formFields(ctx, "visit")}
+        values={await customFields.valuesFor(ctx, { entityType: "visit", id })}
+        canWrite={can(user.actor, "visit:write")}
+        back={`/visits/${id}`}
+      />
     </div>
   );
 }

@@ -248,7 +248,7 @@ export async function layoutForNew(
 async function draftEstimate(tx: Database, ctx: ServiceContext, estimateId: string) {
   await assertEstimateVisible(tx, ctx, estimateId);
   const [row] = await tx.select({ id: schema.estimate.id, status: schema.estimate.status })
-    .from(schema.estimate).where(and(eq(schema.estimate.id, estimateId), isNull(schema.estimate.deletedAt))).limit(1);
+    .from(schema.estimate).where(eq(schema.estimate.id, estimateId)).limit(1);
   if (!row) throw new NotFoundError("Estimate");
   if (row.status !== "draft") {
     throw new ConflictError(

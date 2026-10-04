@@ -22,7 +22,7 @@ export type IconName =
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
   | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance"
-  | "books" | "people";
+  | "books" | "people" | "records";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   /** Books: a ledger open flat, two pages and a spine, for the journal and the budget. */
@@ -261,6 +261,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   automations: <path d="M13.4 2.6 5.2 13.2h5.4l-.9 8.2 8.2-10.6h-5.4l.9-8.2Z" />,
+  /** Records: a folder with a tab, for the company's own kinds of record. */
+  records: (
+    <>
+      <path d="M3 7.2V18a1.6 1.6 0 0 0 1.6 1.6h14.8A1.6 1.6 0 0 0 21 18V9.4a1.6 1.6 0 0 0-1.6-1.6h-7.2L10.3 5.2H4.6A1.6 1.6 0 0 0 3 6.8Z" />
+      <path d="M7.4 13h9.2M7.4 16h5.6" />
+    </>
+  ),
   settings: (
     <>
       <path d="M4 7.4h4.4M12.6 7.4H20M4 16.6h7.4M15.6 16.6H20" />

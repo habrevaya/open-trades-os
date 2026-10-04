@@ -1,18 +1,20 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { jobs, branches } from "@opentradesos/api/services";
+import { jobs, branches, customFields } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
 import { can } from "@opentradesos/core";
 import { JOB_STATUS, JOB_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
+import { CustomFieldFilter } from "@/components/CustomFieldFilter";
+import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
 
 export const dynamic = "force-dynamic";
 
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string }>;
+  searchParams: Promise<{ branch?: string; field?: string; value?: string }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -22,10 +24,15 @@ export default async function JobsPage({
    * nobody has put in a branch is found and sorted (Settings, Branches moves
    * it in bulk).
    */
-  const branch = chosenBranch(options, (await searchParams).branch, true);
+  const params = await searchParams;
+  const branch = chosenBranch(options, params.branch, true);
   const named = options.branches.find((b) => b.id === branch)?.name;
+  const declared = await customFields.formFields(ctx, "job");
+  const { fieldKey, fieldValue, byField } = fieldFrom(params);
 
-  const page = await jobs.list(ctx, { limit: 100, ...(branch ? { businessUnitId: branch } : {}) });
+  const { page, refusal } = await withFieldFilter((withField) => jobs.list(ctx, {
+    limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
+  }));
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -38,7 +45,9 @@ export default async function JobsPage({
           </a>
         ) : undefined}
       />
-      <BranchFilter options={options} action="/jobs" current={branch} none />
+      <BranchFilter options={options} action="/jobs" current={branch} none keep={{ field: fieldKey, value: fieldValue }} />
+      <CustomFieldFilter action="/jobs" declared={declared} keep={{ branch }} fieldKey={fieldKey} fieldValue={fieldValue}
+                         refusal={refusal} noun="jobs" />
 
       {page.data.length === 0 ? (
         branch ? (

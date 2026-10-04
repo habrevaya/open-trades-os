@@ -590,7 +590,10 @@ async function createWithin(tx: Database, ctx: ServiceContext, kind: TypeRow, in
     objectTypeId: kind.id,
     title: input.title.trim(),
     customFields: values,
-    ...resolved.links,
+    customerId: resolved.links.customerId,
+    propertyId: resolved.links.propertyId,
+    jobId: resolved.links.jobId,
+    equipmentId: resolved.links.equipmentId,
     createdByUserId: ctx.actor.userId,
   }).returning();
   await emit(tx, ctx, {
@@ -651,7 +654,10 @@ export async function updateRecord(
     const [after] = await tx.update(schema.customObjectRecord).set({
       title: input.title !== undefined ? input.title.trim() : before.title,
       customFields: values,
-      ...resolved.links,
+      customerId: resolved.links.customerId,
+      propertyId: resolved.links.propertyId,
+      jobId: resolved.links.jobId,
+      equipmentId: resolved.links.equipmentId,
       updatedAt: new Date(),
     }).where(eq(schema.customObjectRecord.id, before.id)).returning();
     await emit(tx, ctx, {
@@ -811,6 +817,19 @@ export async function importCsv(ctx: ServiceContext, input: { type: string; csv:
     const answer = { created, ignoredColumns: columns.ignored };
     await remember(tx, ctx, "custom_object_import", kind.id, answer);
     return answer;
+  });
+}
+
+/**
+ * A job by the number people say out loud, for a form that asks for one.
+ * Null when there is no such job or the caller may not see it.
+ */
+export async function jobByNumber(ctx: ServiceContext, input: { number: number }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+      .where(and(eq(schema.job.number, input.number), isNull(schema.job.deletedAt),
+        jobVisibility(scopeOf(ctx, "job"), ctx.actor, sql`${schema.job.id}`))).limit(1);
+    return job?.id ?? null;
   });
 }
 

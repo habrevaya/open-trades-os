@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { agreements, customers, deposits, estimates, financing, NotFoundError } from "@opentradesos/api/services";
+import { agreements, customers, customFields, deposits, estimates, financing, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
+import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { ProposalLayoutPanel } from "./ProposalLayoutPanel";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
@@ -101,6 +103,15 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
           timezone={user.organizationTimezone}
         />
       ) : null}
+      <ProposalLayoutPanel ctx={ctx} estimateId={id} status={estimate.status}
+                           canWrite={can(user.actor, "estimate:write")} />
+      <CustomFieldsPanel
+        entityType="estimate" id={id}
+        definitions={await customFields.formFields(ctx, "estimate")}
+        values={await customFields.valuesFor(ctx, { entityType: "estimate", id })}
+        canWrite={can(user.actor, "estimate:write")}
+        back={`/estimates/${id}`}
+      />
     </div>
   );
 }

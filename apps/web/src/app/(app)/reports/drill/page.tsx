@@ -61,7 +61,8 @@ export default async function DrillPage({ searchParams }: { searchParams: Promis
     refusal = error.message;
   }
 
-  const dataset = reports.CATALOGUE.find((d) => d.key === definition.dataset);
+  /** The company's own catalogue, so a report on a custom field or a kind of record finds its labels. */
+  const dataset = (await reports.datasetFor(ctx, definition.dataset)) ?? undefined;
   const measures = result?.columns.filter((c) => c.role === "measure") ?? [];
   const branchName = definition.branchId
     ? (await branches.options(ctx)).branches.find((b) => b.id === definition.branchId)?.name ?? null
