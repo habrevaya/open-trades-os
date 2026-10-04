@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createClient, schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
+import { companyToday } from "./fixtures";
 
 /**
  * GOOGLE, FAKED AT ITS EDGES
@@ -56,7 +57,7 @@ export async function fakeGoogle(): Promise<FakeGoogle> {
       }
       if (request.method === "POST" && url.pathname === "/ads/v21/customers/1234567890/googleAds:search") {
         state.searches += 1;
-        const today = new Date().toISOString().slice(0, 10);
+        const today = companyToday();
         json(200, {
           results: spend.map((s, i) => ({
             customer: { currencyCode: "USD" },

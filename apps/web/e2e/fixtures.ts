@@ -101,3 +101,12 @@ export async function newCustomer(owner: Page, customer: {
   await expect(owner.getByRole("heading", { level: 1, name: customer.name })).toBeVisible();
   return owner.url().split("/").pop()!;
 }
+
+/**
+ * A date as the seeded company counts days (America/Chicago, the default).
+ * UTC's date is the company's tomorrow for the hours after midnight UTC, and
+ * a spec that asks for "today" by it then finds nothing that happened today.
+ */
+export function companyToday(timeZone = "America/Chicago"): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+}

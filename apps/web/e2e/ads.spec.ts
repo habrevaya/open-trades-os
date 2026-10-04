@@ -1,4 +1,4 @@
-import { test, expect, run } from "./fixtures";
+import { test, expect, run, companyToday } from "./fixtures";
 import { fakeGoogle, forgetGoogleAds, pointGoogleAdsAt } from "./ads";
 
 /**
@@ -27,7 +27,7 @@ test("an owner connects Google Ads, signs in, and sees the pulled spend and its 
   try {
     await forgetGoogleAds();
     const campaign = `Furnace push ${run}`;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = companyToday();
     google.spend.push({ name: campaign, micros: "200000000" });
 
     // A tracking campaign under Google Ads, whose name the Ads account's campaign shares.

@@ -18,9 +18,11 @@ export const dynamic = "force-dynamic";
  * moves nothing; the button at the bottom applies it through the same
  * assignment and reorder a drag uses.
  */
-export default async function RebalancePage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
+export default async function RebalancePage({ searchParams }: { searchParams: Promise<{ date?: string; applied?: string }> }) {
   const user = await requireSetupUser();
   const params = await searchParams;
+  /** How many visits the last apply moved, carried in the address; see ApplyRebalance. */
+  const applied = params.applied && /^\d{1,4}$/.test(params.applied) ? Number(params.applied) : null;
   const date = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayIn(user.organizationTimezone);
 
   if (!can(user.actor, "visit:read")) {
@@ -59,6 +61,11 @@ export default async function RebalancePage({ searchParams }: { searchParams: Pr
       <p className="mt-1 text-sm text-ink-700">
         {heading}. <a href={`/schedule?date=${date}`} className="underline">Back to the board</a>
       </p>
+      {applied !== null && (
+        <p role="status" className="mt-3 text-sm text-green-700">
+          Done. {applied} {applied === 1 ? "visit has" : "visits have"} a new technician, and each changed day is in its new order.
+        </p>
+      )}
 
       <section aria-label="What would change" className="mt-5 rounded-md border border-steel-200 bg-canvas p-4">
         {!proposal.changed ? (
