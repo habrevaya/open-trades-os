@@ -3,8 +3,9 @@ import { schema, type Database } from "@opentradesos/db";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
-  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit
+  type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit, scopeOf,
 } from "./context";
+import { jobVisibility, technicianScopeFilter } from "./scope";
 import { announce, sideOf } from "./visit-notices";
 import { inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
@@ -44,10 +45,19 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       time.dayBoundsIn(input.date, await timezoneOf(tx, ctx.actor.organizationId));
     const now = new Date();
 
+    /**
+     * SCOPED LIKE EVERY OTHER READ OF WORK. A branch manager's board is their
+     * branch's: its jobs' visits, its people's columns, and anybody else only
+     * where they are on one of those visits. A scope this cannot satisfy shows
+     * an empty board rather than the company's (`services/scope.ts`).
+     */
+    const scope = scopeOf(ctx, "visit");
+    const people = technicianScopeFilter(scope, ctx.actor);
     const technicians = await tx.select({
       id: schema.technician.id,
       displayName: schema.technician.displayName,
       color: schema.technician.color,
+      inScope: people ? sql<boolean>`${people}` : sql<boolean>`true`,
     }).from(schema.technician)
       .where(and(
         eq(schema.technician.organizationId, ctx.actor.organizationId),
@@ -80,8 +90,14 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         // Territory is a property of the job, not of the visit: every visit on
         // a job is at the same address.
         input.territoryId ? eq(schema.job.territoryId, input.territoryId) : undefined,
+        jobVisibility(scope, ctx.actor, sql`${schema.job.id}`),
       ))
       .orderBy(asc(schema.visit.routeOrder), asc(schema.visit.windowStart));
+
+    /** The people on the board: those in scope, and anybody on a visit this person can see. */
+    const onVisibleWork = new Set(rows.map((r) => r.technicianId).filter((id): id is string => id !== null));
+    const shown = technicians.filter((t) => t.inScope || onVisibleWork.has(t.id));
+    const shownIds = new Set(shown.map((t) => t.id));
 
     /**
      * Approved time off, so an empty column says why it is empty. A board that
@@ -213,6 +229,7 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
      * nobody does.
      */
     const rota = await tx.select({
+      technicianId: schema.onCallRotation.technicianId,
       technicianName: schema.technician.displayName,
       startsAt: schema.onCallRotation.startsAt,
       endsAt: schema.onCallRotation.endsAt,
@@ -242,10 +259,10 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         const owner = routeOwners.find((o) => o.id === id);
         return { id, name: r.name, stops: r.stops, done: r.done, runBy: owner?.technicianName ?? owner?.crewName ?? null };
       }).sort((a, b) => a.name.localeCompare(b.name)),
-      onCall: rota.map((r) => ({
+      onCall: rota.filter((r) => shownIds.has(r.technicianId)).map((r) => ({
         technicianName: r.technicianName, startsAt: r.startsAt.toISOString(), endsAt: r.endsAt.toISOString(),
       })),
-      technicians: technicians.map((t) => ({
+      technicians: shown.map((t) => ({
         id: t.id,
         displayName: t.displayName,
         color: t.color,
@@ -266,8 +283,16 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
  */
 export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVisit.input>) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
+    /**
+     * Only a visit this person can see on their board. Another branch's
+     * visit reads as not found, for the reason the job page gives: "you may
+     * not" confirms there is something there.
+     */
     const [visit] = await tx.select().from(schema.visit)
-      .where(eq(schema.visit.id, input.id)).limit(1);
+      .where(and(
+        eq(schema.visit.id, input.id),
+        jobVisibility(scopeOf(ctx, "visit"), ctx.actor, sql`${schema.visit.jobId}`),
+      )).limit(1);
     if (!visit) throw new NotFoundError("Visit");
 
     if (["completed", "cancelled", "completed_after_cancellation"].includes(visit.status)) {

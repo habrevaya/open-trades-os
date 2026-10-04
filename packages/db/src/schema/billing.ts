@@ -291,6 +291,12 @@ export const signatureSubject = pgEnum("signature_subject", [
   "change_order",
   /** An invoice the customer signed for on the technician's phone, at the end of the visit. */
   "invoice",
+  /**
+   * A document the company gave one of its own people to sign: the handbook,
+   * the vehicle use agreement. The subject is the request to that person, so
+   * the signature says whose it is and which words it was given against.
+   */
+  "staff_document",
 ]);
 
 export const documentSignature = pgTable("document_signature", {
@@ -370,6 +376,14 @@ export const invoice = pgTable("invoice", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   number: integer("number").notNull(),
+  /**
+   * The branch's mark printed in front of the number ("AUS-7100"), written
+   * once when the invoice is made and only when the company prints branch
+   * marks. Never worked out again, so moving work between branches or
+   * changing a branch's code renumbers nothing a customer already holds.
+   * `app.number_prefix` in `sql/after.sql` writes it.
+   */
+  numberPrefix: text("number_prefix"),
   customerId: uuid("customer_id").notNull().references(() => customer.id),
   propertyId: uuid("property_id").references(() => property.id),
   jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),

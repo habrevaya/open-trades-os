@@ -2425,6 +2425,73 @@ create trigger customer_tags_sync
   after insert or update of tags, deleted_at on public.customer
   for each row execute function app.sync_customer_tags();
 
+-- ---- A branch's mark on a job or invoice number ---------------------------
+-- Numbers stay one sequence per company. A company that turns branch marks on
+-- (`organization.settings.branchNumbering`, jobs and invoices separately) has
+-- its branch's short code written in front of each NEW job or invoice
+-- ("AUS-1042"), here, once, at insert. Nothing recomputes it: a job moved to
+-- another branch, or a branch whose code changes, keeps the number its
+-- customer was given. Rows made before the setting was turned on keep none.
+--
+-- A trigger for the reason the default branch is one: eight services insert
+-- jobs and four insert invoices, and a mark written by one of them is a mark
+-- on some numbers and not others. Named to sort after `job_default_branch`,
+-- because Postgres fires a table's triggers in name order and the branch has
+-- to be decided before its code can be read.
+--
+-- Security invoker on purpose: it reads the company's own settings and
+-- branches, which the request can already see.
+create or replace function app.number_prefix() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  declare
+    v_unit uuid := new.business_unit_id;
+    v_code text;
+  begin
+    if new.number_prefix is not null then
+      return new;
+    end if;
+    if not exists (
+      select 1 from public.organization o
+       where o.id = new.organization_id
+         and coalesce(o.settings -> 'branchNumbering' ->> (
+               case tg_table_name when 'job' then 'jobs' else 'invoices' end
+             ), 'false') = 'true'
+    ) then
+      return new;
+    end if;
+    -- An invoice usually carries no branch of its own; it is the job's.
+    -- Nested rather than one condition, because a job row has no job_id and
+    -- PL/pgSQL would refuse the reference even on a branch it never takes.
+    if tg_table_name = 'invoice' then
+      if v_unit is null and new.job_id is not null then
+        select j.business_unit_id into v_unit from public.job j where j.id = new.job_id;
+      end if;
+    end if;
+    if v_unit is null then
+      return new;
+    end if;
+    select upper(trim(bu.code)) into v_code from public.business_unit bu where bu.id = v_unit;
+    -- The same rule as `work.numberPrefix` in core: a short run of letters
+    -- and digits, or no mark at all.
+    if v_code ~ '^[A-Z0-9]{1,8}$' then
+      new.number_prefix := v_code;
+    end if;
+    return new;
+  end;
+  $$;
+
+drop trigger if exists job_number_prefix on public.job;
+create trigger job_number_prefix
+  before insert on public.job
+  for each row execute function app.number_prefix();
+
+drop trigger if exists invoice_number_prefix on public.invoice;
+create trigger invoice_number_prefix
+  before insert on public.invoice
+  for each row execute function app.number_prefix();
+
 -- ---- Inviting somebody to work here ----------------------------------------
 -- The setup wizard's team step, and Settings > Team. Until these two
 -- functions existed the only way a second person got into a company was the
@@ -2564,6 +2631,67 @@ create or replace function app.organization_people_waiting()
 
 revoke all on function app.organization_people_waiting() from public;
 grant execute on function app.organization_people_waiting() to authenticated;
+
+-- A first-password link for an invite's EMAIL, made at the moment the outbox
+-- hands that email to the provider.
+--
+-- The email in the outbox does not carry the link: everybody who reads the
+-- inbox can read the outbox, and a link that chooses a new colleague's
+-- password, sitting in a dispatcher's inbox, is a way into an account the
+-- dispatcher was never given. So the outbox asks for a link as it sends, puts
+-- it in the copy that goes to the provider, and keeps it nowhere.
+--
+-- The caller is the outbox, which acts as nobody, so this does not ask who is
+-- calling. It asks the things that make the link safe to make instead: the
+-- invite is this company's, not replaced and not expired, its person is still
+-- turned on, belongs to no other company and has no password yet, and an
+-- email sealed to this invite is in the middle of being sent right now. The
+-- last of those is what stops this being a way to mint a link at any other
+-- time. The link it makes ends when the invite does, and making it does not
+-- retire the link the inviter was shown: both are the same invite.
+create or replace function app.issue_invite_email_token(p_invite_id uuid, p_token_hash text)
+  returns timestamptz
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  declare
+    v_org uuid := (select app.current_organization_id());
+    v_user uuid;
+    v_expires timestamptz;
+  begin
+    if v_org is null then
+      return null;
+    end if;
+    select m.user_id, i.expires_at into v_user, v_expires
+      from public.membership_invite i
+      join public.membership m on m.id = i.membership_id and m.organization_id = i.organization_id
+     where i.id = p_invite_id
+       and i.organization_id = v_org
+       and i.replaced_at is null
+       and i.expires_at > now()
+       and m.active
+       and exists (
+         select 1 from public.message msg
+          where msg.sealed_invite_id = i.id
+            and msg.organization_id = v_org
+            and msg.status = 'sending'
+       );
+    if v_user is null then
+      return null;
+    end if;
+    if exists (select 1 from public.membership m where m.user_id = v_user and m.organization_id <> v_org) then
+      return null;
+    end if;
+    if exists (select 1 from public.credential c where c.user_id = v_user) then
+      return null;
+    end if;
+    insert into public.setup_token (user_id, token_hash, expires_at)
+    values (v_user, p_token_hash, v_expires);
+    return v_expires;
+  end;
+  $$;
+
+revoke all on function app.issue_invite_email_token(uuid, text) from public;
+grant execute on function app.issue_invite_email_token(uuid, text) to authenticated;
 -- =========================================================================
 -- THE FIELD APP: ONE TIME SIGN IN CODES AND PUSH NOTICES
 -- =========================================================================

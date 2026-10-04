@@ -31,7 +31,8 @@ function readable(error: unknown): never {
  * The scope is applied to every resource a scope narrows (jobs and
  * everything read through them, visits, timesheets, service reports and
  * conversations), because a branch manager who sees only Houston's jobs and
- * every branch's conversations is not a branch manager.
+ * every branch's conversations is not a branch manager. "The whole company"
+ * is written out too, for the reason below.
  */
 export async function createRole(_previous: FormState, form: FormData): Promise<FormState> {
   const basedOn = (field(form, "basedOn") ?? "office_manager") as RoleId;
@@ -45,7 +46,12 @@ export async function createRole(_previous: FormState, form: FormData): Promise<
         description: field(form, "description"),
         basedOn,
         permissions: [...ROLE_PRESETS[basedOn].permissions],
-        scopes: sees === "all" ? {} : Object.fromEntries(SCOPED_RESOURCES.map((resource) => [resource, sees])),
+        /**
+         * Every resource named, "the whole company" included. A role that names
+         * no scope sees its holder's own work, the narrowest default, so saving
+         * "all" as nothing gave a whole company role an empty screen.
+         */
+        scopes: Object.fromEntries(SCOPED_RESOURCES.map((resource) => [resource, sees])),
       });
     } catch (error) {
       readable(error);

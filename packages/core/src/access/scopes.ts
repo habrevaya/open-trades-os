@@ -53,6 +53,17 @@ export const DEFAULT_SCOPES: Record<RoleId, Partial<Record<ScopedResource, Scope
   owner: {},
   admin: {},
   office_manager: {},
+  /**
+   * Every scoped resource limited to their branch, not some of them. A
+   * branch manager who sees Houston's jobs and every branch's conversations,
+   * board or timesheets is not a branch manager, and that half built role is
+   * what companies made by hand before this preset existed.
+   */
+  branch_manager: {
+    job: "business_unit", visit: "business_unit", customer: "business_unit",
+    estimate: "business_unit", invoice: "business_unit", timesheet: "business_unit",
+    servicereport: "business_unit", conversation: "business_unit",
+  },
   dispatcher: {},
   csr: {},
   /**

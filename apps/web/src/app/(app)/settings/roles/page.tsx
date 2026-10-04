@@ -12,14 +12,20 @@ export const dynamic = "force-dynamic";
 /** What people with a role see, in the words the form offers. */
 const SEES: { value: string; label: string; meaning: string }[] = [
   { value: "all", label: "The whole company", meaning: "Every job, customer, invoice and report." },
-  { value: "business_unit", label: "Their branch's work", meaning: "The jobs in their branch, and the customers, invoices, estimates, conversations and reports that hang off them." },
+  { value: "business_unit", label: "Their branch's work", meaning: "The jobs in their branch, and the customers, invoices, estimates, conversations and reports that hang off them, their branch's board, and their branch's people's timesheets and time off." },
+  { value: "location", label: "Their shop's work", meaning: "Jobs worked from the shop they are based at (by somebody based there, or a visit sent from there), what hangs off them, and the people based there. Set somebody's shop on Team." },
   { value: "crew", label: "Their crew's work", meaning: "Jobs their crew is sent to, and their own." },
   { value: "own", label: "Only their own work", meaning: "Jobs they are sent to, and what hangs off them." },
 ];
 
 const seesLabel = (scopes: Record<string, string>) => {
   const values = [...new Set(Object.values(scopes))];
-  if (values.length === 0) return "The whole company";
+  /**
+   * A role of the company's own that names no scope sees its holder's own
+   * work, because the narrowest default is the only safe one. This screen
+   * used to save "the whole company" that way and label it as such.
+   */
+  if (values.length === 0) return "Only their own work";
   if (values.length > 1) return "Different for different records";
   return SEES.find((s) => s.value === values[0])?.label ?? values[0]!;
 };
@@ -27,10 +33,11 @@ const seesLabel = (scopes: Record<string, string>) => {
 /**
  * SETTINGS, ROLES
  *
- * The nine presets are starting points. A company with branches wants a
- * branch manager: the office manager's permissions, seeing their branch's
- * work and nothing else. This screen makes that role in one form, from a
- * preset and one choice about what its holders see.
+ * The ten presets are starting points, one of them the branch manager: the
+ * office manager's permissions, seeing their branch's work and nothing else.
+ * A company that wants another shape makes it here in one form, from a preset
+ * and one choice about what its holders see: everything, their branch, their
+ * shop, their crew, or only their own.
  *
  * Nobody makes a role bigger than themselves. A role carries only
  * permissions its author holds and sees no further than they do, checked by
@@ -61,12 +68,14 @@ export default async function RolesPage() {
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
         A role of your own replaces the preset for whoever holds it. Give one to somebody on{" "}
         <a href="/settings/team" className="underline underline-offset-4">Team</a>. A role limited to a
-        branch&apos;s work needs its holder to be in a branch, and Team refuses it for somebody who is not.
+        branch&apos;s work needs its holder to be in a branch, and one limited to a shop&apos;s work needs their
+        shop set, and Team refuses it for somebody who has neither. The Branch manager preset is already a
+        branch&apos;s office manager.
       </p>
 
       {custom.length === 0 ? (
         <Empty title="No roles of your own yet">
-          A company with branches usually wants a branch manager before long.
+          The Branch manager preset covers most companies with branches. Make one here for any other shape.
         </Empty>
       ) : (
         <Table head={<><Th>Role</Th><Th>Started from</Th><Th>Sees</Th><Th className="text-right">Permissions</Th><Th>{""}</Th></>}>

@@ -147,7 +147,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       <Crumb href="/jobs">Jobs</Crumb>
       <div className="mt-1 flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-xl font-semibold">
-          <span className="font-mono tabular-nums text-ink-500">{job.number}</span>{" "}
+          <span className="font-mono tabular-nums text-ink-500">{work.documentNumber(job.numberPrefix, job.number)}</span>{" "}
           {job.summary ?? "Untitled"}
         </h1>
         <Chip tone={tone(JOB_TONE, job.status)}>

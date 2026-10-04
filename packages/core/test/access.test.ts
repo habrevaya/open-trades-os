@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  can, canAll, permissionsFor, redact, effectiveScope, assertCan,
-  PermissionError, ROLE_PRESETS, ALL_PERMISSIONS, SENSITIVE_PERMISSIONS,
+  can, canAll, permissionsFor, redact, effectiveScope, assertCan, canDefineRole,
+  PermissionError, ROLE_PRESETS, ALL_PERMISSIONS, SENSITIVE_PERMISSIONS, SCOPED_RESOURCES, presetDefinition,
   type Actor,
 } from "../src/access/index.js";
 
@@ -118,6 +118,41 @@ describe("the three roles the business actually names", () => {
     expect(can(dispatch, "invoice:write")).toBe(false);
     expect(can(dispatch, "payment:collect")).toBe(false);
     expect(can(dispatch, "job.cost:read")).toBe(false);
+  });
+});
+
+describe("the branch manager preset", () => {
+  const manager = actor(["branch_manager"], { businessUnitId: "houston" });
+
+  it("holds exactly what the office manager holds", () => {
+    expect([...permissionsFor(manager)].sort()).toEqual([...permissionsFor(actor(["office_manager"]))].sort());
+  });
+
+  it("sees every scoped record through their branch, and nothing wider", () => {
+    for (const resource of SCOPED_RESOURCES) {
+      expect(effectiveScope(manager, resource), resource).toBe("business_unit");
+    }
+  });
+
+  it("can be handed out by an office manager, who sees more, and not the other way round", () => {
+    expect(canDefineRole(actor(["office_manager"]), presetDefinition("branch_manager")).ok).toBe(true);
+    expect(canDefineRole(manager, presetDefinition("office_manager"))).toMatchObject({ ok: false, reason: "widens_scope" });
+    expect(canDefineRole(manager, presetDefinition("branch_manager")).ok).toBe(true);
+  });
+});
+
+describe("everybody sees their own record", () => {
+  it("is in every preset, so nobody has to be granted their own emergency contacts", () => {
+    for (const [id, preset] of Object.entries(ROLE_PRESETS)) {
+      expect(preset.permissions, id).toContain("profile:own");
+      expect(preset.permissions, id).toContain("payroll:own");
+    }
+  });
+
+  it("is not anybody else's record or pay", () => {
+    const tech = actor(["technician"]);
+    expect(can(tech, "user:read")).toBe(false);
+    expect(can(tech, "payroll:read")).toBe(false);
   });
 });
 

@@ -13093,6 +13093,228 @@
         "x-dry-run": true
       }
     },
+    "/v1/branch-numbering": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getBranchNumbering",
+        "summary": "Whether branch codes are printed in front of job and invoice numbers",
+        "description": "Requires a session holding: settings:read.",
+        "tags": [
+          "M01"
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether branch codes are printed in front of job and invoice numbers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBranchNumberingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "put": {
+        "operationId": "setBranchNumbering",
+        "summary": "Print branch codes in front of new job and invoice numbers, or stop",
+        "description": "Numbers stay one sequence for the whole company. Turned on, a job or invoice made from then on in a branch with a code of up to eight letters and digits is printed with it (\"AUS-1042\"). Numbers already given out keep what they were printed with, whatever changes later: the setting, the branch's code, or the branch a job is in.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBranchNumberingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Print branch codes in front of new job and invoice numbers, or stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetBranchNumberingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/branch-overview": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -46532,7 +46754,7 @@
       "post": {
         "operationId": "inviteMember",
         "summary": "Invite somebody to work here",
-        "description": "Creates the person with a preset role, in a branch if one is named, with a technician record when they go out to jobs (the default for technicians and crew leads), and returns a one-time link for them to choose a password, valid for seven days. The role must be one the inviter could define themselves. An address that already has an account with another company is refused, because adding an existing account would hand this company to whoever controls it. Inviting somebody who was invited and has not signed in returns a new link and retires the old one.\n\nRequires a session holding: user:invite.",
+        "description": "Creates the person with a preset role, in a branch if one is named, with a technician record when they go out to jobs (the default for technicians and crew leads), returns a one-time link for them to choose a password, and emails them a link of their own through the email outbox. Both work for seven days. The email's link is made by the outbox as it sends and is kept nowhere, so nobody reading the inbox can use it; with no email provider connected the invite is still made and `emailNote` says why it was not emailed. The role must be one the inviter could define themselves, a branch manager must be given a branch, and an inviter who sees only their branch invites into it. An address that already has an account with another company is refused, because adding an existing account would hand this company to whoever controls it. Inviting somebody who was invited and has not signed in sends a new invite and retires the old one's links.\n\nRequires a session holding: user:invite.",
         "tags": [
           "M01"
         ],
@@ -46660,8 +46882,8 @@
       ],
       "post": {
         "operationId": "resendInvite",
-        "summary": "A new link for somebody who has not signed in yet",
-        "description": "The old link stops working. Refused for somebody who has chosen a password, who signs in as normal.\n\nRequires a session holding: user:invite.",
+        "summary": "A new invite for somebody who has not signed in yet",
+        "description": "A fresh link shown once and emailed again, good for another seven days; the old invite's links stop working. This is what to do when one has run out. Refused for somebody who has chosen a password, who signs in as normal.\n\nRequires a session holding: user:invite.",
         "tags": [
           "M01"
         ],
@@ -46697,7 +46919,7 @@
         },
         "responses": {
           "201": {
-            "description": "A new link for somebody who has not signed in yet",
+            "description": "A new invite for somebody who has not signed in yet",
             "content": {
               "application/json": {
                 "schema": {
@@ -62213,6 +62435,745 @@
         ]
       }
     },
+    "/v1/me": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getMyRecord",
+        "summary": "Your own staff record",
+        "description": "The facts of your employment, the people to ring if you are hurt, your onboarding, the documents you were asked to sign, and, for somebody who goes out to jobs, your certifications with when each runs out and the continuing education toward each renewal. Never anybody else's: there is no person to name.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "responses": {
+          "200": {
+            "description": "Your own staff record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMyRecordOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
+    "/v1/me/documents/{requestId}/sign": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "signMyDocument",
+        "summary": "Sign a document you were asked to sign",
+        "description": "By typing your full name (`typedName`) or drawing your signature (`drawing`, a PNG data URL), exactly one. Kept as every signature here is: your name, your email, the moment, and a hash of the exact words you were shown; a drawing is kept as a picture beside it. Signing twice answers with the first signature, and signing ticks the onboarding line the document is.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignMyDocumentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Sign a document you were asked to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignMyDocumentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
+    "/v1/me/emergency-contacts": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addMyEmergencyContact",
+        "summary": "Add somebody to ring if you are hurt",
+        "description": "Requires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMyEmergencyContactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add somebody to ring if you are hurt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddMyEmergencyContactOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
+    "/v1/me/emergency-contacts/{id}/remove": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removeMyEmergencyContact",
+        "summary": "Take one of your emergency contacts off",
+        "description": "Only your own. Removing one already removed answers with your list.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveMyEmergencyContactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take one of your emergency contacts off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveMyEmergencyContactOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
+    "/v1/me/onboarding-lines/{id}": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setMyOnboardingLine",
+        "summary": "Tick one of your onboarding lines, or untick one you ticked",
+        "description": "Who ticked it is kept, so the office sees the lines you ticked yourself. A line the office ticked is theirs to untick, and a line that is a document is done by signing it.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMyOnboardingLineInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tick one of your onboarding lines, or untick one you ticked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMyOnboardingLineOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
+    "/v1/me/pay-statements": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getMyPayStatements",
+        "summary": "Your own pay statements and commission, for closed pay periods",
+        "description": "Your lines on the register for each period payroll has closed, worked out at the moment it closed, so they are the lines the payroll bureau was sent; and the commission behind them, invoice by invoice, with whether it has been paid. A year of periods at most. Open periods are not shown: they are still being corrected. `technician` is false for somebody with no place on the board, who has no hours, commission or tips here.\n\nRequires a session holding: payroll:own.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "Your own pay statements and commission, for closed pay periods",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMyPayStatementsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:own"
+        ]
+      }
+    },
     "/v1/memberships/{membershipId}/active": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -62489,6 +63450,144 @@
         ]
       }
     },
+    "/v1/memberships/{membershipId}/location": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setMemberLocation",
+        "summary": "Say which shop somebody works from",
+        "description": "A shop is a location: a building, as opposed to a branch. It is what a role limited to \"their shop's work\" shows them: the jobs worked from it, by somebody based there or on a visit sent from there, and the people based there. Taking it away is refused while their role or their own limits show them only their shop.\n\nRequires a session holding: membership:write.",
+        "tags": [
+          "M01"
+        ],
+        "parameters": [
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMemberLocationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Say which shop somebody works from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMemberLocationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "membership:write"
+        ]
+      }
+    },
     "/v1/memberships/{membershipId}/role": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -62497,7 +63596,7 @@
       "post": {
         "operationId": "setMemberRole",
         "summary": "Give somebody a different preset role",
-        "description": "Checked both ways: the caller must hold everything the new role carries and everything the old one did, so an administrator cannot demote an owner. Nobody changes their own role, and the last owner stays an owner. Choosing a preset takes away a custom role, which would otherwise go on replacing it; a custom role is given with the custom roles routes.\n\nRequires a session holding: user:write.",
+        "description": "Checked both ways: the caller must hold everything the new role carries and everything the old one did, so an administrator cannot demote an owner. Nobody changes their own role, the last owner stays an owner, and a branch manager has to be in a branch. Choosing a preset takes away a custom role, which would otherwise go on replacing it; a custom role is given with the custom roles routes.\n\nRequires a session holding: user:write.",
         "tags": [
           "M01"
         ],
@@ -65800,7 +66899,7 @@
       "post": {
         "operationId": "addOnboardingTemplateItem",
         "summary": "Add a line to a role's onboarding checklist",
-        "description": "A document to collect, training to give, or equipment to hand over, for a preset role (`role`) or one of the company's own (`roleId`), exactly one.\n\nRequires a session holding: user:write.",
+        "description": "A document to collect, training to give, or equipment to hand over, for a preset role (`role`) or one of the company's own (`roleId`), exactly one. A document line can name a document the person signs themselves (`staffDocumentId`): starting their onboarding asks them to sign it, and their signature ticks the line.\n\nRequires a session holding: user:write.",
         "tags": [
           "M24"
         ],
@@ -100648,6 +101747,613 @@
         ]
       }
     },
+    "/v1/staff-documents": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createStaffDocument",
+        "summary": "Write a document for people to sign",
+        "description": "The words cannot be changed afterwards, because a signature is worth what the record of what was signed is worth: a new version is a new document, and the old one is retired with its signatures intact.\n\nRequires a session holding: user:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStaffDocumentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Write a document for people to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateStaffDocumentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write"
+        ]
+      },
+      "get": {
+        "operationId": "listStaffDocuments",
+        "summary": "The documents the company asks its people to sign",
+        "description": "Each with how many people were asked and how many have signed. Retired ones too.\n\nRequires a session holding: user:read.",
+        "tags": [
+          "M24"
+        ],
+        "responses": {
+          "200": {
+            "description": "The documents the company asks its people to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListStaffDocumentsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:read"
+        ]
+      }
+    },
+    "/v1/staff-documents/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getStaffDocument",
+        "summary": "One document, and who has signed it",
+        "description": "Requires a session holding: user:read.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One document, and who has signed it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetStaffDocumentOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:read"
+        ]
+      }
+    },
+    "/v1/staff-documents/{id}/requests": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "askToSignStaffDocument",
+        "summary": "Ask people to sign a document",
+        "description": "It appears on their own record to read and sign. Asking somebody already asked asks once. A retired document asks nobody new.\n\nRequires a session holding: user:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskToSignStaffDocumentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ask people to sign a document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskToSignStaffDocumentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write"
+        ]
+      }
+    },
+    "/v1/staff-documents/{id}/retire": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "retireStaffDocument",
+        "summary": "Stop asking anybody new to sign a document",
+        "description": "Whoever was already asked can still sign it, and every signature stays.\n\nRequires a session holding: user:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireStaffDocumentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop asking anybody new to sign a document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireStaffDocumentOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:write"
+        ]
+      }
+    },
     "/v1/statement-deliveries": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -106953,7 +108659,7 @@
       "get": {
         "operationId": "pendingTimeOff",
         "summary": "Every request nobody has answered",
-        "description": "Requires a session holding: timesheet:approve.",
+        "description": "For the people the caller may answer for: a branch manager's queue is their branch's people.\n\nRequires a session holding: timesheet:approve.",
         "tags": [
           "M17"
         ],
@@ -107040,6 +108746,104 @@
         "x-authorization": "session",
         "x-permissions": [
           "timesheet:approve"
+        ]
+      }
+    },
+    "/v1/time-off/upcoming": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "upcomingTimeOff",
+        "summary": "Approved time off still to come or under way",
+        "description": "For the people the caller may answer for: a branch manager's are their branch's people.\n\nRequires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "Approved time off still to come or under way",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpcomingTimeOffOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
         ]
       }
     },
@@ -115698,6 +117502,102 @@
           "id"
         ]
       },
+      "AddMyEmergencyContactInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "relationship": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "phone": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40
+          },
+          "alternatePhone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "name",
+          "phone"
+        ]
+      },
+      "AddMyEmergencyContactOutput": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "relationship": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "phone": {
+                  "type": "string"
+                },
+                "alternatePhone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "priority": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "relationship",
+                "phone",
+                "alternatePhone",
+                "note",
+                "priority"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      },
       "AddOnboardingTemplateItemInput": {
         "type": "object",
         "properties": {
@@ -115710,6 +117610,7 @@
               "owner",
               "admin",
               "office_manager",
+              "branch_manager",
               "dispatcher",
               "csr",
               "technician",
@@ -115741,6 +117642,13 @@
           },
           "required": {
             "type": "boolean"
+          },
+          "staffDocumentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -115782,6 +117690,19 @@
           },
           "sortOrder": {
             "type": "integer"
+          },
+          "staffDocumentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "documentTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -115792,7 +117713,9 @@
           "kind",
           "label",
           "required",
-          "sortOrder"
+          "sortOrder",
+          "staffDocumentId",
+          "documentTitle"
         ]
       },
       "AddProjectPhaseInput": {
@@ -115906,6 +117829,7 @@
               "owner",
               "admin",
               "office_manager",
+              "branch_manager",
               "dispatcher",
               "csr",
               "technician",
@@ -119645,6 +121569,116 @@
           "answered",
           "text",
           "sources"
+        ]
+      },
+      "AskToSignStaffDocumentInput": {
+        "type": "object",
+        "properties": {
+          "membershipIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 500
+          }
+        },
+        "required": [
+          "membershipIds"
+        ]
+      },
+      "AskToSignStaffDocumentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "bodyHash": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "membershipId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "signedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "typed",
+                    "drawn"
+                  ]
+                },
+                "signerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "membershipId",
+                "name",
+                "askedAt",
+                "signedAt",
+                "signedVia",
+                "signerName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "bodyHash",
+          "retiredAt",
+          "createdAt",
+          "requests"
         ]
       },
       "AssignCrewToVisitInput": {
@@ -127649,6 +129683,12 @@
           "number": {
             "type": "integer"
           },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -128224,6 +130264,12 @@
           },
           "number": {
             "type": "integer"
+          },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string",
@@ -132648,6 +134694,118 @@
           "dayOfWeek"
         ]
       },
+      "CreateStaffDocumentInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "CreateStaffDocumentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "bodyHash": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "membershipId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "signedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "typed",
+                    "drawn"
+                  ]
+                },
+                "signerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "membershipId",
+                "name",
+                "askedAt",
+                "signedAt",
+                "signedVia",
+                "signerName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "bodyHash",
+          "retiredAt",
+          "createdAt",
+          "requests"
+        ]
+      },
       "CreateTaskInput": {
         "type": "object",
         "properties": {
@@ -132757,6 +134915,7 @@
               "owner",
               "admin",
               "office_manager",
+              "branch_manager",
               "dispatcher",
               "csr",
               "technician",
@@ -140818,6 +142977,28 @@
         },
         "required": [
           "slots"
+        ]
+      },
+      "GetBranchNumberingOutput": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "boolean"
+          },
+          "invoices": {
+            "type": "boolean"
+          },
+          "unusableCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "jobs",
+          "invoices",
+          "unusableCodes"
         ]
       },
       "GetBranchOverviewOutput": {
@@ -149112,6 +151293,12 @@
           "number": {
             "type": "integer"
           },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -149686,6 +151873,12 @@
           },
           "number": {
             "type": "integer"
+          },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string",
@@ -153128,6 +155321,724 @@
           "driveNote"
         ]
       },
+      "GetMyPayStatementsOutput": {
+        "type": "object",
+        "properties": {
+          "technician": {
+            "type": "boolean"
+          },
+          "statements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "periodStart": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "periodEnd": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "closedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "statement": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "classification": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "explanation": {
+                            "type": "string"
+                          },
+                          "hours": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "pattern": "^-?\\d+\\.\\d{2}$"
+                          },
+                          "rate": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          },
+                          "amount": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "label",
+                          "explanation",
+                          "hours",
+                          "rate",
+                          "amount"
+                        ]
+                      }
+                    },
+                    "gross": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "carriedForward": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "classification",
+                    "lines",
+                    "gross",
+                    "carriedForward",
+                    "warnings"
+                  ]
+                },
+                "problems": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "commissions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceNumber": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "explanation": {
+                        "type": "string"
+                      },
+                      "occurredAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "paidAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "invoiceNumber",
+                      "kind",
+                      "amount",
+                      "explanation",
+                      "occurredAt",
+                      "paidAt"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "periodId",
+                "label",
+                "periodStart",
+                "periodEnd",
+                "closedAt",
+                "statement",
+                "problems",
+                "commissions"
+              ]
+            }
+          }
+        },
+        "required": [
+          "technician",
+          "statements"
+        ]
+      },
+      "GetMyRecordOutput": {
+        "type": "object",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "roleLabel": {
+            "type": "string"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "employment": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "jobTitle": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startedOn": {
+                "type": "string"
+              },
+              "endedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "employmentType": {
+                "type": "string"
+              },
+              "payType": {
+                "type": "string"
+              },
+              "payrollReference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "jobTitle",
+              "startedOn",
+              "endedOn",
+              "employmentType",
+              "payType",
+              "payrollReference"
+            ]
+          },
+          "emergencyContacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "relationship": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "phone": {
+                  "type": "string"
+                },
+                "alternatePhone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "priority": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "relationship",
+                "phone",
+                "alternatePhone",
+                "note",
+                "priority"
+              ]
+            }
+          },
+          "onboarding": {
+            "type": "object",
+            "properties": {
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "doneAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "doneBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "note": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "companyAssetId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "doneByUserId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "staffDocumentId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "kind",
+                    "label",
+                    "required",
+                    "doneAt",
+                    "doneBy",
+                    "note",
+                    "companyAssetId",
+                    "doneByUserId",
+                    "staffDocumentId"
+                  ]
+                }
+              },
+              "progress": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "integer"
+                  },
+                  "done": {
+                    "type": "integer"
+                  },
+                  "required": {
+                    "type": "integer"
+                  },
+                  "requiredDone": {
+                    "type": "integer"
+                  },
+                  "complete": {
+                    "type": "boolean"
+                  },
+                  "sentence": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "total",
+                  "done",
+                  "required",
+                  "requiredDone",
+                  "complete",
+                  "sentence"
+                ]
+              }
+            },
+            "required": [
+              "lines",
+              "progress"
+            ]
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "documentId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "signedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "typed",
+                    "drawn"
+                  ]
+                },
+                "signerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "documentId",
+                "title",
+                "body",
+                "askedAt",
+                "signedAt",
+                "signedVia",
+                "signerName"
+              ]
+            }
+          },
+          "certifications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "authority": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "lapseReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "expired",
+                    "suspended",
+                    "revoked"
+                  ]
+                },
+                "verifiedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "name",
+                "authority",
+                "reference",
+                "issuedOn",
+                "expiresOn",
+                "status",
+                "current",
+                "lapseReason",
+                "verifiedAt"
+              ]
+            }
+          },
+          "continuingEducation": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "certificationTypeId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "completedOn": {
+                      "type": "string"
+                    },
+                    "hours": {
+                      "type": "string"
+                    },
+                    "course": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "evidence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "certificationTypeId",
+                    "completedOn",
+                    "hours",
+                    "course",
+                    "provider",
+                    "evidence"
+                  ]
+                }
+              },
+              "progress": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "certificationTypeId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "holding": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "issuedOn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "expiresOn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "issuedOn",
+                        "expiresOn"
+                      ]
+                    },
+                    "progress": {
+                      "type": "object",
+                      "properties": {
+                        "required": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "logged": {
+                          "type": "string"
+                        },
+                        "remaining": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "met": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "since": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sentence": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "required",
+                        "logged",
+                        "remaining",
+                        "met",
+                        "since",
+                        "sentence"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "certificationTypeId",
+                    "name",
+                    "holding",
+                    "progress"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "entries",
+              "progress"
+            ]
+          }
+        },
+        "required": [
+          "membershipId",
+          "name",
+          "email",
+          "roleLabel",
+          "branchName",
+          "locationName",
+          "technicianId",
+          "employment",
+          "emergencyContacts",
+          "onboarding",
+          "documents",
+          "certifications",
+          "continuingEducation"
+        ]
+      },
       "GetMyTimeclockOutput": {
         "type": "object",
         "properties": {
@@ -153915,6 +156826,20 @@
                         "null"
                       ],
                       "format": "uuid"
+                    },
+                    "doneByUserId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "staffDocumentId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
                     }
                   },
                   "required": [
@@ -153925,7 +156850,9 @@
                     "doneAt",
                     "doneBy",
                     "note",
-                    "companyAssetId"
+                    "companyAssetId",
+                    "doneByUserId",
+                    "staffDocumentId"
                   ]
                 }
               },
@@ -154241,6 +157168,54 @@
               "orphaned",
               "ended"
             ]
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "documentId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "signedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "typed",
+                    "drawn"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "documentId",
+                "title",
+                "askedAt",
+                "signedAt",
+                "signedVia"
+              ]
+            }
           }
         },
         "required": [
@@ -154254,7 +157229,8 @@
           "onboarding",
           "emergencyContacts",
           "employment",
-          "skills"
+          "skills",
+          "documents"
         ]
       },
       "GetPhoneMenuOutput": {
@@ -160043,6 +163019,99 @@
           "takingCalls"
         ]
       },
+      "GetStaffDocumentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "bodyHash": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "membershipId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "signedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "typed",
+                    "drawn"
+                  ]
+                },
+                "signerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "membershipId",
+                "name",
+                "askedAt",
+                "signedAt",
+                "signedVia",
+                "signerName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "bodyHash",
+          "retiredAt",
+          "createdAt",
+          "requests"
+        ]
+      },
       "GetStatementScheduleOutput": {
         "type": "object",
         "properties": {
@@ -162481,6 +165550,7 @@
               "owner",
               "admin",
               "office_manager",
+              "branch_manager",
               "dispatcher",
               "csr",
               "technician",
@@ -162521,12 +165591,28 @@
           },
           "reissued": {
             "type": "boolean"
+          },
+          "emailed": {
+            "type": "boolean"
+          },
+          "emailNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
           "membershipId",
           "link",
-          "reissued"
+          "reissued",
+          "emailed",
+          "emailNote",
+          "expiresAt"
         ]
       },
       "InvoiceAgreementInstalmentInput": {
@@ -162903,6 +165989,12 @@
           },
           "number": {
             "type": "integer"
+          },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string",
@@ -172742,6 +175834,12 @@
                 "number": {
                   "type": "integer"
                 },
+                "numberPrefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -173252,6 +176350,12 @@
                 },
                 "number": {
                   "type": "integer"
+                },
+                "numberPrefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "status": {
                   "type": "string",
@@ -175325,6 +178429,19 @@
                 },
                 "sortOrder": {
                   "type": "integer"
+                },
+                "staffDocumentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "documentTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -175335,7 +178452,9 @@
                 "kind",
                 "label",
                 "required",
-                "sortOrder"
+                "sortOrder",
+                "staffDocumentId",
+                "documentTitle"
               ]
             }
           }
@@ -180775,6 +183894,50 @@
           "spend"
         ]
       },
+      "ListStaffDocumentsOutput": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "asked": {
+                  "type": "integer"
+                },
+                "signed": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "retired",
+                "createdAt",
+                "asked",
+                "signed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "documents"
+        ]
+      },
       "ListStaleRegulatoryConstantsOutput": {
         "type": "object",
         "properties": {
@@ -181642,6 +184805,7 @@
                     "owner",
                     "admin",
                     "office_manager",
+                    "branch_manager",
                     "dispatcher",
                     "csr",
                     "technician",
@@ -181692,6 +184856,57 @@
                 "waiting": {
                   "type": "boolean"
                 },
+                "invite": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "sentAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "expired": {
+                      "type": "boolean"
+                    },
+                    "email": {
+                      "type": "string",
+                      "enum": [
+                        "sent",
+                        "queued",
+                        "failed",
+                        "not_sent"
+                      ]
+                    },
+                    "sentence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "sentAt",
+                    "expiresAt",
+                    "expired",
+                    "email",
+                    "sentence"
+                  ]
+                },
+                "locationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "locationName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "isYou": {
                   "type": "boolean"
                 }
@@ -181710,6 +184925,9 @@
                 "technicianId",
                 "active",
                 "waiting",
+                "invite",
+                "locationId",
+                "locationName",
                 "isYou"
               ]
             }
@@ -194960,6 +198178,66 @@
           "removed"
         ]
       },
+      "RemoveMyEmergencyContactInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveMyEmergencyContactOutput": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "relationship": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "phone": {
+                  "type": "string"
+                },
+                "alternatePhone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "priority": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "relationship",
+                "phone",
+                "alternatePhone",
+                "note",
+                "priority"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      },
       "RemoveOnboardingTemplateItemInput": {
         "type": "object",
         "properties": {}
@@ -196832,12 +200110,28 @@
           },
           "reissued": {
             "type": "boolean"
+          },
+          "emailed": {
+            "type": "boolean"
+          },
+          "emailNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
           "membershipId",
           "link",
-          "reissued"
+          "reissued",
+          "emailed",
+          "emailNote",
+          "expiresAt"
         ]
       },
       "ReserveStockInput": {
@@ -197532,6 +200826,103 @@
         "required": [
           "id",
           "retired"
+        ]
+      },
+      "RetireStaffDocumentInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetireStaffDocumentOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "bodyHash": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "membershipId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "askedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "signedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "typed",
+                    "drawn"
+                  ]
+                },
+                "signerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "membershipId",
+                "name",
+                "askedAt",
+                "signedAt",
+                "signedVia",
+                "signerName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "bodyHash",
+          "retiredAt",
+          "createdAt",
+          "requests"
         ]
       },
       "RetireWageScaleInput": {
@@ -202507,6 +205898,43 @@
           "expiresOn"
         ]
       },
+      "SetBranchNumberingInput": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "boolean"
+          },
+          "invoices": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "jobs",
+          "invoices"
+        ]
+      },
+      "SetBranchNumberingOutput": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "boolean"
+          },
+          "invoices": {
+            "type": "boolean"
+          },
+          "unusableCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "jobs",
+          "invoices",
+          "unusableCodes"
+        ]
+      },
       "SetBudgetLineInput": {
         "type": "object",
         "properties": {
@@ -203895,6 +207323,41 @@
           "plansWithPriority"
         ]
       },
+      "SetMemberLocationInput": {
+        "type": "object",
+        "properties": {
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "locationId"
+        ]
+      },
+      "SetMemberLocationOutput": {
+        "type": "object",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "membershipId",
+          "locationId"
+        ]
+      },
       "SetMemberRoleInput": {
         "type": "object",
         "properties": {
@@ -203904,6 +207367,7 @@
               "owner",
               "admin",
               "office_manager",
+              "branch_manager",
               "dispatcher",
               "csr",
               "technician",
@@ -203930,6 +207394,7 @@
               "owner",
               "admin",
               "office_manager",
+              "branch_manager",
               "dispatcher",
               "csr",
               "technician",
@@ -204215,6 +207680,137 @@
           "approvedAt"
         ]
       },
+      "SetMyOnboardingLineInput": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "done"
+        ]
+      },
+      "SetMyOnboardingLineOutput": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "doneAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "doneBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "companyAssetId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "doneByUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "staffDocumentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "label",
+                "required",
+                "doneAt",
+                "doneBy",
+                "note",
+                "companyAssetId",
+                "doneByUserId",
+                "staffDocumentId"
+              ]
+            }
+          },
+          "progress": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "required": {
+                "type": "integer"
+              },
+              "requiredDone": {
+                "type": "integer"
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "sentence": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "total",
+              "done",
+              "required",
+              "requiredDone",
+              "complete",
+              "sentence"
+            ]
+          }
+        },
+        "required": [
+          "lines",
+          "progress"
+        ]
+      },
       "SetNumberRoutingInput": {
         "type": "object",
         "properties": {
@@ -204413,6 +208009,20 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "doneByUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "staffDocumentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
                 }
               },
               "required": [
@@ -204423,7 +208033,9 @@
                 "doneAt",
                 "doneBy",
                 "note",
-                "companyAssetId"
+                "companyAssetId",
+                "doneByUserId",
+                "staffDocumentId"
               ]
             }
           },
@@ -207208,6 +210820,81 @@
           "organization"
         ]
       },
+      "SignMyDocumentInput": {
+        "type": "object",
+        "properties": {
+          "typedName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "drawing": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300000
+          }
+        }
+      },
+      "SignMyDocumentOutput": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "askedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "signedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "signedVia": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "typed",
+              "drawn"
+            ]
+          },
+          "signerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "requestId",
+          "documentId",
+          "title",
+          "body",
+          "askedAt",
+          "signedAt",
+          "signedVia",
+          "signerName"
+        ]
+      },
       "SignOutDeviceInput": {
         "type": "object",
         "properties": {}
@@ -207502,6 +211189,20 @@
                         "null"
                       ],
                       "format": "uuid"
+                    },
+                    "doneByUserId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "staffDocumentId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
                     }
                   },
                   "required": [
@@ -207512,7 +211213,9 @@
                     "doneAt",
                     "doneBy",
                     "note",
-                    "companyAssetId"
+                    "companyAssetId",
+                    "doneByUserId",
+                    "staffDocumentId"
                   ]
                 }
               },
@@ -209860,6 +213563,69 @@
         "required": [
           "agreementVisitId",
           "dueOn"
+        ]
+      },
+      "UpcomingTimeOffOutput": {
+        "type": "object",
+        "properties": {
+          "timeOff": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "startsAt": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "approved": {
+                  "type": "boolean"
+                },
+                "standing": {
+                  "type": "string",
+                  "enum": [
+                    "requested",
+                    "approved",
+                    "declined"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "technicianName",
+                "startsAt",
+                "endsAt",
+                "reason",
+                "approved",
+                "standing"
+              ]
+            }
+          }
+        },
+        "required": [
+          "timeOff"
         ]
       },
       "UpdateAgreementPlanInput": {
@@ -212855,6 +216621,12 @@
           "number": {
             "type": "integer"
           },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -213303,6 +217075,12 @@
           },
           "number": {
             "type": "integer"
+          },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string",
@@ -217333,6 +221111,7 @@
               "owner",
               "admin",
               "office_manager",
+              "branch_manager",
               "dispatcher",
               "csr",
               "technician",
@@ -221019,6 +224798,12 @@
           "number": {
             "type": "integer"
           },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -221883,6 +225668,12 @@
           },
           "number": {
             "type": "integer"
+          },
+          "numberPrefix": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string",

@@ -161,6 +161,45 @@ ticked with who and when, and a note of what was collected or handed over
 (`POST /v1/onboarding-lines/{id}`). A person is onboarded when every required
 line is done, not when a percentage gets close.
 
+### Documents people sign themselves
+
+`/people/documents` holds the words the company asks its own people to sign:
+the handbook, the drug and alcohol policy, the vehicle use agreement
+(`POST /v1/staff-documents`, `GET /v1/staff-documents`). The words cannot be
+edited afterwards, because a signature is worth what the record of what was
+signed is worth: a new version is a new document, and retiring the old one
+(`POST /v1/staff-documents/{id}/retire`) stops anybody new being asked and
+keeps every signature it has. People are asked from the document's page or
+their own (`POST /v1/staff-documents/{id}/requests`), and asking twice asks
+once. A document line on a role's onboarding checklist can be one the person
+signs: starting their onboarding asks them, and their signature ticks the
+line. `GET /v1/staff-documents/{id}` says who signed, when, and how.
+
+Each person signs from their own record, by typing their name or drawing it.
+The signature is kept as every signature in the product is, a
+`document_signature` with their name and email, the moment, the address and
+browser it came from, and a hash of the exact words they were shown; a drawing
+is kept as a picture beside it.
+
+### A person's own record
+
+`/me` is the record of whoever is signed in, for everybody, on a phone first
+(`GET /v1/me`): the documents waiting for their signature, their onboarding,
+who to ring if they are hurt, the facts of their employment, and for somebody
+who goes out to jobs their certifications with when each runs out and the
+continuing education toward each renewal. They do three things to it
+themselves: sign what they were asked to sign
+(`POST /v1/me/documents/{requestId}/sign`), tick their own onboarding lines
+and untick the ones they ticked (`POST /v1/me/onboarding-lines/{id}`), and keep
+the people to ring (`POST /v1/me/emergency-contacts`,
+`POST /v1/me/emergency-contacts/{id}/remove`). Their pay is on `/me/pay` and
+their time off on `/me/time-off` (M17).
+
+None of these takes a person: each is the signed in person's own membership,
+from the session, so a line, a contact or a document of anybody else's is not
+found. Reading anybody else's record is still `user:read`. All of it is
+`profile:own`, which every preset holds.
+
 ### Who to ring, and the facts of their employment
 
 `POST /v1/people/{membershipId}/emergency-contacts` keeps who to ring, in the
@@ -201,14 +240,18 @@ crew, at booking and in the suggestions. The job's page takes them.
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | The roster. Not the certifications, under the presets as they stand |
+| Office manager, branch manager | The roster. Not the certifications, under the presets as they stand |
 | Dispatcher, CSR, technician | Neither |
 | Accountant | Neither |
+| Everybody | Their own record on `/me`, and nothing of anybody else's |
 
-Onboarding, emergency contacts, the employment record and skills are read
-with `user:read` and changed with `user:write`, which the office manager
-preset does not hold, because it is also what assigns roles. A company that
-wants its office manager keeping these records grants it by name.
+Onboarding, emergency contacts, the employment record, skills and the
+documents people are asked to sign are read with `user:read` and changed with
+`user:write`, which the office manager preset does not hold, because it is
+also what assigns roles. A company that wants its office manager keeping these
+records grants it by name.
+
+Everybody holds `profile:own`: their own record, and nobody else's.
 
 ## API
 
@@ -234,6 +277,16 @@ wants its office manager keeping these records grants it by name.
 | `POST /v1/technicians/{technicianId}/continuing-education` | `compliance:write` |
 | `PUT /v1/jobs/{id}/required-skills` | `job:write` |
 | `POST /v1/technicians/{id}/photo` | `user:write` |
+| `GET /v1/staff-documents` | `user:read` |
+| `GET /v1/staff-documents/{id}` | `user:read` |
+| `POST /v1/staff-documents` | `user:write` |
+| `POST /v1/staff-documents/{id}/retire` | `user:write` |
+| `POST /v1/staff-documents/{id}/requests` | `user:write` |
+| `GET /v1/me` | `profile:own` |
+| `POST /v1/me/emergency-contacts` | `profile:own` |
+| `POST /v1/me/emergency-contacts/{id}/remove` | `profile:own` |
+| `POST /v1/me/onboarding-lines/{id}` | `profile:own` |
+| `POST /v1/me/documents/{requestId}/sign` | `profile:own` |
 
 ## Common questions
 
@@ -241,9 +294,9 @@ wants its office manager keeping these records grants it by name.
 bytes belong to the attachment path, which already handles any entity, and a second
 place to put a file is a second reference count to get wrong.
 
-**Can a technician see their own certifications?** Not under the presets: reading
-the register needs `compliance:read`, which the technician preset does not hold. A
-company that wants that grants it.
+**Can a technician see their own certifications?** Yes, their own, on `/me`, with
+when each runs out and whether the office has seen the card. The register of
+everybody's needs `compliance:read`, which the technician preset does not hold.
 
 **Does a lapsed licence stop dispatch?** Yes. A lapsed or revoked certification
 for a skill the work needs refuses the assignment with the person's name and the
@@ -254,12 +307,16 @@ log keeps beside the refusal.
 ## What is not built
 
 This is a qualification register and the office's record of each person, not
-an HR system. There is no document storage of its own: a signed form or a
-certificate attaches through the ordinary attachment path. Onboarding is a
-checklist ticked by the office; the person cannot tick their own lines, sign
-anything, or see their own record. A skill's record has no expiry of its own:
-only a certification can say until when. Continuing education counts hours
-toward a renewal and does not check that a course is one the authority
-accepts. Editing the list of skills on the technicians screen does not end
-their records here; a skill taken off that way is called out on the person's
-page until its record is ended.
+an HR system. Certificates and scans attach through the ordinary attachment
+path; the documents people sign are text written here, not uploaded files, and
+a signed one cannot be printed as a PDF yet. A person keeps their own
+emergency contacts and nothing else of their record: a new address or phone
+number goes to the office. A person can tick any line of their own onboarding,
+and the office sees that they ticked it rather than the office. A skill's
+record has no expiry of its own: only a certification can say until when.
+Continuing education counts hours toward a renewal and does not check that a
+course is one the authority accepts, and a person cannot log their own hours.
+Editing the list of skills on the technicians screen does not end their
+records here; a skill taken off that way is called out on the person's page
+until its record is ended. Signing through the API records no address or
+browser, because the route does not see them; the screen does.

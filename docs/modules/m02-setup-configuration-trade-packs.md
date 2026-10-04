@@ -111,8 +111,8 @@ the real settings form for it rather than a copy: `/setup/company` (the name,
 the legal name, the phone, email and postal address customers reach the
 company by, the time zone, the logo and colour), `/setup/trade`,
 `/setup/service-area`, `/setup/hours` (opening hours, arrival windows and what
-may be booked online), `/setup/team` (inviting people, and branches for a
-company with more than one shop), `/setup/pricebook` (every price, or one
+may be booked online), `/setup/team` (inviting people, who are emailed a link
+to choose a password, and branches for a company with more than one shop), `/setup/pricebook` (every price, or one
 shelf, moved up or down by a percentage, previewed first and undoable from
 `/pricebook/changes`), `/setup/tax`, `/setup/payments`,
 `/setup/communications` (texting and email providers, and the A2P 10DLC brand
@@ -257,6 +257,14 @@ a preset role, and nobody hands out a role carrying permissions they do not
 hold themselves. The technician role carries field permissions (syncing a
 phone, clocking in) the office manager does not, so an owner or an
 administrator invites technicians. An office manager invites office staff.
+A branch manager invites into their own branch only, and only another branch
+manager: every other preset sees the whole company, which is more than they
+do. A company that wants a branch's own CSRs makes a branch scoped role for
+them on `/settings/roles`.
+
+**What happens when an invite runs out?** The team list says so beside the
+person, and "Send a new invite" sends another, good for seven more days, and
+stops every link the old one had.
 
 **Why was my invite refused for an address?** It already has an account with
 another company. Adding an existing account would hand this company to
@@ -269,9 +277,11 @@ the missing datum for the ones it cannot.
 
 ## What is not built
 
-An invite link is shown to the person inviting, once, for them to send; this
-product does not email it. A deployment with no `PUBLIC_URL` makes no link at
-all and says so. An address with an account at another company cannot be
+An invite is emailed only when the company has an email provider connected;
+without one the team list says it was not emailed, and the link shown once to
+the person inviting is the way in. A deployment with no `PUBLIC_URL` makes no
+link at all and says so. An invite's link lasts seven days, which a company
+cannot change. An address with an account at another company cannot be
 invited.
 
 A trade pack upgrade does not touch checklists, KPIs, filing calendars or the

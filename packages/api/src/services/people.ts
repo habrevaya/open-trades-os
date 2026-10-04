@@ -460,7 +460,7 @@ export async function listCertifications(
 }
 
 /** The read both the list and the standing check run, with the lapse decided once. */
-async function held(
+export async function held(
   tx: Database, organizationId: string,
   input: { technicianIds?: string[] | undefined; typeIds?: string[] | undefined; on: string },
 ): Promise<HeldCertification[]> {

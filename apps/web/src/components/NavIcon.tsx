@@ -22,9 +22,22 @@ export type IconName =
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
   | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance"
-  | "books" | "people" | "records";
+  | "books" | "people" | "records" | "me";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /**
+   * My record: an id badge on a lanyard, for the one record that is the
+   * person's own. Not the hard hat, which is everybody (People), and not a
+   * head and shoulders, which is the customers.
+   */
+  me: (
+    <>
+      <rect x="5" y="6.5" width="14" height="14" rx="2" />
+      <path d="M10 6.5V3.5h4v3" />
+      <circle cx="12" cy="11.5" r="2" />
+      <path d="M8.5 17a3.5 3.5 0 0 1 7 0" />
+    </>
+  ),
   /** Books: a ledger open flat, two pages and a spine, for the journal and the budget. */
   books: (
     <>

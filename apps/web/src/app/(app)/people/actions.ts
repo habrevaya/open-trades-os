@@ -3,12 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { peopleRecords } from "@opentradesos/api/services";
+import { peopleRecords, staffDocuments } from "@opentradesos/api/services";
 import {
-  addEmergencyContact, addOnboardingTemplateItem, logContinuingEducation, recordTechnicianSkill,
-  setEmploymentRecord, setOnboardingLine,
+  addEmergencyContact, addOnboardingTemplateItem, askToSignStaffDocument, createStaffDocument,
+  logContinuingEducation, recordTechnicianSkill, setEmploymentRecord, setOnboardingLine,
 } from "@opentradesos/api/contracts";
-import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { attempt, field, fields, parsed, type FormState } from "@/lib/actions";
 
 /**
  * EVERYTHING THE PEOPLE SCREENS WRITE, each through its service and the
@@ -20,6 +20,7 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
 const refresh = (membershipId?: string) => {
   revalidatePath("/people");
   revalidatePath("/people/onboarding");
+  revalidatePath("/people/documents");
   if (membershipId) revalidatePath(`/people/${membershipId}`);
 };
 
@@ -31,6 +32,7 @@ export async function addTemplateItemAction(_previous: FormState, form: FormData
       kind: field(form, "kind"),
       label: field(form, "label") ?? "",
       required: form.get("required") !== null,
+      ...(field(form, "staffDocumentId") ? { staffDocumentId: field(form, "staffDocumentId") } : {}),
     }));
   });
   if (state?.done) refresh();
@@ -147,5 +149,48 @@ export async function logCeAction(_previous: FormState, form: FormData): Promise
     }));
   });
   if (state?.done) refresh(membershipId);
+  return state;
+}
+
+/* --------------------------------------------------------- documents to sign */
+
+export async function createDocumentAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const doc = await staffDocuments.create(await ctx(), parsed(createStaffDocument.input, {
+      title: field(form, "title") ?? "",
+      body: field(form, "body") ?? "",
+    }));
+    return { message: `${doc.title} is ready. Ask people to sign it below.` };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
+/** Ask the people ticked, or one person from their own page. */
+export async function askToSignAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const people = fields(form, "membershipId");
+  const state = await attempt(form, async () => {
+    const view = await staffDocuments.ask(await ctx(), parsed(askToSignStaffDocument.input, { id, membershipIds: people }));
+    return { message: `Asked. ${view.requests.filter((r) => !r.signedAt).length} still to sign.` };
+  });
+  if (state?.done) {
+    refresh();
+    revalidatePath(`/people/documents/${id}`);
+    for (const membershipId of people) revalidatePath(`/people/${membershipId}`);
+  }
+  return state;
+}
+
+export async function retireDocumentAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const state = await attempt(form, async () => {
+    await staffDocuments.retire(await ctx(), { id });
+    return { message: "Retired. Nobody new is asked to sign it." };
+  });
+  if (state?.done) {
+    refresh();
+    revalidatePath(`/people/documents/${id}`);
+  }
   return state;
 }

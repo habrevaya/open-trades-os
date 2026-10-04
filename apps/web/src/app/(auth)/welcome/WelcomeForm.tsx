@@ -11,7 +11,7 @@ export function WelcomeForm({ token, email, name }: { token: string; email: stri
     <>
       <h1 className="text-xl font-semibold">Welcome{name ? `, ${name}` : ""}</h1>
       <p className="mt-2 text-sm text-ink-700">
-        Your company is ready. Choose a password for <strong>{email}</strong> and you are in.
+        Choose a password for <strong>{email}</strong> and you are in.
       </p>
 
       <form {...actionForm} className="mt-7 flex flex-col gap-5">

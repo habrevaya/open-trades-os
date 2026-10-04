@@ -88,6 +88,7 @@ import { stockTrackingRoutes } from "./stock-tracking";
 import { purchasingRoutes } from "./purchasing";
 import { rentalBillingRoutes } from "./rental-billing";
 import { peopleRecordRoutes } from "./people-records";
+import { selfServiceRoutes } from "./self-service";
 import { customObjectRoutes } from "./custom-objects";
 import { proposalTemplateRoutes } from "./proposal-templates";
 import { sandboxRoutes } from "./sandbox";
@@ -177,6 +178,7 @@ export * from "./stock-tracking";
 export * from "./purchasing";
 export * from "./rental-billing";
 export * from "./people-records";
+export * from "./self-service";
 
 /**
  * Every route in the product, and the only description of them.
@@ -287,6 +289,7 @@ export const routes = {
   ...purchasingRoutes,
   ...rentalBillingRoutes,
   ...peopleRecordRoutes,
+  ...selfServiceRoutes,
   ...customObjectRoutes,
   ...proposalTemplateRoutes,
   ...sandboxRoutes,

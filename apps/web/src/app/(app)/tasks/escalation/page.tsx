@@ -26,7 +26,8 @@ export const dynamic = "force-dynamic";
  */
 const ROLES = [
   { value: "owner", label: "Owners" }, { value: "admin", label: "Administrators" },
-  { value: "office_manager", label: "Office managers" }, { value: "dispatcher", label: "Dispatchers" },
+  { value: "office_manager", label: "Office managers" }, { value: "branch_manager", label: "Branch managers" },
+  { value: "dispatcher", label: "Dispatchers" },
   { value: "csr", label: "Customer service" }, { value: "technician", label: "Technicians" },
   { value: "crew_lead", label: "Crew leads" }, { value: "accountant", label: "Accountants" },
 ];

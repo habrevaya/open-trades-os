@@ -215,12 +215,18 @@ export const memberRole = pgEnum("member_role", [
   "crew_lead",
   "accountant",
   "readonly",
+  /**
+   * An office manager for one branch. Last rather than beside the office
+   * manager, because a value added to a Postgres enum goes on the end and the
+   * order here is the order the database holds.
+   */
+  "branch_manager",
 ]);
 
 /**
  * A role a company defined for itself.
  *
- * The nine presets are starting points, not a taxonomy. A company with four
+ * The ten presets are starting points, not a taxonomy. A company with four
  * branches wants a branch manager, and one with a warehouse wants somebody
  * who reads inventory and nothing else, and neither is a preset with extras
  * bolted on.

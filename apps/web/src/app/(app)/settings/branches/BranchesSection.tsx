@@ -3,7 +3,7 @@ import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { Table, Th, Td, Empty } from "@/components/Table";
-import { createBranch, renameBranch, setBranchActive, moveJobs } from "./actions";
+import { createBranch, renameBranch, setBranchActive, moveJobs, setNumbering } from "./actions";
 
 /**
  * A COMPANY'S BRANCHES, AND THE WORK THAT IS IN NONE
@@ -24,6 +24,7 @@ export async function BranchesSection({ ctx, compact = false }: { ctx: ServiceCo
   const unsorted = moves && live.length > 0 && view.unassigned.jobs > 0
     ? (await jobs.list(ctx, { limit: 50, businessUnitId: "none" })).data
     : [];
+  const numbering = view.branches.length > 0 && !compact ? await branches.numbering(ctx) : null;
 
   return (
     <div>
@@ -82,6 +83,38 @@ export async function BranchesSection({ ctx, compact = false }: { ctx: ServiceCo
             : `${view.peopleWithoutBranch} ${view.peopleWithoutBranch === 1 ? "person has" : "people have"} no branch. That is right for an owner who sees everything; somebody limited to their branch needs one.`}
           {" "}People are put in a branch on <a href="/settings/team" className="underline underline-offset-4">Team</a>.
         </p>
+      ) : null}
+
+      {numbering ? (
+        <section className="mt-8" aria-labelledby="numbers">
+          <h2 id="numbers" className="text-base font-semibold">Branch codes on numbers</h2>
+          <p className="mt-1 max-w-2xl text-sm text-ink-700">
+            Job and invoice numbers stay one sequence for the whole company. Turned on, a new job or invoice in a
+            branch is printed with the branch&apos;s short code in front of its number, like HOU-1042, so a number
+            read down the phone says which shop it is. Numbers already given out keep what they were printed
+            with, whatever changes later.
+          </p>
+          {numbering.unusableCodes.length > 0 ? (
+            <p className="mt-1 text-sm text-amber-700">
+              {numbering.unusableCodes.join(", ")} {numbering.unusableCodes.length === 1 ? "has" : "have"} no code that can go in front of a
+              number (up to eight letters and digits), so {numbering.unusableCodes.length === 1 ? "its" : "their"} numbers stay plain.
+            </p>
+          ) : null}
+          {writes ? (
+            <ActionForm action={setNumbering} submit="Save" className="mt-3 flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="jobs" defaultChecked={numbering.jobs} className="h-4 w-4" /> On job numbers
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="invoices" defaultChecked={numbering.invoices} className="h-4 w-4" /> On invoice numbers
+              </label>
+            </ActionForm>
+          ) : (
+            <p className="mt-2 text-sm text-ink-700">
+              {numbering.jobs ? "On job numbers. " : "Not on job numbers. "}{numbering.invoices ? "On invoice numbers." : "Not on invoice numbers."}
+            </p>
+          )}
+        </section>
       ) : null}
 
       {view.unassigned.jobs > 0 && live.length > 0 ? (

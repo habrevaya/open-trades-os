@@ -89,7 +89,7 @@ const basisOfDays = (days: dm.Day[]) =>
 async function loadRange(tx: Database, ctx: ServiceContext, dates: string[]) {
   const zone = await timezoneOf(tx, ctx.actor.organizationId);
   const days: dm.Day[] = [];
-  for (const date of dates) days.push(await dm.loadDay(tx, ctx.actor.organizationId, date));
+  for (const date of dates) days.push(await dm.loadDay(tx, ctx.actor.organizationId, date, dm.dayScopeOf(ctx)));
   return { zone, days, today: time.dateIn(new Date(), zone), open: await openDaysOf(tx) };
 }
 

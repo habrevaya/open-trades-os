@@ -56,3 +56,33 @@ export function prioritySql(column: string): string {
     .join(" ");
   return `case ${whens} else 'Priority ' || ${column}::text end`;
 }
+
+/**
+ * A BRANCH'S MARK ON A JOB OR INVOICE NUMBER
+ *
+ * Numbers stay one sequence per company: two branches drawing from one
+ * counter is what keeps every number unique without a lock per branch, and
+ * Austin's invoices simply have gaps in them. What a company with branches
+ * asks for is to tell them apart at a glance, so a branch's short code can be
+ * printed in front of the number ("AUS-1042"), when the company turns that on.
+ *
+ * The prefix is written onto the document when it is made and never worked
+ * out again. A job moved to Houston next month, or Austin's code changed, does
+ * not renumber anything a customer already holds a copy of.
+ */
+export const PREFIX_PATTERN = /^[A-Z0-9]{1,8}$/;
+
+/**
+ * The prefix a branch code gives, or null when it cannot give one: blank, or
+ * not a short run of letters and digits. Upper cased, because a number read
+ * aloud over the phone has no lower case.
+ */
+export function numberPrefix(code: string | null | undefined): string | null {
+  const cleaned = (code ?? "").trim().toUpperCase();
+  return PREFIX_PATTERN.test(cleaned) ? cleaned : null;
+}
+
+/** How a job or invoice number is printed: with its branch's mark, when it has one. */
+export function documentNumber(prefix: string | null | undefined, number: number | string): string {
+  return prefix ? `${prefix}-${number}` : String(number);
+}

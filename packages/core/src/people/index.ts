@@ -115,3 +115,77 @@ export function ceProgress(input: {
       : `${hoursLabel(logged)} of ${hoursLabel(need)} hours${window}. ${hoursLabel(remaining)} more needed${by}.`,
   };
 }
+
+/* ------------------------------------------------------ signing a document */
+
+/**
+ * HOW A PERSON SIGNS SOMETHING THE OFFICE GAVE THEM: by typing their name or
+ * by drawing it, and exactly one of the two.
+ *
+ * A typed name is a signature, the same as on a proposal: what makes it worth
+ * anything is the record kept beside it (who was signed in, when, from where,
+ * and a hash of the words they were shown), not the strokes. Both at once is
+ * refused rather than one quietly preferred, because the record says which
+ * way somebody signed and "both" is not an answer to that.
+ */
+export type SignatureMethod = "typed" | "drawn";
+
+export type SignatureCheck =
+  | { ok: true; method: SignatureMethod; signerName: string }
+  | { ok: false; reason: string };
+
+export function checkSignature(input: {
+  typedName?: string | null | undefined;
+  drawn: boolean;
+  /** The person's own name as the company has it, which a drawn signature is recorded under. */
+  ownName: string;
+}): SignatureCheck {
+  const typed = (input.typedName ?? "").trim();
+  if (typed !== "" && input.drawn) {
+    return { ok: false, reason: "Sign one way: type your name, or draw your signature, not both." };
+  }
+  if (input.drawn) return { ok: true, method: "drawn", signerName: input.ownName };
+  if (typed === "") return { ok: false, reason: "Type your full name, or draw your signature, to sign." };
+  if (typed.length < 2) return { ok: false, reason: "Type your full name to sign. One letter is an initial, not a name." };
+  if (typed.length > 200) return { ok: false, reason: "That is longer than a name. Type your full name to sign." };
+  return { ok: true, method: "typed", signerName: typed };
+}
+
+/* ----------------------------------------------------------------- invites */
+
+/** How long an invite's link works, from the moment it was sent. */
+export const INVITE_DAYS = 7;
+
+export type InviteEmail = "sent" | "queued" | "failed" | "not_sent";
+
+export interface InviteStanding {
+  readonly expired: boolean;
+  readonly sentence: string;
+}
+
+/**
+ * Where an invite stands, in the words the team list shows beside somebody who
+ * has not signed in yet. Expired is the one an owner has to act on, so it says
+ * what to do about it.
+ */
+export function inviteStanding(input: {
+  expiresAt: Date;
+  now: Date;
+  email: InviteEmail;
+  /** Why it was not emailed, when it was not. */
+  emailNote?: string | null | undefined;
+  /** The day the link stops working, as the company writes a date. */
+  expiresOn: string;
+}): InviteStanding {
+  if (input.expiresAt.getTime() <= input.now.getTime()) {
+    return { expired: true, sentence: `The invite ran out on ${input.expiresOn}. Send a new one.` };
+  }
+  const how = input.email === "sent"
+    ? "Emailed"
+    : input.email === "queued"
+      ? "Waiting to be emailed"
+      : input.email === "failed"
+        ? `The email did not go${input.emailNote ? ` (${input.emailNote})` : ""}, so send them the link yourself`
+        : `Not emailed${input.emailNote ? ` (${input.emailNote})` : ""}, so send them the link yourself`;
+  return { expired: false, sentence: `${how}. The link works until ${input.expiresOn}.` };
+}

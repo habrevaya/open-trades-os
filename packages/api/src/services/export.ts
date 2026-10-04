@@ -164,6 +164,11 @@ export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
     tag_key: "A customer's tag lower cased with its spaces tidied, which the tag filter compares by. "
       + "A key in the sense of a lookup, not a credential.",
   },
+  staff_document: {
+    body_hash: "SHA-256 of a document's title and words, which every signature against it carries. "
+      + "A fingerprint of text the export also contains, so it opens nothing, and the export is how a "
+      + "company proves which words somebody signed.",
+  },
   sealed_credential: {
     key_fingerprint: "Twelve hex characters of a hash of the deployment's sealing key, which say which key "
       + "sealed a grant and nothing about the key itself.",

@@ -2,7 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { jobs, branches, customFields } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
-import { can } from "@opentradesos/core";
+import { can, work } from "@opentradesos/core";
 import { JOB_STATUS, JOB_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
@@ -65,7 +65,7 @@ export default async function JobsPage({
           {page.data.map((job) => (
             <tr key={job.id} className="hover:bg-steel-100">
               {/* Mono, because a job number gets read aloud over a phone. */}
-              <Td className="font-mono tabular-nums text-ink-700">{job.number}</Td>
+              <Td className="font-mono tabular-nums text-ink-700">{work.documentNumber(job.numberPrefix, job.number)}</Td>
               <Td>
                 <a href={`/jobs/${job.id}`} className="font-medium text-ink-900 hover:underline">
                   {job.summary ?? "Untitled"}

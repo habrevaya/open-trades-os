@@ -283,7 +283,7 @@ export const upgradeTradePack = defineRoute({
 
 /* ------------------------------------------------------------------ team */
 
-const RoleKey = z.enum(["owner", "admin", "office_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly"]);
+const RoleKey = z.enum(["owner", "admin", "office_manager", "branch_manager", "dispatcher", "csr", "technician", "crew_lead", "accountant", "readonly"]);
 
 export const listTeam = defineRoute({
   method: "get",
@@ -308,6 +308,16 @@ export const listTeam = defineRoute({
       technicianId: Uuid.nullable(),
       active: z.boolean(),
       waiting: z.boolean(),
+      /** For somebody waiting: their live invite, whether it was emailed, and until when its link works. */
+      invite: z.object({
+        sentAt: z.string().datetime(),
+        expiresAt: z.string().datetime(),
+        expired: z.boolean(),
+        email: z.enum(["sent", "queued", "failed", "not_sent"]),
+        sentence: z.string(),
+      }).nullable(),
+      locationId: Uuid.nullable(),
+      locationName: z.string().nullable(),
       isYou: z.boolean(),
     })),
   }),
@@ -318,6 +328,12 @@ const Invitation = z.object({
   /** The one-time link to choose a password. Null when the deployment has no PUBLIC_URL. Shown once. */
   link: z.string().nullable(),
   reissued: z.boolean(),
+  /** Put in the email outbox for them, with a link of its own that the outbox makes as it sends. */
+  emailed: z.boolean(),
+  /** Why it was not emailed, when it was not. */
+  emailNote: z.string().nullable(),
+  /** When both links stop working. */
+  expiresAt: z.string().datetime(),
 });
 
 export const inviteMember = defineRoute({
@@ -325,7 +341,7 @@ export const inviteMember = defineRoute({
   path: "/v1/invitations",
   summary: "Invite somebody to work here",
   description:
-    "Creates the person with a preset role, in a branch if one is named, with a technician record when they go out to jobs (the default for technicians and crew leads), and returns a one-time link for them to choose a password, valid for seven days. The role must be one the inviter could define themselves. An address that already has an account with another company is refused, because adding an existing account would hand this company to whoever controls it. Inviting somebody who was invited and has not signed in returns a new link and retires the old one.",
+    "Creates the person with a preset role, in a branch if one is named, with a technician record when they go out to jobs (the default for technicians and crew leads), returns a one-time link for them to choose a password, and emails them a link of their own through the email outbox. Both work for seven days. The email's link is made by the outbox as it sends and is kept nowhere, so nobody reading the inbox can use it; with no email provider connected the invite is still made and `emailNote` says why it was not emailed. The role must be one the inviter could define themselves, a branch manager must be given a branch, and an inviter who sees only their branch invites into it. An address that already has an account with another company is refused, because adding an existing account would hand this company to whoever controls it. Inviting somebody who was invited and has not signed in sends a new invite and retires the old one's links.",
   module: "M01",
   permissions: ["user:invite"],
   idempotent: true,
@@ -342,8 +358,8 @@ export const inviteMember = defineRoute({
 export const resendInvite = defineRoute({
   method: "post",
   path: "/v1/invitations/{membershipId}/resend",
-  summary: "A new link for somebody who has not signed in yet",
-  description: "The old link stops working. Refused for somebody who has chosen a password, who signs in as normal.",
+  summary: "A new invite for somebody who has not signed in yet",
+  description: "A fresh link shown once and emailed again, good for another seven days; the old invite's links stop working. This is what to do when one has run out. Refused for somebody who has chosen a password, who signs in as normal.",
   module: "M01",
   permissions: ["user:invite"],
   idempotent: true,
@@ -356,7 +372,7 @@ export const setMemberRole = defineRoute({
   path: "/v1/memberships/{membershipId}/role",
   summary: "Give somebody a different preset role",
   description:
-    "Checked both ways: the caller must hold everything the new role carries and everything the old one did, so an administrator cannot demote an owner. Nobody changes their own role, and the last owner stays an owner. Choosing a preset takes away a custom role, which would otherwise go on replacing it; a custom role is given with the custom roles routes.",
+    "Checked both ways: the caller must hold everything the new role carries and everything the old one did, so an administrator cannot demote an owner. Nobody changes their own role, the last owner stays an owner, and a branch manager has to be in a branch. Choosing a preset takes away a custom role, which would otherwise go on replacing it; a custom role is given with the custom roles routes.",
   module: "M01",
   permissions: ["user:write"],
   idempotent: true,
