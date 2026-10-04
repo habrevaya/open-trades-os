@@ -70,6 +70,9 @@ Not queue items. Listed so this file and the catalogue cannot disagree.
 | `nominatim` | maps | OpenStreetMap's geocoder, public or self hosted. No key; one request a second against the public server, and a contact address on every request as its usage policy asks. |
 | `mapbox` | maps | The commercial geocoder, always on the permanent tier because every answer is stored. Google is not offered: its terms forbid keeping the coordinates. |
 | `whisper` | transcription | Speech to text for kept recordings and voicemails, over the Whisper API: OpenAI's, or a server the company runs itself so calls never leave the building. Card numbers are removed before the words are stored. |
+| `osrm` | routing | Drive times by road from a routing server the company runs itself on OpenStreetMap roads. No key and no default address, because the project's demo server asks not to carry real traffic. Answers kept thirty days. |
+| `mapbox_directions` | routing | Drive times from Mapbox's Matrix API, a separate connection from the Mapbox geocoder. Kept a day at most, the cautious reading of terms that restrict storing results. |
+| `openrouteservice` | routing | Drive times over OpenStreetMap from the hosted service with a free key, or the same software self hosted with none. Kept a week. |
 | `xero` | accounting | The second adapter on the accounting seam. No change feed on their side, so inbound is a modified-since boundary; refresh tokens rotate with no grace period at all. |
 | `google_ads` | ads | Spend per campaign per day pulled into the spend rows and mapped onto tracking campaigns; paid jobs uploaded as click conversions with the job's id as Google's order id. Needs the operator's own developer token. |
 | `google_lsa` | ads | Local Services leads into the lead inbox and their spend under Local Services, through the Google Ads API with the same token and sign in. |

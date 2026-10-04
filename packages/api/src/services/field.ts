@@ -10,6 +10,7 @@ import { emit } from "./events";
 import { freezeRate } from "./labor";
 import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
+import * as location from "./location";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
@@ -134,7 +135,7 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
     // Already seen, in one query rather than one per operation. A resend of a
     // whole day is the common case, not the exceptional one.
     const clientIds = input.operations.map((o) => o.clientId);
-    const seen = await tx.select({
+    const seen = clientIds.length === 0 ? [] : await tx.select({
       clientId: schema.fieldOperation.clientId,
       status: schema.fieldOperation.status,
       conflict: schema.fieldOperation.conflict,
@@ -248,6 +249,12 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
       updatedAt: receivedAt,
     }).where(eq(schema.device.id, device.id));
 
+    /**
+     * Positions after the operations, so a punch in sent with the day's first
+     * fixes is on the record when those fixes are judged.
+     */
+    const positions = await location.ingest(tx, ctx, device, input.positions ?? [], receivedAt);
+
     const gaps = field.findSequenceGaps(asOperations, { [device.id]: device.lastSequence }, skipped);
     const [snapshot] = await tx.select({ revision: schema.deviceSnapshot.revision })
       .from(schema.deviceSnapshot)
@@ -258,6 +265,7 @@ export async function sync(ctx: ServiceContext, input: z.infer<typeof syncOperat
       results,
       awaiting: gaps.flatMap((g) => g.missing),
       snapshotRevision: snapshot?.revision ?? 0,
+      positions,
     };
   });
 }

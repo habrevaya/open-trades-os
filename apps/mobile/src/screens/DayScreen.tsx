@@ -5,6 +5,7 @@ import {
 import { useField } from "../state/FieldProvider";
 import { syncLine } from "../lib/status";
 import { pushLine } from "../lib/push";
+import { locationLine } from "../lib/location";
 import { dayHeading } from "../lib/format";
 import { Button, Card, Notice } from "../components/ui";
 import { color, space, type } from "../components/theme";
@@ -89,6 +90,8 @@ export function DayScreen({ nav }: { nav: Navigate }) {
 
       {pushLine(field.push) ? <Notice tone="amber">{pushLine(field.push)!}</Notice> : null}
 
+      <LocationIndicator />
+
       {(view?.problems.length ?? 0) > 0 ? (
         <Pressable onPress={() => nav.push({ name: "outbox" })} accessibilityRole="button">
           <Notice tone="amber">{view!.problems[0]!.detail}</Notice>
@@ -114,6 +117,18 @@ export function DayScreen({ nav }: { nav: Navigate }) {
       </View>
     </ScrollView>
   );
+}
+
+/**
+ * Whether this phone is sharing where its person is, said every time it is,
+ * in words, at the top of the day. Off the clock it says it is not.
+ */
+function LocationIndicator() {
+  const field = useField();
+  const line = locationLine(field.view?.location, field.locationPermission);
+  if (!line) return null;
+  if (line.tone === "off") return <Text style={[type.soft, styles.location]}>{line.text}</Text>;
+  return <Notice tone={line.tone === "on" ? "green" : "amber"}>{line.text}</Notice>;
 }
 
 function TimeClock() {
@@ -189,4 +204,5 @@ const styles = StyleSheet.create({
   rowStatus: { alignItems: "flex-end", maxWidth: 110 },
   waiting: { color: color.amber, fontSize: 13, marginTop: space.xs, textAlign: "right" },
   footer: { marginTop: space.xl },
+  location: { marginBottom: space.sm },
 });

@@ -81,6 +81,19 @@ hours, so a person can silence it in the phone's settings and still be woken
 for a job that night. A company that requires an access token for its Expo
 project sets `EXPO_ACCESS_TOKEN` for the worker.
 
+## Location while working
+
+When the company has turned live location on, the app shares where the
+person is only while they are clocked in, on the way to a visit or working
+one, and says so at the top of their day every time it does. It asks for
+location permission the first time sharing is due, not at sign in. "While
+using the app" shares only while the app is open; "Always" keeps sharing with
+the screen off, under Android's ongoing notice ("Sharing your location") and
+iOS's blue indicator. The permission wording is in `app.json` under the
+`expo-location` plugin, and a company building its own copy can change it
+there; App Store review reads it. The rules, and why each one is the way it
+is, are in `docs/modules/m11-mobile-field-app.md`.
+
 ## Build it with EAS
 
 [EAS Build](https://docs.expo.dev/build/introduction/) builds the native apps
@@ -115,7 +128,7 @@ person signing in.
 | `src/shell/App.tsx` | Five screens on a stack, and the hardware back button |
 | `src/state/FieldProvider.tsx` | Every write, every send, sign in and out |
 | `src/screens/` | Sign in (password or code), the day, a visit and its work (checklist, readings, parts, payment), the signature pad, what is waiting to send |
-| `src/platform/` | SQLite, the Keychain, the camera's files, the background task, notices |
+| `src/platform/` | SQLite, the Keychain, the camera's files, the background task, notices, location while working |
 | `src/lib/` | The logic the screens use, tested without a phone |
 | `packages/field-client` | The queue, the sync, uploads and the day, shared with the web page |
 

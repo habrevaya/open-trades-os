@@ -589,6 +589,13 @@
       "when": 1791071122187,
       "tag": "0083_real_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791071808355,
+      "tag": "0084_acoustic_madripoor",
+      "breakpoints": true
     }
   ]
 }

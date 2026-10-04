@@ -24,7 +24,7 @@ const visit = (over: Partial<MapData["visits"][number]>): MapData["visits"][numb
   propertyId: V1, address: "4102 Ramsey Ave, Austin", status: "dispatched",
   windowStart: "2026-10-05T14:00:00.000Z", windowEnd: "2026-10-05T16:00:00.000Z",
   estimatedDurationMinutes: 60, routeOrder: 1, isLate: false,
-  technicianId: T1, technicianIds: [T1],
+  technicianId: T1, technicianIds: [T1], crewId: null, locked: false,
   position: { lat: 30.31, lng: -97.74, precision: "rooftop", source: "nominatim" },
   ...over,
 });
@@ -42,8 +42,11 @@ const map = (over: Partial<MapData> = {}): MapData => ({
             technicianId: null, technicianIds: [], status: "unassigned", position: null }),
   ],
   unplaced: [V2],
+  crews: [],
   travel: { averageKmh: 40, roadFactor: 1.3, dayStartsAt: "08:00" },
   geocoder: null,
+  routing: null,
+  live: null,
   ...over,
 });
 
@@ -52,6 +55,28 @@ const render = (data: MapData) => renderToStaticMarkup(
 );
 
 describe("the dispatch map", () => {
+  it("lists crews beside the people, and where people are now for somebody who dispatches", () => {
+    const html = render(map({
+      crews: [{ id: "c1", name: "Install crew", color: null, start: null, memberIds: [T1], route: [V1] }],
+      live: {
+        enabled: true,
+        positions: [{
+          technicianId: T1, displayName: "Ray Ortiz", color: "#1D4ED8", lat: 30.3, lng: -97.7, accuracyMeters: 8,
+          recordedAt: "2026-10-05T15:00:00.000Z", reason: "on_the_way", visitId: V1, freshness: "stale", lastSeen: "2 hours ago",
+        }],
+      },
+    }));
+    expect(html).toContain("Install crew");
+    expect(html).toContain("Crew, 1 stop");
+    expect(html).toContain("Where people are now");
+    expect(html).toContain("2 hours ago");
+  });
+
+  it("says live location is off, with where to turn it on, and shows nothing to somebody who does not dispatch", () => {
+    expect(render(map({ live: { enabled: false, positions: [] } }))).toContain("Live location is off.");
+    expect(render(map({ live: null }))).not.toContain("Where people are now");
+  });
+
   it("lists a visit with no coordinates, with a link to place its pin, rather than dropping it", () => {
     const html = render(map());
     expect(html).toContain("Not on the map yet (1)");
@@ -89,8 +114,10 @@ describe("the optimiser's preview", () => {
     technicianId: T1, date: "2026-10-05", startKnown: true, startLabel: "Yard",
     current: day(52), proposed: day(31), improved: true,
     missed: [{ visitId: V2, customerName: "Tolu Okafor", lateByMinutes: 25, unreachable: true }],
-    locked: [], unplaced: [], applyOrder: [V1, V2], declaredLegs: 0,
+    locked: [], pinned: [], unplaced: [], applyOrder: [V1, V2], declaredLegs: 0,
     travel: { averageKmh: 40, roadFactor: 1.3, dayStartsAt: "08:00" },
+    driveSource: "estimate" as const,
+    driveNote: "Drive times are straight line estimates. Connect a routing service under Settings, Integrations for times by road.",
   };
   const names = new Map([[V1, "Dana Whitfield"], [V2, "Tolu Okafor"]]);
 
@@ -102,6 +129,18 @@ describe("the optimiser's preview", () => {
     expect(html).toContain("Tolu Okafor: about 25 min after the window closes.");
     expect(html).toContain("No order could make it");
     expect(html).toContain("Use this order");
+  });
+
+  it("says when the drive times are by road, and that a locked visit keeps its place", () => {
+    const html = renderToStaticMarkup(
+      <RoutePreview
+        proposal={{ ...proposal, driveSource: "road", driveNote: "Drive times by road, from your OSRM server.", pinned: [V1] }}
+        technicianName="Ray Ortiz" customerOf={names} canApply onApply={() => {}} onClose={() => {}}
+      />,
+    );
+    expect(html).toContain("Drive times by road, from your OSRM server.");
+    expect(html).not.toContain("straight line");
+    expect(html).toContain("1 locked visit keeps its place.");
   });
 
   it("does not offer to apply an order that is no better", () => {
@@ -128,6 +167,8 @@ describe("the optimiser's preview", () => {
             ],
           }],
           unplaced: [],
+          driveSource: "estimate",
+          driveNote: "Drive times are straight line estimates.",
         }}
         customerOf={names}
         onAccept={() => {}}

@@ -22,6 +22,8 @@ import { clearSession, installationId, loadSession, saveSession } from "../platf
 import { fieldClientFor, forgetFieldClients, type FieldClient } from "../platform/field";
 import { keepPhoto, keepSignature } from "../platform/files";
 import { startBackgroundSync, stopBackgroundSync } from "../platform/background";
+import { locationPermission, startSharing, stopSharing } from "../platform/location";
+import { shouldTrack, type LocationPermission } from "../lib/location";
 
 /**
  * THE PHONE'S STATE, IN ONE PLACE
@@ -53,6 +55,8 @@ interface FieldState {
   signInWithCode(input: { server: string; email: string; code: string }): Promise<SignInOutcome>;
   /** Whether changes to the day are pushed to this phone, and if not, why. */
   push: PushState;
+  /** What the phone's settings allow for sharing location, asked only once sharing is due. */
+  locationPermission: LocationPermission;
   /** A card payment link for the visit's job, texted to the customer or handed to the share sheet. */
   paymentLink(visitId: string, how: "text" | "share"): Promise<string>;
   signOut(): Promise<void>;
@@ -88,6 +92,7 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const [report, setReport] = useState<SyncReport | null>(null);
   const [signInEnded, setSignInEnded] = useState(false);
   const [push, setPush] = useState<PushState>("off");
+  const [permission, setPermission] = useState<LocationPermission>("undetermined");
   const clientRef = useRef<FieldClient | null>(null);
   clientRef.current = client;
 
@@ -174,6 +179,32 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     return () => { clearInterval(timer); app.remove(); network.remove(); };
   }, [status, sync]);
 
+  /**
+   * Location follows the day. When the field client says the phone should be
+   * sharing (clocked in, on the way, working, with sharing on for the company
+   * and this person), the operating system's updates start, asking for
+   * permission the first time; when it says otherwise they stop and any fix
+   * not yet sent is thrown away rather than sent after the fact.
+   */
+  const sharing = view?.location ?? null;
+  const sharingOn = sharing?.state.sharing ?? false;
+  const interval = sharing?.intervalSeconds ?? 60;
+  useEffect(() => {
+    if (status !== "ready") return;
+    void (async () => {
+      if (!sharingOn) {
+        await stopSharing();
+        await clientRef.current?.positions.clear();
+        return;
+      }
+      const allowed = await locationPermission(true);
+      setPermission(allowed);
+      if (shouldTrack(sharing, allowed)) await startSharing(interval);
+      else await stopSharing();
+    })();
+    // `sharing` is read for the permission check only; the effect follows on and off and the interval.
+  }, [status, sharingOn, interval]);
+
   const deviceFacts = async (): Promise<DeviceFacts> => ({
     installation: await installationId(),
     platform: Platform.OS === "ios" ? "ios" : "android",
@@ -209,6 +240,8 @@ export function FieldProvider({ children }: { children: ReactNode }) {
       try { await c.api.signOut(c.session.deviceId); } catch { /* ended anyway, or later */ }
     }
     await stopBackgroundSync();
+    await stopSharing();
+    await c?.positions.clear();
     await clearSession();
     forgetFieldClients();
     setClient(null);
@@ -342,6 +375,18 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const onMyWay = useCallback<FieldState["onMyWay"]>(async (visitId, etaMinutes) => {
     const c = clientRef.current;
     if (!c) return "Not signed in.";
+    /**
+     * Telling the customer you are on the way IS being on the way: the visit
+     * moves to on the way first, into the queue like every other tap, so the
+     * tracking link has a van to show and the office sees the visit move,
+     * whether or not the text gets through.
+     */
+    const visit = (await c.engine.view()).day.visits.find((v) => v.id === visitId);
+    if (visit?.stage === "upcoming") {
+      await c.queue.enqueue({ kind: "visit.en_route", subjectId: visitId });
+      await refreshView(c);
+      await sync(true);
+    }
     try {
       const result = await c.api.onMyWay(visitId, etaMinutes, Crypto.randomUUID());
       if (result.sent) return `Texted: about ${etaMinutes} minutes away.`;
@@ -352,7 +397,7 @@ export function FieldProvider({ children }: { children: ReactNode }) {
         ? "No signal, so the customer was not texted. Call them if you can."
         : error instanceof Error ? error.message : "Not sent.";
     }
-  }, []);
+  }, [refreshView, sync]);
 
   /**
    * A card, through the invoice's own link, which needs a signal and the
@@ -379,10 +424,10 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<FieldState>(() => ({
-    status, session, view, syncing, report, signInEnded, push,
+    status, session, view, syncing, report, signInEnded, push, locationPermission: permission,
     signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
     checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
-  }), [status, session, view, syncing, report, signInEnded, push, signIn, requestCode, signInWithCode, signOut,
+  }), [status, session, view, syncing, report, signInEnded, push, permission, signIn, requestCode, signInWithCode, signOut,
     sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

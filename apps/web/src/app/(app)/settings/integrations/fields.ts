@@ -180,6 +180,31 @@ export const FORMS: Record<string, ProviderForm> = {
       { key: "countryCodes", label: "Countries you work in, comma separated (optional)", kind: "list", placeholder: "us" },
     ],
   },
+  osrm: {
+    credential: null,
+    fields: [
+      { key: "endpoint", label: "Your OSRM server's address", kind: "text",
+        placeholder: "https://osrm.yourcompany.com",
+        hint: "Where your own OSRM server answers. There is no public one to fall back on." },
+      { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving" },
+    ],
+  },
+  mapbox_directions: {
+    credential: "Access token, as the name of the secret holding it",
+    fields: [
+      { key: "profile", label: "Profile", kind: "select", options: ["driving", "driving-traffic"],
+        hint: "With traffic is ten points a request rather than twenty five, so a big day costs more requests." },
+    ],
+  },
+  openrouteservice: {
+    credential: "API key, as the name of the secret holding it (not needed for your own server)",
+    fields: [
+      { key: "endpoint", label: "Your own server (optional)", kind: "text",
+        placeholder: "https://api.openrouteservice.org",
+        hint: "Leave blank for the hosted service, which needs a key." },
+      { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving-car" },
+    ],
+  },
   spend_csv: {
     credential: null,
     fields: [],

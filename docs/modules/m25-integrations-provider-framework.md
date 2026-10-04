@@ -74,6 +74,19 @@ source, and a pin placed by hand on a property is never moved by it. Google is
 deliberately not an adapter: its terms forbid keeping the coordinates and
 drawing them on a map that is not Google's.
 
+**A routing service answers how long the drive is, and failing is an answer.**
+The `routing` capability has three adapters: OSRM on the company's own server
+(no key, and no default address, because the project's demo server asks not to
+be used for real traffic), Mapbox's Matrix API by secret name (connected as
+`mapbox_directions`, separately from the Mapbox geocoder), and
+OpenRouteService, hosted with a key or self hosted without. Each answers a
+matrix of drive times; answers are kept in `travel_time` for as long as the
+provider allows and asked again after, each request is recorded as an
+`integration_event` before it goes, and the network is in no database
+transaction. A provider that fails is put on the connection's last error, and
+the drives it could not answer fall back to the straight line estimate, which
+every screen says.
+
 **A lead connector is a webhook somebody else posts to.** It has its own secret, a
 field mapping onto real objects, a test call, and a rotation path for when the secret
 leaks.
@@ -164,6 +177,7 @@ catalogue says why.
 **Which integrations are built?** The catalogue answers it at runtime, and the
 settings screen shows it. Stripe, Wisetack, QuickBooks Online, Xero, Twilio, JustCall, Resend,
 SMTP, CallRail, the AI model providers, the OpenStreetMap and Mapbox geocoders,
+the OSRM, Mapbox and OpenRouteService routing services,
 Google Ads, Google Local Services, Meta Ads, Google Analytics and Google Business
 Profile are the ones a company can set up and see data arrive from. The last
 five are tested against fakes of each, not live accounts, and four of them need

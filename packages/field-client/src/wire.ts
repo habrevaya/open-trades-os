@@ -101,6 +101,17 @@ export interface PriceBookEntry {
   taxable: boolean;
 }
 
+/**
+ * Whether this phone may share where its person is, as the server said with
+ * the day. Absent from older servers, which is read as off.
+ */
+export interface LocationSharing {
+  companyEnabled: boolean;
+  personEnabled: boolean;
+  intervalSeconds: number;
+  retentionDays: number;
+}
+
 export interface FieldSnapshot {
   revision: number;
   unchanged: boolean;
@@ -110,6 +121,8 @@ export interface FieldSnapshot {
   openTimeEntry: { id: string; kind: string; startedAt: string } | null;
   /** Absent from older servers, and empty for somebody who may not file inspections. */
   inspectionPrograms?: FieldInspectionProgram[] | undefined;
+  /** Absent from older servers, which is read as sharing off. */
+  locationSharing?: LocationSharing | undefined;
 }
 
 export interface CodeRequestResult {

@@ -237,6 +237,12 @@ export const visit = pgTable("visit", {
   locationId: uuid("location_id").references(() => location.id, { onDelete: "set null" }),
   /** Ordering within a technician's day, set by the dispatch board and route pass. */
   routeOrder: integer("route_order"),
+  /**
+   * Locked by the office: the rebalance and the route optimiser leave this
+   * visit with whoever has it, in its place. For the customer who was
+   * promised "Ray, first thing", which no arrival window can say.
+   */
+  dispatchLocked: boolean("dispatch_locked").notNull().default(false),
 
   /**
    * Exactly one of these is set, determined by the job type's capacity model.

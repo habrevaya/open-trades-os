@@ -121,6 +121,18 @@ export interface SyncResponse {
   results: SyncResult[];
   awaiting: number[];
   snapshotRevision: number;
+  /** What became of positions sent with it. Absent from older servers. */
+  positions?: { stored: number; dropped: Record<string, number> } | undefined;
+}
+
+/** Where the phone was, as the sync takes it. See `positions.ts`. */
+export interface PositionFix {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number | undefined;
+  heading?: number | undefined;
+  speed?: number | undefined;
+  recordedAt: string;
 }
 
 export interface Transport {
@@ -129,6 +141,8 @@ export interface Transport {
     operations: Array<Omit<QueuedOperation, "status" | "attempts" | "lastError" | "conflict">>;
     /** Sequences this device numbered and lost. See `flush`. Absent when none. */
     skipped?: number[];
+    /** Positions riding along, sent by `PositionBuffer.flush`. */
+    positions?: PositionFix[];
   }): Promise<SyncResponse>;
 }
 
