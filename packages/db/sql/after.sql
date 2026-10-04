@@ -854,7 +854,7 @@ create or replace function app.oauth_purge_unused_clients(p_older_than_days int 
   $$;
 
 revoke all on function app.oauth_purge_unused_clients(int, int) from public;
-grant execute on function app.oauth_purge_unused_clients(int, int) to background;
+-- (The grant to `background` is further down, after that role exists.)
 
 -- The token endpoint is called by a client holding a code or a refresh token
 -- and nothing else: no cookie, no tenant. These answer WHICH company a code
@@ -1188,6 +1188,11 @@ end
 $$;
 
 grant authenticated to background;
+
+-- Held here rather than beside the function: that one is defined above, before
+-- this role exists, and a grant to a role that does not yet exist aborts the
+-- whole migration on a database that has never had one (a fresh install, CI).
+grant execute on function app.oauth_purge_unused_clients(int, int) to background;
 
 -- `p_only` narrows the search to the companies named, and null (the default,
 -- and what the worker passes) searches all of them. It exists for a pass that
