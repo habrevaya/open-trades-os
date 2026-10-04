@@ -325,9 +325,13 @@ loaded, which is the usual way a custom report starts.
 
 The catalogue the builder offers is the company's own: the product's datasets with
 the company's custom fields added (a job's fields on Jobs and Job profitability, an
-invoice's on Invoices, an estimate's on Estimates, a visit's on Visits, and a
-customer's on the first three as "Customer: ..."), each a column, a filter and a
-grouping, with a number field also totalled and averaged; and a dataset for each of
+invoice's on Invoices, an estimate's on Estimates, a visit's on Visits), and the
+fields of the records each row hangs off, named for the record ("Customer: ...",
+"Address: ...", "Job: ...", "Unit: ...", "Technician: ...", on every dataset whose
+rows reach one, Calls included), each a column, a filter and a grouping, with a
+number field also totalled and averaged. A related record's fields need the
+permission that reads that record, for a filter as much as for a grouping; M29
+lists which reach where. And a dataset for each of
 the company's own kinds of record (M29), counted and grouped by its fields, its
 month, its customer and its job type. Every fragment is still written by the
 product: a field's key reaches the SQL only after matching the lowercase key pattern
@@ -457,7 +461,9 @@ names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. The records behind a KPI are listed only for a
 reader whose scope is the whole company. A custom field on an address, a unit or a
-technician is not on any dataset yet, because no dataset is a row of one. A drill, of a report or of a KPI, lists at most a thousand records (its
+technician is on the datasets whose rows hang off one, never as a dataset of its
+own, because no dataset is a row of one; a unit's fields reach only the kinds of
+record that link a unit, and a technician's only Visits, through its lead. A drill, of a report or of a KPI, lists at most a thousand records (its
 totals still cover all of them).
 
 The PDF is set in the standard Helvetica faces, which cover Western European

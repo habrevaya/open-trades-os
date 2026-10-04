@@ -8,6 +8,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
 import { CustomFieldFilter } from "@/components/CustomFieldFilter";
 import { fieldFrom, withFieldFilter } from "@/lib/field-filter";
+import { work } from "@opentradesos/core";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ function daysOverdue(dueOn: string | null, today: string): number {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string; field?: string; value?: string }>;
+  searchParams: Promise<{ branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -49,7 +50,7 @@ export default async function InvoicesPage({
   const params = await searchParams;
   const branch = chosenBranch(options, params.branch);
   const declared = await customFields.formFields(ctx, "invoice");
-  const { fieldKey, fieldValue, byField } = fieldFrom(params);
+  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
 
   const { page, refusal } = await withFieldFilter((withField) => billing.list(ctx, {
     limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
@@ -63,8 +64,8 @@ export default async function InvoicesPage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Invoices" count={page.data.length} />
-      <BranchFilter options={options} action="/invoices" current={branch} keep={{ field: fieldKey, value: fieldValue }} />
-      <CustomFieldFilter action="/invoices" declared={declared} keep={{ branch }} fieldKey={fieldKey} fieldValue={fieldValue}
+      <BranchFilter options={options} action="/invoices" current={branch} keep={fieldKeep} />
+      <CustomFieldFilter action="/invoices" declared={declared} keep={{ branch }} pairs={pairs}
                          refusal={refusal} noun="invoices" />
 
       {late > 0 && (
@@ -95,7 +96,7 @@ export default async function InvoicesPage({
             const over = invoice.balance === "0" ? 0 : daysOverdue(invoice.dueOn, today);
             return (
             <tr key={invoice.id} className="hover:bg-steel-100">
-              <Td className="font-mono tabular-nums text-ink-700">{invoice.number}</Td>
+              <Td className="font-mono tabular-nums text-ink-700">{work.documentNumber(invoice.numberPrefix, invoice.number)}</Td>
               <Td>
                 <a href={`/invoices/${invoice.id}`} className="font-medium text-ink-900 hover:underline">
                   {invoice.customerName}

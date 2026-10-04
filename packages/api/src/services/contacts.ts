@@ -1,8 +1,10 @@
 import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { customerScopeFilter } from "./scope";
+import { remember, replayed } from "./once";
 
 /**
  * THE PEOPLE AT A PROPERTY, WHICH NOTHING COULD CREATE
@@ -51,6 +53,9 @@ export interface ContactInput {
   preferredChannel?: Channel | undefined;
   isPrimary?: boolean | undefined;
 }
+
+/** A change to some of a contact's fields. Absent, or undefined, is "leave it". */
+export type ContactPatch = { id: string } & { [K in keyof ContactInput]?: ContactInput[K] | undefined };
 
 function normalise(input: ContactInput) {
   const name = input.name.trim();
@@ -107,6 +112,25 @@ async function assertSubjects(
       .where(and(eq(schema.property.id, input.propertyId), isNull(schema.property.deletedAt)))
       .limit(1);
     if (!row) throw new NotFoundError("Property");
+  }
+  /**
+   * BOTH, AND THE PROPERTY IS ONE OF THIS CUSTOMER'S. The customer's page
+   * only ever offered its own addresses, so this held for the screen by
+   * construction and for nothing else; the API takes a property id from
+   * anybody, and a contact tied to a stranger's address would be ranked
+   * first for the notices at a house this customer has nothing to do with.
+   * Any link counts, past ones included: a landlord who sold the house still
+   * had a tenant there.
+   */
+  if (input.customerId && input.propertyId) {
+    const [link] = await tx.select({ id: schema.customerProperty.id }).from(schema.customerProperty)
+      .where(and(
+        eq(schema.customerProperty.customerId, input.customerId),
+        eq(schema.customerProperty.propertyId, input.propertyId),
+      )).limit(1);
+    if (!link) {
+      throw new ConflictError("That address is not one of this customer's. Link the address to the customer first.");
+    }
   }
 }
 
@@ -177,7 +201,7 @@ export async function update(
    * name back, and a form that does send it back is a form that can overwrite
    * a fresh name with a stale one.
    */
-  input: Partial<ContactInput> & { id: string },
+  input: ContactPatch,
 ) {
   return guardedWrite(ctx, "customer:write", async (tx) => {
     const [before] = await tx.select().from(schema.contact)
@@ -303,6 +327,97 @@ export async function list(
       .sort((a, b) => a.noticeRank - b.noticeRank || a.name.localeCompare(b.name));
   });
 }
+
+/* --------------------------------------------- the routes, one customer's people */
+
+/**
+ * The API's view of a customer's contacts, under the same rules as the
+ * customer's page: added to the customer in the path, at an address only if
+ * it is one of theirs, removed softly, and made primary by demoting whoever
+ * was before. The service functions above are what both call, so the screen
+ * and the API cannot hold different rules.
+ *
+ * The customer is looked up under the caller's scope first, so a technician
+ * reads the people at the customers they have been sent to and is told a
+ * customer they have not been sent to does not exist, as the customer list
+ * tells them.
+ */
+async function visibleCustomer(tx: Database, ctx: ServiceContext, customerId: string): Promise<void> {
+  const [row] = await tx.select({ id: schema.customer.id }).from(schema.customer)
+    .where(and(
+      eq(schema.customer.id, customerId),
+      isNull(schema.customer.deletedAt),
+      customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor),
+    )).limit(1);
+  if (!row) throw new NotFoundError("Customer");
+}
+
+export async function listForCustomer(ctx: ServiceContext, input: { id: string }) {
+  await guardedRead(ctx, "customer:read", (tx) => visibleCustomer(tx, ctx, input.id));
+  return { contacts: await list(ctx, { customerId: input.id }) };
+}
+
+type ContactView = ReturnType<typeof shape>;
+
+/**
+ * Add somebody to the customer in the path. A retry with the same
+ * idempotency key returns the first answer rather than a second person.
+ */
+export async function addForCustomer(
+  ctx: ServiceContext, input: Omit<ContactInput, "customerId"> & { id: string },
+): Promise<ContactView> {
+  const { id: customerId, ...rest } = input;
+  return guardedWrite(ctx, "customer:write", async (tx) => {
+    const seen = await replayed<ContactView>(tx, ctx, "contact_add");
+    if (seen) return seen;
+    await visibleCustomer(tx, ctx, customerId);
+    const created = await create({ ...ctx, db: tx }, { ...rest, customerId });
+    await remember(tx, ctx, "contact_add", created.id, created);
+    return created;
+  });
+}
+
+/**
+ * Change somebody's details. Not who they belong to (a contact is moved by
+ * adding them to the other customer and removing them here, which leaves the
+ * history saying both), and not whether they are primary, which is its own
+ * route because it changes somebody else too.
+ */
+export async function edit(
+  ctx: ServiceContext,
+  input: Omit<ContactPatch, "customerId" | "isPrimary">,
+): Promise<ContactView> {
+  return update(ctx, input);
+}
+
+/** Take somebody off. A retry with the same key is the first answer, not a "not found". */
+export async function removeOnce(ctx: ServiceContext, input: { id: string }) {
+  return guardedWrite(ctx, "customer:write", async (tx) => {
+    const seen = await replayed<{ id: string; removed: true }>(tx, ctx, "contact_remove");
+    if (seen) return seen;
+    const done = await remove({ ...ctx, db: tx }, input);
+    await remember(tx, ctx, "contact_remove", input.id, done);
+    return done;
+  });
+}
+
+/**
+ * The person rung first about this customer, and at their address when the
+ * contact is tied to one. Naturally idempotent: making the primary primary
+ * again changes nothing, and the demotion it does is the same either time.
+ */
+export async function makePrimary(ctx: ServiceContext, input: { id: string }): Promise<ContactView> {
+  return update(ctx, { id: input.id, isPrimary: true });
+}
+
+export const handlers = {
+  listCustomerContacts: (ctx: ServiceContext, input: { id: string }) => listForCustomer(ctx, input),
+  addCustomerContact: (ctx: ServiceContext, input: Omit<ContactInput, "customerId"> & { id: string }) =>
+    addForCustomer(ctx, input),
+  updateContact: (ctx: ServiceContext, input: Omit<ContactPatch, "customerId" | "isPrimary">) => edit(ctx, input),
+  removeContact: (ctx: ServiceContext, input: { id: string }) => removeOnce(ctx, input),
+  makeContactPrimary: (ctx: ServiceContext, input: { id: string }) => makePrimary(ctx, input),
+} as const;
 
 function shape(row: typeof schema.contact.$inferSelect) {
   return {

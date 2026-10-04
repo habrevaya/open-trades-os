@@ -69,9 +69,11 @@ import { externalWorkRoutes } from "./external-work";
 import { kpiRoutes } from "./kpis";
 import { visitRoutes } from "./visits";
 import { dispatchMapRoutes } from "./dispatch-map";
+import { dispatchDaysRoutes } from "./dispatch-days";
 import { locationRoutes } from "./location";
 import { acquisitionRoutes } from "./acquisition";
 import { customerTagRoutes } from "./customer-tags";
+import { contactRoutes } from "./contacts";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
 import { taskRuleRoutes } from "./task-rules";
 import { customerPortalRoutes } from "./customer-portal";
@@ -86,6 +88,7 @@ import { stockTrackingRoutes } from "./stock-tracking";
 import { purchasingRoutes } from "./purchasing";
 import { rentalBillingRoutes } from "./rental-billing";
 import { peopleRecordRoutes } from "./people-records";
+import { selfServiceRoutes } from "./self-service";
 import { customObjectRoutes } from "./custom-objects";
 import { proposalTemplateRoutes } from "./proposal-templates";
 import { sandboxRoutes } from "./sandbox";
@@ -153,10 +156,12 @@ export * from "./field-assets";
 export * from "./credit-notes";
 export * from "./statements";
 export * from "./dispatch-map";
+export * from "./dispatch-days";
 export * from "./location";
 export * from "./agreements";
 export * from "./visit-changes";
 export * from "./customer-tags";
+export * from "./contacts";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
 export * from "./customer-portal";
@@ -173,6 +178,7 @@ export * from "./stock-tracking";
 export * from "./purchasing";
 export * from "./rental-billing";
 export * from "./people-records";
+export * from "./self-service";
 
 /**
  * Every route in the product, and the only description of them.
@@ -263,9 +269,11 @@ export const routes = {
   ...kpiRoutes,
   ...visitRoutes,
   ...dispatchMapRoutes,
+  ...dispatchDaysRoutes,
   ...locationRoutes,
   ...reportRoutes,
   ...customerTagRoutes,
+  ...contactRoutes,
   ...priceBookBulkRoutes,
   ...taskRuleRoutes,
   ...customerPortalRoutes,
@@ -281,6 +289,7 @@ export const routes = {
   ...purchasingRoutes,
   ...rentalBillingRoutes,
   ...peopleRecordRoutes,
+  ...selfServiceRoutes,
   ...customObjectRoutes,
   ...proposalTemplateRoutes,
   ...sandboxRoutes,

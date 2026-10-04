@@ -279,8 +279,20 @@ export const pendingTimeOff = defineRoute({
   method: "get",
   path: "/v1/time-off/pending",
   summary: "Every request nobody has answered",
+  description: "For the people the caller may answer for: a branch manager's queue is their branch's people.",
   module: "M17",
   permissions: ["timesheet:approve"],
+  input: z.object({}),
+  output: z.object({ timeOff: z.array(TimeOff) }),
+});
+
+export const upcomingTimeOff = defineRoute({
+  method: "get",
+  path: "/v1/time-off/upcoming",
+  summary: "Approved time off still to come or under way",
+  description: "For the people the caller may answer for: a branch manager's are their branch's people.",
+  module: "M17",
+  permissions: ["timesheet:read"],
   input: z.object({}),
   output: z.object({ timeOff: z.array(TimeOff) }),
 });
@@ -395,6 +407,7 @@ export const companyRoutes = {
   requestTimeOff,
   listTimeOff,
   pendingTimeOff,
+  upcomingTimeOff,
   approveTimeOff,
   declineTimeOff,
   withdrawTimeOff,

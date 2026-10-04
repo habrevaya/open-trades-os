@@ -75,6 +75,8 @@ export interface UpgradeInput {
   pack: readonly PackSeedItem[];
   companyJobTypeCodes: readonly string[];
   packJobTypes: readonly { code: string; name: string }[];
+  /** The rest of what a pack sets up. Absent when only the price book is being planned. */
+  setup?: SetupUpgradeInput | undefined;
 }
 
 export interface FieldChange {
@@ -104,6 +106,8 @@ export interface UpgradePlan {
   /** In the old version and not the new one. Left exactly as they are. */
   dropped: { itemId: string; code: string; name: string }[];
   jobTypes: { add: { code: string; name: string }[]; present: number };
+  /** The service report template, inspection programmes, retention rules and portal layout. */
+  setup: SetupPlan;
 }
 
 /** `hvac@3` is version three of hvac. Anything else is not this pack. */
@@ -155,6 +159,7 @@ export function planUpgrade(input: UpgradeInput): UpgradePlan {
     unchanged: 0,
     dropped: [],
     jobTypes: { add: [], present: 0 },
+    setup: input.setup ? planSetupUpgrade(input.setup) : { add: [], update: [], kept: [], unchanged: 0, dropped: [] },
   };
 
   for (const seed of input.pack) {
@@ -204,7 +209,8 @@ export function planUpgrade(input: UpgradeInput): UpgradePlan {
 
 /** Whether applying the plan would change anything at all. */
 export const planChangesSomething = (plan: UpgradePlan): boolean =>
-  plan.add.length > 0 || plan.update.length > 0 || plan.jobTypes.add.length > 0;
+  plan.add.length > 0 || plan.update.length > 0 || plan.jobTypes.add.length > 0
+  || plan.setup.add.length > 0 || plan.setup.update.length > 0;
 
 /** A field's name as an owner would say it. */
 export const FIELD_LABELS: Record<keyof SeedFields, string> = {
@@ -216,4 +222,177 @@ export const FIELD_LABELS: Record<keyof SeedFields, string> = {
   taxable: "Taxable",
   taxClass: "Tax class",
   warrantyMonths: "Warranty months",
+};
+
+/* ------------------------------------------------- the rest of the pack */
+
+/**
+ * THE REST OF WHAT A PACK SETS UP, UNDER THE SAME RULE
+ *
+ * A pack seeds more than a price book: a service report template from its
+ * readings, its inspection programmes, retention rules and a portal layout.
+ * A newer version can fix any of them (a reading's range, a checkpoint the
+ * standard added, a retention period the regulation changed), and the rule
+ * is the price book's: a row is the pack's to update only while it still
+ * says what the pack set up, and the moment anybody here changed it, it is
+ * theirs and the upgrade says what it would have changed and leaves it.
+ *
+ * Each piece is compared as a whole, by its content: a template's name and
+ * readings, a programme's name, standard, audience, frequency and
+ * checkpoints, a rule's entity, clock, months and basis, a layout's name and
+ * blocks. What only the company decides (whether a rule may purge, whether
+ * a template or a rule is in force, which layout is the default) is not
+ * content, is never compared and never touched.
+ *
+ * TWO MORE WAYS A PIECE IS THEIRS than an item has. A piece the pack set up
+ * and the company removed stays removed: the record of what was set up says
+ * it was there, and putting it back would be undoing a decision. And a
+ * retention rule the company allowed to purge is never shortened by an
+ * upgrade, because a shorter period on a rule that deletes is records gone
+ * sooner than anybody agreed to; it is kept and the change listed.
+ *
+ * "Still says what the pack set up" is decided against the record of what
+ * the company's current version set up, when there is one. An application
+ * from before that record was kept has none, and there the row's own record
+ * answers: a template or programme still on version one and never saved
+ * since it was made, a rule or layout never saved since it was made. That
+ * fails safe, keeping anything that has been touched at all.
+ */
+
+export type SetupKind = "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+
+/** One piece as a pack version declares it, or as the company's row holds it, in the shape compared. */
+export interface SetupPiece {
+  kind: SetupKind;
+  /** What makes it the same piece across versions: `template`, a programme's name, `entity:kind`, `layout`. */
+  key: string;
+  name: string;
+  content: Record<string, unknown>;
+}
+
+export interface CompanySetupPiece extends SetupPiece {
+  id: string;
+  /** `hvac@1` when the pack set it up, anything else when it did not. */
+  tradePackId: string | null;
+  /** Without a record of what was set up: whether the row says nobody has saved it since it was made. */
+  untouched: boolean;
+  /** A retention rule the company has allowed to purge. */
+  purgeAllowed?: boolean | undefined;
+}
+
+export interface SetupUpgradeInput {
+  packId: string;
+  /** What the company's current version set up, by `kind:key`. Null when it predates the record. */
+  baseline: Readonly<Record<string, Record<string, unknown>>> | null;
+  company: readonly CompanySetupPiece[];
+  pack: readonly SetupPiece[];
+}
+
+export type SetupKeptReason = "edited" | "yours" | "removed" | "purging";
+
+export interface SetupPlan {
+  /** New to this company. */
+  add: { kind: SetupKind; key: string; name: string }[];
+  /** Still as the pack set them up, so they take the new version. `changed` names the parts. */
+  update: { kind: SetupKind; key: string; id: string; name: string; changed: string[] }[];
+  /** The new version changes these and the company owns them, so nothing happens. */
+  kept: { kind: SetupKind; key: string; id: string | null; name: string; reason: SetupKeptReason; changed: string[] }[];
+  /** Already what the new version says. */
+  unchanged: number;
+  /** Set up by an older version and not by this one. Left exactly as they are. */
+  dropped: { kind: SetupKind; key: string; id: string; name: string }[];
+}
+
+/** The identity a baseline is kept under. */
+export const setupKey = (piece: Pick<SetupPiece, "kind" | "key">): string => `${piece.kind}:${piece.key}`;
+
+/**
+ * JSON with its keys in order and nothing undefined, so two pieces that say
+ * the same thing compare equal however their objects were built. A value
+ * written by the database comes back with its keys in another order, and an
+ * optional left out is the same as one left undefined.
+ */
+export function canonical(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Which parts of a piece differ, by name. */
+export function changedParts(from: Record<string, unknown>, to: Record<string, unknown>): string[] {
+  const keys = [...new Set([...Object.keys(from), ...Object.keys(to)])].sort();
+  return keys.filter((key) => canonical(from[key]) !== canonical(to[key]));
+}
+
+export function planSetupUpgrade(input: SetupUpgradeInput): SetupPlan {
+  const plan: SetupPlan = { add: [], update: [], kept: [], unchanged: 0, dropped: [] };
+  const byKey = new Map(input.company.map((piece) => [setupKey(piece), piece]));
+  const ours = (piece: CompanySetupPiece) => taggedVersion(piece.tradePackId, input.packId) !== null;
+  const wanted = new Set(input.pack.map(setupKey));
+
+  for (const seed of input.pack) {
+    const key = setupKey(seed);
+    const row = byKey.get(key);
+    if (!row) {
+      if (input.baseline?.[key]) {
+        plan.kept.push({ kind: seed.kind, key: seed.key, id: null, name: seed.name, reason: "removed", changed: [] });
+      } else {
+        plan.add.push({ kind: seed.kind, key: seed.key, name: seed.name });
+      }
+      continue;
+    }
+    const changed = changedParts(row.content, seed.content);
+    if (changed.length === 0) {
+      plan.unchanged += 1;
+      continue;
+    }
+    const kept = (reason: SetupKeptReason) =>
+      plan.kept.push({ kind: seed.kind, key: seed.key, id: row.id, name: row.name, reason, changed });
+    if (!ours(row)) { kept("yours"); continue; }
+    const seeded = input.baseline?.[key];
+    const edited = seeded ? changedParts(row.content, seeded).length > 0 : !row.untouched;
+    if (edited) { kept("edited"); continue; }
+    const months = (content: Record<string, unknown>) => Number(content["retainMonths"]);
+    if (row.kind === "retention_rule" && row.purgeAllowed && months(seed.content) < months(row.content)) {
+      kept("purging");
+      continue;
+    }
+    plan.update.push({ kind: seed.kind, key: seed.key, id: row.id, name: row.name, changed });
+  }
+
+  for (const row of input.company) {
+    if (!ours(row) || wanted.has(setupKey(row))) continue;
+    plan.dropped.push({ kind: row.kind, key: row.key, id: row.id, name: row.name });
+  }
+  return plan;
+}
+
+/** A piece's kind as an owner would say it. */
+export const SETUP_KIND_LABELS: Record<SetupKind, string> = {
+  service_report: "Service report",
+  inspection_program: "Inspection programme",
+  retention_rule: "Retention rule",
+  portal_layout: "Customer portal layout",
+};
+
+/** A part of a piece as an owner would say it. */
+export const SETUP_PART_LABELS: Record<string, string> = {
+  name: "Name",
+  fields: "Readings",
+  standard: "Standard",
+  reportAudience: "Who gets the report",
+  frequencyMonths: "How often",
+  checkpoints: "Checkpoints",
+  entityType: "What it keeps",
+  entityKind: "Which kind",
+  clockStart: "When the clock starts",
+  retainMonths: "Months kept",
+  basis: "Why",
+  blocks: "Sections",
 };

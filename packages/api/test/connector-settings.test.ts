@@ -47,6 +47,7 @@ const ADAPTERS: Record<string, string[]> = {
   search_console: ["ads/search-console.ts"],
   bing_ads: ["ads/microsoft-ads.ts"],
   google_business_profile: ["ads/google-business-profile.ts"],
+  facebook_page: ["ads/facebook-page.ts"],
 };
 
 function keysRead(file: string): Set<string> {

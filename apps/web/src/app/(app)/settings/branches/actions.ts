@@ -62,3 +62,20 @@ export async function moveJobs(_previous: FormState, form: FormData): Promise<Fo
   revalidatePath("/jobs");
   return result;
 }
+
+/** Branch codes in front of new job and invoice numbers, on or off. Nothing already numbered changes. */
+export async function setNumbering(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const after = await branches.setNumbering(await ctx(), {
+      jobs: form.get("jobs") !== null,
+      invoices: form.get("invoices") !== null,
+    });
+    return {
+      message: after.jobs || after.invoices
+        ? "Saved. New numbers in a branch with a code start with it; numbers already given out stay as they are."
+        : "Saved. New numbers are printed without a branch code.",
+    };
+  });
+  refresh();
+  return result;
+}

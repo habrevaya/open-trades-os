@@ -1,9 +1,10 @@
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, money as m, rental as rt, time } from "@opentradesos/core";
+import { assertCan, money as m, recurrence, rental as rt, time, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { announce, sideOf } from "./visit-notices";
 import * as once from "./once";
 import * as jobs from "./jobs";
 import * as billing from "./billing";
@@ -43,11 +44,88 @@ import { inForceAt } from "./pricebook";
 const COLLECTION_FROM_MINUTES = 8 * 60;
 const COLLECTION_TO_MINUTES = 17 * 60;
 
+/**
+ * HOW A ROLL OFF COMPANY'S DAY IS RUN, kept in
+ * `organization.settings.rentalDispatch` beside the dispatch settings,
+ * because each is one company wide choice:
+ *
+ *   whether the worker books collections on its own as hires come due, and
+ *   how many days ahead (one is the day before, so the driver's day is
+ *   known the evening before);
+ *
+ *   how many containers a truck carries at once and how long a run to the
+ *   yard takes once there, which order a driver's day (`routing/truck.ts`).
+ *
+ * Automatic collections are ON unless a company turns them off: a hire due
+ * back that nobody books is a can earning days nobody may ever bill, and a
+ * company that books its own by hand still sees each one on the board.
+ */
+export interface RentalDispatchSettings {
+  automaticCollections: boolean;
+  /** Days ahead a collection is booked. Zero is the day it is due. */
+  collectionLeadDays: number;
+  /** Containers a truck carries at once. */
+  containersPerTruck: number;
+  /** Minutes at the yard to tip what is full and load what is needed. */
+  yardMinutes: number;
+}
+
+const DEFAULT_RENTAL_DISPATCH: RentalDispatchSettings = {
+  automaticCollections: true, collectionLeadDays: 1, containersPerTruck: 1, yardMinutes: 20,
+};
+
+export async function rentalDispatchOf(tx: Database, organizationId: string): Promise<RentalDispatchSettings> {
+  const [row] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const held = ((row?.settings ?? {}) as Record<string, unknown>)["rentalDispatch"] as Partial<RentalDispatchSettings> | undefined;
+  const int = (v: unknown, d: number, min: number, max: number) =>
+    (typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : d);
+  return {
+    automaticCollections: typeof held?.automaticCollections === "boolean"
+      ? held.automaticCollections : DEFAULT_RENTAL_DISPATCH.automaticCollections,
+    collectionLeadDays: int(held?.collectionLeadDays, DEFAULT_RENTAL_DISPATCH.collectionLeadDays, 0, 7),
+    containersPerTruck: int(held?.containersPerTruck, DEFAULT_RENTAL_DISPATCH.containersPerTruck, 1, 4),
+    yardMinutes: int(held?.yardMinutes, DEFAULT_RENTAL_DISPATCH.yardMinutes, 0, 120),
+  };
+}
+
+export function rentalDispatch(ctx: ServiceContext): Promise<RentalDispatchSettings> {
+  return guardedRead(ctx, "asset:read", (tx) => rentalDispatchOf(tx, ctx.actor.organizationId));
+}
+
+export function setRentalDispatch(ctx: ServiceContext, input: Partial<RentalDispatchSettings>): Promise<RentalDispatchSettings> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const before = await rentalDispatchOf(tx, ctx.actor.organizationId);
+    const after: RentalDispatchSettings = {
+      automaticCollections: input.automaticCollections ?? before.automaticCollections,
+      collectionLeadDays: input.collectionLeadDays ?? before.collectionLeadDays,
+      containersPerTruck: input.containersPerTruck ?? before.containersPerTruck,
+      yardMinutes: input.yardMinutes ?? before.yardMinutes,
+    };
+    if (!Number.isInteger(after.collectionLeadDays) || after.collectionLeadDays < 0 || after.collectionLeadDays > 7) {
+      throw new ConflictError("Book collections between the day they are due and a week ahead.");
+    }
+    if (!Number.isInteger(after.containersPerTruck) || after.containersPerTruck < 1 || after.containersPerTruck > 4) {
+      throw new ConflictError("A truck carries between one and four containers.");
+    }
+    if (!Number.isInteger(after.yardMinutes) || after.yardMinutes < 0 || after.yardMinutes > 120) {
+      throw new ConflictError("Time at the yard is between none and two hours.");
+    }
+    await tx.update(schema.organization).set({
+      settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ rentalDispatch: after })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    await audit(tx, ctx, "rental.dispatch_settings_set", "organization", ctx.actor.organizationId, before, after);
+    return after;
+  });
+}
+
 export interface CollectionRunResult {
   through: string;
   scheduled: {
     rentalId: string; assetIdentifier: string | null; address: string | null;
-    dueOn: string; collectOn: string; daysLate: number; jobId: string; jobNumber: number; visitId: string;
+    dueOn: string | null; collectOn: string; daysLate: number; agreed: boolean;
+    jobId: string; jobNumber: number; visitId: string;
   }[];
   skipped: { rentalId: string; assetIdentifier: string | null; reason: string }[];
 }
@@ -62,6 +140,10 @@ export interface CollectionRunResult {
  * the company has one. Either way the stop says it is a pickup and which
  * hire, which is what tells the driver to arrive with an empty truck.
  *
+ * AT THE TIME AGREED WITH THE CUSTOMER when there is one: on that day, in
+ * that window, early or late against the price. Otherwise on the day the
+ * price covers to, in the working day, and today when that has passed.
+ *
  * A collection that was cancelled on the board stops counting, so the hire
  * is offered again rather than forgotten. Needs `asset:write` to decide the
  * can comes back and `job:write` to put work on the board.
@@ -71,114 +153,245 @@ export function scheduleCollections(ctx: ServiceContext, input: { through?: stri
   return guardedWrite(ctx, "asset:write", async (tx): Promise<CollectionRunResult> => {
     const seen = await once.replayed<CollectionRunResult>(tx, ctx, "rental_collection_run");
     if (seen) return seen;
-
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const today = time.dateIn(new Date(), zone);
-    const through = input.through ?? time.nextDay(today);
+    const result = await collectionsWithin(tx, ctx, input.through ?? time.nextDay(today));
+    await once.remember(tx, ctx, "rental_collection_run", null, result);
+    return result;
+  });
+}
 
-    const hires = await tx.select().from(schema.rental)
-      .where(and(eq(schema.rental.organizationId, ctx.actor.organizationId), isNull(schema.rental.pickedUpAt)));
-    const booked = hires.map((h) => h.collectionVisitId).filter((id): id is string => id !== null);
-    const live = booked.length === 0 ? new Set<string>() : new Set((await tx.select({ id: schema.visit.id })
-      .from(schema.visit)
-      .where(and(inArray(schema.visit.id, booked), sql`${schema.visit.status} <> 'cancelled'`))).map((v) => v.id));
+/** The booking itself, for the button and for the worker's pass alike, inside the caller's transaction. */
+async function collectionsWithin(tx: Database, ctx: ServiceContext, through: string): Promise<CollectionRunResult> {
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  const today = time.dateIn(new Date(), zone);
 
-    const plan = rt.collectionsDue({
-      hires: hires.map((h) => ({
-        id: h.id, deliveredAt: h.deliveredAt, includedDays: h.includedDays,
-        collectionVisitId: h.collectionVisitId && live.has(h.collectionVisitId) ? h.collectionVisitId : null,
-      })),
-      through, today, zone,
-    });
+  const hires = await tx.select().from(schema.rental)
+    .where(and(eq(schema.rental.organizationId, ctx.actor.organizationId), isNull(schema.rental.pickedUpAt)));
+  const booked = hires.map((h) => h.collectionVisitId).filter((id): id is string => id !== null);
+  const live = booked.length === 0 ? new Set<string>() : new Set((await tx.select({ id: schema.visit.id })
+    .from(schema.visit)
+    .where(and(inArray(schema.visit.id, booked), sql`${schema.visit.status} <> 'cancelled'`))).map((v) => v.id));
 
-    const assetIds = [...new Set(hires.map((h) => h.assetId))];
-    const assets = assetIds.length === 0 ? [] : await tx.select({ id: schema.rentableAsset.id, identifier: schema.rentableAsset.identifier })
-      .from(schema.rentableAsset).where(inArray(schema.rentableAsset.id, assetIds));
-    const numberOf = new Map(assets.map((a) => [a.id, a.identifier]));
-    const byId = new Map(hires.map((h) => [h.id, h]));
-    const [pickupType] = await tx.select({ id: schema.jobType.id }).from(schema.jobType)
-      .where(and(eq(schema.jobType.code, "pickup"), eq(schema.jobType.active, true))).limit(1);
+  const plan = rt.collectionsDue({
+    hires: hires.map((h) => ({
+      id: h.id, deliveredAt: h.deliveredAt, includedDays: h.includedDays,
+      collectionVisitId: h.collectionVisitId && live.has(h.collectionVisitId) ? h.collectionVisitId : null,
+      agreedOn: h.collectionAgreedStart ? time.dateIn(h.collectionAgreedStart, zone) : null,
+    })),
+    through, today, zone,
+  });
 
-    /**
-     * Without the caller's key: the job and visit creates below honour an
-     * idempotency key, and one key across a dozen collections would make
-     * every one after the first replay the first.
-     */
-    const { idempotencyKey: _key, ...plain } = ctx;
-    const inner: ServiceContext = { ...plain, db: tx };
+  const assetIds = [...new Set(hires.map((h) => h.assetId))];
+  const assets = assetIds.length === 0 ? [] : await tx.select({ id: schema.rentableAsset.id, identifier: schema.rentableAsset.identifier })
+    .from(schema.rentableAsset).where(inArray(schema.rentableAsset.id, assetIds));
+  const numberOf = new Map(assets.map((a) => [a.id, a.identifier]));
+  const byId = new Map(hires.map((h) => [h.id, h]));
+  const [pickupType] = await tx.select({ id: schema.jobType.id }).from(schema.jobType)
+    .where(and(eq(schema.jobType.code, "pickup"), eq(schema.jobType.active, true))).limit(1);
 
-    const result: CollectionRunResult = { through, scheduled: [], skipped: [] };
-    for (const skip of plan.skipped) {
-      const hire = byId.get(skip.rentalId);
-      if (skip.reason.startsWith("A collection is already")) continue;
-      result.skipped.push({ rentalId: skip.rentalId, assetIdentifier: hire ? numberOf.get(hire.assetId) ?? null : null, reason: skip.reason });
-    }
+  /**
+   * Without the caller's key: the job and visit creates below honour an
+   * idempotency key, and one key across a dozen collections would make
+   * every one after the first replay the first.
+   */
+  const { idempotencyKey: _key, ...plain } = ctx;
+  const inner: ServiceContext = { ...plain, db: tx };
 
-    for (const due of plan.schedule) {
-      const hire = byId.get(due.rentalId)!;
-      const identifier = numberOf.get(hire.assetId) ?? null;
-      const window = {
+  const result: CollectionRunResult = { through, scheduled: [], skipped: [] };
+  for (const skip of plan.skipped) {
+    const hire = byId.get(skip.rentalId);
+    if (skip.reason.startsWith("A collection is already")) continue;
+    result.skipped.push({ rentalId: skip.rentalId, assetIdentifier: hire ? numberOf.get(hire.assetId) ?? null : null, reason: skip.reason });
+  }
+
+  for (const due of plan.schedule) {
+    const hire = byId.get(due.rentalId)!;
+    const identifier = numberOf.get(hire.assetId) ?? null;
+    /** The agreed window when the collection goes on the agreed day; the working day otherwise. */
+    const agreedWindow = due.agreed && hire.collectionAgreedStart
+      && time.dateIn(hire.collectionAgreedStart, zone) === due.collectOn;
+    const window = agreedWindow
+      ? {
+        windowStart: hire.collectionAgreedStart!.toISOString(),
+        windowEnd: (hire.collectionAgreedEnd ?? hire.collectionAgreedStart!).toISOString(),
+      }
+      : {
         windowStart: time.instantOfLocal(due.collectOn, COLLECTION_FROM_MINUTES, zone).toISOString(),
         windowEnd: time.instantOfLocal(due.collectOn, COLLECTION_TO_MINUTES, zone).toISOString(),
       };
-      const [place] = await tx.select({ line1: schema.property.addressLine1, city: schema.property.city })
-        .from(schema.property).where(eq(schema.property.id, hire.propertyId)).limit(1);
-      const address = place ? [place.line1, place.city].filter((p) => p).join(", ") : null;
+    const [place] = await tx.select({ line1: schema.property.addressLine1, city: schema.property.city })
+      .from(schema.property).where(eq(schema.property.id, hire.propertyId)).limit(1);
+    const address = place ? [place.line1, place.city].filter((p) => p).join(", ") : null;
 
-      const [delivery] = await tx.select({ jobId: schema.visit.jobId }).from(schema.visit)
-        .where(and(eq(schema.visit.rentalId, hire.id), eq(schema.visit.rentalEvent, "delivery"))).limit(1);
-      const [deliveryJob] = delivery ? await tx.select({ id: schema.job.id, number: schema.job.number, status: schema.job.status })
-        .from(schema.job).where(eq(schema.job.id, delivery.jobId)).limit(1) : [];
+    const [delivery] = await tx.select({ jobId: schema.visit.jobId }).from(schema.visit)
+      .where(and(eq(schema.visit.rentalId, hire.id), eq(schema.visit.rentalEvent, "delivery"))).limit(1);
+    const [deliveryJob] = delivery ? await tx.select({ id: schema.job.id, number: schema.job.number, status: schema.job.status })
+      .from(schema.job).where(eq(schema.job.id, delivery.jobId)).limit(1) : [];
 
-      let jobId: string;
-      let jobNumber: number;
-      let visitId: string;
-      if (deliveryJob && deliveryJob.status !== "cancelled") {
-        const visit = await jobs.addVisit(inner, {
-          id: deliveryJob.id, ...window, estimatedDurationMinutes: 30, technicianIds: [],
+    const due_ = due.dueOn
+      ? `Due back ${due.dueOn}${due.daysLate > 0 ? `, ${due.daysLate} ${due.daysLate === 1 ? "day" : "days"} late` : ""}.`
+      : "Collected when the customer asked.";
+    let jobId: string;
+    let jobNumber: number;
+    let visitId: string;
+    if (deliveryJob && deliveryJob.status !== "cancelled") {
+      const visit = await jobs.addVisit(inner, {
+        id: deliveryJob.id, ...window, estimatedDurationMinutes: 30, technicianIds: [],
+      });
+      jobId = deliveryJob.id; jobNumber = deliveryJob.number; visitId = visit.id;
+    } else {
+      const [owner] = await tx.select({ customerId: schema.customerProperty.customerId })
+        .from(schema.customerProperty)
+        .where(and(eq(schema.customerProperty.propertyId, hire.propertyId), isNull(schema.customerProperty.endedOn)))
+        .orderBy(asc(schema.customerProperty.createdAt)).limit(1);
+      if (!owner) {
+        result.skipped.push({
+          rentalId: hire.id, assetIdentifier: identifier,
+          reason: "Nobody is recorded as the customer at that address, so there is nobody to book the collection for.",
         });
-        jobId = deliveryJob.id; jobNumber = deliveryJob.number; visitId = visit.id;
-      } else {
-        const [owner] = await tx.select({ customerId: schema.customerProperty.customerId })
-          .from(schema.customerProperty)
-          .where(and(eq(schema.customerProperty.propertyId, hire.propertyId), isNull(schema.customerProperty.endedOn)))
-          .orderBy(asc(schema.customerProperty.createdAt)).limit(1);
-        if (!owner) {
-          result.skipped.push({
-            rentalId: hire.id, assetIdentifier: identifier,
-            reason: "Nobody is recorded as the customer at that address, so there is nobody to book the collection for.",
-          });
-          continue;
-        }
-        const job = await jobs.create(inner, {
-          customerId: owner.customerId,
-          propertyId: hire.propertyId,
-          ...(pickupType ? { jobTypeId: pickupType.id } : {}),
-          summary: `Collect container ${identifier ?? ""}`.trim(),
-          description: `Due back ${due.dueOn}${due.daysLate > 0 ? `, ${due.daysLate} ${due.daysLate === 1 ? "day" : "days"} late` : ""}.`,
-          tags: [], customFields: {},
-          visit: { ...window, estimatedDurationMinutes: 30, technicianIds: [] },
-        });
-        const visit = job.visits[0];
-        if (!visit) throw new ConflictError("The collection job was made without its stop.");
-        jobId = job.id; jobNumber = job.number; visitId = visit.id;
+        continue;
       }
-
-      await tx.update(schema.visit).set({ rentalId: hire.id, rentalEvent: "pickup", updatedAt: new Date() })
-        .where(eq(schema.visit.id, visitId));
-      await tx.update(schema.rental).set({ collectionVisitId: visitId, updatedAt: new Date() })
-        .where(eq(schema.rental.id, hire.id));
-      await audit(tx, ctx, "rental.collection_scheduled", "rental", hire.id, null, {
-        visitId, jobId, dueOn: due.dueOn, collectOn: due.collectOn,
+      const job = await jobs.create(inner, {
+        customerId: owner.customerId,
+        propertyId: hire.propertyId,
+        ...(pickupType ? { jobTypeId: pickupType.id } : {}),
+        summary: `Collect container ${identifier ?? ""}`.trim(),
+        description: `${due_}${agreedWindow ? " At the time agreed with the customer." : ""}`,
+        tags: [], customFields: {},
+        visit: { ...window, estimatedDurationMinutes: 30, technicianIds: [] },
       });
-      result.scheduled.push({
-        rentalId: hire.id, assetIdentifier: identifier, address, dueOn: due.dueOn, collectOn: due.collectOn,
-        daysLate: due.daysLate, jobId, jobNumber, visitId,
-      });
+      const visit = job.visits[0];
+      if (!visit) throw new ConflictError("The collection job was made without its stop.");
+      jobId = job.id; jobNumber = job.number; visitId = visit.id;
     }
 
-    await once.remember(tx, ctx, "rental_collection_run", null, result);
-    return result;
+    await tx.update(schema.visit).set({ rentalId: hire.id, rentalEvent: "pickup", updatedAt: new Date() })
+      .where(eq(schema.visit.id, visitId));
+    await tx.update(schema.rental).set({ collectionVisitId: visitId, updatedAt: new Date() })
+      .where(eq(schema.rental.id, hire.id));
+    await audit(tx, ctx, "rental.collection_scheduled", "rental", hire.id, null, {
+      visitId, jobId, dueOn: due.dueOn, collectOn: due.collectOn, agreed: due.agreed,
+    });
+    result.scheduled.push({
+      rentalId: hire.id, assetIdentifier: identifier, address, dueOn: due.dueOn, collectOn: due.collectOn,
+      daysLate: due.daysLate, agreed: due.agreed, jobId, jobNumber, visitId,
+    });
+  }
+  return result;
+}
+
+/* ------------------------------------------------ collections on a clock */
+
+/** The worker books as nobody in particular, with only what booking a collection needs. */
+const collectionsActor = (organizationId: string): Actor => ({
+  userId: SYSTEM_USER_ID, organizationId, roles: [],
+  grants: ["asset:write", "asset:read", "job:write", "job:read", "customer:read", "visit:write", "visit:read"],
+  agentId: "rental-collections",
+});
+
+export interface CollectionPassResult {
+  organizationId: string;
+  run: CollectionRunResult | null;
+  error: string | null;
+}
+
+/**
+ * COLLECTIONS BOOKED ON A CLOCK.
+ *
+ * The button books every hire due by tomorrow when somebody remembers to
+ * press it. This is the same booking on the worker's pass, for each company
+ * with a hire coming due inside its lead days that has not turned it off,
+ * as far ahead as the company said. Running it on every pass books nothing
+ * twice, because a hire with a live collection is skipped; a company's
+ * failure is kept to that company and tried again on the next pass.
+ */
+export async function collectionsPass(
+  db: Database,
+  options: { limit?: number; shouldStop?: () => boolean } = {},
+): Promise<CollectionPassResult[]> {
+  const rows = await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.rental_collection_organizations(${options.limit ?? 100})`,
+  );
+  const results: CollectionPassResult[] = [];
+  for (const row of rows) {
+    if (options.shouldStop?.()) break;
+    results.push(await collectionsFor(db, row.organization_id));
+  }
+  return results;
+}
+
+/** One company's collections, as the pass books them: as far ahead as it said, unless it turned them off. */
+export async function collectionsFor(db: Database, organizationId: string): Promise<CollectionPassResult> {
+  const ctx: ServiceContext = { actor: collectionsActor(organizationId), db };
+  try {
+    const run = await inTenant(ctx, async (tx) => {
+      const settings = await rentalDispatchOf(tx, organizationId);
+      if (!settings.automaticCollections) return null;
+      const zone = await timezoneOf(tx, organizationId);
+      const through = recurrence.addDays(time.dateIn(new Date(), zone), settings.collectionLeadDays);
+      return collectionsWithin(tx, { ...ctx, db: tx }, through);
+    });
+    return { organizationId, run, error: null };
+  } catch (error) {
+    return { organizationId, run: null, error: (error as Error).message };
+  }
+}
+
+/* ---------------------------------------------- a time agreed for the collection */
+
+/**
+ * When the customer agreed the can should be collected, or clear it.
+ *
+ * It beats the day the price runs out, early or late: the collection is
+ * booked into it by the worker or the button. A collection already on the
+ * board and not yet under way moves to it: kept with its driver when the
+ * day is the same, back to the board for the dispatcher when the day
+ * changes, because whoever had it was planned for the old day. The driver
+ * hears about either through the visit's own notices.
+ */
+export function setCollectionTime(ctx: ServiceContext, input: { id: string; start: string | null; end: string | null }) {
+  return guardedWrite(ctx, "asset:write", async (tx) => {
+    const hire = await hireWithin(tx, ctx, input.id);
+    if (hire.pickedUpAt) throw new ConflictError("That container has already been collected.");
+    const start = input.start ? new Date(input.start) : null;
+    const end = input.end ? new Date(input.end) : start;
+    if ((start === null) !== (end === null)) throw new ConflictError("Give the agreed time a start, or clear it.");
+    if (start && end) {
+      if (end < start) throw new ConflictError("The agreed time has to end after it starts.");
+      if (end.getTime() < Date.now()) throw new ConflictError("That time has already passed.");
+      if (hire.deliveredAt && start < hire.deliveredAt) throw new ConflictError("That is before the container was delivered.");
+    }
+
+    await tx.update(schema.rental).set({ collectionAgreedStart: start, collectionAgreedEnd: end, updatedAt: new Date() })
+      .where(eq(schema.rental.id, hire.id));
+
+    let moved: "kept" | "returned_to_board" | null = null;
+    if (start && end && hire.collectionVisitId) {
+      const [visit] = await tx.select().from(schema.visit).where(eq(schema.visit.id, hire.collectionVisitId)).limit(1);
+      if (visit && ["unassigned", "scheduled", "dispatched"].includes(visit.status)) {
+        const zone = await timezoneOf(tx, ctx.actor.organizationId);
+        const before = await sideOf(tx, visit.id);
+        const sameDay = visit.windowStart !== null && time.dateIn(visit.windowStart, zone) === time.dateIn(start, zone);
+        if (!sameDay) await tx.delete(schema.visitAssignment).where(eq(schema.visitAssignment.visitId, visit.id));
+        await tx.update(schema.visit).set({
+          windowStart: start, windowEnd: end,
+          ...(sameDay ? {} : { status: "unassigned" as const, routeOrder: null }),
+          updatedAt: new Date(),
+        }).where(eq(schema.visit.id, visit.id));
+        if (before) await announce(tx, ctx, visit.id, before);
+        moved = sameDay ? "kept" : "returned_to_board";
+      }
+    }
+    await audit(tx, ctx, "rental.collection_time_set", "rental", hire.id,
+      { start: hire.collectionAgreedStart, end: hire.collectionAgreedEnd }, { start, end, moved });
+    return {
+      id: hire.id,
+      collectionAgreedStart: start?.toISOString() ?? null,
+      collectionAgreedEnd: end?.toISOString() ?? null,
+      collectionVisitId: hire.collectionVisitId,
+      moved,
+    };
   });
 }
 
@@ -587,6 +800,18 @@ export function applyTickets(ctx: ServiceContext, input: { csv: string; skipLine
 export const handlers = {
   scheduleRentalCollections: (ctx: ServiceContext, input: { through?: string | undefined }): Promise<CollectionRunResult> =>
     scheduleCollections(ctx, input),
+  getRentalDispatch: (ctx: ServiceContext): Promise<RentalDispatchSettings> => rentalDispatch(ctx),
+  setRentalDispatch: (ctx: ServiceContext, input: {
+    automaticCollections?: boolean | undefined; collectionLeadDays?: number | undefined;
+    containersPerTruck?: number | undefined; yardMinutes?: number | undefined;
+  }): Promise<RentalDispatchSettings> => setRentalDispatch(ctx, {
+    ...(input.automaticCollections !== undefined ? { automaticCollections: input.automaticCollections } : {}),
+    ...(input.collectionLeadDays !== undefined ? { collectionLeadDays: input.collectionLeadDays } : {}),
+    ...(input.containersPerTruck !== undefined ? { containersPerTruck: input.containersPerTruck } : {}),
+    ...(input.yardMinutes !== undefined ? { yardMinutes: input.yardMinutes } : {}),
+  }),
+  setRentalCollectionTime: (ctx: ServiceContext, input: { id: string; start: string | null; end?: string | null | undefined }) =>
+    setCollectionTime(ctx, { id: input.id, start: input.start, end: input.end ?? null }),
   recordRentalCharge: (ctx: ServiceContext, input: {
     id: string; kind: ChargeKind; priceBookItemId?: string | null | undefined; description?: string | null | undefined;
     quantity?: string | undefined; unitPrice?: string | null | undefined; taxable?: boolean | undefined; note?: string | null | undefined;

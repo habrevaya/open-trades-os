@@ -108,13 +108,33 @@ export function jobVisibility(scope: Scope, actor: ScopeContext, jobId: SQL): SQ
      * A physical shop. That lives on the VISIT rather than the job, because
      * one job can be served from two shops, so this asks whether any of its
      * visits were.
+     *
+     * A visit is the shop's when it says so (`visit.location_id`), or when
+     * somebody based at the shop is on it: a technician whose day starts
+     * there or whose membership is there, or a crew based there. Nothing
+     * writes a visit's own shop yet, so with only the first test this scope
+     * matched nothing at all, and a "their shop's work" role read as a shop
+     * with no work.
      */
-    case "location":
+    case "location": {
       if (!actor.locationId) return NOTHING;
+      const shop = actor.locationId;
       return sql`exists (
         select 1 from public.visit v
-        where v.job_id = ${jobId} and v.location_id = ${actor.locationId}
+        where v.job_id = ${jobId}
+          and (
+            v.location_id = ${shop}
+            or exists (select 1 from public.crew lc where lc.id = v.crew_id and lc.home_location_id = ${shop})
+            or exists (
+              select 1 from public.visit_assignment lva
+              join public.technician lt on lt.id = lva.technician_id
+              left join public.membership lm on lm.id = lt.membership_id
+              where lva.visit_id = v.id
+                and (lt.home_location_id = ${shop} or lm.location_id = ${shop})
+            )
+          )
       )`;
+    }
 
     default:
       /**
@@ -253,3 +273,66 @@ export const estimateBranchFilter = (businessUnitId: string): SQL =>
  */
 export const branchOfJob = (businessUnitId: string, jobId: SQL): SQL =>
   jobVisibility("business_unit", branch(businessUnitId), jobId) ?? NOTHING;
+
+/* ------------------------------------------------------- which people */
+
+/**
+ * WHICH PEOPLE, as a condition on the technician table.
+ *
+ * The board's columns, the map's vans and a supervisor's timesheets are
+ * about people rather than jobs, and "which jobs did this person work" is the
+ * wrong question for them: a technician with nothing booked today is still
+ * somebody a branch manager has to fill a day for. So people are scoped by
+ * where they belong, the same ladder as everything else:
+ *
+ *   own            themselves
+ *   crew           themselves and the people on their crews
+ *   business_unit  the people whose branch is this person's branch
+ *   location       the people based at this person's shop: their day starts
+ *                  there, or their membership names it
+ *
+ * A technician from another branch working one of this branch's jobs is not
+ * matched here, and the callers that draw a day add them back from the
+ * visits they can see: a Houston technician on an Austin job is on Austin's
+ * board for that job, and their timesheet stays Houston's to approve.
+ */
+export function technicianScopeFilter(scope: Scope, actor: ScopeContext): SQL | undefined {
+  switch (scope) {
+    case "all":
+      return undefined;
+    case "own":
+      return actor.technicianId ? sql`${schema.technician.id} = ${actor.technicianId}` : NOTHING;
+    case "crew": {
+      const crews = actor.crewIds ?? [];
+      const self = actor.technicianId ? sql`${schema.technician.id} = ${actor.technicianId}` : NOTHING;
+      if (crews.length === 0) return self;
+      return sql`(${self} or exists (
+        select 1 from public.crew_member scm
+        where scm.technician_id = ${schema.technician.id} and scm.crew_id in ${crews}
+      ))`;
+    }
+    case "business_unit":
+      if (!actor.businessUnitId) return NOTHING;
+      return sql`exists (
+        select 1 from public.membership sm
+        where sm.id = ${schema.technician.membershipId} and sm.business_unit_id = ${actor.businessUnitId}
+      )`;
+    /** Based at the shop: their day starts there, or their membership says so. */
+    case "location":
+      if (!actor.locationId) return NOTHING;
+      return sql`(${schema.technician.homeLocationId} = ${actor.locationId} or exists (
+        select 1 from public.membership sm
+        where sm.id = ${schema.technician.membershipId} and sm.location_id = ${actor.locationId}
+      ))`;
+    default:
+      return NOTHING;
+  }
+}
+
+/**
+ * A service report, through its job, the way every other record that hangs
+ * off a job is: a technician reads the reports for the work they did, and a
+ * branch manager the reports for their branch's jobs.
+ */
+export const serviceReportScopeFilter = (scope: Scope, actor: ScopeContext): SQL | undefined =>
+  jobVisibility(scope, actor, sql`${schema.serviceReport.jobId}`);

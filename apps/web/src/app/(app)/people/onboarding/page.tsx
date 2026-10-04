@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { peopleRecords, roles } from "@opentradesos/api/services";
+import { peopleRecords, roles, staffDocuments } from "@opentradesos/api/services";
 import { ROLE_PRESETS, ROLE_IDS, can } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
@@ -16,7 +16,9 @@ const KIND: Record<string, string> = { document: "Document", training: "Training
  * A checklist per role: the documents to collect, the training to give and
  * the equipment to hand over. Starting somebody's onboarding copies it onto
  * them, so changing it here changes it for the next hire and not for anybody
- * already part way through.
+ * already part way through. A document line can be one the person signs
+ * themselves (Documents to sign): starting their onboarding hands it to them,
+ * and their signature ticks the line.
  */
 export default async function OnboardingPage() {
   const user = await requireSetupUser();
@@ -30,10 +32,12 @@ export default async function OnboardingPage() {
     );
   }
   const writes = can(user.actor, "user:write");
-  const [items, custom] = await Promise.all([
+  const [items, custom, documents] = await Promise.all([
     peopleRecords.onboardingTemplate(ctx),
     can(user.actor, "role:write") ? roles.list(ctx) : Promise.resolve([]),
+    staffDocuments.list(ctx),
   ]);
+  const signable = documents.filter((d) => !d.retired);
   const roleOptions = [
     ...ROLE_IDS.filter((r) => r !== "readonly").map((r) => ({ value: r, label: ROLE_PRESETS[r].label })),
     ...custom.map((r) => ({ value: `custom:${r.id}`, label: r.name })),
@@ -55,6 +59,7 @@ export default async function OnboardingPage() {
                 <li key={line.id} className="flex flex-wrap items-center gap-2">
                   <span className="w-24 text-ink-500">{KIND[line.kind] ?? line.kind}</span>
                   <span>{line.label}</span>
+                  {line.documentTitle ? <span className="text-ink-500">done by signing {line.documentTitle}</span> : null}
                   {line.required ? null : <span className="text-ink-500">(optional)</span>}
                   {writes ? <ActionForm action={removeTemplateItemAction} submit="Remove" tone="quiet" className="inline-flex" hidden={{ id: line.id }} /> : null}
                 </li>
@@ -68,6 +73,10 @@ export default async function OnboardingPage() {
           <Select label="Role" name="role" className="w-48" options={roleOptions} />
           <Select label="Kind" name="kind" className="w-36" options={Object.entries(KIND).map(([value, label]) => ({ value, label }))} />
           <TextField label="What" name="label" className="w-72" required placeholder="Fall protection training" />
+          {signable.length > 0 ? (
+            <Select label="Signed by them (documents only)" name="staffDocumentId" className="w-64"
+                    options={[{ value: "", label: "Ticked by the office" }, ...signable.map((d) => ({ value: d.id, label: d.title }))]} />
+          ) : null}
           <label className="flex items-center gap-2 pb-2 text-sm">
             <input type="checkbox" name="required" defaultChecked /> Required
           </label>

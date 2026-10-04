@@ -215,9 +215,17 @@ export function resolveReport(
     return { ok: false, reason: "unknown_field", detail: unknown };
   }
 
+  /**
+   * A filter is held to the permission of the dimension it filters on, as a
+   * grouping is. Counting the jobs whose technician's "Background check" is
+   * "Failed" tells you who failed it as surely as grouping by it would.
+   */
+  const filtered = (definition.filters ?? [])
+    .map((filter) => dataset.dimensions.find((d) => d.key === filter.dimension));
   const needed = [
     dataset.permission,
     ...dimensions.flatMap((d) => (d!.permission ? [d!.permission] : [])),
+    ...filtered.flatMap((d) => (d?.permission ? [d.permission] : [])),
     ...measures.flatMap((m) => (m!.permission ? [m!.permission] : [])),
   ];
   const missing = [...new Set(needed)].filter((p) => !held.has(p));

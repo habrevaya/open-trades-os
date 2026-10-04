@@ -40,6 +40,12 @@ import { hashToken, mintToken } from "./apps";
  *
  * Errors come back in OAuth's own shape (`error`, `error_description`)
  * because the clients reading them are OAuth clients and branch on `error`.
+ *
+ * A client can also hand a token back (RFC 7009, `revoke`) and ask whether
+ * one is still good (RFC 7662, `introspect`). Most clients are public and
+ * prove nothing but their id; a client that runs on its maker's own server
+ * can register as confidential, and is then held to its secret at every
+ * endpoint that takes one, on top of PKCE rather than instead of it.
  */
 
 export class OAuthError extends Error {
@@ -56,7 +62,7 @@ export class OAuthError extends Error {
 const sha256hex = (value: string) => createHash("sha256").update(value).digest("hex");
 const s256 = (verifier: string) => createHash("sha256").update(verifier).digest("base64url");
 
-/** Per network address per hour, for the two doors a stranger can knock on. */
+/** Per network address per hour, for the doors a stranger can knock on. */
 const REGISTRATIONS_PER_ADDRESS = 30;
 const TOKEN_CALLS_PER_ADDRESS = 600;
 
@@ -67,6 +73,18 @@ async function throttle(db: Database, key: string, limit: number): Promise<void>
 
 /* ---------------------------------------------------------- registration */
 
+/**
+ * How a client proves who it is. `none` is a public client: it runs on
+ * somebody's laptop or in a browser, anything baked into it is held by
+ * everybody with a copy, and PKCE is what stands in for a secret. The other
+ * two are a confidential client sending its secret in the `Authorization`
+ * header or in the form, which RFC 6749 section 2.3.1 names.
+ */
+export const AUTH_METHODS = ["none", "client_secret_basic", "client_secret_post"] as const;
+export type AuthMethod = (typeof AUTH_METHODS)[number];
+const isAuthMethod = (value: unknown): value is AuthMethod =>
+  typeof value === "string" && (AUTH_METHODS as readonly string[]).includes(value);
+
 export interface RegisteredClient {
   client_id: string;
   client_id_issued_at: number;
@@ -74,16 +92,24 @@ export interface RegisteredClient {
   redirect_uris: string[];
   grant_types: string[];
   response_types: string[];
-  token_endpoint_auth_method: "none";
+  token_endpoint_auth_method: AuthMethod;
+  /** A confidential client's secret, in this answer and never again. */
+  client_secret?: string;
+  /** Zero: a secret does not run out. A leaked one is ended by registering again. */
+  client_secret_expires_at?: number;
 }
 
 /**
- * RFC 7591 dynamic registration, for public clients only.
+ * RFC 7591 dynamic registration.
  *
- * No client secret is issued, ever. Every MCP client is a public client in
- * OAuth's sense: it runs on somebody's machine or in somebody else's service,
- * and a secret baked into it is a secret everybody with a copy holds. PKCE is
- * what stands in for it, and it is required on every authorization.
+ * Public by default, and that is what every MCP client on a person's machine
+ * should be: a secret baked into a desktop app is a secret everybody with a
+ * copy holds. A client running on its maker's server can ask to be
+ * confidential (`client_secret_basic` or `client_secret_post`), and is
+ * handed a secret here, once. Only its hash is kept, and from then on the
+ * token, revocation and introspection endpoints refuse that client without
+ * it. PKCE is still required of it, because the secret proves which client
+ * is calling and PKCE proves the code was asked for by the same one.
  */
 export async function registerClient(
   db: Database,
@@ -102,13 +128,14 @@ export async function registerClient(
     if (problem) throw new OAuthError("invalid_redirect_uri", problem);
   }
 
-  const method = body["token_endpoint_auth_method"];
-  if (method !== undefined && method !== "none") {
+  const asked = body["token_endpoint_auth_method"];
+  if (asked !== undefined && !isAuthMethod(asked)) {
     throw new OAuthError(
       "invalid_client_metadata",
-      "Only public clients are registered here: token_endpoint_auth_method must be none, and PKCE is required.",
+      "token_endpoint_auth_method must be none (a public client, held to PKCE), client_secret_basic or client_secret_post.",
     );
   }
+  const method: AuthMethod = asked ?? "none";
   const grants = body["grant_types"];
   if (grants !== undefined) {
     const allowed = new Set(["authorization_code", "refresh_token"]);
@@ -120,9 +147,12 @@ export async function registerClient(
   const rawName = typeof body["client_name"] === "string" ? body["client_name"].trim() : "";
   const name = rawName === "" ? "An MCP client that did not name itself" : rawName.slice(0, 200);
   const clientId = `mcp_${randomBytes(18).toString("base64url")}`;
+  // 256 bits, like every other credential here. Shown once.
+  const secret = method === "none" ? null : `ocs_${randomBytes(32).toString("base64url")}`;
 
   await db.execute(sql`select app.oauth_register_client(
-    ${clientId}, ${name}, ${JSON.stringify(uris)}::jsonb, ${from ?? null})`);
+    ${clientId}, ${name}, ${JSON.stringify(uris)}::jsonb, ${from ?? null},
+    ${method}, ${secret === null ? null : sha256hex(secret)})`);
 
   return {
     client_id: clientId,
@@ -131,20 +161,106 @@ export async function registerClient(
     redirect_uris: [...uris],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
-    token_endpoint_auth_method: "none",
+    token_endpoint_auth_method: method,
+    ...(secret === null ? {} : { client_secret: secret, client_secret_expires_at: 0 }),
   };
 }
 
 export async function findClient(
   db: Database, clientId: string,
-): Promise<{ clientId: string; name: string; redirectUris: string[] } | null> {
-  const [row] = await db.execute<{ client_id: string; name: string; redirect_uris: string[] }>(
+): Promise<{ clientId: string; name: string; redirectUris: string[]; authMethod: AuthMethod } | null> {
+  const [row] = await db.execute<{ client_id: string; name: string; redirect_uris: string[]; auth_method: string }>(
     sql`select * from app.oauth_client(${clientId})`,
   );
-  return row ? { clientId: row.client_id, name: row.name, redirectUris: row.redirect_uris } : null;
+  if (!row) return null;
+  return {
+    clientId: row.client_id,
+    name: row.name,
+    redirectUris: row.redirect_uris,
+    authMethod: isAuthMethod(row.auth_method) ? row.auth_method : "none",
+  };
+}
+
+/* ------------------------------------------------- who is calling, proven */
+
+/**
+ * What a client sent to prove who it is, as the HTTP layer found it: the
+ * `Authorization` header, if any, beside the form.
+ */
+export interface ClientCredentials {
+  authorization?: string | null | undefined;
+}
+
+/** `Basic base64(client_id:client_secret)`, each half form encoded first, by RFC 6749 section 2.3.1. */
+function basicCredentials(header: string | null | undefined): { id: string; secret: string } | null {
+  if (!header || !/^basic /i.test(header.trim())) return null;
+  const decoded = Buffer.from(header.trim().slice(6).trim(), "base64").toString("utf8");
+  const colon = decoded.indexOf(":");
+  if (colon < 1) throw new OAuthError("invalid_client", "The Basic credentials are not client_id:client_secret.", 401);
+  const unform = (value: string) => {
+    try {
+      return decodeURIComponent(value.replace(/\+/g, " "));
+    } catch {
+      throw new OAuthError("invalid_client", "The Basic credentials are not form encoded.", 401);
+    }
+  };
+  return { id: unform(decoded.slice(0, colon)), secret: unform(decoded.slice(colon + 1)) };
+}
+
+/**
+ * The client making this call, proven as far as its kind allows.
+ *
+ * A public client names itself and that is all it can do; what it may then
+ * do is limited to its own codes and tokens, which it can only have if it is
+ * who it says. A confidential client must present its secret, by either of
+ * the two methods, and a wrong or missing one is `invalid_client` with a 401
+ * whichever it registered with. Both methods at once is refused, because
+ * RFC 6749 allows one, and a public client presenting a secret is refused
+ * rather than ignored: it is a client that believes it is something it is
+ * not, and the next thing it does will not work either.
+ *
+ * Every refusal is the same `invalid_client` a stranger gets, so an unknown
+ * id and a wrong secret cannot be told apart from outside.
+ */
+export async function authenticateClient(
+  db: Database, form: Record<string, string | undefined>, credentials: ClientCredentials = {},
+): Promise<{ clientId: string; confidential: boolean }> {
+  const basic = basicCredentials(credentials.authorization);
+  const postedSecret = form["client_secret"];
+  if (basic && postedSecret !== undefined) {
+    throw new OAuthError("invalid_request", "Send the client secret one way, in the Authorization header or in the form, not both.");
+  }
+  if (basic && form["client_id"] !== undefined && form["client_id"] !== basic.id) {
+    throw new OAuthError("invalid_client", "The client_id in the form is not the one in the Authorization header.", 401);
+  }
+  const clientId = basic?.id ?? form["client_id"];
+  if (!clientId) throw new OAuthError("invalid_request", "client_id is required.");
+  const secret = basic?.secret ?? postedSecret;
+
+  const client = await findClient(db, clientId);
+  if (!client) throw new OAuthError("invalid_client", "This client is not registered here.", 401);
+  if (client.authMethod === "none") {
+    if (secret !== undefined) {
+      throw new OAuthError("invalid_client", "This client registered as public and has no secret. Send its client_id alone.", 401);
+    }
+    return { clientId, confidential: false };
+  }
+  if (secret === undefined || secret === "") {
+    throw new OAuthError("invalid_client", "This client registered with a secret, and it was not sent.", 401);
+  }
+  const [match] = await db.execute<{ ok: boolean }>(
+    sql`select app.oauth_client_secret_matches(${clientId}, ${sha256hex(secret)}) as ok`,
+  );
+  if (match?.ok !== true) throw new OAuthError("invalid_client", "The client secret is not right.", 401);
+  return { clientId, confidential: true };
 }
 
 /* --------------------------------------------------------- authorization */
+
+/** The parameters an authorization request is made of, and the only ones the consent page carries forward. */
+export const AUTHORIZE_PARAMS = [
+  "response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource",
+] as const;
 
 export interface AuthorizeParams {
   response_type?: string | undefined;
@@ -244,6 +360,7 @@ export async function checkAuthorization(db: Database, params: AuthorizeParams):
 export async function approveAuthorization(
   ctx: ServiceContext,
   request: Extract<AuthorizeCheck, { kind: "ask" }>,
+  choice: { permissions?: readonly string[] | undefined } = {},
 ): Promise<{ redirectTo: string; appId: string }> {
   const held = permissionsFor(ctx.actor);
   const resolution = rules.resolveScopes(request.scopes, held);
@@ -253,10 +370,29 @@ export async function approveAuthorization(
   if (resolution.granted.length === 0) {
     throw new ConflictError("You hold none of what this application asks for, so there is nothing you can give it.");
   }
+  /**
+   * NARROWED ON THE CONSENT PAGE. The person may untick anything the client
+   * asked for, and the app gets what is left. Only ever narrower: a
+   * permission that was not on the page (not asked for, or cut because the
+   * approver does not hold it) is refused rather than granted, because the
+   * form is posted by a browser and a browser can post anything.
+   */
+  const narrowed = choice.permissions === undefined ? null : rules.narrowGrant(resolution.granted, choice.permissions);
+  if (narrowed && !narrowed.ok) throw new ConflictError(narrowed.message);
+  const granted = narrowed ? narrowed.granted : resolution.granted;
   const scopes: Partial<Record<ScopedResource, Scope>> = {};
   for (const resource of SCOPED_RESOURCES) scopes[resource] = effectiveScope(ctx.actor, resource);
-  const decision = canDefineRole(ctx.actor, { permissions: resolution.granted, scopes });
+  const decision = canDefineRole(ctx.actor, { permissions: granted, scopes });
   if (!decision.ok) throw new ConflictError("That grant is wider than your own access.");
+  /**
+   * The scope the token answers with. As asked, when the person gave all of
+   * what the page showed; the permissions themselves, space separated, when
+   * they narrowed it, because RFC 6749 section 3.3 says a client must be told
+   * when it got less than it asked for, and "jobs" would no longer be true.
+   */
+  const approvedScope = narrowed && narrowed.granted.length < resolution.granted.length
+    ? narrowed.granted.join(" ")
+    : request.scopes.join(" ");
 
   return guardedWrite(ctx, "integration:write", async (tx) => {
     const now = new Date();
@@ -269,7 +405,7 @@ export async function approveAuthorization(
     let appId: string;
     if (existing) {
       const [after] = await tx.update(schema.connectedApp).set({
-        permissions: resolution.granted,
+        permissions: granted,
         scopes: scopes as Record<string, string>,
         approvedByUserId: ctx.actor.userId,
         approvedAt: now,
@@ -286,7 +422,7 @@ export async function approveAuthorization(
         source: "oauth",
         oauthClientId: request.client.clientId,
         redirectUri: request.redirectUri,
-        permissions: resolution.granted,
+        permissions: granted,
         scopes: scopes as Record<string, string>,
         requestedByUserId: ctx.actor.userId,
         approvedByUserId: ctx.actor.userId,
@@ -304,7 +440,7 @@ export async function approveAuthorization(
       codeHash: sha256hex(code),
       redirectUri: request.redirectUri,
       codeChallenge: request.codeChallenge,
-      scope: request.scopes.join(" "),
+      scope: approvedScope,
       resource: request.resource,
       approvedByUserId: ctx.actor.userId,
       expiresAt: new Date(now.getTime() + rules.CODE_TTL_MS),
@@ -403,20 +539,21 @@ async function issuePair(
  * only that it does not work.
  */
 export async function exchange(
-  db: Database, form: Record<string, string | undefined>, from?: string,
+  db: Database, form: Record<string, string | undefined>, from?: string, credentials: ClientCredentials = {},
 ): Promise<TokenResponse> {
   await throttle(db, `oauth-token:addr:${from ?? "unknown"}`, TOKEN_CALLS_PER_ADDRESS);
   const grant = form["grant_type"];
-  if (grant === "authorization_code") return redeemCode(db, form);
-  if (grant === "refresh_token") return refresh(db, form);
-  throw new OAuthError("unsupported_grant_type", "grant_type must be authorization_code or refresh_token.");
+  if (grant !== "authorization_code" && grant !== "refresh_token") {
+    throw new OAuthError("unsupported_grant_type", "grant_type must be authorization_code or refresh_token.");
+  }
+  const { clientId } = await authenticateClient(db, form, credentials);
+  return grant === "authorization_code" ? redeemCode(db, form, clientId) : refresh(db, form, clientId);
 }
 
-async function redeemCode(db: Database, form: Record<string, string | undefined>): Promise<TokenResponse> {
+async function redeemCode(db: Database, form: Record<string, string | undefined>, clientId: string): Promise<TokenResponse> {
   const code = form["code"];
-  const clientId = form["client_id"];
   const verifier = form["code_verifier"];
-  if (!code || !clientId) throw new OAuthError("invalid_request", "code and client_id are required.");
+  if (!code) throw new OAuthError("invalid_request", "code is required.");
   if (!verifier) throw new OAuthError("invalid_request", "PKCE is required: send code_verifier.");
   if (!rules.isVerifier(verifier)) {
     throw new OAuthError("invalid_request", "code_verifier must be 43 to 128 characters of A-Z a-z 0-9 - . _ ~");
@@ -479,10 +616,9 @@ async function redeemCode(db: Database, form: Record<string, string | undefined>
   return outcome;
 }
 
-async function refresh(db: Database, form: Record<string, string | undefined>): Promise<TokenResponse> {
+async function refresh(db: Database, form: Record<string, string | undefined>, clientId: string): Promise<TokenResponse> {
   const token = form["refresh_token"];
-  const clientId = form["client_id"];
-  if (!token || !clientId) throw new OAuthError("invalid_request", "refresh_token and client_id are required.");
+  if (!token) throw new OAuthError("invalid_request", "refresh_token is required.");
 
   const hash = hashToken(token);
   const [found] = await db.execute<{ organization_id: string | null }>(
@@ -532,6 +668,190 @@ async function refresh(db: Database, form: Record<string, string | undefined>): 
   return outcome;
 }
 
+/* ---------------------------------------------- handing a token back */
+
+/** Where a token presented to revocation or introspection was found, if anywhere. */
+type FoundToken =
+  | { kind: "refresh"; organizationId: string; hash: string }
+  | { kind: "access"; organizationId: string; hash: string }
+  | null;
+
+/**
+ * Which of this server's tokens a string is, by the hint first and then the
+ * other kind. A hint is advice (RFC 7009 section 2.1 lets a server ignore a
+ * wrong one), so a refresh token sent as `access_token` is still found. The
+ * prefixes would answer it too, and are not trusted to, because a token is
+ * whatever its hash finds.
+ */
+async function findToken(db: Database, token: string, hint: string | undefined): Promise<FoundToken> {
+  const hash = hashToken(token);
+  const asRefresh = async (): Promise<FoundToken> => {
+    const [row] = await db.execute<{ organization_id: string | null }>(
+      sql`select app.oauth_refresh_organization(${hash}) as organization_id`,
+    );
+    return row?.organization_id ? { kind: "refresh", organizationId: row.organization_id, hash } : null;
+  };
+  const asAccess = async (): Promise<FoundToken> => {
+    const [row] = await db.execute<{ organization_id: string | null }>(
+      sql`select app.oauth_access_organization(${hash}) as organization_id`,
+    );
+    return row?.organization_id ? { kind: "access", organizationId: row.organization_id, hash } : null;
+  };
+  return hint === "access_token"
+    ? (await asAccess()) ?? (await asRefresh())
+    : (await asRefresh()) ?? (await asAccess());
+}
+
+/**
+ * RFC 7009. A client hands back a token it no longer wants: the person
+ * pressed disconnect in the assistant, or it is tidying up after itself.
+ *
+ * A refresh token takes its whole family with it, every refresh token and
+ * every access token descended from the same approval, because the RFC asks
+ * that revoking a refresh token end what it can produce, and a family is
+ * exactly that. An access token is ended alone, and the refresh token beside
+ * it can still make a new one; that is what handing back one access token
+ * means. The connected app itself stays on the company's Applications screen,
+ * with nothing live, until somebody there turns it off or the client is
+ * approved again.
+ *
+ * A token that was never issued, has already gone, or is not an OAuth token
+ * at all is answered with the same success (section 2.2), so the answer says
+ * nothing about what exists. A token another client holds is refused: it can
+ * only have been taken from that client, and the RFC says to refuse it.
+ */
+export async function revoke(
+  db: Database, form: Record<string, string | undefined>, from?: string, credentials: ClientCredentials = {},
+): Promise<void> {
+  await throttle(db, `oauth-revoke:addr:${from ?? "unknown"}`, TOKEN_CALLS_PER_ADDRESS);
+  const client = await authenticateClient(db, form, credentials);
+  const token = form["token"];
+  if (!token) throw new OAuthError("invalid_request", "token is required.");
+
+  const found = await findToken(db, token, form["token_type_hint"]);
+  if (!found) return;
+
+  const outcome = await inTenant(
+    { actor: { userId: SYSTEM_USER_ID, organizationId: found.organizationId, roles: [] }, db },
+    async (tx): Promise<OAuthError | null> => {
+      if (found.kind === "refresh") {
+        const [row] = await tx.select().from(schema.oauthRefreshToken)
+          .where(eq(schema.oauthRefreshToken.tokenHash, found.hash)).for("update").limit(1);
+        if (!row) return null;
+        if (row.clientId !== client.clientId) return new OAuthError("unauthorized_client", "That token was issued to another client.");
+        if (row.revokedAt) return null;
+        await burnFamily(tx, row.familyId, null);
+        await audit(tx, systemCtx(db, found.organizationId, row.appId), "app.oauth_token_revoked", "connectedApp", row.appId,
+          null, { kind: "refresh_token", familyId: row.familyId, by: "client" });
+        return null;
+      }
+      const [row] = await tx.select({ token: schema.appToken, clientId: schema.connectedApp.oauthClientId })
+        .from(schema.appToken)
+        .innerJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appToken.appId))
+        .where(eq(schema.appToken.tokenHash, found.hash)).for("update", { of: schema.appToken }).limit(1);
+      if (!row) return null;
+      if (row.clientId !== client.clientId) return new OAuthError("unauthorized_client", "That token was issued to another client.");
+      if (row.token.revokedAt) return null;
+      await tx.update(schema.appToken).set({ revokedAt: new Date() }).where(eq(schema.appToken.id, row.token.id));
+      await audit(tx, systemCtx(db, found.organizationId, row.token.appId), "app.oauth_token_revoked", "appToken", row.token.id,
+        null, { kind: "access_token", appId: row.token.appId, by: "client" });
+      return null;
+    },
+  );
+  if (outcome) throw outcome;
+}
+
+/** RFC 7662's answer. `active: false` and nothing else for anything not live. */
+export type Introspection =
+  | { active: false }
+  | {
+    active: true;
+    client_id: string;
+    scope: string;
+    token_type: "Bearer" | "refresh_token";
+    exp: number;
+    iat: number;
+    iss: string;
+  };
+
+const seconds = (at: Date) => Math.floor(at.getTime() / 1000);
+
+/**
+ * RFC 7662. Whether a token is live, for the client that holds it.
+ *
+ * Asked by the client itself, authenticated as at the token endpoint: a
+ * confidential client with its secret, a public one with its id. The answer
+ * is about the caller's own tokens and nobody else's. A token of another
+ * client, a token that ran out, was revoked, was used up by a refresh, or
+ * belongs to an app the company turned off, is `active: false` and nothing
+ * more, which is what section 2.2 asks for, so this cannot be used to learn
+ * anything about a token the caller does not already hold.
+ *
+ * Live means what the MCP endpoint would accept: the same conditions as
+ * `app.resolve_app_token` for an access token, and for a refresh token the
+ * conditions the refresh grant checks.
+ */
+export async function introspect(
+  db: Database, form: Record<string, string | undefined>, origin: string,
+  from?: string, credentials: ClientCredentials = {},
+): Promise<Introspection> {
+  await throttle(db, `oauth-introspect:addr:${from ?? "unknown"}`, TOKEN_CALLS_PER_ADDRESS);
+  const client = await authenticateClient(db, form, credentials);
+  const token = form["token"];
+  if (!token) throw new OAuthError("invalid_request", "token is required.");
+
+  const inactive: Introspection = { active: false };
+  const found = await findToken(db, token, form["token_type_hint"]);
+  if (!found) return inactive;
+
+  return inTenant(
+    { actor: { userId: SYSTEM_USER_ID, organizationId: found.organizationId, roles: [] }, db },
+    async (tx): Promise<Introspection> => {
+      const now = Date.now();
+      if (found.kind === "refresh") {
+        const [row] = await tx.select({ refresh: schema.oauthRefreshToken, status: schema.connectedApp.status })
+          .from(schema.oauthRefreshToken)
+          .innerJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.oauthRefreshToken.appId))
+          .where(eq(schema.oauthRefreshToken.tokenHash, found.hash)).limit(1);
+        if (!row || row.refresh.clientId !== client.clientId) return inactive;
+        if (row.refresh.revokedAt || row.refresh.usedAt || row.refresh.expiresAt.getTime() <= now || row.status !== "active") {
+          return inactive;
+        }
+        return {
+          active: true, client_id: row.refresh.clientId, scope: row.refresh.scope, token_type: "refresh_token",
+          exp: seconds(row.refresh.expiresAt), iat: seconds(row.refresh.createdAt), iss: origin,
+        };
+      }
+      const [row] = await tx.select({ token: schema.appToken, app: schema.connectedApp })
+        .from(schema.appToken)
+        .innerJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appToken.appId))
+        .where(eq(schema.appToken.tokenHash, found.hash)).limit(1);
+      if (!row || row.app.oauthClientId !== client.clientId) return inactive;
+      if (row.token.revokedAt || row.token.expiresAt.getTime() <= now
+        || row.app.status !== "active" || row.app.revokedAt) {
+        return inactive;
+      }
+      /** The scope as approved, from the refresh token issued beside it. */
+      const [pair] = await tx.select({ scope: schema.oauthRefreshToken.scope }).from(schema.oauthRefreshToken)
+        .where(eq(schema.oauthRefreshToken.accessTokenId, row.token.id)).limit(1);
+      return {
+        active: true, client_id: client.clientId, scope: pair?.scope ?? "", token_type: "Bearer",
+        exp: seconds(row.token.expiresAt), iat: seconds(row.token.createdAt), iss: origin,
+      };
+    },
+  );
+}
+
+/**
+ * Remove registrations no company ever approved, a week after they were made.
+ * Across every company in one statement through a definer function, because
+ * a registration belongs to none of them; the worker calls it about hourly.
+ */
+export async function purgeUnusedClients(db: Database): Promise<number> {
+  const [row] = await db.execute<{ removed: number }>(sql`select app.oauth_purge_unused_clients(7, 1000) as removed`);
+  return Number(row?.removed ?? 0);
+}
+
 /* ------------------------------------------------------------- discovery */
 
 /**
@@ -545,9 +865,13 @@ export function authorizationServerMetadata(origin: string) {
     token_endpoint: `${origin}/api/oauth/token`,
     registration_endpoint: `${origin}/api/oauth/register`,
     response_types_supported: ["code"],
+    revocation_endpoint: `${origin}/api/oauth/revoke`,
+    introspection_endpoint: `${origin}/api/oauth/introspect`,
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: [rules.CHALLENGE_METHOD],
-    token_endpoint_auth_methods_supported: ["none"],
+    token_endpoint_auth_methods_supported: [...AUTH_METHODS],
+    revocation_endpoint_auth_methods_supported: [...AUTH_METHODS],
+    introspection_endpoint_auth_methods_supported: [...AUTH_METHODS],
     scopes_supported: rules.supportedScopes(),
     service_documentation: "https://opentradesos.com/docs",
   };

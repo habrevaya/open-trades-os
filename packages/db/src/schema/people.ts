@@ -27,6 +27,89 @@ import { companyAsset } from "./assets";
  * certification register already key on.
  */
 
+/* ------------------------------------------------------- documents to sign */
+
+/**
+ * WORDS THE COMPANY ASKS ITS OWN PEOPLE TO SIGN.
+ *
+ * The handbook, the drug and alcohol policy, the vehicle use agreement. The
+ * text is held here rather than as a file, because a signature is worth what
+ * the record of what was signed is worth, and a hash of the words shown is
+ * that record (`body_hash`, kept on the signature too).
+ *
+ * NOT EDITABLE. A policy changed after twelve people signed it would leave
+ * twelve signatures under words they never saw. A new version is a new
+ * document, and the old one is retired with its signatures intact.
+ */
+export const staffDocument = pgTable("staff_document", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  /** SHA-256 of the title and the body as shown, which every signature against it carries. */
+  bodyHash: text("body_hash").notNull(),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** Nobody new is asked to sign it. Those already asked can still sign what they were given. */
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  orgIdx: index("staff_document_org_idx").on(t.organizationId),
+}));
+
+/**
+ * ONE PERSON ASKED TO SIGN ONE DOCUMENT, AND WHETHER THEY HAVE.
+ *
+ * The signature itself is a `document_signature` row, the same record every
+ * other signature in the product is, with this row as its subject: who was
+ * signed in, when, from where, and the hash of the words. A drawn signature's
+ * picture is an attachment on that signature, kind `signature`.
+ */
+export const staffDocumentRequest = pgTable("staff_document_request", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id").notNull().references(() => staffDocument.id, { onDelete: "cascade" }),
+  membershipId: uuid("membership_id").notNull().references(() => membership.id, { onDelete: "cascade" }),
+  requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  signedAt: timestamp("signed_at", { withTimezone: true }),
+  /** `typed` or `drawn`: which way they signed. */
+  signedVia: text("signed_via"),
+  signatureId: uuid("signature_id"),
+  ...timestamps,
+}, (t) => ({
+  /** One request per person per document, so asking twice asks once. */
+  personIdx: uniqueIndex("staff_document_request_person_idx").on(t.documentId, t.membershipId),
+  memberIdx: index("staff_document_request_member_idx").on(t.organizationId, t.membershipId),
+}));
+
+/* ------------------------------------------------------------------ invites */
+
+/**
+ * AN INVITE SENT, AND WHEN ITS LINK STOPS WORKING.
+ *
+ * The link itself is never here, nor its hash: that is `setup_token`, which
+ * nothing in the tenant may read. This is what the team list says beside
+ * somebody who has not signed in yet (sent when, by whom, emailed or not,
+ * good until when), and what the email outbox asks before it puts a fresh
+ * link into the invite's email at the moment of sending.
+ *
+ * A new invite to the same person replaces the old one: `replaced_at` is
+ * set on it, and its links stop working in the same transaction.
+ */
+export const membershipInvite = pgTable("membership_invite", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  membershipId: uuid("membership_id").notNull().references(() => membership.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  sentByUserId: uuid("sent_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Why it was not emailed, when it was not: no provider, no public address. */
+  emailRefusal: text("email_refusal"),
+  replacedAt: timestamp("replaced_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  memberIdx: index("membership_invite_member_idx").on(t.organizationId, t.membershipId),
+}));
+
 /* --------------------------------------------------------------- onboarding */
 
 /**
@@ -56,6 +139,12 @@ export const onboardingTemplateItem = pgTable("onboarding_template_item", {
   /** Optional lines count toward nothing; a person is onboarded when every required line is done. */
   required: boolean("required").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
+  /**
+   * A document the person signs themselves, for a line that is one: the
+   * handbook, the vehicle use agreement. Starting their onboarding hands it
+   * to them, and their signature is what ticks the line.
+   */
+  staffDocumentId: uuid("staff_document_id").references(() => staffDocument.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   roleIdx: index("onboarding_template_item_role_idx").on(t.organizationId, t.role, t.roleId),
@@ -83,6 +172,8 @@ export const onboardingItem = pgTable("onboarding_item", {
   note: text("note"),
   /** The van, the meter or the ladder handed over, when it is on the fleet register. */
   companyAssetId: uuid("company_asset_id").references(() => companyAsset.id, { onDelete: "set null" }),
+  /** The document this line is done by signing, copied from the template line. */
+  staffDocumentId: uuid("staff_document_id").references(() => staffDocument.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   personIdx: index("onboarding_item_person_idx").on(t.organizationId, t.membershipId),

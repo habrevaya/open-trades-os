@@ -85,6 +85,20 @@ same serial" adds it anyway, for the makers whose short serials repeat.
 wants to ask before it adds; `POST /v1/equipment` refuses a match elsewhere
 until `serialElsewhereConfirmed` is sent.
 
+### Record a unit from the field app
+
+The phone's visit screen has "Equipment here": what it is, make, model,
+serial and where it is, saved on the phone like everything else and sent
+when there is signal. The sync matches it with the office's rules, across
+the company and on the plate's letters and digits: the same unit live at
+this address is updated rather than added again; a serial on file at another
+address, or taken off a register, is not added but held for the office on
+the field conflicts list with the units it matches named, and the phone says
+it was held, because only a person can say whether it is the same furnace
+moved here; anything else is added. A phone can send
+`serialElsewhereConfirmed` with the record when the technician knows it is a
+different unit with the same plate.
+
 ### Move a unit
 
 A move records where it went and why. Retiring a unit is a soft delete, so the
@@ -204,11 +218,14 @@ everything naming it still resolves.
 A job's coverage is read from its unit's parts and labour dates by M32
 (`POST /v1/jobs/{id}/coverage/from-equipment`), on the day of the first visit,
 and from nothing else about the warranty: the dates are all this register
-keeps of it. The serial match is the
-office's and the API's; the field app's own sync still matches only at the
-address it is standing in. A serial with no letters or digits in it matches
-nothing, and two units with no serial at all are never matched, which is the
-cost of a register without serials.
+keeps of it. The field app's sync
+matches with the office's rules, across the company, but it cannot ask the
+technician the office's question: a unit whose serial is on file at another
+address, or taken off a register, is held for the office on the field
+conflicts list with the match named, not added, until somebody records a
+move or adds it. A serial with no letters or digits in it matches nothing,
+and two units with no serial at all are never matched, which is the cost of
+a register without serials.
 
 The warranty automation is a trigger to build on rather than one that ships
 turned on: there is no recommended automation for it, so a company that wants

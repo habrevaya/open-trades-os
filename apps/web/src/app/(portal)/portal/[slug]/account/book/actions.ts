@@ -23,7 +23,7 @@ export type AccountSlot = {
 };
 
 export async function loadAccountSlots(
-  slug: string, input: { serviceId: string; technicianId?: string },
+  slug: string, input: { serviceId: string; technicianId?: string; propertyId?: string },
 ): Promise<{ ok: true; slots: AccountSlot[] } | { ok: false; message: string }> {
   const session = await requirePortalSession(slug);
   try {
@@ -32,6 +32,7 @@ export async function loadAccountSlots(
       bookableServiceId: input.serviceId,
       days: 21,
       ...(input.technicianId ? { technicianId: input.technicianId } : {}),
+      ...(input.propertyId ? { propertyId: input.propertyId } : {}),
     });
     return { ok: true, slots };
   } catch (error) {

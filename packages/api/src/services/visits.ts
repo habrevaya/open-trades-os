@@ -130,6 +130,9 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
       checklist: visit.checklist,
       signed: visit.signatureUrl !== null,
       rentalEvent: visit.rentalEvent,
+      /** The days the customer agreed this visit may happen on, which the multi day rebalance reads. */
+      movableFrom: visit.movableFrom,
+      movableUntil: visit.movableUntil,
       job,
       customer: customer ?? null,
       property: place

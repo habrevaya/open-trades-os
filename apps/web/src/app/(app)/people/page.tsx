@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export default async function PeoplePage({
   searchParams,
 }: {
-  searchParams: Promise<{ field?: string; value?: string }>;
+  searchParams: Promise<{ field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   if (!can(user.actor, "user:read")) {
@@ -39,8 +39,8 @@ export default async function PeoplePage({
    * them out rather than guessing.
    */
   const declared = await customFields.formFields(ctx, "technician");
-  const { fieldKey, fieldValue, byField } = fieldFrom(await searchParams);
-  const { page: matching, refusal } = fieldKey && fieldValue
+  const { pairs, byField } = fieldFrom(await searchParams);
+  const { page: matching, refusal } = pairs.length > 0
     ? await withFieldFilter(async (withField) => (withField ? staff.listPeople(ctx, byField) : null))
     : { page: null, refusal: null };
   const keepIds = matching ? new Set(matching.map((m) => m.membershipId)) : null;
@@ -54,7 +54,7 @@ export default async function PeoplePage({
         <a href="/people/onboarding" className="underline underline-offset-4">Onboarding</a>. Licences and what
         each person holds are on <a href="/certifications" className="underline underline-offset-4">Certifications</a>.
       </p>
-      <CustomFieldFilter action="/people" declared={declared} fieldKey={fieldKey} fieldValue={fieldValue}
+      <CustomFieldFilter action="/people" declared={declared} pairs={pairs}
                          refusal={refusal} noun="technicians" />
       <Table label="People" head={<><Th>Name</Th><Th>Role</Th><Th>Started</Th><Th>Onboarding</Th><Th>Emergency contact</Th></>}>
         {people.map((p) => (

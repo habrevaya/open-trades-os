@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { claim } from "./comms-outbox";
 import { readerFor } from "../secrets/store";
+import * as invites from "./invites";
 import {
   createEmailProvider, EmailProviderNotConfiguredError,
   type EmailEvent, type EmailProvider, type ProviderSecrets, type WebhookRequest,
@@ -346,6 +347,12 @@ export interface QueueEmailInput {
    * is a report's CSV, not a photograph library.
    */
   attachments?: { filename: string; contentType: string; content: Buffer }[] | undefined;
+  /**
+   * An invite to work here, whose sign in link the outbox puts into the body
+   * at the moment of sending, in place of `invites.INVITE_LINK_PLACEHOLDER`.
+   * The link is never stored: `services/invites.ts` says why.
+   */
+  sealedInviteId?: string | undefined;
 }
 
 /**
@@ -501,6 +508,7 @@ export async function queueIn(tx: Database, ctx: ServiceContext, input: QueueEma
      */
     consentId: decision.allowed && decision.consent ? consentIdFor(decision.consent) : null,
     sentByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+    sealedInviteId: input.sealedInviteId ?? null,
   }).returning({ id: schema.message.id });
 
   const message = row!;
@@ -640,6 +648,7 @@ export async function flush(
       body: schema.message.body,
       bodyHtml: schema.message.bodyHtml,
       headers: schema.message.headers,
+      sealedInviteId: schema.message.sealedInviteId,
     })
       .from(schema.message)
       .where(and(
@@ -675,6 +684,31 @@ export async function flush(
     const replyTo = stored["Reply-To"];
     delete stored["Reply-To"];
 
+    /**
+     * AN INVITE'S LINK, MADE NOW AND KEPT NOWHERE. The stored body says where
+     * it goes; the copy handed to the provider carries it. An invite that ran
+     * out, was replaced, or whose person signed in or was turned off while
+     * this waited gets no link, and the email fails saying so rather than
+     * going out with a link that does not work.
+     */
+    let body = row.body;
+    let bodyHtml = row.bodyHtml;
+    if (row.sealedInviteId) {
+      const link = await invites.sealedLink(db, organizationId, row.sealedInviteId);
+      if (!link) {
+        await guardedWrite(ctx, "message:send", async (tx) => tx.update(schema.message).set({
+          status: "failed",
+          errorCode: "invite_unavailable",
+          errorMessage: "the invite ran out or was replaced before it could be sent",
+          updatedAt: new Date(),
+        }).where(eq(schema.message.id, row.id)));
+        outcomes.push({ messageId: row.id, status: "failed", reason: "invite_unavailable" });
+        continue;
+      }
+      body = invites.withLink(body, link);
+      bodyHtml = invites.withLink(bodyHtml, link);
+    }
+
     const files = await guardedRead(ctx, "message:read", async (tx) =>
       tx.select({
         filename: schema.messageAttachment.fileName,
@@ -688,8 +722,8 @@ export async function flush(
       to: row.to,
       from: row.from,
       subject: row.subject ?? "",
-      ...(row.body ? { text: row.body } : {}),
-      ...(row.bodyHtml ? { html: row.bodyHtml } : {}),
+      ...(body ? { text: body } : {}),
+      ...(bodyHtml ? { html: bodyHtml } : {}),
       ...(replyTo ? { replyTo } : {}),
       ...(Object.keys(stored).length > 0 ? { headers: stored } : {}),
       ...(files.length > 0 ? { attachments: files } : {}),

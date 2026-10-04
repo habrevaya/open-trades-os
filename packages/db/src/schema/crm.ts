@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, index, uniqueIndex, date, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, date, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, geocodeColumns } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -65,6 +65,13 @@ export const customer = pgTable("customer", {
   doNotService: boolean("do_not_service").notNull().default(false),
   doNotServiceReason: text("do_not_service_reason"),
   notes: text("notes"),
+  /**
+   * The days of the week that suit this customer, 0 for Sunday as Postgres
+   * `dow` counts. Empty is "any day". The multi day rebalance may move one
+   * of their visits to another of these days, and to no other, and tells
+   * them when it does.
+   */
+  preferredDays: jsonb("preferred_days").$type<number[]>().notNull().default([]),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   /**
@@ -142,6 +149,51 @@ export const customerNotDuplicate = pgTable("customer_not_duplicate", {
   pairIdx: uniqueIndex("customer_not_duplicate_pair_idx").on(t.organizationId, t.customerAId, t.customerBId),
   /** The per record matcher asks from either side. */
   bIdx: index("customer_not_duplicate_b_idx").on(t.customerBId),
+}));
+
+/**
+ * ONE ROW PER TAG A LIVE CUSTOMER CARRIES, SO A TAG IS SOMETHING AN INDEX CAN FIND.
+ *
+ * `customer.tags` is still the customer's own list, in the order it was
+ * written, and it is what the API returns and what every import, the
+ * sandbox and the portal write. Filtering by it meant reading every
+ * customer's list, which is milliseconds at ten thousand customers and
+ * seconds at a million. This table holds the same tags one per row with the
+ * case blind key beside each, under an index on that key, and the tag
+ * filter, the counts and the campaign rule read it instead.
+ *
+ * WRITTEN BY THE DATABASE, NEVER BY A SERVICE. A trigger on `customer`
+ * (`app.sync_customer_tags` in `sql/after.sql`) rebuilds a customer's rows
+ * whenever its list or its deleted state changes, inside the same statement.
+ * So there is no second writer to forget: a CSV import, a restore, a test
+ * inserting a customer by hand and the tag screen's rename across the book
+ * all leave this table equal to the lists, and a service that wrote here as
+ * well would only be a way for the two to disagree.
+ *
+ * Live customers only. Every reader of a tag (the filter, the counts, an
+ * audience) is about the live book, and a merged duplicate keeps its tags on
+ * its own row, where its record is. That is what lets the counts read this
+ * table and nothing else.
+ */
+export const customerTag = pgTable("customer_tag", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** Where it sits in the customer's own list, from zero, so the list can be read back in its order. */
+  position: integer("position").notNull(),
+  /** Exactly as the list holds it, spaces and capitals included. */
+  tag: text("tag").notNull(),
+  /**
+   * The tag trimmed, its inner spaces run together and lower cased: "VIP",
+   * "vip" and " Vip " are one tag. The same key `core/tags` compares by, so a
+   * key worked out in TypeScript finds the rows the trigger wrote.
+   */
+  tagKey: text("tag_key").notNull(),
+}, (t) => ({
+  /** A customer's rows are rebuilt whole by the trigger, one per place in its list. */
+  slotIdx: uniqueIndex("customer_tag_slot_idx").on(t.customerId, t.position),
+  /** The filter and the counts: every customer carrying a key, without reading anybody's list. */
+  keyIdx: index("customer_tag_key_idx").on(t.organizationId, t.tagKey, t.customerId),
 }));
 
 export const property = pgTable("property", {

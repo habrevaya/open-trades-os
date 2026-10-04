@@ -64,9 +64,9 @@ edited last week would quietly move a deadline that was already missed.
 **The work list is ordered the way somebody should work it.** Overdue first, most
 overdue at the top, then by deadline.
 
-**Reviews are entered by hand or read from Google, and the hand path is not a
-placeholder.** A Google Business Profile listing is read by its connector; every
-other platform is typed in, and a company with forty reviews and a work list
+**Reviews are entered by hand or read from Google or Facebook, and the hand path is
+not a placeholder.** A Google Business Profile listing and a Facebook Page are read
+by their connectors; every other platform is typed in, and a company with forty reviews and a work list
 telling them which three are owed a reply is better off than one waiting for an
 API.
 
@@ -106,6 +106,30 @@ again. A reply written here on a review read from Google is posted back to the
 listing by the next read, or at once from the button; Google refusing it is
 written on the review in Google's words and shown on the screen. Reading needs
 the review policy set, like recording any review.
+
+## Facebook Page reviews
+
+Connected on `Settings > Integrations`, under Review listings: the Page id and the
+name of the secret holding the Meta app's id and secret, then "Sign in with Meta"
+as an admin of the Page. **It needs Meta's app review before it reads anything.**
+Meta shows a Page's ratings only to an app that has passed review for
+`pages_read_user_content`, and lets a reply be posted as the Page only with
+`pages_manage_engagement` (beside `pages_show_list` and `pages_read_engagement`,
+which find the Page and read its token). Until the app is reviewed, Meta refuses
+every read, and the listing on `/reviews` shows the refusal in Meta's words. The
+connector is tested against a fake of Meta's documented Graph API, not against a
+live Page.
+
+Every hour, and from "Fetch from Facebook now" on `/reviews`, the Page's ratings and
+recommendations are read through the same record as every other review, under the
+platform `facebook`. Facebook replaced stars with "Do you recommend this business?"
+in 2018: a yes is counted as five stars and a no as one, so a no starts the
+recovery clock as a one star review does, and an older rating with stars keeps its
+stars. A recommendation with no words is recorded as "Recommends you on Facebook."
+or "Does not recommend you on Facebook." A comment the Page already left on it
+comes in as the reply. A reply written here is posted back as a comment from the
+Page on the post Facebook made for the rating; a rating Facebook made no post for
+cannot be replied to from here, and the reply is marked refused with that reason.
 
 ## Using it
 
@@ -186,9 +210,14 @@ withdrew marketing consent is withheld by the decision itself.
 
 ## What is not built
 
-One connector, Google Business Profile, tested against a fake of its API and
-not against a live listing. Facebook, Yelp, Angi and every other platform are
-typed in and replied to on the platform by hand. A reply posted to Google is
+Two connectors, Google Business Profile and Facebook Page reviews, each tested
+against a fake of its API and not against a live listing; the Facebook one does
+nothing for a deployment whose Meta app has not passed Meta's app review. Yelp,
+Angi and every other platform are typed in and replied to on the platform by
+hand. A Facebook recommendation is a yes or a no and is counted as five or one,
+so an average over Facebook reviews treats every yes as a perfect score; a
+reviewer's name is read only where Meta gives it. Editing a reply already posted
+to Facebook is done on Facebook. A reply posted to Google is
 still moderated by Google, so one marked posted here can be absent there; the
 next hourly read shows what Google shows. Editing a reply already posted is
 done on Google. There is no

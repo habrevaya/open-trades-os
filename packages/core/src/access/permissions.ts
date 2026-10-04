@@ -175,6 +175,16 @@ export const PERMISSIONS = {
   "payroll:configure": "Declare the overtime policy and load wage scales",
   "commission:read": "View commission calculations",
   "commission:configure": "Create and edit commission plans",
+  /**
+   * SOMEBODY'S OWN PAY, AND NOBODY ELSE'S. Their statements and commission for
+   * pay periods that are closed, which is what payroll actually paid them on.
+   *
+   * Separate from `payroll:read`, which is everybody's rates and the register,
+   * and separate from `profile:own`, because a company paying through a bureau
+   * that has its own employee portal may want one place showing pay and not
+   * two. Every preset holds it; taking it away is a choice somebody makes.
+   */
+  "payroll:own": "See your own pay statements and commission for closed pay periods",
 
   // --- Grow ----------------------------------------------------------------
   "message:read": "View customer messages and call history",
@@ -219,6 +229,16 @@ export const PERMISSIONS = {
 
   // --- Administration ------------------------------------------------------
   "user:read": "View users",
+  /**
+   * A PERSON'S OWN RECORD, AS THE OFFICE KEEPS IT. Their employment basics,
+   * certifications and continuing education, the onboarding they were given,
+   * the documents waiting for their signature, and the people to ring if they
+   * are hurt, which they keep themselves.
+   *
+   * Not `user:read`, which is everybody's record: holding this shows the
+   * holder themselves and nobody else, so every preset holds it.
+   */
+  "profile:own": "See your own staff record, keep your emergency contacts, tick your onboarding and sign what you are given",
   "user:invite": "Invite users",
   "user:write": "Edit users and assign roles",
   "role:write": "Create and edit custom roles",

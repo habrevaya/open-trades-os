@@ -4,7 +4,7 @@ import {
   sourceOfPlatformCampaign, matchCampaign, spendKey, normaliseEmail, normalisePhone, sha256Hex,
   gaClientIdFromCookie, isMetaBrowserId, metaClickParam, decideShare, eventId, retryAt,
   MAX_SEND_ATTEMPTS, googleDateTime, starRating, suggestReviewMatch, WITHHELD,
-  sessionSource, decideAdjustment, adjustmentEventId,
+  sessionSource, decideAdjustment, adjustmentEventId, facebookRating, facebookVerdict,
   type Identifier, type ShareInput,
 } from "../src/ads/index.js";
 
@@ -47,8 +47,9 @@ describe("the providers", () => {
   it("never lets personal data go to the analytics property or the review listing", () => {
     expect(PROVIDERS.ga4.personalData).toBe(false);
     expect(PROVIDERS.google_business_profile.personalData).toBe(false);
+    expect(PROVIDERS.facebook_page.personalData).toBe(false);
     /** Every provider is named, and only the two that match a click to a person may ever be sent one. */
-    expect(ADS_PROVIDERS).toHaveLength(9);
+    expect(ADS_PROVIDERS).toHaveLength(10);
     expect(ADS_PROVIDERS.filter((p) => PROVIDERS[p].personalData)).toEqual(["google_ads", "meta_ads"]);
   });
 });
@@ -315,5 +316,16 @@ describe("Microsoft, read back, and restating", () => {
     expect(decideAdjustment({ provider: "meta_ads", told: "300.00", now: "400.00" })).toEqual({ kind: "increase", value: "100.00", total: "400.00" });
     expect(decideAdjustment({ provider: "meta_ads", told: "400.00", now: "340.00" })).toMatchObject({ kind: "cannot_lower" });
     expect(adjustmentEventId("j1", 2)).toBe("ots_purchase_j1_adj2");
+  });
+});
+
+describe("a Facebook Page rating", () => {
+  it("reads stars where there are stars, and a recommendation as five or one", () => {
+    expect(facebookRating({ rating: 4, has_rating: true })).toBe(4);
+    expect(facebookRating({ recommendation_type: "positive" })).toBe(5);
+    expect(facebookRating({ recommendation_type: "negative", rating: 1 })).toBe(1);
+    expect(facebookRating({ recommendation_type: "negative", has_rating: false, rating: 5 })).toBe(1);
+    expect(facebookRating({})).toBeNull();
+    expect(facebookVerdict({ recommendation_type: "negative" })).toMatch(/Does not recommend/);
   });
 });

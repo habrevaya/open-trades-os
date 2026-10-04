@@ -286,6 +286,18 @@ export const FORMS: Record<string, ProviderForm> = {
       OAUTH_CLIENT,
     ],
   },
+  facebook_page: {
+    credential: "A Page access token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    credentialSecret: "Page access token",
+    signIn: "Meta",
+    fields: [
+      { key: "pageId", label: "Facebook Page id", kind: "text", hint: "From the Page's About section, or Meta Business Suite's settings." },
+      { key: "platform", label: "Review site name in your review policy (optional)", kind: "text", placeholder: "facebook",
+        hint: "The platform key the reviews are recorded under. Leave empty for facebook." },
+      { ...OAUTH_CLIENT, label: "Meta app, as the name of the secret holding its id and secret as clientId and clientSecret", placeholder: "META_OAUTH_CLIENT",
+        hint: "The app has to have passed Meta's app review for reading and answering Page reviews, or Meta refuses every read." },
+    ],
+  },
   bing_ads: {
     credential: "A refresh token kept in your own secret store, as its name (leave empty and sign in below instead)",
     credentialSecret: "Refresh token",

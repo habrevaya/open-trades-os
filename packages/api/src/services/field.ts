@@ -12,6 +12,7 @@ import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
+import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
   syncOperations, registerDevice, listConflicts, resolveConflict,
@@ -1034,30 +1035,38 @@ async function effect(
        * identifier that survives a customer moving out and the next owner
        * calling. Matching on anything softer produces a second record for the
        * same furnace and splits ten years of history down the middle.
+       *
+       * ACROSS THE WHOLE COMPANY, with the office's rules (`field.decideSerial`
+       * in core): the same unit live at this address is updated; the serial
+       * on file anywhere else, or taken off a register, is a question only a
+       * person can answer, so the record is held for the office with the
+       * matches named rather than added as a second unit nobody chose. The
+       * phone says so, and the office answers it with a move or an add.
        */
       const propertyId = op.payload["propertyId"] as string | undefined;
       if (!propertyId) return "That equipment record names no property.";
+      const [property] = await tx.select({ id: schema.property.id }).from(schema.property)
+        .where(and(eq(schema.property.id, propertyId), eq(schema.property.organizationId, org))).limit(1);
+      if (!property) return "That address is not here.";
 
-      const serial = (op.payload["serialNumber"] as string) ?? null;
+      const typed = typeof op.payload["serialNumber"] === "string" ? op.payload["serialNumber"].trim() : "";
+      const serial = typed === "" ? null : typed;
+      const matches = serial ? await equipment.serialMatchesWithin(tx, org, serial) : [];
+      const decision = field.decideSerial({
+        serial, propertyId, matches, confirmedDifferent: op.payload["serialElsewhereConfirmed"] === true,
+      });
 
-      if (serial) {
-        const [existing] = await tx.select({ id: schema.equipment.id })
-          .from(schema.equipment)
-          .where(and(
-            eq(schema.equipment.organizationId, org),
-            eq(schema.equipment.propertyId, propertyId),
-            eq(schema.equipment.serialNumber, serial),
-          )).limit(1);
-
-        if (existing) {
-          await tx.update(schema.equipment).set({
-            manufacturer: (op.payload["manufacturer"] as string) ?? undefined,
-            model: (op.payload["model"] as string) ?? undefined,
-            location: (op.payload["location"] as string) ?? undefined,
-            updatedAt: new Date(),
-          }).where(eq(schema.equipment.id, existing.id));
-          return null;
-        }
+      if (decision.action === "update") {
+        await tx.update(schema.equipment).set({
+          manufacturer: (op.payload["manufacturer"] as string) ?? undefined,
+          model: (op.payload["model"] as string) ?? undefined,
+          location: (op.payload["location"] as string) ?? undefined,
+          updatedAt: new Date(),
+        }).where(eq(schema.equipment.id, decision.equipmentId));
+        return null;
+      }
+      if (decision.action === "ask") {
+        return { conflict: `Not added from the phone. ${equipment.describeMatches(serial!, matches)}` };
       }
 
       await tx.insert(schema.equipment).values({

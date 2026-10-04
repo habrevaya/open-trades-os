@@ -36,6 +36,9 @@ export interface DensityRow {
   travelMinutes: number | null;
   totalMinutes: number;
   travelDeclared: boolean;
+  travelSource: "declared" | "road" | "none";
+  travelComplete: boolean;
+  travelNote: string;
   overtimeAfterMinutes: number | null;
   minutesOverThreshold: number | null;
   runsIntoOvertime: boolean | null;
@@ -131,23 +134,24 @@ export function Fit({ density }: { density: DensityRow }) {
       <p className="mt-1 text-sm text-ink-700">{density.explanation}</p>
       <p className="mt-2 text-sm tabular-nums text-ink-700">
         {density.stopCount} stops, {density.serviceMinutes} minutes of work
-        {density.travelDeclared
-          ? `, ${density.travelMinutes} minutes driving`
+        {density.travelMinutes !== null
+          ? `, ${density.travelComplete ? "" : "at least "}${density.travelMinutes} minutes driving${density.travelSource === "road" ? " by road" : ""}`
           : ", driving not declared"}
         {". "}
         {/*
-          "At least" when travel is undeclared, because the total is a floor
-          rather than a figure. The word is the whole difference between a number
-          somebody can act on and one that misleads.
+          "At least" when some of the drive is unknown, because the total is a
+          floor rather than a figure. The word is the whole difference between a
+          number somebody can act on and one that misleads.
         */}
         <span className="font-medium">
-          {density.travelDeclared ? "" : "At least "}{density.totalMinutes} minutes
+          {density.travelComplete ? "" : "At least "}{density.totalMinutes} minutes
         </span>
         {density.overtimeAfterMinutes === null
           ? ", against no declared threshold"
           : `, against ${density.overtimeAfterMinutes} before overtime`}
         .
       </p>
+      <p className="mt-1 text-xs text-ink-500">{density.travelNote}</p>
       {density.overTarget === true ? (
         <p className="mt-1 text-sm text-amber-700">
           Over the target stop count the operator set for this route.

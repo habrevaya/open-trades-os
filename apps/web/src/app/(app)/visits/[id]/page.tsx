@@ -8,6 +8,8 @@ import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { formatIn, formatDay } from "@/lib/dates";
+import { ActionForm, TextField } from "@/components/ActionForm";
+import { movableAction } from "./actions";
 import { VISIT_STATUS, VISIT_TONE, label, tone, enumText } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -73,7 +75,30 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
             : visit.crew ?? "Nobody yet"}
         </Fact>
         <Fact label="Rental">{visit.rentalEvent ? enumText(visit.rentalEvent) : null}</Fact>
+        <Fact label="May move">
+          {visit.movableFrom || visit.movableUntil
+            ? `Any day ${visit.movableFrom ? `from ${formatDay(visit.movableFrom, tz)}` : ""}${visit.movableFrom && visit.movableUntil ? " " : ""}${visit.movableUntil ? `to ${formatDay(visit.movableUntil, tz)}` : ""}, as the customer agreed`
+            : null}
+        </Fact>
       </Facts>
+
+      {/*
+        The days the customer agreed this visit may happen on: "any day the
+        week of the fifth". Rebalancing several days reads it, and moves the
+        visit inside it only when that helps, telling the customer.
+      */}
+      {can(user.actor, "visit:reschedule") && ["unassigned", "scheduled", "dispatched"].includes(visit.status) && (
+        <section aria-label="Days it may move to" className="mt-6 rounded-md border border-steel-200 bg-canvas p-4">
+          <h2 className="text-sm font-semibold">Days the customer agreed it may happen on</h2>
+          <ActionForm action={movableAction} submit="Save" className="mt-2 flex flex-wrap items-end gap-3" hidden={{ id: visit.id }}>
+            <TextField label="From" name="from" type="date" defaultValue={visit.movableFrom ?? ""} className="w-44" />
+            <TextField label="To" name="until" type="date" defaultValue={visit.movableUntil ?? ""} className="w-44" />
+          </ActionForm>
+          {(visit.movableFrom || visit.movableUntil) && (
+            <ActionForm action={movableAction} submit="Clear" tone="quiet" className="mt-2" hidden={{ id: visit.id, clear: "yes" }} />
+          )}
+        </section>
+      )}
 
       {/*
         The times as they happened, in the company's zone. A gap between "on

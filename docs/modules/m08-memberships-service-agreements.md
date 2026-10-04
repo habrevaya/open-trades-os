@@ -225,7 +225,22 @@ A plan that promises priority dispatch puts a member's unassigned work at the
 top of the unassigned pile on `/schedule`, under the same cover rule as the
 discount (running on the day, at the address it covers), with the plan named
 on the card. Nothing is booked, moved or reassigned for them: the pile is what
-a dispatcher works down, and their card is first.
+a dispatcher works down, and their card is first. "Suggest who" places a
+member's visit before anybody else's, so the cheapest gap on the day goes to
+them, and names the plan; the rebalance places them first in the pile too.
+
+It also reserves capacity. On `/booking`, under Held for members, a company
+holds a share of each arrival window back from anybody who is not a member,
+until a set number of hours before the window opens
+(`GET /v1/booking/member-hold` and `PUT /v1/booking/member-hold`, with
+`booking:configure` to change it). The share is of what the window holds with
+nothing booked, rounded to whole jobs with a half rounded down, so a quarter
+of a window two technicians could fill with eight one hour jobs keeps two
+back. Members' own work in the window uses the held share first. The public
+page never offers the held share; a member offers themselves it from their
+own account (at an address their plan covers) and when they ask to move a
+visit from their link. Nothing is held while no live plan promises priority,
+and the screen says so.
 
 ### Cancel one
 
@@ -306,9 +321,12 @@ there is no per item or per category exclusion beyond discount items, so a
 company whose plan discounts labour and not equipment cannot say so. A member
 discount is taken off a contract rate card price as well as off the price
 book. The waived fees are applied only to a price book item marked as that
-fee; a fee typed onto a line by hand is charged. Priority dispatch sorts the
-unassigned pile on the board and does nothing else: it does not reserve
-capacity, change online booking, or suggest the member first in "Suggest who".
+fee; a fee typed onto a line by hand is charged. Priority dispatch reserves a share of
+each window in online booking, but the office booking a job by hand is not
+held to it: a stranger can still be booked into a held window from the
+office. The share is one company wide figure, not one per plan. A member
+calling in is not recognised by the voice or chat assistants as a member, so
+the windows those offer are a stranger's.
 The perks are read from the plan when they are used rather than frozen on the
 agreement, so turning one off takes it from existing members at once; the
 screen says so, and freezing them is a decision nobody has made. Breakage, the

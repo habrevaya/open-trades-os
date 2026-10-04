@@ -122,6 +122,29 @@ export interface AddContractSiteOutput {
   notToExceed: string | null;
 }
 
+export interface AddCustomerContactInput {
+  name: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  preferredChannel?: "sms" | "email" | "voice";
+  propertyId?: string | null;
+  isPrimary?: boolean;
+}
+
+export interface AddCustomerContactOutput {
+  id: string;
+  customerId: string | null;
+  propertyId: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  preferredChannel: string;
+  isPrimary: boolean;
+  portalAccess: boolean;
+}
+
 export interface AddEmergencyContactInput {
   name: string;
   relationship?: string | null;
@@ -173,12 +196,33 @@ export interface AddIncidentPhotoOutput {
   id: string;
 }
 
+export interface AddMyEmergencyContactInput {
+  name: string;
+  relationship?: string | null;
+  phone: string;
+  alternatePhone?: string | null;
+  note?: string | null;
+}
+
+export interface AddMyEmergencyContactOutput {
+  contacts: Array<{
+    id: string;
+    name: string;
+    relationship: string | null;
+    phone: string;
+    alternatePhone: string | null;
+    note: string | null;
+    priority: number;
+  }>;
+}
+
 export interface AddOnboardingTemplateItemInput {
-  role?: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
+  role?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
   roleId?: string | null;
   kind: "document" | "training" | "equipment" | "other";
   label: string;
   required?: boolean;
+  staffDocumentId?: string | null;
 }
 
 export interface AddOnboardingTemplateItemOutput {
@@ -190,6 +234,8 @@ export interface AddOnboardingTemplateItemOutput {
   label: string;
   required: boolean;
   sortOrder: number;
+  staffDocumentId: string | null;
+  documentTitle: string | null;
 }
 
 export interface AddProjectPhaseInput {
@@ -213,7 +259,7 @@ export interface AddProjectPhaseOutput {
 export interface AddPurchaseApprovalRuleInput {
   step?: number;
   minimumTotal: string;
-  approverRole?: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
+  approverRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
   approverRoleId?: string | null;
 }
 
@@ -502,6 +548,37 @@ export interface ApplyExternalWorkOrderRemoteOutput {
     lost: string;
     note: string;
   } | null;
+}
+
+export interface ApplyMultiDayRebalanceInput {
+  from: string;
+  days: number;
+  basis: string;
+  dayMoves: Array<{
+    visitId: string;
+    toDate: string;
+    technicianId: string;
+  }>;
+  moves: Array<{
+    visitId: string;
+    technicianId: string;
+  }>;
+  orders: Array<{
+    date: string;
+    technicianId: string;
+    visitIds: string[];
+  }>;
+}
+
+export interface ApplyMultiDayRebalanceOutput {
+  ok: true;
+  movedDays: number;
+  moved: number;
+  reordered: number;
+  told: Array<{
+    visitId: string;
+    notified: string;
+  }>;
 }
 
 export interface ApplyPaymentInput {
@@ -932,6 +1009,28 @@ export interface AskFieldAssistantOutput {
   sources: Array<{
     kind: string;
     title: string;
+  }>;
+}
+
+export interface AskToSignStaffDocumentInput {
+  membershipIds: string[];
+}
+
+export interface AskToSignStaffDocumentOutput {
+  id: string;
+  title: string;
+  body: string;
+  bodyHash: string;
+  retiredAt: string | null;
+  createdAt: string;
+  requests: Array<{
+    id: string;
+    membershipId: string;
+    name: string;
+    askedAt: string;
+    signedAt: string | null;
+    signedVia: "typed" | "drawn" | null;
+    signerName: string | null;
   }>;
 }
 
@@ -2548,6 +2647,7 @@ export interface CreateInvoiceInput {
 export interface CreateInvoiceOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
@@ -2654,6 +2754,7 @@ export interface CreateJobInput {
 export interface CreateJobOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
   summary: string;
   description: string | null;
@@ -3472,12 +3573,35 @@ export interface CreateServiceRouteOutput {
   dayOfWeek: number | null;
 }
 
+export interface CreateStaffDocumentInput {
+  title: string;
+  body: string;
+}
+
+export interface CreateStaffDocumentOutput {
+  id: string;
+  title: string;
+  body: string;
+  bodyHash: string;
+  retiredAt: string | null;
+  createdAt: string;
+  requests: Array<{
+    id: string;
+    membershipId: string;
+    name: string;
+    askedAt: string;
+    signedAt: string | null;
+    signedVia: "typed" | "drawn" | null;
+    signerName: string | null;
+  }>;
+}
+
 export interface CreateTaskEscalationRuleInput {
   name: string;
   afterHours: number;
   minimumPriority?: "low" | "normal" | "high" | "urgent" | null;
   target: "manager" | "role" | "person";
-  targetRole?: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
+  targetRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
   targetUserId?: string | null;
   reassignToUserId?: string | null;
 }
@@ -4365,6 +4489,8 @@ export interface DeliverRentalOutput {
   disposalFee: string | null;
   previousRentalId: string | null;
   collectionVisitId: string | null;
+  collectionAgreedStart: string | null;
+  collectionAgreedEnd: string | null;
   invoiceId: string | null;
 }
 
@@ -5100,6 +5226,7 @@ export interface GetAssignmentSuggestionsOutput {
   suggestions: Array<{
     visitId: string;
     customerName: string;
+    member: string | null;
     technicianId: string | null;
     technicianName: string | null;
     position: number | null;
@@ -5131,6 +5258,12 @@ export interface GetAvailabilityOutput {
     endsAt: string;
     remaining: number;
   }>;
+}
+
+export interface GetBranchNumberingOutput {
+  jobs: boolean;
+  invoices: boolean;
+  unusableCodes: string[];
 }
 
 export interface GetBranchOverviewOutput {
@@ -6749,6 +6882,7 @@ export interface GetInvoiceFinancingOutput {
 export interface GetInvoiceOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
@@ -6843,6 +6977,7 @@ export interface GetJobMaterialCostOutput {
 export interface GetJobOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
   summary: string;
   description: string | null;
@@ -7319,6 +7454,12 @@ export interface GetMarketingSettingsOutput {
   requireLeadSource: boolean;
 }
 
+export interface GetMemberHoldOutput {
+  reservePercent: number;
+  releaseHours: number;
+  plansWithPriority: number;
+}
+
 export interface GetMemberPricingOutput {
   applies: boolean;
   agreementId: string | null;
@@ -7327,6 +7468,264 @@ export interface GetMemberPricingOutput {
   percent: string | null;
   waivesDiagnosticFee: boolean;
   waivesAfterHoursRate: boolean;
+}
+
+export interface GetMultiDayRebalanceOutput {
+  from: string;
+  days: number;
+  basis: string;
+  changed: boolean;
+  movable: Array<{
+    visitId: string;
+    customerName: string;
+    because: "range" | "weekdays";
+  }>;
+  dayMoves: Array<{
+    visitId: string;
+    customerName: string;
+    fromDate: string;
+    toDate: string;
+    fromTechnicianId: string | null;
+    fromName: string | null;
+    toTechnicianId: string;
+    toName: string;
+    windowStart: string;
+    windowEnd: string | null;
+    because: "range" | "weekdays";
+  }>;
+  moves: Array<{
+    visitId: string;
+    customerName: string;
+    date: string;
+    fromTechnicianId: string | null;
+    fromName: string | null;
+    toTechnicianId: string;
+    toName: string;
+  }>;
+  perDay: Array<{
+    date: string;
+    visitsBefore: number;
+    visitsAfter: number;
+    driveBeforeMinutes: number;
+    driveAfterMinutes: number;
+    overtimeBeforeMinutes: number;
+    overtimeAfterMinutes: number;
+    technicians: Array<{
+      technicianId: string;
+      displayName: string;
+      color: string | null;
+      timeOff: boolean;
+      before: {
+        order: string[];
+        driveMinutes: number;
+        finishAt: string;
+        overtimeMinutes: number;
+        overLimitMinutes: number;
+        lunchAt: string | null;
+        lunchLateMinutes: number;
+        late: Array<{
+          visitId: string;
+          lateByMinutes: number;
+        }>;
+        refused: string[];
+      };
+      after: {
+        order: string[];
+        driveMinutes: number;
+        finishAt: string;
+        overtimeMinutes: number;
+        overLimitMinutes: number;
+        lunchAt: string | null;
+        lunchLateMinutes: number;
+        late: Array<{
+          visitId: string;
+          lateByMinutes: number;
+        }>;
+        refused: string[];
+      };
+    }>;
+    unplaced: Array<{
+      visitId: string;
+      customerName: string;
+      reason: string;
+    }>;
+    leftOut: Array<{
+      technicianId: string;
+      displayName: string;
+      reason: string;
+    }>;
+  }>;
+  visits: Array<{
+    visitId: string;
+    customerName: string;
+    date: string;
+    locked: boolean;
+    windowStart: string | null;
+    windowEnd: string | null;
+  }>;
+  driveBeforeMinutes: number;
+  driveAfterMinutes: number;
+  overtimeBeforeMinutes: number;
+  overtimeAfterMinutes: number;
+  apply: {
+    dayMoves: Array<{
+      visitId: string;
+      toDate: string;
+      technicianId: string;
+    }>;
+    moves: Array<{
+      visitId: string;
+      technicianId: string;
+    }>;
+    orders: Array<{
+      date: string;
+      technicianId: string;
+      visitIds: string[];
+    }>;
+  };
+  workday: {
+    dayEndsAt: string;
+    lunchMinutes: number;
+    lunchEarliest: string;
+    lunchLatest: string;
+    maxOvertimeMinutes: number;
+  };
+  driveSource: "road" | "estimate" | "mixed";
+  driveNote: string;
+}
+
+export interface GetMyPayStatementsOutput {
+  technician: boolean;
+  statements: Array<{
+    periodId: string;
+    label: string;
+    periodStart: string;
+    periodEnd: string;
+    closedAt: string;
+    statement: {
+      classification: string | null;
+      lines: Array<{
+        kind: string;
+        label: string;
+        explanation: string;
+        hours: string | null;
+        rate: string | null;
+        amount: string;
+      }>;
+      gross: string;
+      carriedForward: string;
+      warnings: string[];
+    } | null;
+    problems: string[];
+    commissions: Array<{
+      id: string;
+      invoiceNumber: number;
+      kind: string;
+      amount: string;
+      explanation: string;
+      occurredAt: string;
+      paidAt: string | null;
+    }>;
+  }>;
+}
+
+export interface GetMyRecordOutput {
+  membershipId: string;
+  name: string;
+  email: string;
+  roleLabel: string;
+  branchName: string | null;
+  locationName: string | null;
+  technicianId: string | null;
+  employment: {
+    jobTitle: string | null;
+    startedOn: string;
+    endedOn: string | null;
+    employmentType: string;
+    payType: string;
+    payrollReference: string | null;
+  } | null;
+  emergencyContacts: Array<{
+    id: string;
+    name: string;
+    relationship: string | null;
+    phone: string;
+    alternatePhone: string | null;
+    note: string | null;
+    priority: number;
+  }>;
+  onboarding: {
+    lines: Array<{
+      id: string;
+      kind: string;
+      label: string;
+      required: boolean;
+      doneAt: string | null;
+      doneBy: string | null;
+      note: string | null;
+      companyAssetId: string | null;
+      doneByUserId: string | null;
+      staffDocumentId: string | null;
+    }>;
+    progress: {
+      total: number;
+      done: number;
+      required: number;
+      requiredDone: number;
+      complete: boolean;
+      sentence: string;
+    };
+  };
+  documents: Array<{
+    requestId: string;
+    documentId: string;
+    title: string;
+    body: string;
+    askedAt: string;
+    signedAt: string | null;
+    signedVia: "typed" | "drawn" | null;
+    signerName: string | null;
+  }>;
+  certifications: Array<{
+    id: string;
+    code: string;
+    name: string;
+    authority: string | null;
+    reference: string | null;
+    issuedOn: string | null;
+    expiresOn: string | null;
+    status: string;
+    current: boolean;
+    lapseReason: "expired" | "suspended" | "revoked" | null;
+    verifiedAt: string | null;
+  }>;
+  continuingEducation: {
+    entries: Array<{
+      id: string;
+      certificationTypeId: string;
+      completedOn: string;
+      hours: string;
+      course: string;
+      provider: string | null;
+      evidence: string | null;
+    }>;
+    progress: Array<{
+      certificationTypeId: string;
+      name: string;
+      holding: {
+        issuedOn: string | null;
+        expiresOn: string | null;
+      } | null;
+      progress: {
+        required: string | null;
+        logged: string;
+        remaining: string | null;
+        met: boolean | null;
+        since: string | null;
+        sentence: string;
+      };
+    }>;
+  } | null;
 }
 
 export interface GetMyTimeclockOutput {
@@ -7487,6 +7886,8 @@ export interface GetPersonRecordOutput {
       doneBy: string | null;
       note: string | null;
       companyAssetId: string | null;
+      doneByUserId: string | null;
+      staffDocumentId: string | null;
     }>;
     progress: {
       total: number;
@@ -7546,6 +7947,14 @@ export interface GetPersonRecordOutput {
       endedReason: string | null;
     }>;
   } | null;
+  documents: Array<{
+    requestId: string;
+    documentId: string;
+    title: string;
+    askedAt: string;
+    signedAt: string | null;
+    signedVia: "typed" | "drawn" | null;
+  }>;
 }
 
 export interface GetPhoneMenuOutput {
@@ -8322,6 +8731,13 @@ export type GetRegulatoryConstantOutput = {
   } | null;
 };
 
+export interface GetRentalDispatchOutput {
+  automaticCollections: boolean;
+  collectionLeadDays: number;
+  containersPerTruck: number;
+  yardMinutes: number;
+}
+
 export interface GetRentalOutput {
   id: string;
   assetId: string;
@@ -8346,6 +8762,8 @@ export interface GetRentalOutput {
   disposalFee: string | null;
   previousRentalId: string | null;
   collectionVisitId: string | null;
+  collectionAgreedStart: string | null;
+  collectionAgreedEnd: string | null;
   invoiceId: string | null;
 }
 
@@ -8416,6 +8834,24 @@ export interface GetRouteProposalOutput {
     roadFactor: number;
     dayStartsAt: string;
   };
+  truck: {
+    byTruck: boolean;
+    note: string;
+    containersPerTruck: number;
+    yardMinutes: number;
+    currentYardRuns: number | null;
+    yardRuns: Array<{
+      afterVisitId: string | null;
+      beforeVisitId: string | null;
+      tipped: number;
+      loaded: number;
+      arriveAt: string;
+    }>;
+    startLoad: {
+      empties: number;
+      fulls: number;
+    } | null;
+  } | null;
   driveSource: "road" | "estimate" | "mixed";
   driveNote: string;
 }
@@ -8527,6 +8963,9 @@ export interface GetServiceRouteDensityOutput {
   travelMinutes: number | null;
   totalMinutes: number;
   travelDeclared: boolean;
+  travelSource: "declared" | "road" | "none";
+  travelComplete: boolean;
+  travelNote: string;
   overtimeAfterMinutes: number | null;
   dayBasis: "overtime_policy" | "business_hours" | "unknown";
   minutesOverThreshold: number | null;
@@ -8598,6 +9037,24 @@ export interface GetSoftphoneOutput {
   reason: string | null;
   callerId: string | null;
   takingCalls: boolean;
+}
+
+export interface GetStaffDocumentOutput {
+  id: string;
+  title: string;
+  body: string;
+  bodyHash: string;
+  retiredAt: string | null;
+  createdAt: string;
+  requests: Array<{
+    id: string;
+    membershipId: string;
+    name: string;
+    askedAt: string;
+    signedAt: string | null;
+    signedVia: "typed" | "drawn" | null;
+    signerName: string | null;
+  }>;
 }
 
 export interface GetStatementScheduleOutput {
@@ -8731,6 +9188,8 @@ export interface GetVisitOutput {
   }>;
   signed: boolean;
   rentalEvent: string | null;
+  movableFrom: string | null;
+  movableUntil: string | null;
   job: {
     id: string;
     number: number;
@@ -9095,7 +9554,7 @@ export interface InstallWorkflowTemplateOutput {
 export interface InviteMemberInput {
   email: string;
   name: string;
-  role: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
+  role: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
   businessUnitId?: string | null;
   goesOut?: boolean;
 }
@@ -9104,6 +9563,9 @@ export interface InviteMemberOutput {
   membershipId: string;
   link: string | null;
   reissued: boolean;
+  emailed: boolean;
+  emailNote: string | null;
+  expiresAt: string;
 }
 
 export type InvoiceAgreementInstalmentInput = Record<string, unknown>;
@@ -9192,6 +9654,7 @@ export interface IssueInvoiceInput {
 export interface IssueInvoiceOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
@@ -10453,6 +10916,22 @@ export interface ListCustomRecordsOutput {
   hasMore: boolean;
 }
 
+export interface ListCustomerContactsOutput {
+  contacts: Array<{
+    id: string;
+    customerId: string | null;
+    propertyId: string | null;
+    name: string;
+    title: string | null;
+    email: string | null;
+    phone: string | null;
+    preferredChannel: string;
+    isPrimary: boolean;
+    portalAccess: boolean;
+    noticeRank: number;
+  }>;
+}
+
 export interface ListCustomerDuplicatePairsOutput {
   data: Array<{
     a: {
@@ -11030,6 +11509,7 @@ export interface ListInvoicesOutput {
   data: Array<{
     id: string;
     number: number;
+    numberPrefix?: string | null;
     status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
     customerId: string;
     payerCustomerId: string | null;
@@ -11129,6 +11609,7 @@ export interface ListJobsOutput {
   data: Array<{
     id: string;
     number: number;
+    numberPrefix?: string | null;
     status: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
     summary: string;
     description: string | null;
@@ -11521,6 +12002,8 @@ export interface ListOnboardingTemplateOutput {
     label: string;
     required: boolean;
     sortOrder: number;
+    staffDocumentId: string | null;
+    documentTitle: string | null;
   }>;
 }
 
@@ -12193,6 +12676,8 @@ export interface ListRentalsOutput {
     disposalFee: string | null;
     previousRentalId: string | null;
     collectionVisitId: string | null;
+    collectionAgreedStart: string | null;
+    collectionAgreedEnd: string | null;
     invoiceId: string | null;
   }>;
 }
@@ -12552,6 +13037,17 @@ export interface ListSpendOutput {
   }>;
 }
 
+export interface ListStaffDocumentsOutput {
+  documents: Array<{
+    id: string;
+    title: string;
+    retired: boolean;
+    createdAt: string;
+    asked: number;
+    signed: number;
+  }>;
+}
+
 export interface ListStaleRegulatoryConstantsOutput {
   constants: Array<{
     key: string;
@@ -12719,7 +13215,7 @@ export interface ListTeamOutput {
     userId: string;
     name: string | null;
     email: string;
-    role: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
+    role: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
     roleLabel: string;
     customRoleId: string | null;
     customRoleName: string | null;
@@ -12728,6 +13224,15 @@ export interface ListTeamOutput {
     technicianId: string | null;
     active: boolean;
     waiting: boolean;
+    invite: {
+      sentAt: string;
+      expiresAt: string;
+      expired: boolean;
+      email: "sent" | "queued" | "failed" | "not_sent";
+      sentence: string;
+    } | null;
+    locationId: string | null;
+    locationName: string | null;
     isYou: boolean;
   }>;
 }
@@ -13341,6 +13846,21 @@ export interface LogContinuingEducationOutput {
   }>;
 }
 
+export type MakeContactPrimaryInput = Record<string, unknown>;
+
+export interface MakeContactPrimaryOutput {
+  id: string;
+  customerId: string | null;
+  propertyId: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  preferredChannel: string;
+  isPrimary: boolean;
+  portalAccess: boolean;
+}
+
 export interface MapPlatformCampaignInput {
   campaignId: string | null;
 }
@@ -13760,6 +14280,8 @@ export interface PickUpRentalOutput {
   disposalFee: string | null;
   previousRentalId: string | null;
   collectionVisitId: string | null;
+  collectionAgreedStart: string | null;
+  collectionAgreedEnd: string | null;
   invoiceId: string | null;
 }
 
@@ -14123,6 +14645,35 @@ export interface PreviewTradePackUpgradeOutput {
       name: string;
     }>;
     present: number;
+  };
+  setup: {
+    add: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      name: string;
+    }>;
+    update: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      id: string;
+      name: string;
+      changed: string[];
+    }>;
+    kept: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      id: string | null;
+      name: string;
+      reason: "edited" | "yours" | "removed" | "purging";
+      changed: string[];
+    }>;
+    unchanged: number;
+    dropped: Array<{
+      kind: "service_report" | "inspection_program" | "retention_rule" | "portal_layout";
+      key: string;
+      id: string;
+      name: string;
+    }>;
   };
 }
 
@@ -15279,6 +15830,13 @@ export interface RemoveChangeOrderLineOutput {
   }>;
 }
 
+export type RemoveContactInput = Record<string, unknown>;
+
+export interface RemoveContactOutput {
+  id: string;
+  removed: true;
+}
+
 export type RemoveContinuingEducationInput = Record<string, unknown>;
 
 export interface RemoveContinuingEducationOutput {
@@ -15352,6 +15910,20 @@ export type RemoveKnowledgeNoteInput = Record<string, unknown>;
 export interface RemoveKnowledgeNoteOutput {
   id: string;
   removed: boolean;
+}
+
+export type RemoveMyEmergencyContactInput = Record<string, unknown>;
+
+export interface RemoveMyEmergencyContactOutput {
+  contacts: Array<{
+    id: string;
+    name: string;
+    relationship: string | null;
+    phone: string;
+    alternatePhone: string | null;
+    note: string | null;
+    priority: number;
+  }>;
 }
 
 export type RemoveOnboardingTemplateItemInput = Record<string, unknown>;
@@ -15774,6 +16346,9 @@ export interface ResendInviteOutput {
   membershipId: string;
   link: string | null;
   reissued: boolean;
+  emailed: boolean;
+  emailNote: string | null;
+  expiresAt: string;
 }
 
 export interface ReserveStockInput {
@@ -15937,6 +16512,26 @@ export type RetireRentableAssetInput = Record<string, unknown>;
 export interface RetireRentableAssetOutput {
   id: string;
   retired: boolean;
+}
+
+export type RetireStaffDocumentInput = Record<string, unknown>;
+
+export interface RetireStaffDocumentOutput {
+  id: string;
+  title: string;
+  body: string;
+  bodyHash: string;
+  retiredAt: string | null;
+  createdAt: string;
+  requests: Array<{
+    id: string;
+    membershipId: string;
+    name: string;
+    askedAt: string;
+    signedAt: string | null;
+    signedVia: "typed" | "drawn" | null;
+    signerName: string | null;
+  }>;
 }
 
 export interface RetireWageScaleInput {
@@ -16525,9 +17120,10 @@ export interface ScheduleRentalCollectionsOutput {
     rentalId: string;
     assetIdentifier: string | null;
     address: string | null;
-    dueOn: string;
+    dueOn: string | null;
     collectOn: string;
     daysLate: number;
+    agreed: boolean;
     jobId: string;
     jobNumber: number;
     visitId: string;
@@ -16973,6 +17569,17 @@ export interface SetAssetObligationOutput {
   expiresOn: string;
 }
 
+export interface SetBranchNumberingInput {
+  jobs: boolean;
+  invoices: boolean;
+}
+
+export interface SetBranchNumberingOutput {
+  jobs: boolean;
+  invoices: boolean;
+  unusableCodes: string[];
+}
+
 export interface SetBudgetLineInput {
   line: string;
   amounts: Array<string | null>;
@@ -17070,6 +17677,15 @@ export interface SetCustomerAdDataOutput {
     capturedAt: string;
     supersededAt: string | null;
   }>;
+}
+
+export interface SetCustomerPreferredDaysInput {
+  days: number[];
+}
+
+export interface SetCustomerPreferredDaysOutput {
+  id: string;
+  preferredDays: number[];
 }
 
 export interface SetCustomerReferrerInput {
@@ -17267,13 +17883,33 @@ export interface SetMemberBranchOutput {
   businessUnitId: string | null;
 }
 
+export interface SetMemberHoldInput {
+  reservePercent: number;
+  releaseHours: number;
+}
+
+export interface SetMemberHoldOutput {
+  reservePercent: number;
+  releaseHours: number;
+  plansWithPriority: number;
+}
+
+export interface SetMemberLocationInput {
+  locationId: string | null;
+}
+
+export interface SetMemberLocationOutput {
+  membershipId: string;
+  locationId: string | null;
+}
+
 export interface SetMemberRoleInput {
-  role: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
+  role: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
 }
 
 export interface SetMemberRoleOutput {
   membershipId: string;
-  role: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
+  role: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly";
   customRoleId: string | null;
 }
 
@@ -17332,6 +17968,34 @@ export interface SetMessagingCampaignStatusOutput {
   approvedAt: string | null;
 }
 
+export interface SetMyOnboardingLineInput {
+  done: boolean;
+  note?: string | null;
+}
+
+export interface SetMyOnboardingLineOutput {
+  lines: Array<{
+    id: string;
+    kind: string;
+    label: string;
+    required: boolean;
+    doneAt: string | null;
+    doneBy: string | null;
+    note: string | null;
+    companyAssetId: string | null;
+    doneByUserId: string | null;
+    staffDocumentId: string | null;
+  }>;
+  progress: {
+    total: number;
+    done: number;
+    required: number;
+    requiredDone: number;
+    complete: boolean;
+    sentence: string;
+  };
+}
+
 export interface SetNumberRoutingInput {
   forwardsToE164?: string | null;
   whisper?: boolean;
@@ -17375,6 +18039,8 @@ export interface SetOnboardingLineOutput {
     doneBy: string | null;
     note: string | null;
     companyAssetId: string | null;
+    doneByUserId: string | null;
+    staffDocumentId: string | null;
   }>;
   progress: {
     total: number;
@@ -17558,6 +18224,33 @@ export interface SetReferralSettingsInput {
 export interface SetReferralSettingsOutput {
   reward: "credit_note" | "owed" | "none";
   amount: string;
+}
+
+export interface SetRentalCollectionTimeInput {
+  start: string | null;
+  end?: string | null;
+}
+
+export interface SetRentalCollectionTimeOutput {
+  id: string;
+  collectionAgreedStart: string | null;
+  collectionAgreedEnd: string | null;
+  collectionVisitId: string | null;
+  moved: "kept" | "returned_to_board" | null;
+}
+
+export interface SetRentalDispatchInput {
+  automaticCollections?: boolean;
+  collectionLeadDays?: number;
+  containersPerTruck?: number;
+  yardMinutes?: number;
+}
+
+export interface SetRentalDispatchOutput {
+  automaticCollections: boolean;
+  collectionLeadDays: number;
+  containersPerTruck: number;
+  yardMinutes: number;
 }
 
 export interface SetReorderPolicyInput {
@@ -17821,6 +18514,17 @@ export interface SetVisitCustomFieldsOutput {
   customFields: Record<string, unknown>;
 }
 
+export interface SetVisitMovableInput {
+  from: string | null;
+  until: string | null;
+}
+
+export interface SetVisitMovableOutput {
+  id: string;
+  movableFrom: string | null;
+  movableUntil: string | null;
+}
+
 export interface SetWageClassificationInput {
   technicianId: string;
   classification: string | null;
@@ -17984,6 +18688,22 @@ export interface SignInWithCodeOutput {
   };
 }
 
+export interface SignMyDocumentInput {
+  typedName?: string | null;
+  drawing?: string | null;
+}
+
+export interface SignMyDocumentOutput {
+  requestId: string;
+  documentId: string;
+  title: string;
+  body: string;
+  askedAt: string;
+  signedAt: string | null;
+  signedVia: "typed" | "drawn" | null;
+  signerName: string | null;
+}
+
 export type SignOutDeviceInput = Record<string, unknown>;
 
 export interface SignOutDeviceOutput {
@@ -18065,6 +18785,8 @@ export interface StartOnboardingOutput {
       doneBy: string | null;
       note: string | null;
       companyAssetId: string | null;
+      doneByUserId: string | null;
+      staffDocumentId: string | null;
     }>;
     progress: {
       total: number;
@@ -18202,6 +18924,8 @@ export interface SwapRentalOutput {
     disposalFee: string | null;
     previousRentalId: string | null;
     collectionVisitId: string | null;
+    collectionAgreedStart: string | null;
+    collectionAgreedEnd: string | null;
     invoiceId: string | null;
   };
   opened: {
@@ -18228,6 +18952,8 @@ export interface SwapRentalOutput {
     disposalFee: string | null;
     previousRentalId: string | null;
     collectionVisitId: string | null;
+    collectionAgreedStart: string | null;
+    collectionAgreedEnd: string | null;
     invoiceId: string | null;
   };
 }
@@ -18527,6 +19253,19 @@ export type UnskipAgreementVisitInput = Record<string, unknown>;
 export interface UnskipAgreementVisitOutput {
   agreementVisitId: string;
   dueOn: string;
+}
+
+export interface UpcomingTimeOffOutput {
+  timeOff: Array<{
+    id: string;
+    technicianId: string;
+    technicianName: string | null;
+    startsAt: string;
+    endsAt: string;
+    reason: string | null;
+    approved: boolean;
+    standing: "requested" | "approved" | "declined";
+  }>;
 }
 
 export interface UpdateAgreementPlanInput {
@@ -18836,6 +19575,28 @@ export interface UpdateCompanyDetailsOutput {
   postalCode: string | null;
 }
 
+export interface UpdateContactInput {
+  name?: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  preferredChannel?: "sms" | "email" | "voice";
+  propertyId?: string | null;
+}
+
+export interface UpdateContactOutput {
+  id: string;
+  customerId: string | null;
+  propertyId: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  preferredChannel: string;
+  isPrimary: boolean;
+  portalAccess: boolean;
+}
+
 export interface UpdateContractInput {
   name?: string;
   contractNumber?: string | null;
@@ -19090,6 +19851,7 @@ export interface UpdateInvoiceInput {
 export interface UpdateInvoiceOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
@@ -19168,6 +19930,7 @@ export interface UpdateJobInput {
 export interface UpdateJobOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
   summary: string;
   description: string | null;
@@ -19886,7 +20649,7 @@ export interface UpdateTaskEscalationRuleInput {
   afterHours?: number;
   minimumPriority?: "low" | "normal" | "high" | "urgent" | null;
   target?: "manager" | "role" | "person";
-  targetRole?: "owner" | "admin" | "office_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
+  targetRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
   targetUserId?: string | null;
   reassignToUserId?: string | null;
   active?: boolean;
@@ -20061,6 +20824,12 @@ export interface UpgradeTradePackOutput {
   unchanged: number;
   dropped: number;
   jobTypesAdded: number;
+  setup: {
+    added: number;
+    updated: number;
+    kept: number;
+    dropped: number;
+  };
 }
 
 export interface UploadAttachmentInput {
@@ -20626,6 +21395,7 @@ export interface VoidInvoiceInput {
 export interface VoidInvoiceOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
@@ -20782,6 +21552,7 @@ export interface WriteOffInvoiceInput {
 export interface WriteOffInvoiceOutput {
   id: string;
   number: number;
+  numberPrefix?: string | null;
   status: "draft" | "open" | "partially_paid" | "paid" | "void" | "written_off";
   customerId: string;
   payerCustomerId: string | null;
@@ -20867,6 +21638,10 @@ export interface AddChangeOrderLineParams {
 
 export interface AddContractSiteParams {
   contractId: string;
+}
+
+export interface AddCustomerContactParams {
+  id: string;
 }
 
 export interface AddEmergencyContactParams {
@@ -20962,6 +21737,10 @@ export interface ApproveTimeOffParams {
 }
 
 export interface ApproveVisitChangeRequestParams {
+  id: string;
+}
+
+export interface AskToSignStaffDocumentParams {
   id: string;
 }
 
@@ -21335,6 +22114,8 @@ export interface GetAvailabilityInput {
   postalCode?: string;
 }
 
+export type GetBranchNumberingInput = Record<string, never>;
+
 export type GetBranchOverviewInput = Record<string, never>;
 
 export interface GetBudgetReportInput {
@@ -21605,10 +22386,21 @@ export interface GetMarketingOverviewInput {
 
 export type GetMarketingSettingsInput = Record<string, never>;
 
+export type GetMemberHoldInput = Record<string, never>;
+
 export interface GetMemberPricingInput {
   id: string;
   propertyId?: string;
 }
+
+export interface GetMultiDayRebalanceInput {
+  from: string;
+  days?: number;
+}
+
+export type GetMyPayStatementsInput = Record<string, never>;
+
+export type GetMyRecordInput = Record<string, never>;
 
 export interface GetMyTimeclockInput {
   weekOf?: string;
@@ -21652,6 +22444,7 @@ export interface GetPortalBookingAvailabilityInput {
   from?: string;
   days?: number;
   technicianId?: string;
+  propertyId?: string;
 }
 
 export interface GetPortalBookingOptionsInput {
@@ -21762,6 +22555,8 @@ export interface GetRentalInput {
   id: string;
 }
 
+export type GetRentalDispatchInput = Record<string, never>;
+
 export interface GetRentalOverageInput {
   id: string;
 }
@@ -21794,6 +22589,10 @@ export interface GetServiceRouteDensityInput {
 export type GetSetupInput = Record<string, never>;
 
 export type GetSoftphoneInput = Record<string, never>;
+
+export interface GetStaffDocumentInput {
+  id: string;
+}
 
 export type GetStatementScheduleInput = Record<string, never>;
 
@@ -22123,12 +22922,17 @@ export interface ListCustomRecordsInput {
   q?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
   customerId?: string;
   propertyId?: string;
   jobId?: string;
   equipmentId?: string;
   cursor?: string;
   limit?: number;
+}
+
+export interface ListCustomerContactsInput {
+  id: string;
 }
 
 export interface ListCustomerDuplicatePairsInput {
@@ -22153,6 +22957,7 @@ export interface ListCustomersInput {
   businessUnitId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
   includeInactive?: boolean;
   externalSource?: string;
   externalId?: string;
@@ -22235,6 +23040,7 @@ export interface ListEstimatesInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export interface ListExpiringCertificationsInput {
@@ -22299,6 +23105,7 @@ export interface ListInvoicesInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export type ListItemTaxInput = Record<string, never>;
@@ -22330,6 +23137,7 @@ export interface ListJobsInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export interface ListJournalInput {
@@ -22447,6 +23255,7 @@ export interface ListPeopleInput {
   email?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export type ListPeopleRosterInput = Record<string, never>;
@@ -22503,6 +23312,7 @@ export interface ListPropertiesInput {
   externalId?: string;
   fieldKey?: string;
   fieldValue?: string;
+  fields?: string[];
 }
 
 export type ListProposalTemplatesInput = Record<string, never>;
@@ -22610,6 +23420,8 @@ export interface ListSpendInput {
   from: string;
   to: string;
 }
+
+export type ListStaffDocumentsInput = Record<string, never>;
 
 export type ListStaleRegulatoryConstantsInput = Record<string, never>;
 
@@ -22759,6 +23571,10 @@ export interface LockVisitParams {
 
 export interface LogContinuingEducationParams {
   technicianId: string;
+}
+
+export interface MakeContactPrimaryParams {
+  id: string;
 }
 
 export interface MapPlatformCampaignParams {
@@ -23011,6 +23827,10 @@ export interface RemoveChangeOrderLineParams {
   lineId: string;
 }
 
+export interface RemoveContactParams {
+  id: string;
+}
+
 export interface RemoveContinuingEducationParams {
   id: string;
 }
@@ -23032,6 +23852,10 @@ export interface RemoveEstimateOptionPhotoParams {
 }
 
 export interface RemoveKnowledgeNoteParams {
+  id: string;
+}
+
+export interface RemoveMyEmergencyContactParams {
   id: string;
 }
 
@@ -23140,6 +23964,10 @@ export interface RetireEquipmentParams {
 }
 
 export interface RetireRentableAssetParams {
+  id: string;
+}
+
+export interface RetireStaffDocumentParams {
   id: string;
 }
 
@@ -23298,6 +24126,10 @@ export interface SetCustomerAdDataParams {
   id: string;
 }
 
+export interface SetCustomerPreferredDaysParams {
+  id: string;
+}
+
 export interface SetCustomerReferrerParams {
   id: string;
 }
@@ -23346,6 +24178,10 @@ export interface SetMemberBranchParams {
   membershipId: string;
 }
 
+export interface SetMemberLocationParams {
+  membershipId: string;
+}
+
 export interface SetMemberRoleParams {
   membershipId: string;
 }
@@ -23359,6 +24195,10 @@ export interface SetMessagingBrandStatusParams {
 }
 
 export interface SetMessagingCampaignStatusParams {
+  id: string;
+}
+
+export interface SetMyOnboardingLineParams {
   id: string;
 }
 
@@ -23402,6 +24242,10 @@ export interface SetRecurringScheduleActiveParams {
   id: string;
 }
 
+export interface SetRentalCollectionTimeParams {
+  id: string;
+}
+
 export interface SetReportSchedulePausedParams {
   id: string;
 }
@@ -23426,6 +24270,10 @@ export interface SetVisitCustomFieldsParams {
   id: string;
 }
 
+export interface SetVisitMovableParams {
+  id: string;
+}
+
 export interface SetWorkflowEnabledParams {
   id: string;
 }
@@ -23440,6 +24288,10 @@ export interface ShareAttachmentWithCustomerParams {
 
 export interface ShareVisitNotesParams {
   id: string;
+}
+
+export interface SignMyDocumentParams {
+  requestId: string;
 }
 
 export interface SignOutDeviceParams {
@@ -23519,6 +24371,8 @@ export interface UnskipAgreementVisitParams {
   id: string;
 }
 
+export type UpcomingTimeOffInput = Record<string, never>;
+
 export interface UpdateAgreementPlanParams {
   id: string;
 }
@@ -23552,6 +24406,10 @@ export interface UpdateChangeOrderParams {
 }
 
 export interface UpdateChannelParams {
+  id: string;
+}
+
+export interface UpdateContactParams {
   id: string;
 }
 
@@ -23771,10 +24629,12 @@ export interface OperationTypes {
   acceptLeadOffer: { input: AcceptLeadOfferParams & AcceptLeadOfferInput; output: AcceptLeadOfferOutput };
   addChangeOrderLine: { input: AddChangeOrderLineParams & AddChangeOrderLineInput; output: AddChangeOrderLineOutput };
   addContractSite: { input: AddContractSiteParams & AddContractSiteInput; output: AddContractSiteOutput };
+  addCustomerContact: { input: AddCustomerContactParams & AddCustomerContactInput; output: AddCustomerContactOutput };
   addEmergencyContact: { input: AddEmergencyContactParams & AddEmergencyContactInput; output: AddEmergencyContactOutput };
   addEstimateOptionPhoto: { input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput; output: AddEstimateOptionPhotoOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
+  addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
   addOnboardingTemplateItem: { input: AddOnboardingTemplateItemInput; output: AddOnboardingTemplateItemOutput };
   addProjectPhase: { input: AddProjectPhaseParams & AddProjectPhaseInput; output: AddProjectPhaseOutput };
   addPurchaseApprovalRule: { input: AddPurchaseApprovalRuleInput; output: AddPurchaseApprovalRuleOutput };
@@ -23790,6 +24650,7 @@ export interface OperationTypes {
   applyDeposit: { input: ApplyDepositParams & ApplyDepositInput; output: ApplyDepositOutput };
   applyDispatchPlan: { input: ApplyDispatchPlanParams & ApplyDispatchPlanInput; output: ApplyDispatchPlanOutput };
   applyExternalWorkOrderRemote: { input: ApplyExternalWorkOrderRemoteParams & ApplyExternalWorkOrderRemoteInput; output: ApplyExternalWorkOrderRemoteOutput };
+  applyMultiDayRebalance: { input: ApplyMultiDayRebalanceInput; output: ApplyMultiDayRebalanceOutput };
   applyPayment: { input: ApplyPaymentParams & ApplyPaymentInput; output: ApplyPaymentOutput };
   applyPriceChange: { input: ApplyPriceChangeInput; output: ApplyPriceChangeOutput };
   applyProposalTemplate: { input: ApplyProposalTemplateParams & ApplyProposalTemplateInput; output: ApplyProposalTemplateOutput };
@@ -23806,6 +24667,7 @@ export interface OperationTypes {
   approveTimeOff: { input: ApproveTimeOffParams & ApproveTimeOffInput; output: ApproveTimeOffOutput };
   approveVisitChangeRequest: { input: ApproveVisitChangeRequestParams & ApproveVisitChangeRequestInput; output: ApproveVisitChangeRequestOutput };
   askFieldAssistant: { input: AskFieldAssistantInput; output: AskFieldAssistantOutput };
+  askToSignStaffDocument: { input: AskToSignStaffDocumentParams & AskToSignStaffDocumentInput; output: AskToSignStaffDocumentOutput };
   assignCrewToVisit: { input: AssignCrewToVisitParams & AssignCrewToVisitInput; output: AssignCrewToVisitOutput };
   assignJobsToBranch: { input: AssignJobsToBranchInput; output: AssignJobsToBranchOutput };
   assignTrackingNumber: { input: AssignTrackingNumberParams & AssignTrackingNumberInput; output: AssignTrackingNumberOutput };
@@ -23890,6 +24752,7 @@ export interface OperationTypes {
   createSafetyMeeting: { input: CreateSafetyMeetingInput; output: CreateSafetyMeetingOutput };
   createSandbox: { input: CreateSandboxInput; output: CreateSandboxOutput };
   createServiceRoute: { input: CreateServiceRouteInput; output: CreateServiceRouteOutput };
+  createStaffDocument: { input: CreateStaffDocumentInput; output: CreateStaffDocumentOutput };
   createTask: { input: CreateTaskInput; output: CreateTaskOutput };
   createTaskEscalationRule: { input: CreateTaskEscalationRuleInput; output: CreateTaskEscalationRuleOutput };
   createTaskTemplate: { input: CreateTaskTemplateInput; output: CreateTaskTemplateOutput };
@@ -23977,6 +24840,7 @@ export interface OperationTypes {
   getAssetMaintenanceDue: { input: GetAssetMaintenanceDueInput; output: GetAssetMaintenanceDueOutput };
   getAssignmentSuggestions: { input: GetAssignmentSuggestionsInput; output: GetAssignmentSuggestionsOutput };
   getAvailability: { input: GetAvailabilityInput; output: GetAvailabilityOutput };
+  getBranchNumbering: { input: GetBranchNumberingInput; output: GetBranchNumberingOutput };
   getBranchOverview: { input: GetBranchOverviewInput; output: GetBranchOverviewOutput };
   getBudgetReport: { input: GetBudgetReportInput; output: GetBudgetReportOutput };
   getCall: { input: GetCallInput; output: GetCallOutput };
@@ -24043,7 +24907,11 @@ export interface OperationTypes {
   getMarketingFunnel: { input: GetMarketingFunnelInput; output: GetMarketingFunnelOutput };
   getMarketingOverview: { input: GetMarketingOverviewInput; output: GetMarketingOverviewOutput };
   getMarketingSettings: { input: GetMarketingSettingsInput; output: GetMarketingSettingsOutput };
+  getMemberHold: { input: GetMemberHoldInput; output: GetMemberHoldOutput };
   getMemberPricing: { input: GetMemberPricingInput; output: GetMemberPricingOutput };
+  getMultiDayRebalance: { input: GetMultiDayRebalanceInput; output: GetMultiDayRebalanceOutput };
+  getMyPayStatements: { input: GetMyPayStatementsInput; output: GetMyPayStatementsOutput };
+  getMyRecord: { input: GetMyRecordInput; output: GetMyRecordOutput };
   getMyTimeclock: { input: GetMyTimeclockInput; output: GetMyTimeclockOutput };
   getNetworkMembership: { input: GetNetworkMembershipInput; output: GetNetworkMembershipOutput };
   getNetworkRollup: { input: GetNetworkRollupInput; output: GetNetworkRollupOutput };
@@ -24080,6 +24948,7 @@ export interface OperationTypes {
   getReferrals: { input: GetReferralsInput; output: GetReferralsOutput };
   getRegulatoryConstant: { input: GetRegulatoryConstantInput; output: GetRegulatoryConstantOutput };
   getRental: { input: GetRentalInput; output: GetRentalOutput };
+  getRentalDispatch: { input: GetRentalDispatchInput; output: GetRentalDispatchOutput };
   getRentalOverage: { input: GetRentalOverageInput; output: GetRentalOverageOutput };
   getReviewWorkList: { input: GetReviewWorkListInput; output: GetReviewWorkListOutput };
   getRouteProposal: { input: GetRouteProposalInput; output: GetRouteProposalOutput };
@@ -24091,6 +24960,7 @@ export interface OperationTypes {
   getSetup: { input: GetSetupInput; output: GetSetupOutput };
   getSkillStanding: { input: GetSkillStandingInput; output: GetSkillStandingOutput };
   getSoftphone: { input: GetSoftphoneInput; output: GetSoftphoneOutput };
+  getStaffDocument: { input: GetStaffDocumentInput; output: GetStaffDocumentOutput };
   getStatementSchedule: { input: GetStatementScheduleInput; output: GetStatementScheduleOutput };
   getTaskChecklist: { input: GetTaskChecklistInput; output: GetTaskChecklistOutput };
   getTaskCounts: { input: GetTaskCountsInput; output: GetTaskCountsOutput };
@@ -24181,6 +25051,7 @@ export interface OperationTypes {
   listCustomFields: { input: ListCustomFieldsInput; output: ListCustomFieldsOutput };
   listCustomObjects: { input: ListCustomObjectsInput; output: ListCustomObjectsOutput };
   listCustomRecords: { input: ListCustomRecordsInput; output: ListCustomRecordsOutput };
+  listCustomerContacts: { input: ListCustomerContactsInput; output: ListCustomerContactsOutput };
   listCustomerDuplicatePairs: { input: ListCustomerDuplicatePairsInput; output: ListCustomerDuplicatePairsOutput };
   listCustomerPortalSessions: { input: ListCustomerPortalSessionsInput; output: ListCustomerPortalSessionsOutput };
   listCustomerTags: { input: ListCustomerTagsInput; output: ListCustomerTagsOutput };
@@ -24288,6 +25159,7 @@ export interface OperationTypes {
   listServiceRouteStops: { input: ListServiceRouteStopsInput; output: ListServiceRouteStopsOutput };
   listServiceRoutes: { input: ListServiceRoutesInput; output: ListServiceRoutesOutput };
   listSpend: { input: ListSpendInput; output: ListSpendOutput };
+  listStaffDocuments: { input: ListStaffDocumentsInput; output: ListStaffDocumentsOutput };
   listStaleRegulatoryConstants: { input: ListStaleRegulatoryConstantsInput; output: ListStaleRegulatoryConstantsOutput };
   listStatementDeliveries: { input: ListStatementDeliveriesInput; output: ListStatementDeliveriesOutput };
   listStockLevels: { input: ListStockLevelsInput; output: ListStockLevelsOutput };
@@ -24332,6 +25204,7 @@ export interface OperationTypes {
   lockVisit: { input: LockVisitParams & LockVisitInput; output: LockVisitOutput };
   logCall: { input: LogCallInput; output: LogCallOutput };
   logContinuingEducation: { input: LogContinuingEducationParams & LogContinuingEducationInput; output: LogContinuingEducationOutput };
+  makeContactPrimary: { input: MakeContactPrimaryParams & MakeContactPrimaryInput; output: MakeContactPrimaryOutput };
   mapPlatformCampaign: { input: MapPlatformCampaignParams & MapPlatformCampaignInput; output: MapPlatformCampaignOutput };
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
@@ -24423,12 +25296,14 @@ export interface OperationTypes {
   releaseStock: { input: ReleaseStockInput; output: ReleaseStockOutput };
   removeBudgetLine: { input: RemoveBudgetLineParams & RemoveBudgetLineInput; output: RemoveBudgetLineOutput };
   removeChangeOrderLine: { input: RemoveChangeOrderLineParams & RemoveChangeOrderLineInput; output: RemoveChangeOrderLineOutput };
+  removeContact: { input: RemoveContactParams & RemoveContactInput; output: RemoveContactOutput };
   removeContinuingEducation: { input: RemoveContinuingEducationParams & RemoveContinuingEducationInput; output: RemoveContinuingEducationOutput };
   removeCostingRate: { input: RemoveCostingRateParams & RemoveCostingRateInput; output: RemoveCostingRateOutput };
   removeCustomer: { input: RemoveCustomerParams & RemoveCustomerInput; output: RemoveCustomerOutput };
   removeEmergencyContact: { input: RemoveEmergencyContactParams & RemoveEmergencyContactInput; output: RemoveEmergencyContactOutput };
   removeEstimateOptionPhoto: { input: RemoveEstimateOptionPhotoParams & RemoveEstimateOptionPhotoInput; output: RemoveEstimateOptionPhotoOutput };
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
+  removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
@@ -24469,6 +25344,7 @@ export interface OperationTypes {
   retireAsset: { input: RetireAssetParams & RetireAssetInput; output: RetireAssetOutput };
   retireEquipment: { input: RetireEquipmentParams & RetireEquipmentInput; output: RetireEquipmentOutput };
   retireRentableAsset: { input: RetireRentableAssetParams & RetireRentableAssetInput; output: RetireRentableAssetOutput };
+  retireStaffDocument: { input: RetireStaffDocumentParams & RetireStaffDocumentInput; output: RetireStaffDocumentOutput };
   retireWageScale: { input: RetireWageScaleParams & RetireWageScaleInput; output: RetireWageScaleOutput };
   retryAccountingDocument: { input: RetryAccountingDocumentParams & RetryAccountingDocumentInput; output: RetryAccountingDocumentOutput };
   retryConversionSend: { input: RetryConversionSendParams & RetryConversionSendInput; output: RetryConversionSendOutput };
@@ -24518,6 +25394,7 @@ export interface OperationTypes {
   setArrivalWindows: { input: SetArrivalWindowsInput; output: SetArrivalWindowsOutput };
   setAssetMaintenancePlan: { input: SetAssetMaintenancePlanParams & SetAssetMaintenancePlanInput; output: SetAssetMaintenancePlanOutput };
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
+  setBranchNumbering: { input: SetBranchNumberingInput; output: SetBranchNumberingOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
@@ -24525,6 +25402,7 @@ export interface OperationTypes {
   setCostingRate: { input: SetCostingRateInput; output: SetCostingRateOutput };
   setCrewMembers: { input: SetCrewMembersParams & SetCrewMembersInput; output: SetCrewMembersOutput };
   setCustomerAdData: { input: SetCustomerAdDataParams & SetCustomerAdDataInput; output: SetCustomerAdDataOutput };
+  setCustomerPreferredDays: { input: SetCustomerPreferredDaysParams & SetCustomerPreferredDaysInput; output: SetCustomerPreferredDaysOutput };
   setCustomerReferrer: { input: SetCustomerReferrerParams & SetCustomerReferrerInput; output: SetCustomerReferrerOutput };
   setCustomerTags: { input: SetCustomerTagsParams & SetCustomerTagsInput; output: SetCustomerTagsOutput };
   setDeficiencyStatus: { input: SetDeficiencyStatusParams & SetDeficiencyStatusInput; output: SetDeficiencyStatusOutput };
@@ -24541,10 +25419,13 @@ export interface OperationTypes {
   setLocationSharing: { input: SetLocationSharingInput; output: SetLocationSharingOutput };
   setMarketingSettings: { input: SetMarketingSettingsInput; output: SetMarketingSettingsOutput };
   setMemberBranch: { input: SetMemberBranchParams & SetMemberBranchInput; output: SetMemberBranchOutput };
+  setMemberHold: { input: SetMemberHoldInput; output: SetMemberHoldOutput };
+  setMemberLocation: { input: SetMemberLocationParams & SetMemberLocationInput; output: SetMemberLocationOutput };
   setMemberRole: { input: SetMemberRoleParams & SetMemberRoleInput; output: SetMemberRoleOutput };
   setMembershipActive: { input: SetMembershipActiveParams & SetMembershipActiveInput; output: SetMembershipActiveOutput };
   setMessagingBrandStatus: { input: SetMessagingBrandStatusParams & SetMessagingBrandStatusInput; output: SetMessagingBrandStatusOutput };
   setMessagingCampaignStatus: { input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput; output: SetMessagingCampaignStatusOutput };
+  setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
@@ -24559,6 +25440,8 @@ export interface OperationTypes {
   setRecordingPolicy: { input: SetRecordingPolicyInput; output: SetRecordingPolicyOutput };
   setRecurringScheduleActive: { input: SetRecurringScheduleActiveParams & SetRecurringScheduleActiveInput; output: SetRecurringScheduleActiveOutput };
   setReferralSettings: { input: SetReferralSettingsInput; output: SetReferralSettingsOutput };
+  setRentalCollectionTime: { input: SetRentalCollectionTimeParams & SetRentalCollectionTimeInput; output: SetRentalCollectionTimeOutput };
+  setRentalDispatch: { input: SetRentalDispatchInput; output: SetRentalDispatchOutput };
   setReorderPolicy: { input: SetReorderPolicyInput; output: SetReorderPolicyOutput };
   setReportSchedulePaused: { input: SetReportSchedulePausedParams & SetReportSchedulePausedInput; output: SetReportSchedulePausedOutput };
   setReportingLine: { input: SetReportingLineInput; output: SetReportingLineOutput };
@@ -24576,6 +25459,7 @@ export interface OperationTypes {
   setUpSoftphone: { input: SetUpSoftphoneInput; output: SetUpSoftphoneOutput };
   setVendorItem: { input: SetVendorItemInput; output: SetVendorItemOutput };
   setVisitCustomFields: { input: SetVisitCustomFieldsParams & SetVisitCustomFieldsInput; output: SetVisitCustomFieldsOutput };
+  setVisitMovable: { input: SetVisitMovableParams & SetVisitMovableInput; output: SetVisitMovableOutput };
   setWageClassification: { input: SetWageClassificationInput; output: SetWageClassificationOutput };
   setWebsiteTracking: { input: SetWebsiteTrackingInput; output: SetWebsiteTrackingOutput };
   setWorkdaySettings: { input: SetWorkdaySettingsInput; output: SetWorkdaySettingsOutput };
@@ -24587,6 +25471,7 @@ export interface OperationTypes {
   shareWithNetwork: { input: ShareWithNetworkInput; output: ShareWithNetworkOutput };
   signInDevice: { input: SignInDeviceInput; output: SignInDeviceOutput };
   signInWithCode: { input: SignInWithCodeInput; output: SignInWithCodeOutput };
+  signMyDocument: { input: SignMyDocumentParams & SignMyDocumentInput; output: SignMyDocumentOutput };
   signOutDevice: { input: SignOutDeviceParams & SignOutDeviceInput; output: SignOutDeviceOutput };
   signOutOfPortal: { input: SignOutOfPortalInput; output: SignOutOfPortalOutput };
   signSafetyMeeting: { input: SignSafetyMeetingParams & SignSafetyMeetingInput; output: SignSafetyMeetingOutput };
@@ -24617,6 +25502,7 @@ export interface OperationTypes {
   unpinProperty: { input: UnpinPropertyParams & UnpinPropertyInput; output: UnpinPropertyOutput };
   unpublishServiceReport: { input: UnpublishServiceReportParams & UnpublishServiceReportInput; output: UnpublishServiceReportOutput };
   unskipAgreementVisit: { input: UnskipAgreementVisitParams & UnskipAgreementVisitInput; output: UnskipAgreementVisitOutput };
+  upcomingTimeOff: { input: UpcomingTimeOffInput; output: UpcomingTimeOffOutput };
   updateAgreementPlan: { input: UpdateAgreementPlanParams & UpdateAgreementPlanInput; output: UpdateAgreementPlanOutput };
   updateApp: { input: UpdateAppParams & UpdateAppInput; output: UpdateAppOutput };
   updateAsset: { input: UpdateAssetParams & UpdateAssetInput; output: UpdateAssetOutput };
@@ -24627,6 +25513,7 @@ export interface OperationTypes {
   updateChangeOrder: { input: UpdateChangeOrderParams & UpdateChangeOrderInput; output: UpdateChangeOrderOutput };
   updateChannel: { input: UpdateChannelParams & UpdateChannelInput; output: UpdateChannelOutput };
   updateCompanyDetails: { input: UpdateCompanyDetailsInput; output: UpdateCompanyDetailsOutput };
+  updateContact: { input: UpdateContactParams & UpdateContactInput; output: UpdateContactOutput };
   updateContract: { input: UpdateContractParams & UpdateContractInput; output: UpdateContractOutput };
   updateCrew: { input: UpdateCrewParams & UpdateCrewInput; output: UpdateCrewOutput };
   updateCustomField: { input: UpdateCustomFieldParams & UpdateCustomFieldInput; output: UpdateCustomFieldOutput };
@@ -24693,10 +25580,12 @@ export const OPERATIONS = {
   acceptLeadOffer: { method: "POST", path: "/v1/lead-offers/{id}/accept", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","customer:write"] },
   addChangeOrderLine: { method: "POST", path: "/v1/project-change-orders/{changeOrderId}/lines", pathParams: ["changeOrderId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addContractSite: { method: "POST", path: "/v1/contracts/{contractId}/sites", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  addCustomerContact: { method: "POST", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addEmergencyContact: { method: "POST", path: "/v1/people/{membershipId}/emergency-contacts", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addEstimateOptionPhoto: { method: "POST", path: "/v1/estimate-options/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
+  addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   addOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addProjectPhase: { method: "POST", path: "/v1/projects/{projectId}/phases", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   addPurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -24712,6 +25601,7 @@ export const OPERATIONS = {
   applyDeposit: { method: "POST", path: "/v1/deposits/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:collect","invoice:write"] },
   applyDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   applyExternalWorkOrderRemote: { method: "POST", path: "/v1/external-work-orders/{id}/remote", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  applyMultiDayRebalance: { method: "POST", path: "/v1/dispatch/rebalance/days/apply", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch","visit:reschedule"] },
   applyPayment: { method: "POST", path: "/v1/payments/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   applyPriceChange: { method: "POST", path: "/v1/pricebook/price-changes", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   applyProposalTemplate: { method: "POST", path: "/v1/estimates/{id}/proposal-template", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
@@ -24728,6 +25618,7 @@ export const OPERATIONS = {
   approveTimeOff: { method: "POST", path: "/v1/time-off/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:approve"] },
   approveVisitChangeRequest: { method: "POST", path: "/v1/visit-change-requests/{id}/approve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   askFieldAssistant: { method: "POST", path: "/v1/ai/field-assistant", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
+  askToSignStaffDocument: { method: "POST", path: "/v1/staff-documents/{id}/requests", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   assignCrewToVisit: { method: "POST", path: "/v1/visits/{id}/crew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   assignJobsToBranch: { method: "POST", path: "/v1/branch-assignments", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["job:write"] },
   assignTrackingNumber: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -24812,6 +25703,7 @@ export const OPERATIONS = {
   createSafetyMeeting: { method: "POST", path: "/v1/safety/meetings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   createSandbox: { method: "POST", path: "/v1/sandbox", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   createServiceRoute: { method: "POST", path: "/v1/service-routes", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  createStaffDocument: { method: "POST", path: "/v1/staff-documents", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   createTask: { method: "POST", path: "/v1/tasks", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   createTaskEscalationRule: { method: "POST", path: "/v1/task-escalation-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   createTaskTemplate: { method: "POST", path: "/v1/task-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
@@ -24899,6 +25791,7 @@ export const OPERATIONS = {
   getAssetMaintenanceDue: { method: "GET", path: "/v1/assets/maintenance-due", pathParams: [], queryParams: ["assetId","now"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getAssignmentSuggestions: { method: "GET", path: "/v1/dispatch/suggestions", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getAvailability: { method: "GET", path: "/v1/public/availability", pathParams: [], queryParams: ["organizationSlug","bookableServiceId","from","days","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  getBranchNumbering: { method: "GET", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getCall: { method: "GET", path: "/v1/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -24965,7 +25858,11 @@ export const OPERATIONS = {
   getMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel", pathParams: [], queryParams: ["from","to","by","model"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingOverview: { method: "GET", path: "/v1/marketing/overview", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getMarketingSettings: { method: "GET", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getMemberHold: { method: "GET", path: "/v1/booking/member-hold", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
   getMemberPricing: { method: "GET", path: "/v1/customers/{id}/member-pricing", pathParams: ["id"], queryParams: ["propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
+  getMultiDayRebalance: { method: "GET", path: "/v1/dispatch/rebalance/days", pathParams: [], queryParams: ["from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getMyPayStatements: { method: "GET", path: "/v1/me/pay-statements", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
+  getMyRecord: { method: "GET", path: "/v1/me", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   getMyTimeclock: { method: "GET", path: "/v1/timeclock/me", pathParams: [], queryParams: ["weekOf"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
   getNetworkMembership: { method: "GET", path: "/v1/network", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getNetworkRollup: { method: "GET", path: "/v1/network/rollup", pathParams: [], queryParams: ["aggregate","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
@@ -24975,7 +25872,7 @@ export const OPERATIONS = {
   getPerformance: { method: "GET", path: "/v1/marketing/performance", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getPersonRecord: { method: "GET", path: "/v1/people/{membershipId}", pathParams: ["membershipId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   getPhoneMenu: { method: "GET", path: "/v1/phone-menus/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
-  getPortalBookingAvailability: { method: "GET", path: "/v1/portal/booking/availability", pathParams: [], queryParams: ["token","bookableServiceId","from","days","technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  getPortalBookingAvailability: { method: "GET", path: "/v1/portal/booking/availability", pathParams: [], queryParams: ["token","bookableServiceId","from","days","technicianId","propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalBookingOptions: { method: "GET", path: "/v1/portal/booking", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalJobLive: { method: "GET", path: "/v1/portal/job/live", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalSettings: { method: "GET", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -25002,6 +25899,7 @@ export const OPERATIONS = {
   getReferrals: { method: "GET", path: "/v1/marketing/referrals", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getRegulatoryConstant: { method: "GET", path: "/v1/compliance/constants", pathParams: [], queryParams: ["key","on","jurisdiction"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getRental: { method: "GET", path: "/v1/rentals/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  getRentalDispatch: { method: "GET", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalOverage: { method: "GET", path: "/v1/rentals/{id}/overage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getReviewWorkList: { method: "GET", path: "/v1/reviews/work-list", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRouteProposal: { method: "GET", path: "/v1/dispatch/optimise", pathParams: [], queryParams: ["date","technicianId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -25013,6 +25911,7 @@ export const OPERATIONS = {
   getSetup: { method: "GET", path: "/v1/setup", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSkillStanding: { method: "POST", path: "/v1/people/skill-standing", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getSoftphone: { method: "GET", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
+  getStaffDocument: { method: "GET", path: "/v1/staff-documents/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   getStatementSchedule: { method: "GET", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getTaskChecklist: { method: "GET", path: "/v1/tasks/{id}/checklist", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   getTaskCounts: { method: "GET", path: "/v1/tasks/counts", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -25102,11 +26001,12 @@ export const OPERATIONS = {
   listCrewsForJob: { method: "GET", path: "/v1/crews/for-job", pathParams: [], queryParams: ["jobId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listCustomFields: { method: "GET", path: "/v1/custom-fields", pathParams: [], queryParams: ["entityType"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCustomObjects: { method: "GET", path: "/v1/custom-objects", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read"] },
-  listCustomRecords: { method: "GET", path: "/v1/custom-records", pathParams: [], queryParams: ["type","q","fieldKey","fieldValue","customerId","propertyId","jobId","equipmentId","cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["record:read"] },
+  listCustomRecords: { method: "GET", path: "/v1/custom-records", pathParams: [], queryParams: ["type","q","fieldKey","fieldValue","fields","customerId","propertyId","jobId","equipmentId","cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["record:read"] },
+  listCustomerContacts: { method: "GET", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomerDuplicatePairs: { method: "GET", path: "/v1/customer-duplicates", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
   listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listCustomerTags: { method: "GET", path: "/v1/customer-tags", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
-  listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
+  listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","fields","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
   listDeclaredSubmissions: { method: "GET", path: "/v1/compliance/submissions/declared", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeficiencies: { method: "GET", path: "/v1/inspection-deficiencies", pathParams: [], queryParams: ["propertyId","customerId","includeSettled","now"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeliveries: { method: "GET", path: "/v1/deliveries", pathParams: [], queryParams: ["customerId","propertyId","equipmentId","product","from","to","partialOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -25120,7 +26020,7 @@ export const OPERATIONS = {
   listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
-  listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
+  listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
   listExpiringCertifications: { method: "GET", path: "/v1/certifications/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listExternalWorkOrders: { method: "GET", path: "/v1/external-work-orders", pathParams: [], queryParams: ["state","sourceSystem","pendingPush","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listExternalWorkSources: { method: "GET", path: "/v1/external-work-sources", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
@@ -25133,12 +26033,12 @@ export const OPERATIONS = {
   listIntakeDrafts: { method: "GET", path: "/v1/ai/intake/drafts", pathParams: [], queryParams: ["status","limit","sourceKind","sourceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
   listInvoiceDeliveries: { method: "GET", path: "/v1/invoices/{invoiceId}/deliveries", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listInvoiceTips: { method: "GET", path: "/v1/invoices/{id}/tips", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
-  listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
+  listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
   listItemTax: { method: "GET", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listJobClocks: { method: "GET", path: "/v1/jobs/{id}/deadlines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobTypes: { method: "GET", path: "/v1/job-types", pathParams: [], queryParams: ["includeInactive"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
-  listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
+  listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
   listJournal: { method: "GET", path: "/v1/ledger/journal", pathParams: [], queryParams: ["from","to","jobId","customerId","accountCode","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listJournalEntries: { method: "GET", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   listKnowledgeNotes: { method: "GET", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -25166,7 +26066,7 @@ export const OPERATIONS = {
   listPayrollExports: { method: "GET", path: "/v1/payroll/exports", pathParams: [], queryParams: ["periodId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:read"] },
   listPendingExternalPushes: { method: "GET", path: "/v1/external-work-pushes", pathParams: [], queryParams: ["limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listPendingUploads: { method: "GET", path: "/v1/field/uploads", pathParams: [], queryParams: ["deviceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
-  listPeople: { method: "GET", path: "/v1/people", pathParams: [], queryParams: ["email","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listPeople: { method: "GET", path: "/v1/people", pathParams: [], queryParams: ["email","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listPeopleRoster: { method: "GET", path: "/v1/roster", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listPhoneMenus: { method: "GET", path: "/v1/phone-menus", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -25178,7 +26078,7 @@ export const OPERATIONS = {
   listProjectApplications: { method: "GET", path: "/v1/projects/{projectId}/applications", pathParams: ["projectId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listProjectLienRecords: { method: "GET", path: "/v1/projects/{projectId}/lien-records", pathParams: ["projectId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listProjects: { method: "GET", path: "/v1/projects", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
-  listProperties: { method: "GET", path: "/v1/properties", pathParams: [], queryParams: ["cursor","limit","q","customerId","territoryId","externalSource","externalId","fieldKey","fieldValue"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["property:read"] },
+  listProperties: { method: "GET", path: "/v1/properties", pathParams: [], queryParams: ["cursor","limit","q","customerId","territoryId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["property:read"] },
   listProposalTemplates: { method: "GET", path: "/v1/proposal-templates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listPurchaseApprovalRules: { method: "GET", path: "/v1/purchase-approval-rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listPurchaseOrderSends: { method: "GET", path: "/v1/purchase-orders/{id}/sends", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
@@ -25210,6 +26110,7 @@ export const OPERATIONS = {
   listServiceRouteStops: { method: "GET", path: "/v1/service-routes/{id}/stops", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listServiceRoutes: { method: "GET", path: "/v1/service-routes", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listSpend: { method: "GET", path: "/v1/marketing/spend", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  listStaffDocuments: { method: "GET", path: "/v1/staff-documents", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listStaleRegulatoryConstants: { method: "GET", path: "/v1/compliance/constants/stale", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listStatementDeliveries: { method: "GET", path: "/v1/statement-deliveries", pathParams: [], queryParams: ["customerId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listStockLevels: { method: "GET", path: "/v1/stock/levels", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
@@ -25254,6 +26155,7 @@ export const OPERATIONS = {
   lockVisit: { method: "POST", path: "/v1/visits/{id}/lock", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   logCall: { method: "POST", path: "/v1/calls", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   logContinuingEducation: { method: "POST", path: "/v1/technicians/{technicianId}/continuing-education", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  makeContactPrimary: { method: "POST", path: "/v1/contacts/{id}/primary", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   mapPlatformCampaign: { method: "PATCH", path: "/v1/marketing/platform-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -25345,12 +26247,14 @@ export const OPERATIONS = {
   releaseStock: { method: "POST", path: "/v1/stock/releases", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   removeBudgetLine: { method: "DELETE", path: "/v1/budgets/{year}/lines/{line}", pathParams: ["year","line"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeChangeOrderLine: { method: "DELETE", path: "/v1/project-change-orders/{changeOrderId}/lines/{lineId}", pathParams: ["changeOrderId","lineId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  removeContact: { method: "POST", path: "/v1/contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   removeContinuingEducation: { method: "POST", path: "/v1/continuing-education/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   removeCostingRate: { method: "DELETE", path: "/v1/costing/rates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeCustomer: { method: "POST", path: "/v1/customers/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:delete"] },
   removeEmergencyContact: { method: "POST", path: "/v1/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removeEstimateOptionPhoto: { method: "DELETE", path: "/v1/estimate-option-photos/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
+  removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -25391,6 +26295,7 @@ export const OPERATIONS = {
   retireAsset: { method: "POST", path: "/v1/assets/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireEquipment: { method: "POST", path: "/v1/equipment/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   retireRentableAsset: { method: "DELETE", path: "/v1/rentable-assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  retireStaffDocument: { method: "POST", path: "/v1/staff-documents/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   retireWageScale: { method: "POST", path: "/v1/payroll/wage-scales/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   retryAccountingDocument: { method: "POST", path: "/v1/accounting/problems/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   retryConversionSend: { method: "POST", path: "/v1/marketing/conversion-sends/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -25440,6 +26345,7 @@ export const OPERATIONS = {
   setArrivalWindows: { method: "PUT", path: "/v1/booking/arrival-windows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setAssetMaintenancePlan: { method: "POST", path: "/v1/assets/{assetId}/maintenance-plans", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  setBranchNumbering: { method: "PUT", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -25447,6 +26353,7 @@ export const OPERATIONS = {
   setCostingRate: { method: "POST", path: "/v1/costing/rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setCrewMembers: { method: "PUT", path: "/v1/crews/{id}/members", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   setCustomerAdData: { method: "PUT", path: "/v1/customers/{id}/ad-data", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
+  setCustomerPreferredDays: { method: "PUT", path: "/v1/customers/{id}/preferred-days", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setCustomerReferrer: { method: "PUT", path: "/v1/customers/{id}/referrer", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setCustomerTags: { method: "POST", path: "/v1/customers/{id}/tags", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setDeficiencyStatus: { method: "POST", path: "/v1/inspection-deficiencies/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -25463,10 +26370,13 @@ export const OPERATIONS = {
   setLocationSharing: { method: "PUT", path: "/v1/dispatch/location-sharing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMarketingSettings: { method: "PATCH", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMemberBranch: { method: "POST", path: "/v1/memberships/{membershipId}/branch", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
+  setMemberHold: { method: "PUT", path: "/v1/booking/member-hold", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
+  setMemberLocation: { method: "POST", path: "/v1/memberships/{membershipId}/location", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   setMemberRole: { method: "POST", path: "/v1/memberships/{membershipId}/role", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setMembershipActive: { method: "POST", path: "/v1/memberships/{membershipId}/active", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setMessagingBrandStatus: { method: "POST", path: "/v1/messaging/brands/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMessagingCampaignStatus: { method: "POST", path: "/v1/messaging/campaigns/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -25481,6 +26391,8 @@ export const OPERATIONS = {
   setRecordingPolicy: { method: "POST", path: "/v1/recording-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setRecurringScheduleActive: { method: "POST", path: "/v1/recurring-schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setReferralSettings: { method: "PUT", path: "/v1/marketing/referral-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setRentalCollectionTime: { method: "PUT", path: "/v1/rentals/{id}/collection-time", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  setRentalDispatch: { method: "PUT", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setReorderPolicy: { method: "PUT", path: "/v1/reorder-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   setReportSchedulePaused: { method: "POST", path: "/v1/report-schedules/{id}/paused", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   setReportingLine: { method: "POST", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -25498,6 +26410,7 @@ export const OPERATIONS = {
   setUpSoftphone: { method: "PUT", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setVendorItem: { method: "PUT", path: "/v1/vendor-items", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   setVisitCustomFields: { method: "PUT", path: "/v1/visits/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read","visit:write"] },
+  setVisitMovable: { method: "PUT", path: "/v1/visits/{id}/movable", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   setWageClassification: { method: "POST", path: "/v1/payroll/classifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setWebsiteTracking: { method: "PATCH", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setWorkdaySettings: { method: "PUT", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -25509,6 +26422,7 @@ export const OPERATIONS = {
   shareWithNetwork: { method: "POST", path: "/v1/network/share", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   signInDevice: { method: "POST", path: "/v1/field/sign-in", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   signInWithCode: { method: "POST", path: "/v1/field/sign-in/verify", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  signMyDocument: { method: "POST", path: "/v1/me/documents/{requestId}/sign", pathParams: ["requestId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   signOutDevice: { method: "POST", path: "/v1/field/devices/{id}/sign-out", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   signOutOfPortal: { method: "POST", path: "/v1/portal/sign-out", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   signSafetyMeeting: { method: "POST", path: "/v1/safety/meetings/{id}/sign", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
@@ -25539,6 +26453,7 @@ export const OPERATIONS = {
   unpinProperty: { method: "DELETE", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
   unpublishServiceReport: { method: "POST", path: "/v1/service-reports/{id}/unpublish", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
   unskipAgreementVisit: { method: "POST", path: "/v1/agreement-visits/{id}/unskip", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
+  upcomingTimeOff: { method: "GET", path: "/v1/time-off/upcoming", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   updateAgreementPlan: { method: "PATCH", path: "/v1/agreement-plans/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   updateApp: { method: "PATCH", path: "/v1/apps/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   updateAsset: { method: "PATCH", path: "/v1/assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -25549,6 +26464,7 @@ export const OPERATIONS = {
   updateChangeOrder: { method: "PATCH", path: "/v1/project-change-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   updateChannel: { method: "PATCH", path: "/v1/marketing/channels/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   updateCompanyDetails: { method: "PATCH", path: "/v1/company", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  updateContact: { method: "PATCH", path: "/v1/contacts/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   updateContract: { method: "PATCH", path: "/v1/contracts/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   updateCrew: { method: "PATCH", path: "/v1/crews/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   updateCustomField: { method: "PATCH", path: "/v1/custom-fields/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
@@ -25676,6 +26592,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Add a person to a customer.
+   *
+   * POST /v1/customers/{id}/contacts. Needs customer:write.
+   */
+  addCustomerContact(input: AddCustomerContactParams & AddCustomerContactInput, options?: CallOptions): Promise<AddCustomerContactOutput> {
+    return this.call("addCustomerContact", input, options);
+  }
+
+  /**
    * Add somebody to ring in an emergency.
    *
    * POST /v1/people/{membershipId}/emergency-contacts. Needs user:write.
@@ -25709,6 +26634,15 @@ export abstract class GeneratedOperations {
    */
   addIncidentPhoto(input: AddIncidentPhotoParams & AddIncidentPhotoInput, options?: CallOptions): Promise<AddIncidentPhotoOutput> {
     return this.call("addIncidentPhoto", input, options);
+  }
+
+  /**
+   * Add somebody to ring if you are hurt.
+   *
+   * POST /v1/me/emergency-contacts. Needs profile:own.
+   */
+  addMyEmergencyContact(input: AddMyEmergencyContactInput, options?: CallOptions): Promise<AddMyEmergencyContactOutput> {
+    return this.call("addMyEmergencyContact", input, options);
   }
 
   /**
@@ -25844,6 +26778,15 @@ export abstract class GeneratedOperations {
    */
   applyExternalWorkOrderRemote(input: ApplyExternalWorkOrderRemoteParams & ApplyExternalWorkOrderRemoteInput, options?: CallOptions): Promise<ApplyExternalWorkOrderRemoteOutput> {
     return this.call("applyExternalWorkOrderRemote", input, options);
+  }
+
+  /**
+   * Apply several rebalanced days somebody looked at.
+   *
+   * POST /v1/dispatch/rebalance/days/apply. Needs visit:dispatch, visit:reschedule.
+   */
+  applyMultiDayRebalance(input: ApplyMultiDayRebalanceInput, options?: CallOptions): Promise<ApplyMultiDayRebalanceOutput> {
+    return this.call("applyMultiDayRebalance", input, options);
   }
 
   /**
@@ -25988,6 +26931,15 @@ export abstract class GeneratedOperations {
    */
   askFieldAssistant(input: AskFieldAssistantInput, options?: CallOptions): Promise<AskFieldAssistantOutput> {
     return this.call("askFieldAssistant", input, options);
+  }
+
+  /**
+   * Ask people to sign a document.
+   *
+   * POST /v1/staff-documents/{id}/requests. Needs user:write.
+   */
+  askToSignStaffDocument(input: AskToSignStaffDocumentParams & AskToSignStaffDocumentInput, options?: CallOptions): Promise<AskToSignStaffDocumentOutput> {
+    return this.call("askToSignStaffDocument", input, options);
   }
 
   /**
@@ -26744,6 +27696,15 @@ export abstract class GeneratedOperations {
    */
   createServiceRoute(input: CreateServiceRouteInput, options?: CallOptions): Promise<CreateServiceRouteOutput> {
     return this.call("createServiceRoute", input, options);
+  }
+
+  /**
+   * Write a document for people to sign.
+   *
+   * POST /v1/staff-documents. Needs user:write.
+   */
+  createStaffDocument(input: CreateStaffDocumentInput, options?: CallOptions): Promise<CreateStaffDocumentOutput> {
+    return this.call("createStaffDocument", input, options);
   }
 
   /**
@@ -27530,6 +28491,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Whether branch codes are printed in front of job and invoice numbers.
+   *
+   * GET /v1/branch-numbering. Needs settings:read.
+   */
+  getBranchNumbering(input: GetBranchNumberingInput = {} as GetBranchNumberingInput, options?: CallOptions): Promise<GetBranchNumberingOutput> {
+    return this.call("getBranchNumbering", input, options);
+  }
+
+  /**
    * Each branch with its people and its work.
    *
    * GET /v1/branch-overview. Needs settings:read.
@@ -28124,12 +29094,48 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The share of each window online booking holds for members.
+   *
+   * GET /v1/booking/member-hold. Needs booking:read.
+   */
+  getMemberHold(input: GetMemberHoldInput = {} as GetMemberHoldInput, options?: CallOptions): Promise<GetMemberHoldOutput> {
+    return this.call("getMemberHold", input, options);
+  }
+
+  /**
    * Whether work for this customer is priced as member work.
    *
    * GET /v1/customers/{id}/member-pricing. Needs customer:read.
    */
   getMemberPricing(input: GetMemberPricingInput, options?: CallOptions): Promise<GetMemberPricingOutput> {
     return this.call("getMemberPricing", input, options);
+  }
+
+  /**
+   * Propose several days rebalanced, moving visits between days where the customer agreed.
+   *
+   * GET /v1/dispatch/rebalance/days. Needs visit:read.
+   */
+  getMultiDayRebalance(input: GetMultiDayRebalanceInput, options?: CallOptions): Promise<GetMultiDayRebalanceOutput> {
+    return this.call("getMultiDayRebalance", input, options);
+  }
+
+  /**
+   * Your own pay statements and commission, for closed pay periods.
+   *
+   * GET /v1/me/pay-statements. Needs payroll:own.
+   */
+  getMyPayStatements(input: GetMyPayStatementsInput = {} as GetMyPayStatementsInput, options?: CallOptions): Promise<GetMyPayStatementsOutput> {
+    return this.call("getMyPayStatements", input, options);
+  }
+
+  /**
+   * Your own staff record.
+   *
+   * GET /v1/me. Needs profile:own.
+   */
+  getMyRecord(input: GetMyRecordInput = {} as GetMyRecordInput, options?: CallOptions): Promise<GetMyRecordOutput> {
+    return this.call("getMyRecord", input, options);
   }
 
   /**
@@ -28457,6 +29463,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * How collections are booked and a driver's day is ordered.
+   *
+   * GET /v1/rental-dispatch. Needs asset:read.
+   */
+  getRentalDispatch(input: GetRentalDispatchInput = {} as GetRentalDispatchInput, options?: CallOptions): Promise<GetRentalDispatchOutput> {
+    return this.call("getRentalDispatch", input, options);
+  }
+
+  /**
    * What the two meters read.
    *
    * GET /v1/rentals/{id}/overage. Needs asset:read.
@@ -28553,6 +29568,15 @@ export abstract class GeneratedOperations {
    */
   getSoftphone(input: GetSoftphoneInput = {} as GetSoftphoneInput, options?: CallOptions): Promise<GetSoftphoneOutput> {
     return this.call("getSoftphone", input, options);
+  }
+
+  /**
+   * One document, and who has signed it.
+   *
+   * GET /v1/staff-documents/{id}. Needs user:read.
+   */
+  getStaffDocument(input: GetStaffDocumentInput, options?: CallOptions): Promise<GetStaffDocumentOutput> {
+    return this.call("getStaffDocument", input, options);
   }
 
   /**
@@ -29363,6 +30387,15 @@ export abstract class GeneratedOperations {
    */
   listCustomRecords(input: ListCustomRecordsInput, options?: CallOptions): Promise<ListCustomRecordsOutput> {
     return this.call("listCustomRecords", input, options);
+  }
+
+  /**
+   * The people at a customer.
+   *
+   * GET /v1/customers/{id}/contacts. Needs customer:read.
+   */
+  listCustomerContacts(input: ListCustomerContactsInput, options?: CallOptions): Promise<ListCustomerContactsOutput> {
+    return this.call("listCustomerContacts", input, options);
   }
 
   /**
@@ -30329,6 +31362,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The documents the company asks its people to sign.
+   *
+   * GET /v1/staff-documents. Needs user:read.
+   */
+  listStaffDocuments(input: ListStaffDocumentsInput = {} as ListStaffDocumentsInput, options?: CallOptions): Promise<ListStaffDocumentsOutput> {
+    return this.call("listStaffDocuments", input, options);
+  }
+
+  /**
    * Figures whose published window has run out.
    *
    * GET /v1/compliance/constants/stale. Needs compliance:read.
@@ -30722,6 +31764,15 @@ export abstract class GeneratedOperations {
    */
   logContinuingEducation(input: LogContinuingEducationParams & LogContinuingEducationInput, options?: CallOptions): Promise<LogContinuingEducationOutput> {
     return this.call("logContinuingEducation", input, options);
+  }
+
+  /**
+   * Make a person the one told first.
+   *
+   * POST /v1/contacts/{id}/primary. Needs customer:write.
+   */
+  makeContactPrimary(input: MakeContactPrimaryParams & MakeContactPrimaryInput, options?: CallOptions): Promise<MakeContactPrimaryOutput> {
+    return this.call("makeContactPrimary", input, options);
   }
 
   /**
@@ -31544,6 +32595,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a person off a customer.
+   *
+   * POST /v1/contacts/{id}/remove. Needs customer:write.
+   */
+  removeContact(input: RemoveContactParams & RemoveContactInput, options?: CallOptions): Promise<RemoveContactOutput> {
+    return this.call("removeContact", input, options);
+  }
+
+  /**
    * Remove hours logged in error.
    *
    * POST /v1/continuing-education/{id}/remove. Needs compliance:write.
@@ -31595,6 +32655,15 @@ export abstract class GeneratedOperations {
    */
   removeKnowledgeNote(input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput, options?: CallOptions): Promise<RemoveKnowledgeNoteOutput> {
     return this.call("removeKnowledgeNote", input, options);
+  }
+
+  /**
+   * Take one of your emergency contacts off.
+   *
+   * POST /v1/me/emergency-contacts/{id}/remove. Needs profile:own.
+   */
+  removeMyEmergencyContact(input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput, options?: CallOptions): Promise<RemoveMyEmergencyContactOutput> {
+    return this.call("removeMyEmergencyContact", input, options);
   }
 
   /**
@@ -31850,7 +32919,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * A new link for somebody who has not signed in yet.
+   * A new invite for somebody who has not signed in yet.
    *
    * POST /v1/invitations/{membershipId}/resend. Needs user:invite.
    */
@@ -31955,6 +33024,15 @@ export abstract class GeneratedOperations {
    */
   retireRentableAsset(input: RetireRentableAssetParams & RetireRentableAssetInput, options?: CallOptions): Promise<RetireRentableAssetOutput> {
     return this.call("retireRentableAsset", input, options);
+  }
+
+  /**
+   * Stop asking anybody new to sign a document.
+   *
+   * POST /v1/staff-documents/{id}/retire. Needs user:write.
+   */
+  retireStaffDocument(input: RetireStaffDocumentParams & RetireStaffDocumentInput, options?: CallOptions): Promise<RetireStaffDocumentOutput> {
+    return this.call("retireStaffDocument", input, options);
   }
 
   /**
@@ -32399,6 +33477,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Print branch codes in front of new job and invoice numbers, or stop.
+   *
+   * PUT /v1/branch-numbering. Needs settings:write.
+   */
+  setBranchNumbering(input: SetBranchNumberingInput, options?: CallOptions): Promise<SetBranchNumberingOutput> {
+    return this.call("setBranchNumbering", input, options);
+  }
+
+  /**
    * Set one budget line's twelve months.
    *
    * PUT /v1/budgets/{year}/lines. Needs finance:configure.
@@ -32459,6 +33546,15 @@ export abstract class GeneratedOperations {
    */
   setCustomerAdData(input: SetCustomerAdDataParams & SetCustomerAdDataInput, options?: CallOptions): Promise<SetCustomerAdDataOutput> {
     return this.call("setCustomerAdData", input, options);
+  }
+
+  /**
+   * Record the days of the week that suit a customer.
+   *
+   * PUT /v1/customers/{id}/preferred-days. Needs customer:write.
+   */
+  setCustomerPreferredDays(input: SetCustomerPreferredDaysParams & SetCustomerPreferredDaysInput, options?: CallOptions): Promise<SetCustomerPreferredDaysOutput> {
+    return this.call("setCustomerPreferredDays", input, options);
   }
 
   /**
@@ -32606,6 +33702,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set the share of each window online booking holds for members.
+   *
+   * PUT /v1/booking/member-hold. Needs booking:configure.
+   */
+  setMemberHold(input: SetMemberHoldInput, options?: CallOptions): Promise<SetMemberHoldOutput> {
+    return this.call("setMemberHold", input, options);
+  }
+
+  /**
+   * Say which shop somebody works from.
+   *
+   * POST /v1/memberships/{membershipId}/location. Needs membership:write.
+   */
+  setMemberLocation(input: SetMemberLocationParams & SetMemberLocationInput, options?: CallOptions): Promise<SetMemberLocationOutput> {
+    return this.call("setMemberLocation", input, options);
+  }
+
+  /**
    * Give somebody a different preset role.
    *
    * POST /v1/memberships/{membershipId}/role. Needs user:write.
@@ -32639,6 +33753,15 @@ export abstract class GeneratedOperations {
    */
   setMessagingCampaignStatus(input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput, options?: CallOptions): Promise<SetMessagingCampaignStatusOutput> {
     return this.call("setMessagingCampaignStatus", input, options);
+  }
+
+  /**
+   * Tick one of your onboarding lines, or untick one you ticked.
+   *
+   * POST /v1/me/onboarding-lines/{id}. Needs profile:own.
+   */
+  setMyOnboardingLine(input: SetMyOnboardingLineParams & SetMyOnboardingLineInput, options?: CallOptions): Promise<SetMyOnboardingLineOutput> {
+    return this.call("setMyOnboardingLine", input, options);
   }
 
   /**
@@ -32765,6 +33888,24 @@ export abstract class GeneratedOperations {
    */
   setReferralSettings(input: SetReferralSettingsInput, options?: CallOptions): Promise<SetReferralSettingsOutput> {
     return this.call("setReferralSettings", input, options);
+  }
+
+  /**
+   * Record when the customer agreed the container should be collected.
+   *
+   * PUT /v1/rentals/{id}/collection-time. Needs asset:write.
+   */
+  setRentalCollectionTime(input: SetRentalCollectionTimeParams & SetRentalCollectionTimeInput, options?: CallOptions): Promise<SetRentalCollectionTimeOutput> {
+    return this.call("setRentalCollectionTime", input, options);
+  }
+
+  /**
+   * Set how collections are booked and a driver's day is ordered.
+   *
+   * PUT /v1/rental-dispatch. Needs settings:write.
+   */
+  setRentalDispatch(input: SetRentalDispatchInput = {} as SetRentalDispatchInput, options?: CallOptions): Promise<SetRentalDispatchOutput> {
+    return this.call("setRentalDispatch", input, options);
   }
 
   /**
@@ -32921,6 +34062,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record the days the customer agreed a visit may happen on.
+   *
+   * PUT /v1/visits/{id}/movable. Needs visit:reschedule.
+   */
+  setVisitMovable(input: SetVisitMovableParams & SetVisitMovableInput, options?: CallOptions): Promise<SetVisitMovableOutput> {
+    return this.call("setVisitMovable", input, options);
+  }
+
+  /**
    * Set the classification a person is paid at.
    *
    * POST /v1/payroll/classifications. Needs payroll:configure.
@@ -33017,6 +34167,15 @@ export abstract class GeneratedOperations {
    */
   signInWithCode(input: SignInWithCodeInput, options?: CallOptions): Promise<SignInWithCodeOutput> {
     return this.call("signInWithCode", input, options);
+  }
+
+  /**
+   * Sign a document you were asked to sign.
+   *
+   * POST /v1/me/documents/{requestId}/sign. Needs profile:own.
+   */
+  signMyDocument(input: SignMyDocumentParams & SignMyDocumentInput, options?: CallOptions): Promise<SignMyDocumentOutput> {
+    return this.call("signMyDocument", input, options);
   }
 
   /**
@@ -33290,6 +34449,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Approved time off still to come or under way.
+   *
+   * GET /v1/time-off/upcoming. Needs timesheet:read.
+   */
+  upcomingTimeOff(input: UpcomingTimeOffInput = {} as UpcomingTimeOffInput, options?: CallOptions): Promise<UpcomingTimeOffOutput> {
+    return this.call("upcomingTimeOff", input, options);
+  }
+
+  /**
    * Edit a membership plan.
    *
    * PATCH /v1/agreement-plans/{id}. Needs membership:write.
@@ -33377,6 +34545,15 @@ export abstract class GeneratedOperations {
    */
   updateCompanyDetails(input: UpdateCompanyDetailsInput, options?: CallOptions): Promise<UpdateCompanyDetailsOutput> {
     return this.call("updateCompanyDetails", input, options);
+  }
+
+  /**
+   * Change a person's details.
+   *
+   * PATCH /v1/contacts/{id}. Needs customer:write.
+   */
+  updateContact(input: UpdateContactParams & UpdateContactInput, options?: CallOptions): Promise<UpdateContactOutput> {
+    return this.call("updateContact", input, options);
   }
 
   /**

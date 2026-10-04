@@ -108,16 +108,16 @@ export default async function ReviewsPage() {
       )}
 
       {listings.map((listing) => (
-        <section key={listing.provider} aria-label="Google Business Profile"
+        <section key={listing.provider} aria-label={listing.label}
                  className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-steel-200 p-3">
           <p className="text-sm text-ink-700">
             {listing.status === "connected"
-              ? <>Google reviews are read every hour{listing.lastReadAt ? <>, last at {formatIn(new Date(listing.lastReadAt), user.organizationTimezone)}</> : null}. Replies written here are posted back to Google.</>
-              : <>Google Business Profile is set up but nobody has signed in, so nothing is read. Sign in on Settings, Integrations.</>}
+              ? <>{listing.site} reviews are read every hour{listing.lastReadAt ? <>, last at {formatIn(new Date(listing.lastReadAt), user.organizationTimezone)}</> : null}. Replies written here are posted back to {listing.site}.</>
+              : <>{listing.label} is set up but nobody has signed in, so nothing is read. Sign in on Settings, Integrations.</>}
             {listing.lastReadError ? <span className="mt-1 block text-red-600">{listing.lastReadError}</span> : null}
           </p>
           {listing.status === "connected" && (
-            <ActionForm action={syncListings} submit="Fetch from Google now" tone="quiet" className="" />
+            <ActionForm action={syncListings} submit={`Fetch from ${listing.site} now`} tone="quiet" className="" />
           )}
         </section>
       ))}
@@ -150,12 +150,12 @@ export default async function ReviewsPage() {
 
       {unposted.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-base font-semibold">Replies not on Google yet</h2>
+          <h2 className="text-base font-semibold">Replies not on the review site yet</h2>
           <ul className="mt-3 space-y-2">
             {unposted.map((r) => (
               <li key={r.id} className="rounded border border-steel-200 p-3 text-sm">
                 {r.replyState === "failed"
-                  ? <span className="text-red-600">Google refused this reply: {r.replyError}</span>
+                  ? <span className="text-red-600">{reviewSync.siteName(r.platform)} refused this reply: {r.replyError}</span>
                   : <span className="text-ink-700">Waiting to be posted{r.replyError ? `: ${r.replyError}` : "."}</span>}
               </li>
             ))}

@@ -32,6 +32,12 @@ export type TravelSource = "road" | "estimate" | "mixed";
 export interface TravelMatrix {
   /** Minutes between two keys. Zero when either is not on the map, which callers check first. */
   travel: routing.Travel;
+  /**
+   * Minutes between two keys BY ROAD, or null when the routing service did
+   * not answer for that pair (or none is connected). For a figure that has
+   * to say it is by road rather than fall back quietly to an estimate.
+   */
+  road: (from: string, to: string) => number | null;
   source: TravelSource;
   /** The connected provider's key, or null when there is none. */
   provider: string | null;
@@ -219,8 +225,17 @@ export async function travelMatrix(
     return geo.driveMinutes(placeOf.get(a)!, placeOf.get(b)!, options.assumptions);
   };
 
+  const byRoad = (from: string, to: string): number | null => {
+    const a = keyOf.get(from);
+    const b = keyOf.get(to);
+    if (!a || !b) return null;
+    if (a === b) return 0;
+    return road.get(`${a}|${b}`) ?? null;
+  };
+
   return {
     travel,
+    road: byRoad,
     source,
     provider: provider?.name ?? null,
     failure,
@@ -296,7 +311,7 @@ export function describeSource(matrix: Pick<TravelMatrix, "source" | "provider" 
   return "Drive times are straight line estimates. Connect a routing service under Settings, Integrations for times by road.";
 }
 
-const providerLabel = (key: string | null) =>
+export const providerLabel = (key: string | null) =>
   key === "osrm" ? "your OSRM server"
   : key === "mapbox_directions" ? "Mapbox"
   : key === "openrouteservice" ? "OpenRouteService"

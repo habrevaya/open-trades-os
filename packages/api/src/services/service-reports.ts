@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  guardedRead, guardedWrite, audit, ConflictError, NotFoundError,
+  guardedRead, guardedWrite, audit, scopeOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
+import { serviceReportScopeFilter } from "./scope";
 
 /**
  * THE DOCUMENT THAT LEAVES WITH THE CUSTOMER
@@ -409,8 +410,11 @@ export async function get(
   ctx: ServiceContext,
   input: { id: string; customerFacing?: boolean | undefined },
 ): Promise<ReportView> {
-  return guardedRead(ctx, "servicereport:read", async (tx) =>
-    viewWithin(tx, ctx.actor.organizationId, input.id, input.customerFacing ?? false));
+  return guardedRead(ctx, "servicereport:read", async (tx) => {
+    /** Out of scope reads as not found, the same as a job opened by its id. */
+    await load(tx, ctx, input.id);
+    return viewWithin(tx, ctx.actor.organizationId, input.id, input.customerFacing ?? false);
+  });
 }
 
 /**
@@ -549,6 +553,12 @@ export async function list(
           )
           : undefined,
         input.status === "skipped" ? eq(schema.serviceReport.skipped, true) : undefined,
+        /**
+         * The reports for work this person can see. Declared scopable from
+         * the start and read unscoped until now, so a branch manager listing
+         * reports read every branch's.
+         */
+        serviceReportScopeFilter(scopeOf(ctx, "servicereport"), ctx.actor),
       ))
       .orderBy(desc(schema.serviceReport.createdAt))
       .limit(limit);
@@ -615,7 +625,7 @@ export async function annotate(
   input: { id: string; summary?: string | null | undefined; observations?: string | null | undefined },
 ): Promise<ReportView> {
   return guardedWrite(ctx, "servicereport:write", async (tx) => {
-    const before = await load(tx, ctx.actor.organizationId, input.id);
+    const before = await load(tx, ctx, input.id);
     /**
      * A published report is not edited.
      *
@@ -656,7 +666,7 @@ export async function publish(
   ctx: ServiceContext, input: { id: string },
 ): Promise<ReportView> {
   return guardedWrite(ctx, "servicereport:publish", async (tx) => {
-    const before = await load(tx, ctx.actor.organizationId, input.id);
+    const before = await load(tx, ctx, input.id);
     if (before.publishedAt) {
       return viewWithin(tx, ctx.actor.organizationId, input.id, false);
     }
@@ -709,7 +719,7 @@ export async function unpublish(
   ctx: ServiceContext, input: { id: string; reason: string },
 ): Promise<ReportView> {
   return guardedWrite(ctx, "servicereport:publish", async (tx) => {
-    const before = await load(tx, ctx.actor.organizationId, input.id);
+    const before = await load(tx, ctx, input.id);
     if (!before.publishedAt) {
       throw new ConflictError("That report is not published.");
     }
@@ -736,11 +746,13 @@ export async function unpublish(
   });
 }
 
-async function load(tx: Database, organizationId: string, id: string) {
+/** One report this person may see, or not found: another branch's report is not there for them. */
+async function load(tx: Database, ctx: ServiceContext, id: string) {
   const [row] = await tx.select().from(schema.serviceReport)
     .where(and(
-      eq(schema.serviceReport.organizationId, organizationId),
+      eq(schema.serviceReport.organizationId, ctx.actor.organizationId),
       eq(schema.serviceReport.id, id),
+      serviceReportScopeFilter(scopeOf(ctx, "servicereport"), ctx.actor),
     ));
   if (!row) throw new NotFoundError("Service report");
   return row;

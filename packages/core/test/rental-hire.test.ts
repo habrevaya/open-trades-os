@@ -31,10 +31,34 @@ describe("when a hire is due back", () => {
       zone: ZONE,
     });
     expect(result.schedule).toEqual([
-      { rentalId: "late", dueOn: "2026-05-26", collectOn: "2026-06-03", daysLate: 8 },
-      { rentalId: "due", dueOn: "2026-06-07", collectOn: "2026-06-07", daysLate: 0 },
+      { rentalId: "late", dueOn: "2026-05-26", collectOn: "2026-06-03", daysLate: 8, agreed: false },
+      { rentalId: "due", dueOn: "2026-06-07", collectOn: "2026-06-07", daysLate: 0, agreed: false },
     ]);
     expect(result.skipped.map((s) => s.rentalId).sort()).toEqual(["booked", "standing"]);
+  });
+
+  it("goes on the day agreed with the customer, early or late, and a standing hire with one is collected", () => {
+    const delivered = new Date("2026-06-01T17:00:00Z");
+    const result = rt.collectionsDue({
+      hires: [
+        /** Finished early: due on the seventh, collected on the fourth as asked. */
+        { id: "early", deliveredAt: delivered, includedDays: 7, collectionVisitId: null, agreedOn: "2026-06-04" },
+        /** Asked for two more days: not on the seventh, and not inside this run at all. */
+        { id: "extended", deliveredAt: delivered, includedDays: 7, collectionVisitId: null, agreedOn: "2026-06-09" },
+        { id: "standing", deliveredAt: delivered, includedDays: null, collectionVisitId: null, agreedOn: "2026-06-05" },
+        /** An agreed day that has passed is today, and late from that day. */
+        { id: "missed", deliveredAt: delivered, includedDays: 28, collectionVisitId: null, agreedOn: "2026-06-02" },
+      ],
+      through: "2026-06-07",
+      today: "2026-06-03",
+      zone: ZONE,
+    });
+    expect(result.schedule).toEqual([
+      { rentalId: "missed", dueOn: "2026-06-28", collectOn: "2026-06-03", daysLate: 1, agreed: true },
+      { rentalId: "early", dueOn: "2026-06-07", collectOn: "2026-06-04", daysLate: 0, agreed: true },
+      { rentalId: "standing", dueOn: null, collectOn: "2026-06-05", daysLate: 0, agreed: true },
+    ]);
+    expect(result.skipped).toEqual([]);
   });
 });
 

@@ -16,6 +16,10 @@ import { remember, replayed } from "./once";
  * campaigns that matched them exactly as typed. A segmentation nobody can
  * query is a free text field with extra steps.
  *
+ * Every read here is of `customer_tag`, the tags one per row under an index
+ * on the case blind key, which the database keeps equal to each live
+ * customer's own list. Every write is to the list, and the table follows.
+ *
  * What this adds, all through `core/tags` so the arithmetic is the same
  * everywhere:
  *
@@ -46,14 +50,18 @@ export interface TagCount {
 export async function list(ctx: ServiceContext): Promise<TagCount[]> {
   return guardedRead(ctx, "customer:read", async (tx) => {
     const scope = customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor);
+    /**
+     * From `customer_tag`, which holds live customers only, so the whole
+     * book's counts are a walk of the key index and touch no customer row.
+     * A reader with a narrower scope joins the customers, because the scope
+     * is a condition on them.
+     */
     const rows = await tx.execute<{ tag: string; customers: number }>(sql`
-      select min(t.tag) as tag, count(distinct ${schema.customer.id})::int as customers
-      from public.customer
-      cross join lateral jsonb_array_elements_text(${schema.customer.tags}) as t(tag)
-      where ${schema.customer.deletedAt} is null
-        ${scope ? sql`and ${scope}` : sql``}
-      group by lower(btrim(t.tag))
-      order by count(distinct ${schema.customer.id}) desc, lower(btrim(t.tag))`);
+      select min(ct.tag) as tag, count(distinct ct.customer_id)::int as customers
+      from public.customer_tag ct
+      ${scope ? sql`join public.customer on ${schema.customer.id} = ct.customer_id and ${scope}` : sql``}
+      group by ct.tag_key
+      order by count(distinct ct.customer_id) desc, ct.tag_key`);
     return [...rows].map((row) => ({ tag: row.tag.trim(), customers: Number(row.customers) }));
   });
 }
@@ -69,12 +77,11 @@ async function companySpellings(tx: Database, wanted: string[]): Promise<Map<str
   if (wanted.length === 0) return new Map();
   const keys = wanted.map(tagRules.tagKey);
   const rows = await tx.execute<{ key: string; tag: string }>(sql`
-    select distinct on (lower(btrim(t.tag))) lower(btrim(t.tag)) as key, btrim(t.tag) as tag
-    from public.customer c
-    cross join lateral jsonb_array_elements_text(c.tags) as t(tag)
-    where c.deleted_at is null
-      and lower(btrim(t.tag)) = any(${sql.param(keys)}::text[])
-    order by lower(btrim(t.tag)), c.created_at`);
+    select distinct on (ct.tag_key) ct.tag_key as key, btrim(ct.tag) as tag
+    from public.customer_tag ct
+    join public.customer c on c.id = ct.customer_id
+    where ct.tag_key = any(${sql.param(keys)}::text[])
+    order by ct.tag_key, c.created_at, ct.position`);
   return new Map([...rows].map((row) => [row.key, row.tag]));
 }
 
@@ -158,11 +165,9 @@ async function rewrite(
   const keys = from.map(tagRules.tagKey);
   const carrying = await tx.execute<{ id: string; tags: string[] }>(sql`
     select c.id, c.tags from public.customer c
-    where c.deleted_at is null
-      and exists (
-        select 1 from jsonb_array_elements_text(c.tags) as t(tag)
-        where lower(btrim(t.tag)) = any(${sql.param(keys)}::text[])
-      )`);
+    where c.id in (
+      select ct.customer_id from public.customer_tag ct where ct.tag_key = any(${sql.param(keys)}::text[])
+    )`);
   const changes = [...carrying]
     .map((row) => ({ id: row.id, before: row.tags, after: tagRules.replaceTags(row.tags, from, into) }))
     .filter((row) => JSON.stringify(row.before) !== JSON.stringify(row.after));

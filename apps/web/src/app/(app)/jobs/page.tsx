@@ -2,7 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { jobs, branches, customFields } from "@opentradesos/api/services";
 import { Chip } from "@opentradesos/ui";
-import { can } from "@opentradesos/core";
+import { can, work } from "@opentradesos/core";
 import { JOB_STATUS, JOB_TONE, label, tone } from "@/lib/labels";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { BranchFilter, chosenBranch } from "@/components/BranchFilter";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string; field?: string; value?: string }>;
+  searchParams: Promise<{ branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -28,7 +28,7 @@ export default async function JobsPage({
   const branch = chosenBranch(options, params.branch, true);
   const named = options.branches.find((b) => b.id === branch)?.name;
   const declared = await customFields.formFields(ctx, "job");
-  const { fieldKey, fieldValue, byField } = fieldFrom(params);
+  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
 
   const { page, refusal } = await withFieldFilter((withField) => jobs.list(ctx, {
     limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
@@ -45,8 +45,8 @@ export default async function JobsPage({
           </a>
         ) : undefined}
       />
-      <BranchFilter options={options} action="/jobs" current={branch} none keep={{ field: fieldKey, value: fieldValue }} />
-      <CustomFieldFilter action="/jobs" declared={declared} keep={{ branch }} fieldKey={fieldKey} fieldValue={fieldValue}
+      <BranchFilter options={options} action="/jobs" current={branch} none keep={fieldKeep} />
+      <CustomFieldFilter action="/jobs" declared={declared} keep={{ branch }} pairs={pairs}
                          refusal={refusal} noun="jobs" />
 
       {page.data.length === 0 ? (
@@ -65,7 +65,7 @@ export default async function JobsPage({
           {page.data.map((job) => (
             <tr key={job.id} className="hover:bg-steel-100">
               {/* Mono, because a job number gets read aloud over a phone. */}
-              <Td className="font-mono tabular-nums text-ink-700">{job.number}</Td>
+              <Td className="font-mono tabular-nums text-ink-700">{work.documentNumber(job.numberPrefix, job.number)}</Td>
               <Td>
                 <a href={`/jobs/${job.id}`} className="font-medium text-ink-900 hover:underline">
                   {job.summary ?? "Untitled"}

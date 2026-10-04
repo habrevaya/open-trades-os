@@ -348,9 +348,48 @@ export const setBusinessHours = defineRoute({
   output: z.object({ days: z.number().int() }),
 });
 
+/**
+ * A SHARE OF EACH WINDOW HELD FOR MEMBERS
+ *
+ * What a plan's priority dispatch reserves: online booking keeps a share of
+ * each arrival window back from anybody who is not a member, until a set
+ * number of hours before it opens. Holds nothing while no live plan
+ * promises priority, and says so.
+ */
+const MemberHold = z.object({
+  /** Per cent of each window held for members, 0 to 90. Zero holds nothing. */
+  reservePercent: z.number().int().min(0).max(90),
+  /** Hours before a window opens when what is still held is let go to anybody. */
+  releaseHours: z.number().int().min(0).max(336),
+});
+
+export const getMemberHold = defineRoute({
+  method: "get",
+  path: "/v1/booking/member-hold",
+  summary: "The share of each window online booking holds for members",
+  description:
+    "The share of each arrival window (of what it holds with nothing booked, to the nearest whole job, a half rounded down) kept from anybody who is not a member whose plan promises priority dispatch, until `releaseHours` before the window opens. Members' own work in a window uses it up first. `plansWithPriority` counts the live plans that promise priority: with none, nothing is held.",
+  module: "M08",
+  permissions: ["booking:read"],
+  input: z.object({}),
+  output: MemberHold.extend({ plansWithPriority: z.number().int() }),
+});
+
+export const setMemberHold = defineRoute({
+  method: "put",
+  path: "/v1/booking/member-hold",
+  summary: "Set the share of each window online booking holds for members",
+  description:
+    "Applies to the public widget, to a customer booking from their own account and to a customer asking to move a visit from their link: a member whose plan covers the address is offered the held share, anybody else is not.",
+  module: "M08",
+  permissions: ["booking:configure"],
+  input: MemberHold,
+  output: MemberHold.extend({ plansWithPriority: z.number().int() }),
+});
+
 export const bookingRoutes = {
   createBookableService, setArrivalWindows, setBusinessHours,
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
-  configureBookableService,
+  configureBookableService, getMemberHold, setMemberHold,
 } as const;

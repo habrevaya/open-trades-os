@@ -101,3 +101,11 @@ export async function saveHours(_previous: unknown, form: FormData): Promise<Res
 
   return caught(form, (context) => booking.setHours(context, { days }));
 }
+
+/** The share of each window held for members whose plan promises priority, and when it is let go. */
+export async function saveMemberHold(_previous: unknown, form: FormData): Promise<Result> {
+  return caught(form, (context) => booking.setMemberHold(context, {
+    reservePercent: Number(form.get("reservePercent") ?? 0),
+    releaseHours: Number(form.get("releaseHours") ?? 48),
+  }));
+}

@@ -284,6 +284,17 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     authUrl: BASE_URL,
     tokenUrl: BASE_URL,
   },
+  /** A Facebook Page's ratings and recommendations, read in and replied to as the Page. */
+  facebook_page: {
+    pageId: { kind: "text" },
+    /** The review platform key reviews are recorded under, which the review policy names. */
+    platform: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
   /** Meta's instant forms, read from one Page. */
   meta_lead_ads: {
     pageId: { kind: "text" },

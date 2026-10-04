@@ -622,6 +622,103 @@ export async function payTips(ctx: ServiceContext, input: { periodId: string }) 
   });
 }
 
+/* ------------------------------------------------------- one's own pay */
+
+export interface OwnStatement {
+  periodId: string;
+  label: string;
+  periodStart: Date;
+  periodEnd: Date;
+  closedAt: Date;
+  /** Their lines on the register, exactly as the export carried them. Null when they had nothing that period. */
+  statement: Pick<RegisterRow, "classification" | "lines" | "gross" | "carriedForward" | "warnings"> | null;
+  /** Why their statement could not be worked out, when it could not, for them to ask the office about. */
+  problems: string[];
+  /** The commission behind the commission lines: which invoice, how it was worked out, and whether it is paid. */
+  commissions: {
+    id: string; invoiceNumber: number; kind: string; amount: string; explanation: string;
+    occurredAt: Date; paidAt: Date | null;
+  }[];
+}
+
+/** How many closed periods somebody's own pay goes back: a year of fortnights. */
+const OWN_PERIODS = 26;
+
+/**
+ * A PERSON'S OWN PAY STATEMENTS, for the periods payroll has closed.
+ *
+ * Built by the same `assemble` the register and the export are, at the
+ * instant the period was closed, narrowed to them: so the statement somebody
+ * reads is the one the bureau was sent, line for line, and not a second
+ * calculation that could disagree with it. Only closed periods, because an
+ * open one is still being corrected and a figure read on Tuesday that has
+ * moved by Friday is a dispute, not a statement.
+ *
+ * `payroll:own`, resolved from the session to the person's own technician
+ * record. There is no way to ask for somebody else's: the call takes no
+ * person. Somebody with no technician record has no punches, commission or
+ * tips here to show, and is told so rather than shown an empty table.
+ */
+export async function ownStatements(ctx: ServiceContext): Promise<{ technician: boolean; statements: OwnStatement[] }> {
+  return guardedRead(ctx, "payroll:own", async (tx) => {
+    const [own] = await tx.select({ id: schema.technician.id })
+      .from(schema.technician)
+      .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
+      .where(and(
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+        eq(schema.membership.userId, ctx.actor.userId),
+        eq(schema.membership.active, true),
+      )).limit(1);
+    if (!own) return { technician: false, statements: [] };
+
+    const rows = await tx.select().from(schema.payPeriod)
+      .where(eq(schema.payPeriod.organizationId, ctx.actor.organizationId))
+      .orderBy(desc(schema.payPeriod.startDate));
+
+    const statements: OwnStatement[] = [];
+    for (const row of rows) {
+      if (statements.length >= OWN_PERIODS) break;
+      const close = await liveClose(tx, row.id);
+      if (!close) continue;
+      const { period, policy, bounds, corePeriod } = await loadPeriod(tx, ctx, row.id);
+      const assembled = await assemble(tx, ctx, corePeriod, policy, bounds, close.closedAt, own.id);
+      const mine = assembled.rows.find((r) => r.technicianId === own.id) ?? null;
+      const commissions = await tx.select({
+        entry: schema.commissionEntry,
+        invoiceNumber: schema.invoice.number,
+      }).from(schema.commissionEntry)
+        .innerJoin(schema.commissionEvent, eq(schema.commissionEvent.id, schema.commissionEntry.eventId))
+        .innerJoin(schema.invoice, eq(schema.invoice.id, schema.commissionEvent.invoiceId))
+        .where(and(
+          eq(schema.commissionEntry.organizationId, ctx.actor.organizationId),
+          eq(schema.commissionEntry.technicianId, own.id),
+          gte(schema.commissionEntry.occurredAt, bounds.start),
+          lt(schema.commissionEntry.occurredAt, bounds.end),
+        ))
+        .orderBy(asc(schema.commissionEntry.occurredAt));
+      statements.push({
+        periodId: period.id,
+        label: period.label,
+        periodStart: bounds.start,
+        periodEnd: bounds.end,
+        closedAt: close.closedAt,
+        statement: mine
+          ? {
+            classification: mine.classification, lines: mine.lines, gross: mine.gross,
+            carriedForward: mine.carriedForward, warnings: mine.warnings,
+          }
+          : null,
+        problems: assembled.problems.filter((p) => p.technicianId === own.id).flatMap((p) => p.messages),
+        commissions: commissions.map(({ entry, invoiceNumber }) => ({
+          id: entry.id, invoiceNumber, kind: entry.kind, amount: entry.amount, explanation: entry.explanation,
+          occurredAt: entry.occurredAt, paidAt: entry.paidAt,
+        })),
+      });
+    }
+    return { technician: true, statements };
+  });
+}
+
 /* ------------------------------------------------------------- internals */
 
 async function loadPeriod(tx: Database, ctx: ServiceContext, periodId: string) {
@@ -834,6 +931,8 @@ async function assemble(
   tx: Database, ctx: ServiceContext,
   period: labor.PayPeriod, policy: labor.OvertimePolicy,
   bounds: { start: Date; end: Date }, now: Date,
+  /** One person only, for their own statement. Everybody when absent. */
+  only?: string,
 ): Promise<Assembled> {
   const punches = await tx.select({
     entry: schema.timeclockEntry,
@@ -844,6 +943,7 @@ async function assemble(
       eq(schema.timeclockEntry.organizationId, ctx.actor.organizationId),
       gte(schema.timeclockEntry.startedAt, bounds.start),
       lt(schema.timeclockEntry.startedAt, bounds.end),
+      ...(only ? [eq(schema.timeclockEntry.technicianId, only)] : []),
     ))
     .orderBy(asc(schema.timeclockEntry.startedAt));
 
@@ -859,6 +959,7 @@ async function assemble(
       eq(schema.commissionEntry.organizationId, ctx.actor.organizationId),
       gte(schema.commissionEntry.occurredAt, bounds.start),
       lt(schema.commissionEntry.occurredAt, bounds.end),
+      ...(only ? [eq(schema.commissionEntry.technicianId, only)] : []),
     ))
     .orderBy(asc(schema.commissionEntry.occurredAt));
 
@@ -874,6 +975,7 @@ async function assemble(
       eq(schema.tipShare.organizationId, ctx.actor.organizationId),
       gte(schema.tipShare.occurredAt, bounds.start),
       lt(schema.tipShare.occurredAt, bounds.end),
+      ...(only ? [eq(schema.tipShare.technicianId, only)] : []),
     ))
     .orderBy(asc(schema.tipShare.occurredAt), asc(schema.tipShare.id));
 
@@ -893,6 +995,7 @@ async function assemble(
       eq(schema.cashTip.organizationId, ctx.actor.organizationId),
       gte(schema.cashTip.receivedAt, bounds.start),
       lt(schema.cashTip.receivedAt, bounds.end),
+      ...(only ? [eq(schema.cashTip.technicianId, only)] : []),
     ))
     .orderBy(asc(schema.cashTip.receivedAt), asc(schema.cashTip.id));
 
@@ -1134,4 +1237,6 @@ export const handlers = {
     payCommissions(ctx, input),
 
   payTips: (ctx: ServiceContext, input: { periodId: string }) => payTips(ctx, input),
+
+  getMyPayStatements: (ctx: ServiceContext) => ownStatements(ctx),
 } as const;

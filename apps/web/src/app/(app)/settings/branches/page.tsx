@@ -37,7 +37,8 @@ export default async function BranchesPage() {
         A branch is a part of the company with its own work: a second shop, or a second set of books.
         A job belongs to one branch. Somebody whose role shows them their branch&apos;s work sees that
         branch&apos;s jobs, and the customers, invoices, estimates and reports that hang off them, and
-        nothing else. Job and invoice numbers stay one sequence for the whole company, and the price
+        nothing else, on the board and in timesheets too. Job and invoice numbers stay one sequence for the
+        whole company, with the branch&apos;s code printed in front when you turn that on below, and the price
         book is the same in every branch.
       </p>
       <div className="mt-6">

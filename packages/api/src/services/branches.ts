@@ -1,6 +1,9 @@
 import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, type Permission, type Scope, type ScopedResource } from "@opentradesos/core";
+import {
+  assertCan, can, DEFAULT_SCOPES, ROLE_PRESETS, work,
+  type Permission, type RoleId, type Scope, type ScopedResource,
+} from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, scopeOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -40,8 +43,10 @@ import { replayed, remember } from "./once";
  * company. A branch scoped manager can only put work in their own branch, so
  * they cannot hand a job to a branch whose work they cannot then see.
  *
- * Numbering stays per company, the price book stays company wide, and one job
- * carries one branch. Those are documented as such rather than built.
+ * Numbering stays one sequence per company, and a company can choose to print
+ * a branch's code in front of new job and invoice numbers (`setNumbering`).
+ * The price book stays company wide, and one job carries one branch. Those
+ * are documented as such rather than built.
  */
 
 export interface BranchOption {
@@ -251,10 +256,34 @@ export async function assignJobs(
   });
 }
 
-/** The resources a custom role can scope to a branch. */
+/** The resources a role can scope to a branch or a shop. */
 const SCOPED: ScopedResource[] = [
   "job", "visit", "customer", "estimate", "invoice", "timesheet", "servicereport", "conversation",
 ];
+
+/**
+ * What limits this person to their branch or their shop, in words, or null
+ * when nothing does: their custom role, their preset (the branch manager's
+ * is limited to a branch), or a limit set on them alone.
+ */
+async function limitedTo(
+  tx: Database, member: typeof schema.membership.$inferSelect, kind: "business_unit" | "location",
+): Promise<string | null> {
+  if (member.roleId) {
+    const [role] = await tx.select({ name: schema.role.name, scopes: schema.role.scopes })
+      .from(schema.role)
+      .where(and(eq(schema.role.id, member.roleId), isNull(schema.role.deletedAt))).limit(1);
+    if (role && SCOPED.some((resource) => role.scopes[resource] === kind)) return `Their role, ${role.name},`;
+  } else {
+    const preset = DEFAULT_SCOPES[member.role as RoleId] ?? {};
+    if (SCOPED.some((resource) => preset[resource] === kind)) {
+      return `Their role, ${ROLE_PRESETS[member.role as RoleId]?.label ?? member.role},`;
+    }
+  }
+  const overrides = member.scopeOverrides as Record<string, string>;
+  if (SCOPED.some((resource) => overrides[resource] === kind)) return "A limit set on them";
+  return null;
+}
 
 /**
  * Which branch a person belongs to. The anchor a branch scope reads, and the
@@ -278,24 +307,14 @@ export async function setMemberBranch(
 
     if (input.businessUnitId !== null) await liveBranch(tx, ctx, input.businessUnitId);
 
-    if (input.businessUnitId === null && before.roleId) {
-      const [role] = await tx.select({ name: schema.role.name, scopes: schema.role.scopes })
-        .from(schema.role)
-        .where(and(eq(schema.role.id, before.roleId), isNull(schema.role.deletedAt))).limit(1);
-      const limited = role && SCOPED.some((resource) => role.scopes[resource] === "business_unit");
-      if (limited) {
+    if (input.businessUnitId === null) {
+      const limit = await limitedTo(tx, before, "business_unit");
+      if (limit) {
         throw new ConflictError(
-          `Their role, ${role.name}, shows them their branch's work only. With no branch they would see nothing at all. `
-          + "Give them a different role first, or choose a branch.",
+          `${limit} shows them their branch's work only. With no branch they would see nothing at all. `
+          + "Give them a different role, or lift that limit, first, or choose a branch.",
         );
       }
-    }
-    const overrides = before.scopeOverrides as Record<string, string>;
-    if (input.businessUnitId === null && SCOPED.some((resource) => overrides[resource] === "business_unit")) {
-      throw new ConflictError(
-        "This person is limited to their branch's work. With no branch they would see nothing at all. "
-        + "Lift that limit first, or choose a branch.",
-      );
     }
 
     if (before.businessUnitId === input.businessUnitId) return before;
@@ -310,6 +329,108 @@ export async function setMemberBranch(
   });
 }
 
+/**
+ * WHICH SHOP A PERSON WORKS FROM: the building, as opposed to the branch.
+ *
+ * The anchor a "their shop's work" role reads (`location` in the scope
+ * ladder), which until now only the API could set, so that scope was offered
+ * by nothing a company could reach. Taking it away while a role limits them
+ * to it is refused for the reason a branch is.
+ */
+export async function setMemberLocation(
+  ctx: ServiceContext, input: { membershipId: string; locationId: string | null },
+) {
+  return guardedWrite(ctx, "membership:write", async (tx) => {
+    const [before] = await tx.select().from(schema.membership)
+      .where(and(
+        eq(schema.membership.id, input.membershipId),
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+      )).limit(1);
+    if (!before) throw new NotFoundError("Person");
+
+    if (input.locationId !== null) {
+      const [place] = await tx.select().from(schema.location)
+        .where(and(
+          eq(schema.location.id, input.locationId),
+          eq(schema.location.organizationId, ctx.actor.organizationId),
+        )).limit(1);
+      if (!place) throw new NotFoundError("Shop");
+      if (!place.active) throw new ConflictError(`${place.name} is closed, so nobody new is based there. Choose another.`);
+    } else {
+      const limit = await limitedTo(tx, before, "location");
+      if (limit) {
+        throw new ConflictError(
+          `${limit} shows them their shop's work only. With no shop they would see nothing at all. `
+          + "Give them a different role, or lift that limit, first, or choose a shop.",
+        );
+      }
+    }
+
+    if (before.locationId === input.locationId) return before;
+
+    const [after] = await tx.update(schema.membership)
+      .set({ locationId: input.locationId, updatedAt: new Date() })
+      .where(eq(schema.membership.id, input.membershipId))
+      .returning();
+    await audit(tx, ctx, "membership.location_changed", "membership", input.membershipId,
+      { locationId: before.locationId }, { locationId: input.locationId });
+    return after!;
+  });
+}
+
+/* --------------------------------------------------- branch marks on numbers */
+
+export interface BranchNumbering {
+  /** Print the branch's code in front of NEW job numbers. */
+  jobs: boolean;
+  /** And in front of new invoice numbers. */
+  invoices: boolean;
+  /** Branches whose code cannot be a mark, by name, so the screen can say which. */
+  unusableCodes: string[];
+}
+
+async function numberingOf(tx: Database, organizationId: string): Promise<BranchNumbering> {
+  const [org] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const saved = (org?.settings?.["branchNumbering"] ?? {}) as Record<string, unknown>;
+  const units = await tx.select({ name: schema.businessUnit.name, code: schema.businessUnit.code })
+    .from(schema.businessUnit)
+    .where(and(eq(schema.businessUnit.organizationId, organizationId), eq(schema.businessUnit.active, true)))
+    .orderBy(asc(schema.businessUnit.name));
+  return {
+    jobs: saved["jobs"] === true,
+    invoices: saved["invoices"] === true,
+    unusableCodes: units.filter((u) => work.numberPrefix(u.code) === null).map((u) => u.name),
+  };
+}
+
+export function numbering(ctx: ServiceContext): Promise<BranchNumbering> {
+  return guardedRead(ctx, "settings:read", (tx) => numberingOf(tx, ctx.actor.organizationId));
+}
+
+/**
+ * Turn branch marks on job and invoice numbers on or off.
+ *
+ * A COMPANY SETTING, AND NEVER A RENUMBERING. Turning it on marks the jobs
+ * and invoices made from then on; turning it off stops marking new ones. The
+ * numbers already given out keep exactly what they were printed with, because
+ * a customer holding invoice 7100 has to be able to read it down the phone
+ * and be found. The mark is written by `app.number_prefix` at insert.
+ */
+export function setNumbering(ctx: ServiceContext, input: { jobs: boolean; invoices: boolean }): Promise<BranchNumbering> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const before = await numberingOf(tx, ctx.actor.organizationId);
+    const after = { jobs: input.jobs, invoices: input.invoices };
+    await tx.update(schema.organization).set({
+      settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ branchNumbering: after })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    await audit(tx, ctx, "settings.branch_numbering", "organization", ctx.actor.organizationId,
+      { jobs: before.jobs, invoices: before.invoices }, after);
+    return numberingOf(tx, ctx.actor.organizationId);
+  });
+}
+
 /* --------------------------------------------------------------- handlers */
 
 export const handlers = {
@@ -321,4 +442,10 @@ export const handlers = {
     const row = await setMemberBranch(ctx, input);
     return { membershipId: row.id, businessUnitId: row.businessUnitId };
   },
+  setMemberLocation: async (ctx: ServiceContext, input: { membershipId: string; locationId: string | null }) => {
+    const row = await setMemberLocation(ctx, input);
+    return { membershipId: row.id, locationId: row.locationId };
+  },
+  getBranchNumbering: (ctx: ServiceContext) => numbering(ctx),
+  setBranchNumbering: (ctx: ServiceContext, input: { jobs: boolean; invoices: boolean }) => setNumbering(ctx, input),
 } as const;

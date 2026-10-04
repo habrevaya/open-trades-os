@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
@@ -131,6 +131,12 @@ export const job = pgTable("job", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   /** Human-facing sequential number, per organization. Generated, never the uuid. */
   number: integer("number").notNull(),
+  /**
+   * The branch's mark printed in front of the number ("AUS-1042"), written
+   * once when the job is made and only when the company prints branch marks.
+   * Never worked out again: see the same column on `invoice`.
+   */
+  numberPrefix: text("number_prefix"),
   customerId: uuid("customer_id").notNull().references(() => customer.id),
   propertyId: uuid("property_id").notNull().references(() => property.id),
   jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),
@@ -243,6 +249,15 @@ export const visit = pgTable("visit", {
    * promised "Ray, first thing", which no arrival window can say.
    */
   dispatchLocked: boolean("dispatch_locked").notNull().default(false),
+  /**
+   * The days, in the company's calendar, the customer agreed this visit may
+   * happen on: "any day the week of the fifth". Null at either end is no
+   * agreement, and a visit with neither stays on its day unless its
+   * customer named the days of the week that suit them. The multi day
+   * rebalance moves a visit only inside these, and tells the customer.
+   */
+  movableFrom: date("movable_from"),
+  movableUntil: date("movable_until"),
 
   /**
    * Exactly one of these is set, determined by the job type's capacity model.

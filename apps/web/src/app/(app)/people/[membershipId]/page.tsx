@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customFields, peopleRecords, people as peopleService, NotFoundError } from "@opentradesos/api/services";
+import { customFields, peopleRecords, people as peopleService, staffDocuments, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip } from "@opentradesos/ui";
@@ -9,7 +9,7 @@ import { Crumb, Fact, Facts } from "@/components/Detail";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import {
-  addContactAction, endSkillAction, logCeAction, recordSkillAction, removeContactAction,
+  addContactAction, askToSignAction, endSkillAction, logCeAction, recordSkillAction, removeContactAction,
   setEmploymentAction, setOnboardingLineAction, startOnboardingAction,
 } from "../actions";
 
@@ -51,6 +51,10 @@ export default async function PersonPage({ params }: { params: Promise<{ members
       ])
     : [null, []];
   const hidden = { membershipId };
+  const askedFor = new Set(person.documents.map((d) => d.documentId));
+  const askable = writes
+    ? (await staffDocuments.list(ctx)).filter((d) => !d.retired && !askedFor.has(d.id))
+    : [];
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -93,6 +97,33 @@ export default async function PersonPage({ params }: { params: Promise<{ members
         {writes ? (
           <ActionForm action={startOnboardingAction} submit={person.onboarding.lines.length === 0 ? "Start onboarding" : "Add new checklist lines"}
                       tone="quiet" className="mt-3 flex flex-wrap items-center gap-3" hidden={hidden} />
+        ) : null}
+      </section>
+
+      <section className="mt-8" aria-labelledby="documents">
+        <h2 id="documents" className="text-base font-semibold">Documents to sign</h2>
+        {person.documents.length === 0 ? (
+          <p className="mt-1 text-sm text-ink-500">Nothing asked of them yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-sm">
+            {person.documents.map((d) => (
+              <li key={d.requestId} className="flex flex-wrap items-center gap-2">
+                {d.signedAt ? <Chip tone="success">Signed</Chip> : <Chip tone="warning">Not yet</Chip>}
+                <a href={`/people/documents/${d.documentId}`} className="hover:underline">{d.title}</a>
+                {d.signedAt ? (
+                  <span className="text-ink-500">
+                    {formatIn(d.signedAt, user.organizationTimezone)}, {d.signedVia === "drawn" ? "drawn" : "typed"}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {askable.length > 0 ? (
+          <ActionForm action={askToSignAction} submit="Ask them to sign" tone="quiet" hidden={hidden}
+                      className="mt-3 flex flex-wrap items-end gap-3">
+            <Select label="Document" name="id" className="w-72" options={askable.map((d) => ({ value: d.id, label: d.title }))} />
+          </ActionForm>
         ) : null}
       </section>
 

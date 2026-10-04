@@ -24,6 +24,8 @@ const route = (over: Partial<RouteRow> = {}): RouteRow => ({
 const density = (over: Partial<DensityRow> = {}): DensityRow => ({
   stopCount: 15, targetStopCount: 14, overTarget: true,
   serviceMinutes: 360, travelMinutes: 112, totalMinutes: 472, travelDeclared: true,
+  travelSource: "declared", travelComplete: true,
+  travelNote: "The route's own drive time, 8 minutes between stops.",
   overtimeAfterMinutes: 480, minutesOverThreshold: null, runsIntoOvertime: false,
   explanation: "Eight minutes between fifteen stops at twenty four minutes each.",
   ...over,
@@ -182,10 +184,28 @@ describe("service routes", () => {
   it("calls an undeclared drive a floor rather than treating it as zero", () => {
     /** Treating the drive as zero tells somebody a fifteen stop day fits. */
     const html = renderToStaticMarkup(<Fit density={density({
-      travelDeclared: false, travelMinutes: null, totalMinutes: 360, runsIntoOvertime: null,
+      travelDeclared: false, travelSource: "none", travelComplete: false, travelMinutes: null,
+      totalMinutes: 360, runsIntoOvertime: null,
     })} />);
     expect(html).toContain("driving not declared");
     expect(html).toContain("At least 360 minutes");
+  });
+
+  it("says the drive is by road when it is, and a floor when some of it could not be counted", () => {
+    const road = renderToStaticMarkup(<Fit density={density({
+      travelDeclared: false, travelSource: "road", travelComplete: true, travelMinutes: 95, totalMinutes: 455,
+      travelNote: "By road between the stops in their order, and out from where the day starts and back, from your OSRM server.",
+    })} />);
+    expect(road).toContain("95 minutes driving by road");
+    expect(road).toContain("from your OSRM server");
+    expect(road).not.toContain("At least");
+
+    const partly = renderToStaticMarkup(<Fit density={density({
+      travelDeclared: false, travelSource: "road", travelComplete: false, travelMinutes: 80, totalMinutes: 440,
+      runsIntoOvertime: null,
+    })} />);
+    expect(partly).toContain("at least 80 minutes driving by road");
+    expect(partly).toContain("At least 440 minutes");
   });
 
   it("shows a stop that is not due with its date rather than hiding it", () => {

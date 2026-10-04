@@ -110,6 +110,20 @@ export function describeOperation(
         action: "acknowledge",
       };
     }
+    /**
+     * A unit whose serial is on file somewhere else is not added: it may be
+     * the same unit, moved here, and only a person can say. Not "on the
+     * record", because it is not on the register until the office answers.
+     */
+    if (op.kind === "equipment.record") {
+      return {
+        ...base,
+        title: "Held for the office",
+        detail: `${did} was not added yet: that serial is already on file at another address, or was taken off a register. `
+          + "The office will decide whether it is the same unit, moved here. Nothing for you to do.",
+        action: "acknowledge",
+      };
+    }
     const state = /was (\w+) by the time/.exec(op.conflict ?? "")?.[1];
     const why = state && STATE[state]
       ? `the office ${STATE[state]} before it reached them`

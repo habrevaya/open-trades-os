@@ -5,7 +5,7 @@ import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
   claims as claimService, entitlements, financing, customFields, fieldSales,
 } from "@opentradesos/api/services";
-import { can, claims, rates } from "@opentradesos/core";
+import { can, claims, rates, work } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -92,7 +92,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
       <Crumb href="/invoices">Invoices</Crumb>
       <div className="mt-1 flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-xl font-semibold">
-          Invoice <span className="font-mono tabular-nums">{invoice.number}</span>
+          Invoice <span className="font-mono tabular-nums">{work.documentNumber(invoice.numberPrefix, invoice.number)}</span>
         </h1>
         <div className="flex items-center gap-3">
           <a href={`/invoices/${invoice.id}/pdf`} className="text-sm underline underline-offset-4">Download PDF</a>

@@ -191,10 +191,16 @@ export function construct(plan: DayPlan): string[] {
  * service day and the result at the bound is still a valid order, just not
  * the last word.
  */
-export function improve(
-  plan: DayPlan, start: readonly string[], maxPasses = 200, pinned: ReadonlySet<string> = new Set(),
+export function improve<P extends DayPlan = DayPlan>(
+  plan: P, start: readonly string[], maxPasses = 200, pinned: ReadonlySet<string> = new Set(),
+  /**
+   * How an order is walked. The plain day by default; a truck that has to
+   * go back to the yard between some stops walks its own way (`truck.ts`),
+   * and the search is the same search over a different arithmetic.
+   */
+  walk: (plan: P, order: readonly string[]) => Evaluation = evaluate,
 ): Evaluation {
-  let current = evaluate(plan, start);
+  let current = walk(plan, start);
   const n = start.length;
   /**
    * A stop a dispatcher locked keeps its place in the day: any candidate that
@@ -211,7 +217,7 @@ export function improve(
       for (let j = i + 1; j < n; j++) {
         const order = [...current.order.slice(0, i), ...current.order.slice(i, j + 1).reverse(), ...current.order.slice(j + 1)];
         if (!keeps(order)) continue;
-        const candidate = evaluate(plan, order);
+        const candidate = walk(plan, order);
         if (better(candidate, current)) {
           current = candidate;
           moved = true;
@@ -229,7 +235,7 @@ export function improve(
           if (k === i) continue;
           const order = [...rest.slice(0, k), ...segment, ...rest.slice(k)];
           if (!keeps(order)) continue;
-          const candidate = evaluate(plan, order);
+          const candidate = walk(plan, order);
           if (better(candidate, current)) {
             current = candidate;
             moved = true;
@@ -311,6 +317,12 @@ export interface OpenVisit {
    * asked and is not considered.
    */
   refusals: Record<string, string | null>;
+  /**
+   * A member whose plan promised priority dispatch. Suggested before anybody
+   * else, so the cheapest gap on the day goes to the customer who paid to be
+   * seen first rather than to whoever's window happens to close sooner.
+   */
+  priority?: boolean | undefined;
 }
 
 export interface Considered {
@@ -335,7 +347,8 @@ export interface Suggestion {
 }
 
 /**
- * Cheapest insertion, one visit at a time, earliest closing window first.
+ * Cheapest insertion, one visit at a time: members whose plan promised
+ * priority first, then earliest closing window first.
  *
  * Each open visit goes to the technician and position that adds the least
  * driving without making anybody late, and the next visit is placed against
@@ -355,7 +368,8 @@ export function suggestAssignments(input: {
 }): Suggestion[] {
   const days = new Map(input.technicians.map((t) => [t.technicianId, { ...t, stops: [...t.stops] }]));
   const ordered = [...input.visits].sort((a, b) =>
-    (a.stop.windowEnd ?? Number.POSITIVE_INFINITY) - (b.stop.windowEnd ?? Number.POSITIVE_INFINITY)
+    Number(b.priority === true) - Number(a.priority === true)
+    || (a.stop.windowEnd ?? Number.POSITIVE_INFINITY) - (b.stop.windowEnd ?? Number.POSITIVE_INFINITY)
     || (a.stop.windowStart ?? Number.POSITIVE_INFINITY) - (b.stop.windowStart ?? Number.POSITIVE_INFINITY)
     || a.stop.id.localeCompare(b.stop.id));
 
@@ -428,3 +442,5 @@ export function suggestAssignments(input: {
 }
 
 export * from "./rebalance.js";
+export * from "./days.js";
+export * from "./truck.js";

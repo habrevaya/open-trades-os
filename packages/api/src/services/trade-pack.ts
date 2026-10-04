@@ -1,4 +1,4 @@
-import { eq, and, isNull, desc, like } from "drizzle-orm";
+import { eq, and, isNull, desc, like, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { packById, packs, type TradePack } from "@opentradesos/trade-packs";
 import { assertCan, can, isSystem, setup as rules } from "@opentradesos/core";
@@ -27,9 +27,11 @@ import { replayed, remember } from "./once";
  *    are skipped and counted, not replaced.
  *
  * 3. Seeded rows are tagged with the pack id and version, and what the pack
- *    seeded is kept (`trade_pack_application.seeded`), so a later release can
- *    upgrade the rows nobody has touched and leave the edited ones alone.
- *    That upgrade is `previewUpgrade` and `upgrade` below.
+ *    seeded is kept (`trade_pack_application.seeded` for the price book,
+ *    `seeded_setup` for the service report template, inspection programmes,
+ *    retention rules and portal layout), so a later release can upgrade the
+ *    rows nobody has touched and leave the edited ones alone. That upgrade is
+ *    `previewUpgrade` and `upgrade` below.
  */
 export interface ApplyResult {
   packId: string;
@@ -64,7 +66,7 @@ export async function applyTradePack(ctx: ServiceContext, packId: string): Promi
      * edited, and an upgrade compares against it.
      */
     if (before === null || result.created.priceBookItems > 0) {
-      await record(tx, ctx, pack, "apply", snapshotOf(pack), { ...result });
+      await record(tx, ctx, pack, "apply", snapshotOf(pack), setupSnapshotOf(pack), { ...result });
     }
 
     await audit(tx, ctx, "trade_pack.applied", "organization", org, null, {
@@ -95,7 +97,8 @@ function seedFields(item: TradePack["priceBook"][number]): rules.SeedFields {
 
 async function record(
   tx: Database, ctx: ServiceContext, pack: TradePack, kind: "apply" | "upgrade",
-  seeded: Record<string, rules.SeedFields>, result: Record<string, unknown>,
+  seeded: Record<string, rules.SeedFields>, seededSetup: Record<string, Record<string, unknown>>,
+  result: Record<string, unknown>,
 ) {
   await tx.insert(schema.tradePackApplication).values({
     organizationId: ctx.actor.organizationId,
@@ -103,6 +106,7 @@ async function record(
     version: pack.version,
     kind,
     seeded: seeded as unknown as Record<string, Record<string, unknown>>,
+    seededSetup,
     result,
     appliedByUserId: isSystem(ctx.actor) ? null : ctx.actor.userId,
   });
@@ -178,78 +182,15 @@ async function seed(tx: Database, org: string, pack: TradePack) {
    * there. Two default portal layouts is a portal that shows whichever one a
    * query reads first.
    */
-  // ---- Service report templates, from the pack's readings -----------------
-  if (pack.readings.length > 0 && !(await alreadySeeded(tx, org, pack.id, schema.serviceReportTemplate))) {
-    await tx.insert(schema.serviceReportTemplate).values({
-      organizationId: org,
-      name: `${pack.name} service report`,
-      tradePackId: `${pack.id}@${pack.version}`,
-      fields: pack.readings.map((r) => ({
-        key: r.key,
-        label: r.label,
-        kind: r.kind,
-        ...(r.unit ? { unit: r.unit } : {}),
-        ...(r.options ? { options: r.options } : {}),
-        customerVisible: r.customerVisible,
-        trend: r.trend,
-        ...(r.min != null ? { min: r.min } : {}),
-        ...(r.max != null ? { max: r.max } : {}),
-        regulated: r.regulated,
-      })),
-    });
-  }
-
-  // ---- Inspection programmes ----------------------------------------------
-  if (!(await alreadySeeded(tx, org, pack.id, schema.inspectionProgram))) {
-    for (const program of pack.inspectionPrograms) {
-      await tx.insert(schema.inspectionProgram).values({
-        organizationId: org,
-        name: program.name,
-        standard: program.standard ?? null,
-        tradePackId: `${pack.id}@${pack.version}`,
-        reportAudience: program.reportAudience,
-        frequencyMonths: program.frequencyMonths ?? null,
-        checkpoints: program.checkpoints,
-      });
-    }
-  }
-
-  // ---- Retention policies --------------------------------------------------
-  if (!(await alreadySeeded(tx, org, pack.id, schema.retentionPolicy))) {
-    for (const rule of pack.retention) {
-      await tx.insert(schema.retentionPolicy).values({
-        organizationId: org,
-        name: `${rule.entityType}${rule.entityKind ? ` (${rule.entityKind})` : ""}`,
-        entityType: rule.entityType,
-        entityKind: rule.entityKind ?? null,
-        clockStart: rule.clockStart,
-        retainMonths: rule.retainMonths,
-        basis: rule.basis ?? null,
-        tradePackId: `${pack.id}@${pack.version}`,
-      });
-    }
-  }
-
-  // ---- Customer portal layout ---------------------------------------------
-  if (pack.portalBlocks.length > 0 && !(await alreadySeeded(tx, org, pack.id, schema.portalLayout))) {
-    const [layout] = await tx.insert(schema.portalLayout).values({
-      organizationId: org,
-      name: `${pack.name} portal`,
-      tradePackId: `${pack.id}@${pack.version}`,
-      isDefault: true,
-    }).returning({ id: schema.portalLayout.id });
-
-    for (const [i, block] of pack.portalBlocks.entries()) {
-      await tx.insert(schema.portalBlock).values({
-        organizationId: org,
-        layoutId: layout!.id,
-        kind: block.kind,
-        title: block.title ?? null,
-        sortOrder: i,
-        config: block.config,
-      });
-    }
-  }
+  const pieces = setupPiecesOf(pack);
+  const once = async (kind: rules.SetupKind, table: PackTable) => {
+    if (await alreadySeeded(tx, org, pack.id, table)) return;
+    for (const piece of pieces.filter((p) => p.kind === kind)) await insertPiece(tx, org, pack, piece);
+  };
+  await once("service_report", schema.serviceReportTemplate);
+  await once("inspection_program", schema.inspectionProgram);
+  await once("retention_rule", schema.retentionPolicy);
+  await once("portal_layout", schema.portalLayout);
 
   return { created, skipped };
 }
@@ -290,6 +231,292 @@ async function categoriesFor(
     created.categories++;
   }
   return ids;
+}
+
+/* ------------------------------------------- the rest of what a pack sets up */
+
+/**
+ * The service report template, inspection programmes, retention rules and
+ * portal layout a pack version declares, each in the shape an upgrade
+ * compares: exactly what seeding writes, and nothing the company decides
+ * for itself (in force or not, may purge, the default layout).
+ */
+export function setupPiecesOf(pack: TradePack): rules.SetupPiece[] {
+  const pieces: rules.SetupPiece[] = [];
+  if (pack.readings.length > 0) {
+    const name = `${pack.name} service report`;
+    pieces.push({
+      kind: "service_report", key: "template", name,
+      content: {
+        name,
+        fields: pack.readings.map((r) => ({
+          key: r.key,
+          label: r.label,
+          kind: r.kind,
+          ...(r.unit ? { unit: r.unit } : {}),
+          ...(r.options ? { options: r.options } : {}),
+          customerVisible: r.customerVisible,
+          trend: r.trend,
+          ...(r.min != null ? { min: r.min } : {}),
+          ...(r.max != null ? { max: r.max } : {}),
+          regulated: r.regulated,
+        })),
+      },
+    });
+  }
+  for (const program of pack.inspectionPrograms) {
+    pieces.push({
+      kind: "inspection_program", key: program.name, name: program.name,
+      content: {
+        name: program.name,
+        standard: program.standard ?? null,
+        reportAudience: program.reportAudience,
+        frequencyMonths: program.frequencyMonths ?? null,
+        checkpoints: program.checkpoints,
+      },
+    });
+  }
+  for (const rule of pack.retention) {
+    const name = `${rule.entityType}${rule.entityKind ? ` (${rule.entityKind})` : ""}`;
+    pieces.push({
+      kind: "retention_rule", key: `${rule.entityType}:${rule.entityKind ?? ""}`, name,
+      content: {
+        name,
+        entityType: rule.entityType,
+        entityKind: rule.entityKind ?? null,
+        clockStart: rule.clockStart,
+        retainMonths: rule.retainMonths,
+        basis: rule.basis ?? null,
+      },
+    });
+  }
+  if (pack.portalBlocks.length > 0) {
+    const name = `${pack.name} portal`;
+    pieces.push({
+      kind: "portal_layout", key: "layout", name,
+      content: {
+        name,
+        blocks: pack.portalBlocks.map((block) => ({
+          kind: block.kind, title: block.title ?? null, visible: true, config: block.config,
+        })),
+      },
+    });
+  }
+  return pieces;
+}
+
+/** What a version set up, by `kind:key`, as the application records it. */
+function setupSnapshotOf(pack: TradePack): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(setupPiecesOf(pack).map((piece) => [rules.setupKey(piece), piece.content]));
+}
+
+type ProgramContent = {
+  name: string; standard: string | null; reportAudience: string; frequencyMonths: number | null;
+  checkpoints: typeof schema.inspectionProgram.$inferSelect["checkpoints"];
+};
+type RuleContent = {
+  name: string; entityType: string; entityKind: string | null;
+  clockStart: typeof schema.retentionPolicy.$inferSelect["clockStart"]; retainMonths: number; basis: string | null;
+};
+type LayoutContent = {
+  name: string;
+  blocks: { kind: typeof schema.portalBlock.$inferSelect["kind"]; title: string | null; visible: boolean; config: Record<string, unknown> }[];
+};
+type TemplateContent = { name: string; fields: typeof schema.serviceReportTemplate.$inferSelect["fields"] };
+
+/** A piece set up as seeding sets it up, tagged with the version that set it up. */
+async function insertPiece(tx: Database, org: string, pack: TradePack, piece: rules.SetupPiece): Promise<void> {
+  const tag = `${pack.id}@${pack.version}`;
+  switch (piece.kind) {
+    case "service_report": {
+      const content = piece.content as TemplateContent;
+      await tx.insert(schema.serviceReportTemplate).values({
+        organizationId: org, name: content.name, tradePackId: tag, fields: content.fields,
+      });
+      return;
+    }
+    case "inspection_program": {
+      const content = piece.content as ProgramContent;
+      await tx.insert(schema.inspectionProgram).values({
+        organizationId: org, name: content.name, standard: content.standard, tradePackId: tag,
+        reportAudience: content.reportAudience, frequencyMonths: content.frequencyMonths, checkpoints: content.checkpoints,
+      });
+      return;
+    }
+    case "retention_rule": {
+      const content = piece.content as RuleContent;
+      await tx.insert(schema.retentionPolicy).values({
+        organizationId: org, name: content.name, entityType: content.entityType, entityKind: content.entityKind,
+        clockStart: content.clockStart, retainMonths: content.retainMonths, basis: content.basis, tradePackId: tag,
+      });
+      return;
+    }
+    case "portal_layout": {
+      const content = piece.content as LayoutContent;
+      /**
+       * Default, as every pack's layout is: the portal composes the default
+       * layouts of every pack a company applied, its primary trade's first.
+       */
+      const [layout] = await tx.insert(schema.portalLayout).values({
+        organizationId: org, name: content.name, tradePackId: tag, isDefault: true,
+      }).returning({ id: schema.portalLayout.id });
+      await insertBlocks(tx, org, layout!.id, content.blocks);
+      return;
+    }
+  }
+}
+
+async function insertBlocks(tx: Database, org: string, layoutId: string, blocks: LayoutContent["blocks"]) {
+  for (const [i, block] of blocks.entries()) {
+    await tx.insert(schema.portalBlock).values({
+      organizationId: org, layoutId, kind: block.kind, title: block.title, sortOrder: i,
+      visible: block.visible, config: block.config,
+    });
+  }
+}
+
+const same = (a: Date, b: Date) => a.getTime() === b.getTime();
+
+/**
+ * The company's side of the rest of the pack: every row this pack set up,
+ * and every row the company made under a key the pack also uses (a
+ * programme of the same name, a rule for the same records), which is theirs.
+ */
+async function companySetup(tx: Database, org: string, packId: string): Promise<rules.CompanySetupPiece[]> {
+  const tagged = like(schema.serviceReportTemplate.tradePackId, `${packId}@%`);
+  const out: rules.CompanySetupPiece[] = [];
+
+  const templates = await tx.select().from(schema.serviceReportTemplate)
+    .where(and(eq(schema.serviceReportTemplate.organizationId, org), tagged));
+  for (const row of templates) {
+    out.push({
+      kind: "service_report", key: "template", id: row.id, name: row.name, tradePackId: row.tradePackId,
+      content: { name: row.name, fields: row.fields },
+      untouched: row.version === 1 && same(row.createdAt, row.updatedAt),
+    });
+  }
+
+  const programs = await tx.select().from(schema.inspectionProgram)
+    .where(eq(schema.inspectionProgram.organizationId, org));
+  for (const row of programs) {
+    out.push({
+      kind: "inspection_program", key: row.name, id: row.id, name: row.name, tradePackId: row.tradePackId,
+      content: {
+        name: row.name, standard: row.standard, reportAudience: row.reportAudience,
+        frequencyMonths: row.frequencyMonths, checkpoints: row.checkpoints,
+      },
+      untouched: row.version === 1 && same(row.createdAt, row.updatedAt),
+    });
+  }
+
+  const policies = await tx.select().from(schema.retentionPolicy)
+    .where(eq(schema.retentionPolicy.organizationId, org));
+  for (const row of policies) {
+    out.push({
+      kind: "retention_rule", key: `${row.entityType}:${row.entityKind ?? ""}`, id: row.id, name: row.name,
+      tradePackId: row.tradePackId,
+      content: {
+        name: row.name, entityType: row.entityType, entityKind: row.entityKind,
+        clockStart: row.clockStart, retainMonths: row.retainMonths, basis: row.basis,
+      },
+      untouched: same(row.createdAt, row.updatedAt),
+      purgeAllowed: row.purgeAllowed,
+    });
+  }
+
+  const layouts = await tx.select().from(schema.portalLayout)
+    .where(and(eq(schema.portalLayout.organizationId, org), like(schema.portalLayout.tradePackId, `${packId}@%`)));
+  if (layouts.length > 0) {
+    const blocks = await tx.select().from(schema.portalBlock)
+      .where(inArray(schema.portalBlock.layoutId, layouts.map((l) => l.id)))
+      .orderBy(schema.portalBlock.sortOrder);
+    for (const row of layouts) {
+      const mine = blocks.filter((b) => b.layoutId === row.id);
+      out.push({
+        kind: "portal_layout", key: "layout", id: row.id, name: row.name, tradePackId: row.tradePackId,
+        content: {
+          name: row.name,
+          blocks: mine.map((b) => ({ kind: b.kind, title: b.title, visible: b.visible, config: b.config })),
+        },
+        untouched: same(row.createdAt, row.updatedAt) && mine.every((b) => same(b.createdAt, b.updatedAt)),
+      });
+    }
+  }
+
+  /**
+   * One row per key, the pack's own first: a programme the pack set up and a
+   * second of the same name somebody made beside it are the pack's to
+   * compare, and the other is simply theirs.
+   */
+  const ours = (row: rules.CompanySetupPiece) => rules.taggedVersion(row.tradePackId, packId) !== null;
+  const byKey = new Map<string, rules.CompanySetupPiece>();
+  for (const row of [...out.filter(ours), ...out.filter((row) => !ours(row))]) {
+    if (!byKey.has(rules.setupKey(row))) byKey.set(rules.setupKey(row), row);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Write a piece's new version over a row that still says what the old one
+ * set up. A template's readings and a programme's checkpoints get a new
+ * version number, exactly as an edit by hand does, so a report captured
+ * under the old questions still says which questions it answered. Whether a
+ * template or rule is in force, whether a rule may purge and which layout is
+ * the default are the company's and are not touched.
+ */
+async function updatePiece(
+  tx: Database, org: string, tag: string, id: string, piece: rules.SetupPiece, changed: readonly string[], now: Date,
+): Promise<void> {
+  switch (piece.kind) {
+    case "service_report": {
+      const content = piece.content as TemplateContent;
+      const [row] = await tx.select({ version: schema.serviceReportTemplate.version }).from(schema.serviceReportTemplate)
+        .where(eq(schema.serviceReportTemplate.id, id)).limit(1);
+      await tx.update(schema.serviceReportTemplate).set({
+        name: content.name, fields: content.fields, tradePackId: tag, updatedAt: now,
+        ...(changed.includes("fields") && row ? { version: row.version + 1 } : {}),
+      }).where(and(eq(schema.serviceReportTemplate.organizationId, org), eq(schema.serviceReportTemplate.id, id)));
+      return;
+    }
+    case "inspection_program": {
+      const content = piece.content as ProgramContent;
+      const [row] = await tx.select({ version: schema.inspectionProgram.version }).from(schema.inspectionProgram)
+        .where(eq(schema.inspectionProgram.id, id)).limit(1);
+      await tx.update(schema.inspectionProgram).set({
+        name: content.name, standard: content.standard, reportAudience: content.reportAudience,
+        frequencyMonths: content.frequencyMonths, checkpoints: content.checkpoints, tradePackId: tag,
+        version: (row?.version ?? 1) + 1, updatedAt: now,
+      }).where(and(eq(schema.inspectionProgram.organizationId, org), eq(schema.inspectionProgram.id, id)));
+      return;
+    }
+    case "retention_rule": {
+      const content = piece.content as RuleContent;
+      await tx.update(schema.retentionPolicy).set({
+        name: content.name, clockStart: content.clockStart, retainMonths: content.retainMonths,
+        basis: content.basis, tradePackId: tag, updatedAt: now,
+      }).where(and(eq(schema.retentionPolicy.organizationId, org), eq(schema.retentionPolicy.id, id)));
+      return;
+    }
+    case "portal_layout": {
+      const content = piece.content as LayoutContent;
+      await tx.update(schema.portalLayout).set({ name: content.name, tradePackId: tag, updatedAt: now })
+        .where(and(eq(schema.portalLayout.organizationId, org), eq(schema.portalLayout.id, id)));
+      if (changed.includes("blocks")) {
+        await tx.delete(schema.portalBlock).where(eq(schema.portalBlock.layoutId, id));
+        await insertBlocks(tx, org, id, content.blocks);
+      }
+      return;
+    }
+  }
+}
+
+/** Move a piece that already says what the new version says onto the new version's tag. */
+async function retagPiece(tx: Database, org: string, tag: string, kind: rules.SetupKind, id: string): Promise<void> {
+  const table = {
+    service_report: schema.serviceReportTemplate, inspection_program: schema.inspectionProgram,
+    retention_rule: schema.retentionPolicy, portal_layout: schema.portalLayout,
+  }[kind];
+  await tx.update(table).set({ tradePackId: tag }).where(and(eq(table.organizationId, org), eq(table.id, id)));
 }
 
 async function insertJobType(tx: Database, org: string, jt: TradePack["jobTypes"][number]) {
@@ -421,7 +648,9 @@ async function planFor(tx: Database, ctx: ServiceContext, pack: TradePack): Prom
   const org = ctx.actor.organizationId;
   const fromVersion = await appliedVersion(tx, org, pack.id);
 
-  const [application] = fromVersion === null ? [] : await tx.select({ seeded: schema.tradePackApplication.seeded })
+  const [application] = fromVersion === null ? [] : await tx.select({
+    seeded: schema.tradePackApplication.seeded, seededSetup: schema.tradePackApplication.seededSetup,
+  })
     .from(schema.tradePackApplication)
     .where(and(
       eq(schema.tradePackApplication.organizationId, org),
@@ -465,6 +694,13 @@ async function planFor(tx: Database, ctx: ServiceContext, pack: TradePack): Prom
     pack: pack.priceBook.map((item) => ({ code: item.code, kind: item.kind, category: item.category, ...seedFields(item) })),
     companyJobTypeCodes: types.flatMap((t) => (t.code ? [t.code] : [])),
     packJobTypes: pack.jobTypes.map((t) => ({ code: t.code, name: t.name })),
+    setup: {
+      packId: pack.id,
+      /** An application from before the rest of the pack was recorded has `{}`, which is no record at all. */
+      baseline: application && Object.keys(application.seededSetup).length > 0 ? application.seededSetup : null,
+      company: fromVersion === null ? [] : await companySetup(tx, org, pack.id),
+      pack: setupPiecesOf(pack),
+    },
   });
 }
 
@@ -478,6 +714,8 @@ export interface UpgradeResult {
   unchanged: number;
   dropped: number;
   jobTypesAdded: number;
+  /** The service report template, inspection programmes, retention rules and portal layout. */
+  setup: { added: number; updated: number; kept: number; dropped: number };
 }
 
 /**
@@ -588,6 +826,29 @@ export async function upgradeTo(ctx: ServiceContext, pack: TradePack): Promise<U
       await insertJobType(tx, org, pack.jobTypes.find((t) => t.code === type.code)!);
     }
 
+    /**
+     * ---- The rest of the pack, by the same plan: what is new is set up,
+     * what is still as the old version set it up takes the new version, and
+     * what the company changed, removed or made is left exactly as it is.
+     * What the new version sets up is recorded either way, as for the price
+     * book, so the next upgrade reads an updated piece as untouched and a
+     * kept one as still theirs.
+     */
+    const pieces = new Map(setupPiecesOf(pack).map((piece) => [rules.setupKey(piece), piece]));
+    for (const added of plan.setup.add) {
+      await insertPiece(tx, org, pack, pieces.get(rules.setupKey(added))!);
+    }
+    for (const change of plan.setup.update) {
+      await updatePiece(tx, org, tag, change.id, pieces.get(rules.setupKey(change))!, change.changed, now);
+    }
+    const setupKept = new Set(plan.setup.kept.map(rules.setupKey));
+    for (const row of await companySetup(tx, org, pack.id)) {
+      const key = rules.setupKey(row);
+      if (!pieces.has(key) || setupKept.has(key) || row.tradePackId === tag) continue;
+      if (rules.taggedVersion(row.tradePackId, pack.id) === null) continue;
+      await retagPiece(tx, org, tag, row.kind, row.id);
+    }
+
     const result: UpgradeResult = {
       packId: pack.id,
       fromVersion: plan.fromVersion,
@@ -598,8 +859,14 @@ export async function upgradeTo(ctx: ServiceContext, pack: TradePack): Promise<U
       unchanged: plan.unchanged,
       dropped: plan.dropped.length,
       jobTypesAdded: plan.jobTypes.add.length,
+      setup: {
+        added: plan.setup.add.length,
+        updated: plan.setup.update.length,
+        kept: plan.setup.kept.length,
+        dropped: plan.setup.dropped.length,
+      },
     };
-    await record(tx, ctx, pack, "upgrade", snapshot, { ...result });
+    await record(tx, ctx, pack, "upgrade", snapshot, setupSnapshotOf(pack), { ...result });
     await audit(tx, ctx, "trade_pack.upgraded", "organization", org,
       { packId: pack.id, version: plan.fromVersion }, { ...result });
     await remember(tx, ctx, "trade_pack_upgrade", null, result);

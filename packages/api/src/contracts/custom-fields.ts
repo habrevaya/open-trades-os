@@ -40,10 +40,18 @@ export const CustomFieldEntity = z.union([
  * the key one the company declared on that record, matched by the field's
  * type (a choice exactly, several choices by membership, yes or no as
  * stored, a number as a number, text anywhere in the value ignoring case).
+ *
+ * `fields` is several at once, each `key:value` (repeat the parameter), every
+ * one of which has to hold; `fieldKey` and `fieldValue` are one more beside
+ * them.
  */
+export const FieldFilters = z.array(z.string().min(3).max(270)).max(10).optional()
+  .describe("Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold.");
+
 export const CustomFieldListFilter = {
   fieldKey: z.string().max(64).optional(),
   fieldValue: z.string().max(200).optional(),
+  fields: FieldFilters,
 };
 
 export const CustomFieldType = z.enum([

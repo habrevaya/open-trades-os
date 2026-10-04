@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as once from "./once";
+import * as staffDocuments from "./staff-documents";
 
 /**
  * M24. WHAT THE OFFICE KEEPS ABOUT A PERSON
@@ -47,18 +48,24 @@ async function membershipWithin(tx: Database, ctx: ServiceContext, membershipId:
 export interface TemplateItemView {
   id: string; role: string | null; roleId: string | null; roleLabel: string;
   kind: string; label: string; required: boolean; sortOrder: number;
+  /** A document the person signs themselves to do this line, and its title. */
+  staffDocumentId: string | null; documentTitle: string | null;
 }
 
 async function templateWithin(tx: Database): Promise<TemplateItemView[]> {
-  const rows = await tx.select({ item: schema.onboardingTemplateItem, roleName: schema.role.name })
+  const rows = await tx.select({
+    item: schema.onboardingTemplateItem, roleName: schema.role.name, documentTitle: schema.staffDocument.title,
+  })
     .from(schema.onboardingTemplateItem)
     .leftJoin(schema.role, eq(schema.role.id, schema.onboardingTemplateItem.roleId))
+    .leftJoin(schema.staffDocument, eq(schema.staffDocument.id, schema.onboardingTemplateItem.staffDocumentId))
     .where(isNull(schema.onboardingTemplateItem.deletedAt))
     .orderBy(asc(schema.onboardingTemplateItem.sortOrder), asc(schema.onboardingTemplateItem.createdAt));
-  return rows.map(({ item, roleName }) => ({
+  return rows.map(({ item, roleName, documentTitle }) => ({
     id: item.id, role: item.role, roleId: item.roleId,
     roleLabel: item.role ? roleLabel(item.role) : roleName ?? "A role that was removed",
     kind: item.kind, label: item.label, required: item.required, sortOrder: item.sortOrder,
+    staffDocumentId: item.staffDocumentId, documentTitle: documentTitle ?? null,
   }));
 }
 
@@ -74,6 +81,8 @@ export function onboardingTemplate(ctx: ServiceContext) {
 export function addTemplateItem(ctx: ServiceContext, input: {
   role?: string | null | undefined; roleId?: string | null | undefined;
   kind: typeof schema.onboardingItemKind.enumValues[number]; label: string; required?: boolean | undefined;
+  /** For a document line, the document the person signs themselves to do it. */
+  staffDocumentId?: string | null | undefined;
 }) {
   return guardedWrite(ctx, "user:write", async (tx) => {
     const seen = await once.replayed<TemplateItemView>(tx, ctx, "onboarding_template_item");
@@ -89,6 +98,14 @@ export function addTemplateItem(ctx: ServiceContext, input: {
         .where(and(eq(schema.role.id, roleId), isNull(schema.role.deletedAt))).limit(1);
       if (!found) throw new NotFoundError("Role");
     }
+    const staffDocumentId = input.staffDocumentId ?? null;
+    if (staffDocumentId !== null) {
+      if (input.kind !== "document") throw new ConflictError("Only a document line can be done by signing a document.");
+      const [doc] = await tx.select({ retiredAt: schema.staffDocument.retiredAt, title: schema.staffDocument.title })
+        .from(schema.staffDocument).where(eq(schema.staffDocument.id, staffDocumentId)).limit(1);
+      if (!doc) throw new NotFoundError("Document");
+      if (doc.retiredAt) throw new ConflictError(`${doc.title} has been retired. Choose its newer version.`);
+    }
     const existing = (await templateWithin(tx)).filter((i) => i.role === role && i.roleId === roleId);
     const [row] = await tx.insert(schema.onboardingTemplateItem).values({
       organizationId: ctx.actor.organizationId,
@@ -98,6 +115,7 @@ export function addTemplateItem(ctx: ServiceContext, input: {
       label,
       required: input.required ?? true,
       sortOrder: (existing.at(-1)?.sortOrder ?? 0) + 1,
+      staffDocumentId,
     }).returning();
     await audit(tx, ctx, "onboarding_template.added", "onboarding_template_item", row!.id, null, row!);
     const view = (await templateWithin(tx)).find((i) => i.id === row!.id)!;
@@ -121,6 +139,10 @@ export function removeTemplateItem(ctx: ServiceContext, input: { id: string }) {
 export interface OnboardingLineView {
   id: string; kind: string; label: string; required: boolean;
   doneAt: string | null; doneBy: string | null; note: string | null; companyAssetId: string | null;
+  /** Who ticked it, so a person's own record can tell the lines they ticked from the office's. */
+  doneByUserId: string | null;
+  /** The document the person signs to do this line, when it is one. */
+  staffDocumentId: string | null;
 }
 
 export interface OnboardingView {
@@ -128,7 +150,7 @@ export interface OnboardingView {
   progress: peopleCore.OnboardingProgress;
 }
 
-async function onboardingWithin(tx: Database, membershipId: string): Promise<OnboardingView> {
+export async function onboardingWithin(tx: Database, membershipId: string): Promise<OnboardingView> {
   const rows = await tx.select().from(schema.onboardingItem)
     .where(eq(schema.onboardingItem.membershipId, membershipId))
     .orderBy(asc(schema.onboardingItem.sortOrder), asc(schema.onboardingItem.createdAt));
@@ -137,8 +159,8 @@ async function onboardingWithin(tx: Database, membershipId: string): Promise<Onb
     lines: rows.map((r) => ({
       id: r.id, kind: r.kind, label: r.label, required: r.required,
       doneAt: r.doneAt?.toISOString() ?? null,
-      doneBy: r.doneByUserId ? names.get(r.doneByUserId) ?? null : null,
-      note: r.note, companyAssetId: r.companyAssetId,
+      doneBy: r.doneByUserId ? names.get(r.doneByUserId) ?? null : null, doneByUserId: r.doneByUserId,
+      note: r.note, companyAssetId: r.companyAssetId, staffDocumentId: r.staffDocumentId,
     })),
     progress: peopleCore.onboardingProgress(rows),
   };
@@ -175,7 +197,36 @@ export function startOnboarding(ctx: ServiceContext, input: { membershipId: stri
       label: i.label,
       required: i.required,
       sortOrder: i.sortOrder,
+      staffDocumentId: i.staffDocumentId,
     }))).onConflictDoNothing().returning({ id: schema.onboardingItem.id });
+
+    /**
+     * THE DOCUMENTS ON THE CHECKLIST ARE HANDED TO THEM TO SIGN, and a
+     * document they already signed (the handbook, asked for before their
+     * onboarding was started) ticks its line straight away rather than
+     * asking for a second signature. A document retired since the checklist
+     * named it is not asked for; its line stays for the office to tick.
+     */
+    const documentIds = [...new Set(template.map((i) => i.staffDocumentId).filter((id): id is string => id !== null))];
+    for (const documentId of documentIds) {
+      const [doc] = await tx.select({ retiredAt: schema.staffDocument.retiredAt }).from(schema.staffDocument)
+        .where(eq(schema.staffDocument.id, documentId)).limit(1);
+      if (doc && !doc.retiredAt) await staffDocuments.askWithin(tx, ctx, documentId, [member.id]);
+      const [signed] = await tx.select({ signedAt: schema.staffDocumentRequest.signedAt })
+        .from(schema.staffDocumentRequest)
+        .where(and(
+          eq(schema.staffDocumentRequest.documentId, documentId),
+          eq(schema.staffDocumentRequest.membershipId, member.id),
+        )).limit(1);
+      if (signed?.signedAt) {
+        await tx.update(schema.onboardingItem).set({ doneAt: signed.signedAt, note: "Signed", updatedAt: new Date() })
+          .where(and(
+            eq(schema.onboardingItem.membershipId, member.id),
+            eq(schema.onboardingItem.staffDocumentId, documentId),
+            isNull(schema.onboardingItem.doneAt),
+          ));
+      }
+    }
     await audit(tx, ctx, "onboarding.started", "membership", member.id, null, { added: added.length });
     return { added: added.length, onboarding: await onboardingWithin(tx, member.id) };
   });
@@ -218,7 +269,7 @@ export interface EmergencyContactView {
   note: string | null; priority: number;
 }
 
-async function contactsWithin(tx: Database, membershipId: string): Promise<EmergencyContactView[]> {
+export async function contactsWithin(tx: Database, membershipId: string): Promise<EmergencyContactView[]> {
   const rows = await tx.select().from(schema.emergencyContact)
     .where(and(eq(schema.emergencyContact.membershipId, membershipId), isNull(schema.emergencyContact.deletedAt)))
     .orderBy(asc(schema.emergencyContact.priority), asc(schema.emergencyContact.createdAt));
@@ -276,7 +327,7 @@ export interface EmploymentView {
   employmentType: string; payType: string; payrollReference: string | null;
 }
 
-async function employmentWithin(tx: Database, membershipId: string): Promise<EmploymentView | null> {
+export async function employmentWithin(tx: Database, membershipId: string): Promise<EmploymentView | null> {
   const [row] = await tx.select().from(schema.employmentRecord)
     .where(eq(schema.employmentRecord.membershipId, membershipId)).limit(1);
   return row ? {
@@ -456,7 +507,7 @@ export interface CeView {
   progress: { certificationTypeId: string; name: string; holding: { issuedOn: string | null; expiresOn: string | null } | null; progress: peopleCore.CeProgress }[];
 }
 
-async function ceWithin(tx: Database, technicianId: string): Promise<CeView> {
+export async function ceWithin(tx: Database, technicianId: string): Promise<CeView> {
   const rows = await tx.select().from(schema.continuingEducation)
     .where(and(eq(schema.continuingEducation.technicianId, technicianId), isNull(schema.continuingEducation.deletedAt)))
     .orderBy(desc(schema.continuingEducation.completedOn));
@@ -568,6 +619,8 @@ export interface PersonView {
   emergencyContacts: EmergencyContactView[];
   employment: EmploymentView | null;
   skills: SkillsView | null;
+  /** What they were asked to sign, and whether they have. */
+  documents: { requestId: string; documentId: string; title: string; askedAt: string; signedAt: string | null; signedVia: string | null }[];
 }
 
 export function person(ctx: ServiceContext, input: { membershipId: string }) {
@@ -592,6 +645,7 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
       emergencyContacts: await contactsWithin(tx, member.id),
       employment: await employmentWithin(tx, member.id),
       skills: technician ? await skillsWithin(tx, technician) : null,
+      documents: (await staffDocuments.ownWithin(tx, member.id)).map(({ body: _body, signerName: _signer, ...rest }) => rest),
     };
   });
 }
@@ -682,6 +736,7 @@ export const handlers = {
   addOnboardingTemplateItem: (ctx: ServiceContext, input: {
     role?: string | null | undefined; roleId?: string | null | undefined;
     kind: "document" | "training" | "equipment" | "other"; label: string; required?: boolean | undefined;
+    staffDocumentId?: string | null | undefined;
   }): Promise<TemplateItemView> => addTemplateItem(ctx, input),
   removeOnboardingTemplateItem: (ctx: ServiceContext, input: { id: string }): Promise<{ id: string; removed: true }> =>
     removeTemplateItem(ctx, input),

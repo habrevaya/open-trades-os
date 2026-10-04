@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function EstimatesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string; branch?: string; field?: string; value?: string }>;
+  searchParams: Promise<{ sort?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -27,7 +27,7 @@ export default async function EstimatesPage({
   const options = await branches.options(ctx);
   const branch = chosenBranch(options, params.branch);
   const declared = await customFields.formFields(ctx, "estimate");
-  const { fieldKey, fieldValue, byField } = fieldFrom(params);
+  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
   const [{ page, refusal }, waiting] = await Promise.all([
     withFieldFilter((withField) => estimates.list(ctx, {
       limit: 100, ...(branch ? { businessUnitId: branch } : {}), ...(withField ? byField : {}),
@@ -98,9 +98,9 @@ export default async function EstimatesPage({
         list: an estimate belongs to a branch through its job, and the unsold
         pipeline above is the company's follow up list.
       */}
-      <BranchFilter options={options} action="/estimates" current={branch} keep={{ sort: params.sort, field: fieldKey, value: fieldValue }} />
+      <BranchFilter options={options} action="/estimates" current={branch} keep={{ sort: params.sort, ...fieldKeep }} />
       <CustomFieldFilter action="/estimates" declared={declared} keep={{ sort: params.sort, branch }}
-                         fieldKey={fieldKey} fieldValue={fieldValue} refusal={refusal} noun="estimates" />
+                         pairs={pairs} refusal={refusal} noun="estimates" />
       {page.data.length === 0 ? (
         branch ? (
           <Empty title="No estimates in that branch">

@@ -1232,21 +1232,70 @@ export async function filterCondition(
   }
 }
 
+/** What a list is asked to filter by: one field the old way, several the new, or both together. */
+export interface FieldFilterInput {
+  fieldKey?: string | undefined;
+  fieldValue?: string | undefined;
+  /** Each `key:value`, the key a field declared on the record and the value to look for. */
+  fields?: readonly string[] | undefined;
+}
+
 /**
- * The same, for a list asked for by `fieldKey` and `fieldValue`: both halves
- * or neither, because a key with no value is a filter with nothing to match,
- * and saying so beats returning every record as though it had been applied.
+ * The conditions a list was asked for, one per field, ALL of which have to
+ * hold.
+ *
+ * Several fields at once is how somebody narrows a book: customers on the
+ * Annual plan WITH pets, jobs on permit status Submitted IN zone North. Each
+ * is `key:value` (split at the first colon, because a key never holds one
+ * and a value may), and each is checked and matched exactly as a single
+ * `fieldKey` and `fieldValue` always were, so the first refusal names the
+ * field that is wrong. `fieldKey` and `fieldValue` still work, both or
+ * neither, and are one more condition beside the rest.
+ *
+ * AND, never OR. "Plan is Annual" and "Has pets is yes" from two boxes means
+ * the people who are both; the union is a different list and would be the
+ * wrong one nine times out of ten, and a filter that sometimes widens a list
+ * is one nobody can trust.
+ *
  * Undefined when the list was not asked to filter.
  */
 export async function listFilter(
   tx: Database, organizationId: string, entityType: string,
-  input: { fieldKey?: string | undefined; fieldValue?: string | undefined }, column: SQL,
+  input: FieldFilterInput, column: SQL,
 ): Promise<SQL | undefined> {
   if ((input.fieldKey === undefined) !== (input.fieldValue === undefined)) {
     throw new ConflictError("Filtering by a custom field needs both the field and the value to look for.");
   }
-  if (input.fieldKey === undefined || input.fieldValue === undefined) return undefined;
-  return filterCondition(tx, organizationId, entityType, input.fieldKey, input.fieldValue, column);
+  const pairs: { key: string; value: string }[] = [];
+  if (input.fieldKey !== undefined && input.fieldValue !== undefined) {
+    pairs.push({ key: input.fieldKey, value: input.fieldValue });
+  }
+  for (const raw of input.fields ?? []) pairs.push(splitFieldFilter(raw));
+  if (pairs.length === 0) return undefined;
+  if (pairs.length > MAX_FIELD_FILTERS) {
+    throw new ConflictError(`A list can be filtered by ${MAX_FIELD_FILTERS} fields at once. Take one off.`);
+  }
+  const conditions: SQL[] = [];
+  for (const pair of pairs) {
+    conditions.push(await filterCondition(tx, organizationId, entityType, pair.key, pair.value, column));
+  }
+  return conditions.length === 1 ? conditions[0] : and(...conditions);
+}
+
+/** As many fields at once as anybody narrowing a list by hand would use, and then some. */
+export const MAX_FIELD_FILTERS = 10;
+
+/** `plan:Annual` into its two halves, or a refusal saying what one looks like. */
+export function splitFieldFilter(raw: string): { key: string; value: string } {
+  const colon = raw.indexOf(":");
+  const key = colon < 0 ? "" : raw.slice(0, colon).trim();
+  const value = colon < 0 ? "" : raw.slice(colon + 1).trim();
+  if (key === "" || value === "") {
+    throw new ConflictError(
+      `"${raw}" is not a field filter. Each one is the field's key, a colon, and the value to look for, like plan:Annual.`,
+    );
+  }
+  return { key, value };
 }
 
 /* ------------------------------------------------------------- the routes */

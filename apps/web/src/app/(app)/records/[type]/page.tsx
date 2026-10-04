@@ -24,7 +24,7 @@ export default async function RecordListPage({
   params, searchParams,
 }: {
   params: Promise<{ type: string }>;
-  searchParams: Promise<{ q?: string; field?: string; value?: string }>;
+  searchParams: Promise<{ q?: string; field?: string | string[]; value?: string | string[] }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -36,7 +36,7 @@ export default async function RecordListPage({
     throw error;
   });
   const q = query.q?.trim() || undefined;
-  const { fieldKey, fieldValue, byField } = fieldFrom(query);
+  const { pairs, byField } = fieldFrom(query);
   const { page, refusal } = await withFieldFilter((withField) => customObjects.listRecords(ctx, {
     type, limit: 200, ...(q ? { q } : {}), ...(withField ? byField : {}),
   }));
@@ -66,13 +66,16 @@ export default async function RecordListPage({
         <input type="search" name="q" defaultValue={q ?? ""} aria-label={`Search ${kind.pluralLabel.toLowerCase()}`}
                placeholder={`Search ${kind.titleLabel.toLowerCase()} or any value`}
                className="h-10 w-full max-w-sm rounded border border-steel-300 px-3 text-sm" />
-        {fieldKey && fieldValue ? <><input type="hidden" name="field" value={fieldKey} /><input type="hidden" name="value" value={fieldValue} /></> : null}
+        {pairs.flatMap((pair, index) => [
+          <input key={`field-${index}`} type="hidden" name="field" value={pair.key} />,
+          <input key={`value-${index}`} type="hidden" name="value" value={pair.value} />,
+        ])}
       </form>
-      <CustomFieldFilter action={`/records/${type}`} declared={kind.fields} keep={{ q }} fieldKey={fieldKey} fieldValue={fieldValue}
+      <CustomFieldFilter action={`/records/${type}`} declared={kind.fields} keep={{ q }} pairs={pairs}
                          refusal={refusal} noun={kind.pluralLabel.toLowerCase()} />
 
       {page.data.length === 0 ? (
-        <Empty title={q || (fieldKey && fieldValue) ? `No ${kind.pluralLabel.toLowerCase()} match` : `No ${kind.pluralLabel.toLowerCase()} yet`}>
+        <Empty title={q || pairs.length > 0 ? `No ${kind.pluralLabel.toLowerCase()} match` : `No ${kind.pluralLabel.toLowerCase()} yet`}>
           {kind.canWrite ? `Add one here, or from the job or customer it is for.` : null}
         </Empty>
       ) : (

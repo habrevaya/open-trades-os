@@ -106,6 +106,8 @@ const ORDER = [
    * goes before all three.
    */
   "referral_reward",
+  /** A customer's tags, one row each, written by a trigger from the customer's own list. */
+  "customer_tag",
   "customer_property", "contact", "property", "customer",
   /** A vendor's number for an item points at both, so it goes before the item and the vendor. */
   "vendor_item",
@@ -301,7 +303,15 @@ const ORDER = [
    * the template line it was copied from and the asset handed over.
    */
   "continuing_education", "technician_skill",
-  "onboarding_item", "onboarding_template_item", "emergency_contact", "employment_record",
+  "onboarding_item", "onboarding_template_item",
+  /**
+   * A request to sign points at the document and the person, and an onboarding
+   * line at the document, so the lines and the requests go before it. An
+   * invite points at the person, and the email it went as points at the
+   * invite; the email is gone with the other messages above.
+   */
+  "staff_document_request", "staff_document", "membership_invite",
+  "emergency_contact", "employment_record",
   "certification_type",
   "custom_field_definition", "custom_object_type", "time_off", "on_call_rotation", "technician",
   "network_grant", "regulatory_constant",

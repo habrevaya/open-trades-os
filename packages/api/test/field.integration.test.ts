@@ -1122,6 +1122,60 @@ run("every operation does something", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.location).toBe("Attic, north end");
   });
+
+  /**
+   * ACROSS THE COMPANY, WITH THE OFFICE'S RULES. The same plate typed
+   * differently is the same unit; the serial on file at another address is
+   * not added a second time from the phone, but held for the office with
+   * the address it is on file at, and the phone hears that.
+   */
+  const recordFromPhone = async (payload: Record<string, unknown>) => (await fieldOps.sync(tech(), {
+    deviceId: await freshDevice(),
+    operations: [{
+      clientId: uuid(), sequence: 1, kind: "equipment.record", occurredAt: new Date().toISOString(), payload,
+    }],
+  })).results[0]!;
+
+  it("matches the same plate however it is typed", async () => {
+    const tail = uuid().slice(0, 6).toUpperCase();
+    await raw`insert into public.equipment (organization_id, property_id, category, serial_number)
+              values (${ORG}, ${propertyId}, 'furnace', ${`AB-${tail} X`})`;
+    const result = await recordFromPhone({ propertyId, category: "furnace", serialNumber: `ab${tail.toLowerCase()}x`, model: "TUH1" });
+    expect(result.status).toBe("applied");
+    const rows = await raw`select model from public.equipment where organization_id = ${ORG}
+      and regexp_replace(upper(serial_number), '[^A-Z0-9]', '', 'g') = ${`AB${tail}X`}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.model).toBe("TUH1");
+  });
+
+  it("holds a unit whose serial is on file at another address for the office, rather than adding it twice", async () => {
+    const [elsewhere] = await raw`insert into public.property (organization_id, address_line1, city, state, postal_code)
+      values (${ORG}, '12 Elm St', 'Austin', 'TX', '78701') returning id`;
+    const serial = `MV-${uuid().slice(0, 8)}`;
+    await raw`insert into public.equipment (organization_id, property_id, category, serial_number)
+              values (${ORG}, ${elsewhere!.id}, 'water_heater', ${serial})`;
+
+    const held = await recordFromPhone({ propertyId, category: "water_heater", serialNumber: serial });
+    expect(held.status).toBe("conflicted");
+    expect(held.conflict).toMatch(/^Not added from the phone\. Serial .* is already on file: water_heater at 12 Elm St, Austin/);
+    const here = await raw`select 1 from public.equipment where property_id = ${propertyId} and serial_number = ${serial}`;
+    expect(here).toHaveLength(0);
+    const conflicts = await fieldOps.conflicts(ctxFor(["dispatcher"]), { limit: 50, includeResolved: false });
+    expect(conflicts.data.some((c) => c.kind === "equipment.record" && c.conflict.includes("12 Elm St"))).toBe(true);
+
+    /** A technician who knows it is another unit with the same plate says so, and it is added. */
+    const confirmed = await recordFromPhone({
+      propertyId, category: "water_heater", serialNumber: serial, serialElsewhereConfirmed: true,
+    });
+    expect(confirmed.status).toBe("applied");
+    expect(await raw`select 1 from public.equipment where property_id = ${propertyId} and serial_number = ${serial}`).toHaveLength(1);
+  });
+
+  it("refuses a unit at an address that is not this company's", async () => {
+    const result = await recordFromPhone({ propertyId: uuid(), category: "furnace", serialNumber: "ZZ-1" });
+    expect(result.status).toBe("rejected");
+    expect(result.rejection).toMatch(/address is not here/);
+  });
 });
 
 /** A fixed morning, so a failure message names a readable time. */

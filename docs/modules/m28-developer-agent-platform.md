@@ -113,8 +113,16 @@ it usable from a client running on the same machine as the app.
 
 ### OAuth, in detail
 
-Clients register themselves (RFC 7591) and are public: no client secret is ever
-issued, and PKCE with S256 is required on every authorization, `plain` refused.
+Clients register themselves (RFC 7591), public by default: a client on somebody's
+laptop has nowhere to keep a secret, so none is issued and PKCE with S256 stands in
+for one, `plain` refused. A client that runs on its maker's own server can register
+as confidential instead (`token_endpoint_auth_method` of `client_secret_basic` or
+`client_secret_post`). It is handed a secret once, in the registration answer, and
+only its hash is kept; from then on the token, revocation and introspection
+endpoints refuse that client with a 401 unless it sends the secret, in the
+`Authorization` header or in the form but not both. PKCE is required of it too,
+because the secret proves which client is calling and PKCE proves the code was
+asked for by the same one.
 A code lives ten minutes, works once and is bound to the client, its redirect
 address and the PKCE challenge. Presenting a code twice revokes everything the
 first exchange produced. Access tokens are ordinary app tokens an hour long;
@@ -126,9 +134,24 @@ person can read: `read` (everything you can see, nothing you can change),
 `customers`, `jobs`, `dispatch`, `estimates`, `invoices`, `messages`, `tasks`
 and `reports`. A client that names none asks for `read`. A bundle is cut down to
 what the approver holds, and the consent page lists what was left out; an
-unknown scope is refused rather than dropped. The assistant reaches the same
-records the approver can, on every resource. Authorizing the same client again
-replaces its grant rather than adding a second app.
+unknown scope is refused rather than dropped. Every permission the page offers is
+a ticked box, and the person can untick any of them: the app gets what is left,
+and when that is less than was asked for the token answers with the permissions
+themselves as its scope, so the client can see it got less. A permission the
+page did not offer cannot be added by posting it, and nothing ticked is refused
+(that is "Do not connect"). The assistant reaches the same records the approver
+can, on every resource. Authorizing the same client again replaces its grant
+rather than adding a second app.
+
+A client can hand a token back at `/api/oauth/revoke` (RFC 7009): a refresh
+token ends everything descended from the same approval, an access token ends
+alone. The answer is the same 200 whether or not the token existed, and a token
+another client holds is refused. `/api/oauth/introspect` (RFC 7662) tells a
+client whether one of its own tokens is still live, with its scope and expiry;
+anything else, another client's token included, is `active: false` and nothing
+more. Neither ends the connected app, which stays under Settings, Applications
+for the company to turn off. A registration no company has approved a week after
+it was made is removed by the worker; one any company approved is kept.
 
 ## Using it
 
@@ -189,7 +212,8 @@ an expired or revoked token says `invalid_token` so the client refreshes.
 
 OAuth lives beside it: `/.well-known/oauth-authorization-server`,
 `/.well-known/oauth-protected-resource`, `POST /api/oauth/register`,
-`/oauth/authorize` and `POST /api/oauth/token`. Over HTTP a dry run is the
+`/oauth/authorize`, `POST /api/oauth/token`, `POST /api/oauth/revoke` and
+`POST /api/oauth/introspect`. Over HTTP a dry run is the
 `x-otos-dry-run: true` header on a route the OpenAPI document marks
 `x-dry-run`.
 
@@ -210,7 +234,8 @@ hosted instance, or the server in `packages/api` beside the database. Both take
 an app token.
 
 **Does it support OAuth?** Yes, the authorization code flow with PKCE that the
-MCP specification describes, for public clients. See Setup.
+MCP specification describes, for public clients and for confidential ones with a
+secret, with revocation and introspection. See Setup.
 
 **Can an agent see what a change would do first?** Yes, on the bulk tools and the
 tools that change how the company is set up: send `dryRun: true`.
@@ -239,11 +264,14 @@ token belongs to one company, so an agent connected to the real company reaches 
 sandbox only through the sandbox routes, and an agent working inside a sandbox needs a
 token issued there.
 
-OAuth has no token revocation or introspection endpoint (RFC 7009, RFC 7662):
-turning the app off under Settings, Applications is how a connection ends. There
-are no confidential clients and no client secrets, and a registration is never
-cleaned up, though it grants nothing. The consent page approves the scopes as
-asked, cut to what the approver holds; it cannot narrow them further. The stdio
+OAuth introspection answers a client about its own tokens only; there is no
+resource server here other than this instance, so nothing else is authorised to
+ask about somebody else's. A confidential client's secret does not expire and
+cannot be rotated: a client whose secret leaked registers again and is approved
+again. Clients authenticate with a secret or not at all; signed JWT assertions
+(`private_key_jwt`) and mutual TLS are not supported. A revoked token ends the
+token, not the connection: the app stays active with nothing live until the
+company turns it off or the client is approved again. The stdio
 transports read their token once at start and check it on every message, so a
 new token means restarting the client. A dry run is offered on seventeen bulk routes:
 the bulk changes and the routes that change how the company is set up, and on no

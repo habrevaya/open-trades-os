@@ -57,9 +57,10 @@ export async function revokeMarketing(_previous: unknown, form: FormData) {
  *
  * `customerId` comes from the path rather than the form, so a contact cannot
  * be attached to a customer the caller was not looking at. `propertyId` does
- * come from the form, and the service checks it exists; it does not check the
- * property belongs to this customer, which the page's own option list is what
- * constrains. That is a gap worth naming rather than leaving implied.
+ * come from the form, and the service checks both that it exists and that it
+ * is one of this customer's addresses, the same check `POST
+ * /v1/customers/{id}/contacts` gets, so the page's option list is a
+ * convenience rather than the only guard.
  */
 export async function addContact(_previous: unknown, form: FormData) {
   const customerId = String(form.get("customerId") ?? "");

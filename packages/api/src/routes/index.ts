@@ -11,8 +11,8 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
-  dispatchMap, geocoding, visits,
+  apps, comms, consent, contacts, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis,
+  dispatchMap, dispatchDays, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
   agreements, visitChanges, vendorCatalogue, proposals,
@@ -32,6 +32,7 @@ import {
   financing, costing, budgets, journals,
   stockUnits, purchaseApprovals, purchaseOrderEmail, rentalBilling, peopleRecords,
   customObjects, proposalTemplates, sandbox,
+  me, staffDocuments,
 } from "../services/index";
 
 /**
@@ -369,6 +370,8 @@ export const handlers = {
   confirmBookingRequest: booking.confirm,
   declineBookingRequest: booking.decline,
   configureBookableService: booking.configureService,
+  getMemberHold: (ctx: ServiceContext) => booking.memberHold(ctx),
+  setMemberHold: (ctx: ServiceContext, input: { reservePercent: number; releaseHours: number }) => booking.setMemberHold(ctx, input),
   createBookableService: booking.createService,
   setArrivalWindows: booking.setWindows,
   setBusinessHours: booking.setHours,
@@ -633,6 +636,7 @@ export const handlers = {
   requestTimeOff: timeOff.handlers.requestTimeOff,
   listTimeOff: timeOff.handlers.listTimeOff,
   pendingTimeOff: timeOff.handlers.pendingTimeOff,
+  upcomingTimeOff: timeOff.handlers.upcomingTimeOff,
   approveTimeOff: timeOff.handlers.approveTimeOff,
   declineTimeOff: timeOff.handlers.declineTimeOff,
   withdrawTimeOff: timeOff.handlers.withdrawTimeOff,
@@ -857,6 +861,10 @@ export const handlers = {
   getRebalance: dispatchMap.handlers.getRebalance,
   applyRebalance: dispatchMap.handlers.applyRebalance,
   lockVisit: dispatchMap.handlers.lockVisit,
+  getMultiDayRebalance: dispatchDays.handlers.getMultiDayRebalance,
+  applyMultiDayRebalance: dispatchDays.handlers.applyMultiDayRebalance,
+  setVisitMovable: dispatchDays.handlers.setVisitMovable,
+  setCustomerPreferredDays: dispatchDays.handlers.setCustomerPreferredDays,
   // Live technician location (M09, M11) and the customer's tracking link (M05)
   getLocationSharing: liveLocation.handlers.getLocationSharing,
   setLocationSharing: liveLocation.handlers.setLocationSharing,
@@ -883,6 +891,13 @@ export const handlers = {
   mergeCustomerTags: customerTags.handlers.mergeCustomerTags,
   listCustomerDuplicatePairs: customerDuplicates.handlers.listCustomerDuplicatePairs,
   dismissCustomerDuplicate: customerDuplicates.handlers.dismissCustomerDuplicate,
+
+  // A customer's people (M03), under the rules the customer's page holds them to
+  listCustomerContacts: contacts.handlers.listCustomerContacts,
+  addCustomerContact: contacts.handlers.addCustomerContact,
+  updateContact: contacts.handlers.updateContact,
+  removeContact: contacts.handlers.removeContact,
+  makeContactPrimary: contacts.handlers.makeContactPrimary,
 
   // Price book categories and bulk changes (M06)
   listPriceBookCategories: priceCategories.handlers.listPriceBookCategories,
@@ -983,6 +998,7 @@ export const handlers = {
   getPortalBookingAvailability: portalBooking.handlers.getPortalBookingAvailability,
   requestPortalBooking: portalBooking.handlers.requestPortalBooking,
   payTips: payroll.handlers.payTips,
+  getMyPayStatements: payroll.handlers.getMyPayStatements,
 
   // Setup, the team and branches (M02, M01)
   getSetup: setup.handlers.getSetup,
@@ -1004,6 +1020,9 @@ export const handlers = {
   getBranchOverview: branches.handlers.getBranchOverview,
   assignJobsToBranch: branches.handlers.assignJobsToBranch,
   setMemberBranch: branches.handlers.setMemberBranch,
+  setMemberLocation: branches.handlers.setMemberLocation,
+  getBranchNumbering: branches.handlers.getBranchNumbering,
+  setBranchNumbering: branches.handlers.setBranchNumbering,
 
   listConversionAdjustments: ads.handlers.listConversionAdjustments,
   getMarketingOverview: ads.handlers.getMarketingOverview,
@@ -1043,6 +1062,9 @@ export const handlers = {
   ...rentalBilling.handlers,
   // Onboarding, emergency contacts, employment, skills, continuing education, a job's own skills (M24)
   ...peopleRecords.handlers,
+  // A person's own record, and the documents the company asks its people to sign (M24)
+  ...me.handlers,
+  ...staffDocuments.handlers,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 
 export type ImplementedRoute = keyof typeof handlers;

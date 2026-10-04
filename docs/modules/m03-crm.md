@@ -122,9 +122,20 @@ On the API: `GET /v1/customers` takes `tags` (repeat it) and `tagMatch`
 (`any` or `all`), `GET /v1/customer-tags` is the list with counts,
 `POST /v1/customers/{id}/tags` adds and takes off, and
 `POST /v1/customer-tags/rename` and `POST /v1/customer-tags/merge` work across
-the book. Campaign audiences already had a tag rule (`tagged_any` in M19); it
-matches the spelling as stored, which the converging spelling above keeps
-consistent.
+the book. A campaign audience's tag rule (`tagged_any` in M19) compares the same
+way, so an audience of "vip" reaches the customers tagged "VIP".
+
+**A tag is a row as well as a word on the customer.** The customer's own list is
+still the record of what they carry, in the order it was written, and what the
+API returns. Beside it, `customer_tag` holds the same tags one per row with the
+case blind key next to each, under an index on that key, and the database keeps
+it equal to every live customer's list by a trigger, in the same statement as any
+change to the list: an import, a restore, a rename across the book, a merge. The
+filter, the counts and the campaign rule read the table, so finding the customers
+tagged "VIP" in a book of a million is a walk of an index rather than a read of a
+million lists. The migration that made the table carried every live customer's
+tags across exactly, spelling, order and odd spaces included, and a test runs that
+statement again and checks it against the lists.
 
 ### Find duplicates across the whole book
 
@@ -142,6 +153,22 @@ once as an ordered pair) so the pair stops appearing here and on either
 customer's page. `GET /v1/customer-duplicates` and
 `POST /v1/customer-duplicates/dismiss`, both behind `customer:merge`, because
 the sweep reads across every customer and exists to be acted on.
+
+### Keep a customer's people
+
+The customer's page adds a contact, takes one off and makes one primary, and the
+API does the same through the same service functions, so the rules are one set:
+a contact belongs to the customer in the path, sits at an address only when the
+address is one of that customer's, needs a phone or an email and a preferred
+channel they can be reached on, and is removed softly so the texts already sent
+to them still say who they went to. One primary per customer and per address;
+making a new one demotes the old. `GET /v1/customers/{id}/contacts` lists them in
+the order the "on the way" text picks its recipient,
+`POST /v1/customers/{id}/contacts` adds one, `PATCH /v1/contacts/{id}` changes
+their details (not who they belong to, and not whether they are primary),
+`POST /v1/contacts/{id}/primary` makes one the first told, and
+`POST /v1/contacts/{id}/remove` takes one off. A technician reads the people at
+the customers they have been sent to and no others.
 
 ### Correct an address
 
@@ -182,6 +209,11 @@ attached afterwards, which would have sent it to everybody.
 | `GET /v1/customers/{id}/merged-into` | `customer:read` |
 | `POST /v1/customers/{keepId}/merge` | `customer:merge` |
 | `POST /v1/customers/{id}/remove` | `customer:delete` |
+| `GET /v1/customers/{id}/contacts` | `customer:read` |
+| `POST /v1/customers/{id}/contacts` | `customer:write` |
+| `PATCH /v1/contacts/{id}` | `customer:write` |
+| `POST /v1/contacts/{id}/primary` | `customer:write` |
+| `POST /v1/contacts/{id}/remove` | `customer:write` |
 | `GET /v1/customer-tags` | `customer:read` |
 | `POST /v1/customers/{id}/tags` | `customer:write` |
 | `POST /v1/customer-tags/rename` | `customer:write` |
@@ -228,22 +260,19 @@ which is also the case where merging is the right answer.
 
 ## What is not built
 
-Contacts are added, removed and made primary on the customer's page, and the
-API has no route for any of that: the one contact route is
-`POST /v1/contacts/{id}/portal-access`, which lets a contact sign in to the
-portal (M05). A customer's custom fields are stored, checked and read back,
-and `/customers` and `GET /v1/customers` filter by one field holding one value
-(`fieldKey` and `fieldValue`); nothing filters by two at once, and the report
-builder does not filter by one (M29).
+A contact cannot be edited on the customer's page, only added, removed and made
+primary there; changing one's details is the API's `PATCH /v1/contacts/{id}`. A
+contact attached to an address and no customer is reached through neither the
+page nor these routes, which are about a customer's people. A customer's custom
+fields filter `/customers` and `GET /v1/customers` several at once, every one of
+which has to hold (M29 says how), and reach the report builder on every dataset
+that hangs off a customer; there is no "any of these" across fields.
 
-Tags live in a list on the customer row, not in a table of their own, so the
-tag filter and the counts read each customer's list rather than an index.
-That is milliseconds for a company of ten thousand customers and would not be
-for one of a million; a normalised tag table is the change that would fix it.
-The campaign rule `tagged_any` (M19, in the campaign service) compares tags as
-stored rather than without capitals; it was left alone because that service is
-being worked on elsewhere, and the spelling a new tag is given here keeps the
-book consistent enough for it to match.
+A merged or soft deleted customer keeps its tags on its own row and has none in
+`customer_tag`, so it is in no tag count and no tag filter; that is deliberate,
+and undoing a merge is not built anyway. The tag table is written only by the
+database, so a restore that loads `customer_tag` rows from an export as well as
+customers is loading them twice: the customers' own lists are what to restore.
 
 A pair marked "not the same person" cannot be unmarked from a screen or the API
 yet. The duplicate sweep has no count of how many pairs there are in total,

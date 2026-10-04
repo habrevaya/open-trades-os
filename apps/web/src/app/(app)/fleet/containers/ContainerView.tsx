@@ -36,6 +36,9 @@ export interface HireRow {
   previousRentalId: string | null;
   /** The collection the scheduler booked, and the invoice it went on, when either has happened. */
   collectionVisitId?: string | null;
+  /** When the customer agreed the collection should happen, when they agreed a time. */
+  collectionAgreedStart?: string | null;
+  collectionAgreedEnd?: string | null;
   invoiceId?: string | null;
 }
 

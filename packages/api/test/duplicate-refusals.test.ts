@@ -187,6 +187,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One copy of each checklist line per person. Starting onboarding inserts with on conflict do nothing, so starting again adds only the new lines.",
   employment_record_person_idx:
     "One employment record per person, written with on conflict do update: saving it again replaces it.",
+  staff_document_request_person_idx:
+    "One request per person per document. Asking inserts with on conflict do nothing, so asking somebody already asked asks once.",
   vendor_item_vendor_item_idx:
     "One link per item per vendor: setting a part number updates the item's existing link to that vendor rather than inserting another.",
 
@@ -248,6 +250,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   task_escalation_once_idx:
     "One escalation per task per rule, inserted first with on conflict do nothing, so only the "
     + "pass whose insert landed tells anybody.",
+  customer_tag_slot_idx:
+    "One row per place in a customer's tag list, written only by the trigger that rebuilds a "
+    + "customer's rows from the list. Nobody types into it, so there is nothing to refuse.",
   customer_not_duplicate_pair_idx:
     "The ordered pair of two customers somebody said are different people, inserted with on "
     + "conflict do nothing: saying it twice is not news.",

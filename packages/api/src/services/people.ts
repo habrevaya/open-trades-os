@@ -460,7 +460,7 @@ export async function listCertifications(
 }
 
 /** The read both the list and the standing check run, with the lapse decided once. */
-async function held(
+export async function held(
   tx: Database, organizationId: string,
   input: { technicianIds?: string[] | undefined; typeIds?: string[] | undefined; on: string },
 ): Promise<HeldCertification[]> {
@@ -854,7 +854,7 @@ export interface Person {
  */
 export async function listPeople(
   ctx: ServiceContext,
-  input: { email?: string | undefined; fieldKey?: string | undefined; fieldValue?: string | undefined } = {},
+  input: { email?: string | undefined; fieldKey?: string | undefined; fieldValue?: string | undefined; fields?: readonly string[] | undefined } = {},
 ): Promise<Person[]> {
   return guardedRead(ctx, "user:read", async (tx) => {
     const directory = await tx.execute<{ membership_id: string; name: string | null; email: string }>(

@@ -53,11 +53,20 @@ const owner = (): ServiceContext => ({
  * resolved and proved nothing. A role that happens to hold one of the pair is
  * the recurring trap in this suite.
  */
+/**
+ * An actor holding exactly these permissions and seeing the whole company.
+ * The scope is stated because an actor with no role and no stated scope sees
+ * its own work only, and reports are scoped through their job: without it
+ * this actor would be a technician with no jobs, and every read would be
+ * "not found" for a reason that has nothing to do with the permission under
+ * test.
+ */
 const granted = (...permissions: string[]): ServiceContext => ({
   actor: {
     userId: USER, organizationId: ORG,
     roles: [] as unknown as Actor["roles"],
     grants: permissions as NonNullable<Actor["grants"]>,
+    scopes: { servicereport: "all", job: "all", visit: "all" },
   },
   db: db(),
 });

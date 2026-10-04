@@ -209,3 +209,22 @@ describe("how urgent a job is", () => {
     expect(sql).toContain("else 'Priority '");
   });
 });
+
+describe("a branch's mark on a job or invoice number", () => {
+  it("takes a short code of letters and digits, upper cased", () => {
+    expect(work.numberPrefix(" aus ")).toBe("AUS");
+    expect(work.numberPrefix("HOU2")).toBe("HOU2");
+  });
+
+  it("gives none for a code that would not read as part of a number", () => {
+    expect(work.numberPrefix(null)).toBeNull();
+    expect(work.numberPrefix("")).toBeNull();
+    expect(work.numberPrefix("North Austin")).toBeNull();
+    expect(work.numberPrefix("TOOLONGCODE")).toBeNull();
+  });
+
+  it("prints the number with its mark, or alone", () => {
+    expect(work.documentNumber("AUS", 1042)).toBe("AUS-1042");
+    expect(work.documentNumber(null, 1042)).toBe("1042");
+  });
+});

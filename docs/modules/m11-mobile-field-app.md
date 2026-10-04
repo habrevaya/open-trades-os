@@ -166,7 +166,10 @@ the readings its job type's service report template asks for
 saved and a reading outside the template's range said), sending the report
 (`service_report.submit`), parts picked from the price book the phone carries
 or typed when they are not in it (`visit.add_line`, a job line the office
-prices), and money. Each is an operation in the queue like everything else, so
+prices), a unit found or put in at the address, typed off its plate under
+"Equipment here" (`equipment.record`, matched on its serial across the whole
+company with the office's rules, and held for the office rather than added
+twice when the serial is on file somewhere else: M04), and money. Each is an operation in the queue like everything else, so
 it is recorded in a basement and drawn from the queue until the server has it,
 marked "waiting to send". The snapshot carries what the phone needs for them:
 the template's fields with the last value recorded, the parts already on the
