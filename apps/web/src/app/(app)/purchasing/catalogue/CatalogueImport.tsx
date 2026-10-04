@@ -137,6 +137,16 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
                     </td>
                     <td className="px-3 py-2 text-right">
                       {"cost" in row ? <Money value={row.cost} /> : null}
+                      {"pack" in row && row.pack && Number(row.pack) !== 1 ? (
+                        <div className="text-xs text-ink-500">
+                          a {row.unit ?? "pack"} of {Number(row.pack)}, <Money value={row.eachCost ?? "0"} muted /> each
+                        </div>
+                      ) : null}
+                      {"breaks" in row && row.breaks && row.breaks.length > 0 ? (
+                        <div className="text-xs text-ink-500">
+                          {row.breaks.map((b) => `${Number(b.minimum)}+ at ${Number(b.cost).toFixed(2)}`).join(", ")}
+                        </div>
+                      ) : null}
                       {row.action === "update" && row.costBefore && row.costBefore !== row.cost
                         ? <div className="text-xs text-ink-500">was <Money value={row.costBefore} muted /></div> : null}
                     </td>

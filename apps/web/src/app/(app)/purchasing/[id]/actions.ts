@@ -3,15 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory, purchaseApprovals, purchaseOrderEmail } from "@opentradesos/api/services";
-import { decidePurchaseOrder, emailPurchaseOrder, receivePurchaseOrder } from "@opentradesos/api/contracts";
+import { inventory, landedCost, purchaseApprovals, purchaseOrderEmail } from "@opentradesos/api/services";
+import {
+  decidePurchaseOrder, editPurchaseOrder, emailPurchaseOrder, receivePurchaseOrder, recordLateLandedCost,
+} from "@opentradesos/api/contracts";
 import { inventory as inv } from "@opentradesos/core";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 /**
- * ONE ORDER: deciding its approval step, receiving a delivery against it with
- * the freight that came on the truck, and emailing it to the vendor. Each is
- * the service's call through the route's own parsing.
+ * ONE ORDER: changing it while it is a draft, deciding its approval step,
+ * receiving a delivery against it with the freight that came on the truck,
+ * a freight bill that came later, and emailing it to the vendor. Each is the
+ * service's call through the route's own parsing.
  */
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -80,6 +83,65 @@ export async function emailAction(_previous: FormState, form: FormData): Promise
       message: sent.state === "queued"
         ? `Queued to ${sent.destination}. It leaves with the next pass of the outbox.`
         : `Not sent to ${sent.destination}: ${sent.explanation ?? "the mail path would not take it"}`,
+    };
+  });
+  if (state?.done) refresh(id);
+  return state;
+}
+
+const money = (value: string | undefined) => (value ?? "").replace(/[$,\s]/g, "");
+
+/**
+ * The order's lines as the form left them: each existing line with its new
+ * quantity and price (0 takes it off), and a part added by number.
+ */
+export async function editAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const state = await attempt(form, async () => {
+    const lines: { itemId?: string; partNumber?: string; locationId?: string; quantity: string; unitPrice?: string }[] = [];
+    for (const lineId of form.getAll("lineId").map(String)) {
+      const quantity = field(form, `quantity:${lineId}`) ?? "0";
+      if (Number(quantity) === 0) continue;
+      const price = money(field(form, `price:${lineId}`));
+      lines.push({
+        itemId: String(form.get(`item:${lineId}`) ?? ""),
+        locationId: String(form.get(`location:${lineId}`) ?? ""),
+        quantity,
+        ...(price ? { unitPrice: price } : {}),
+      });
+    }
+    const added = field(form, "addPart");
+    if (added) {
+      const price = money(field(form, "addPrice"));
+      lines.push({ partNumber: added, quantity: field(form, "addQuantity") ?? "", ...(price ? { unitPrice: price } : {}) });
+    }
+    const result = await inventory.handlers.editPurchaseOrder(await ctx(), parsed(editPurchaseOrder.input, { id, lines }));
+    return { message: `Saved. ${result.approval}` };
+  });
+  if (state?.done) refresh(id);
+  return state;
+}
+
+/** A freight or duty bill for one delivery, with up to two charges as the bill shows them. */
+export async function lateBillAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const state = await attempt(form, async () => {
+    const descriptions = form.getAll("lateDescription").map((v) => String(v).trim());
+    const amounts = form.getAll("lateAmount").map((v) => money(String(v)));
+    const charges = descriptions
+      .map((description, i) => ({ description, amount: amounts[i] ?? "" }))
+      .filter((c) => c.description !== "" || c.amount !== "");
+    const basis = field(form, "basis");
+    const bill = await landedCost.recordLateBill(await ctx(), {
+      receiptId: String(form.get("receiptId") ?? ""),
+      ...parsed(recordLateLandedCost.input.omit({ id: true }), {
+        charges, ...(basis ? { basis } : {}), reference: field(form, "reference") ?? null,
+      }),
+    });
+    const jobs = bill.jobs.map((j) => `job ${j.jobNumber ?? ""}`.trim()).join(", ");
+    return {
+      message: `Spread ${Number(bill.total).toFixed(2)}: ${Number(bill.onShelf).toFixed(2)} onto parts on a shelf, `
+        + `${Number(bill.onJobs).toFixed(2)} onto ${jobs || "no jobs"}, ${Number(bill.onGone).toFixed(2)} onto stock already gone.`,
     };
   });
   if (state?.done) refresh(id);

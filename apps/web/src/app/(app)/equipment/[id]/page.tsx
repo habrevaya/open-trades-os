@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customFields, equipment, inTenant, NotFoundError } from "@opentradesos/api/services";
+import { customFields, equipment, inTenant, stockUnits, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -49,6 +49,12 @@ export default async function EquipmentPage({ params }: { params: Promise<{ id: 
     throw error;
   });
   const history = await equipment.history(ctx, { id });
+  /**
+   * Where it came from, when it came off our shelf: the serial issued to a
+   * job as this unit, with the order and vendor it arrived on and every move
+   * before the job. Only for whoever may read inventory.
+   */
+  const fromStock = can(user.actor, "inventory:read") ? await stockUnits.traceForEquipment(ctx, { equipmentId: id }) : [];
 
   /** A follow up already in the queue, so a second press is not offered. */
   const followed = can(user.actor, "task:read")
@@ -129,6 +135,37 @@ export default async function EquipmentPage({ params }: { params: Promise<{ id: 
           ) : null
         )}
       </section>
+
+      {fromStock.length > 0 ? (
+        <section aria-label="From our stock" className="mt-8">
+          <h2 className="text-base font-semibold">From our stock</h2>
+          {fromStock.map((trace) => (
+            <div key={trace.unit.id} className="mt-2">
+              <p className="text-sm">
+                Serial <a href={`/inventory/serials/${trace.unit.id}`} className="font-mono underline underline-offset-4">{trace.unit.number}</a>
+                {" "}of {trace.unit.itemName}
+              </p>
+              <Table label={`Trace of ${trace.unit.number}`} head={<><Th>When</Th><Th>What</Th><Th>Where</Th><Th>For</Th></>}>
+                {trace.steps.map((step, i) => (
+                  <tr key={i}>
+                    <Td className="tabular-nums">{formatIn(step.at, tz)}</Td>
+                    <Td>{step.label}</Td>
+                    <Td className="text-ink-700">{step.locationName}</Td>
+                    <Td>
+                      {step.purchaseOrderId ? (
+                        <a href={`/purchasing/${step.purchaseOrderId}`} className="hover:underline">
+                          Order {step.purchaseOrderNumber}{step.vendorName ? ` from ${step.vendorName}` : ""}
+                        </a>
+                      ) : null}
+                      {step.jobId ? <a href={`/jobs/${step.jobId}`} className="hover:underline">Job {step.jobNumber}</a> : null}
+                    </Td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <section aria-label="Service history" className="mt-8">
         <h2 className="text-base font-semibold">Service history</h2>

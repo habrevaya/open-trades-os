@@ -189,7 +189,7 @@ export function splitRecords(text: string): { line: number; cells: string[] }[] 
   let quoted = false;
   let line = 1;
   let startedOn = 1;
-  const source = text.replace(/^﻿/, "");
+  const source = text.replace(/^\uFEFF/, "");
 
   const endRecord = () => {
     cells.push(current.trim());

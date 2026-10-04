@@ -9,13 +9,16 @@ import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
-/** A step of approval: orders at or over an amount need somebody holding a role. */
+/** A step of approval: orders at or over an amount, of a vendor, category or location when chosen, need somebody holding a role. */
 export async function addRuleAction(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
     const role = field(form, "role") ?? "";
     await purchaseApprovals.addRule(await ctx(), parsed(addPurchaseApprovalRule.input, {
       minimumTotal: (field(form, "minimumTotal") ?? "").replace(/[$,\s]/g, ""),
       ...(role.startsWith("custom:") ? { approverRoleId: role.slice(7) } : { approverRole: role }),
+      vendorId: field(form, "vendorId") ?? null,
+      categoryId: field(form, "categoryId") ?? null,
+      locationId: field(form, "locationId") ?? null,
     }));
   });
   if (state?.done) revalidatePath("/purchasing/approvals");

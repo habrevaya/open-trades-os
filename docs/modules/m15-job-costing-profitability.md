@@ -79,8 +79,17 @@ Revenue, Materials, Labour, Overhead or one account, and the actual is the
 ledger grouped by month in the company's calendar, so it agrees with the trial
 balance. Revenue is the 4xxx accounts net of discounts, materials is 5000,
 labour the other 5xxx accounts, overhead 6xxx and above. This product posts no
-wages or materials itself, so those lines are only as complete as the journals
-an accountant posts (M14), and the report says so.
+wages itself, and posts to materials only freight or duty billed after a
+delivery (M16), so those lines are only as complete as the journals an
+accountant posts (M14), and the report says so.
+
+**Material cost is the job's lines plus late freight.** A job's material cost is
+what its lines cost, and on top of that its cost of goods sold entries in the
+ledger: the share of a freight or duty bill that arrived after a delivery and
+landed on parts this job had already used (M16), less any taken back when a
+unit came back off the job. Using stock posts nothing else, so this cannot
+count a line twice. The statement lists those entries beside the lines
+(`costEntries`), so the number still traces to its rows.
 
 **Revenue is read from the ledger, not from the invoice total.** That is what
 makes the job costing report agree with the trial balance to the cent, and it is

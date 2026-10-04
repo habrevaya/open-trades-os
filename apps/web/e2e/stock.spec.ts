@@ -157,3 +157,138 @@ test("Purchasing: an order over the approval step waits, is approved, and its em
     await expect(owner.getByText("No steps")).toBeVisible();
   }
 });
+
+test("Serials: units already on the shelf get their numbers, one goes to a job and comes back, and the customer's unit shows where it came from", async ({ owner }) => {
+  const code = `CND${run.slice(-6).toUpperCase()}`;
+  const part = `Condenser unit ${run}`;
+  const first = `ON-${run}-1`;
+  const second = `ON-${run}-2`;
+  await newPart(owner, code, part);
+
+  // Two arrive before anybody tracks them, so they have no numbers.
+  await owner.goto("/inventory");
+  const receive = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Receive", exact: true }) });
+  await receive.getByLabel("Part").selectOption({ label: `${part} (${code})` });
+  await receive.getByLabel("Into").selectOption({ label: "Shop (warehouse)" });
+  await receive.getByLabel("Quantity").fill("2");
+  await receive.getByLabel("What it all cost").fill("1800.00");
+  await receive.getByRole("button", { name: "Receive", exact: true }).click();
+  await expect(receive.getByRole("status")).toContainText("Received 2.");
+
+  // Tracked from now on, and told the two on the shelf need their numbers.
+  await owner.goto("/inventory/serials");
+  const tracking = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Save", exact: true }) });
+  await tracking.getByLabel("Part").selectOption({ label: `${part} (${code})` });
+  await tracking.getByLabel("Track it").selectOption("serial");
+  await tracking.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(tracking.getByRole("status")).toContainText("2 at Shop still need their numbers");
+
+  // Read off the shelf: the same label twice is refused, then both are numbered.
+  const numbering = owner.getByRole("region", { name: "Number what is on the shelf" });
+  await numbering.getByLabel("Part").selectOption({ label: part });
+  await numbering.getByLabel("Where").selectOption({ label: "Shop" });
+  await numbering.getByLabel("Numbers read off the shelf").fill(`${first}\n${first}`);
+  await numbering.getByRole("button", { name: "Record numbers" }).click();
+  await expect(numbering.getByRole("alert").filter({ hasText: "named twice" })).toBeVisible();
+  await numbering.getByLabel("Numbers read off the shelf").fill(`${first}\n${second}`);
+  await numbering.getByRole("button", { name: "Record numbers" }).click();
+  await expect(numbering.getByRole("status")).toContainText(`Numbered ${first}, ${second}.`);
+
+  // A job, and the first one used on it as the customer's condenser.
+  const customer = `Ines Varga ${run}`;
+  const street = `${run.slice(-4)} Mesquite Ln`;
+  await newCustomer(owner, { name: customer, phone: "512-555-0171", address: { street, city: "Austin", state: "TX", zip: "78745" } });
+  await owner.getByRole("link", { name: `${street}, Austin` }).click();
+  await owner.getByRole("link", { name: "Book a job here" }).click();
+  await owner.getByLabel("Summary").fill(`Condenser swap ${run}`);
+  await owner.getByLabel("Day", { exact: true }).fill(new Date(Date.now() + 864e5).toISOString().slice(0, 10));
+  await owner.getByLabel("Arrives from").fill("09:00");
+  await owner.getByRole("button", { name: "Book job" }).click();
+  await expect(owner).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+  const jobNumber = (await owner.getByRole("heading", { level: 1 }).locator("span").first().textContent())!.trim();
+  await owner.goto("/inventory");
+  const use = owner.locator("form").filter({ has: owner.getByRole("button", { name: "Use on the job" }) });
+  await use.getByLabel("Part").selectOption({ label: `${part} (${code}), by serial` });
+  await use.getByLabel("Taken from").selectOption({ label: "Shop (warehouse)" });
+  await use.getByLabel("Job number").fill(jobNumber);
+  await use.getByLabel("Serial or lot numbers").fill(first);
+  await use.getByLabel("Record as customer equipment, of the kind").fill("Condenser");
+  await use.getByLabel("Make").fill("Trane");
+  await use.getByRole("button", { name: "Use on the job" }).click();
+  await expect(use.getByRole("status")).toContainText(`Used 1 on job ${jobNumber}, recorded as the customer's condenser.`);
+
+  // The customer's equipment page shows where the unit came from.
+  await owner.goto(`/inventory/serials?number=${encodeURIComponent(first)}`);
+  await owner.getByRole("row").filter({ hasText: first }).getByRole("link", { name: "Trace" }).click();
+  await owner.getByRole("region", { name: "Where it went" }).getByRole("link", { name: "Trane" }).click();
+  await expect(owner).toHaveURL(/\/equipment\/[0-9a-f-]{36}$/);
+  const fromStock = owner.getByRole("region", { name: "From our stock" });
+  await expect(fromStock).toContainText(first);
+  await expect(fromStock.getByRole("row").filter({ hasText: "Numbered on the shelf" })).toContainText("Shop");
+  await expect(fromStock.getByRole("row").filter({ hasText: "Issued to a job" })).toContainText(`Job ${jobNumber}`);
+
+  // It came back: on the shelf again by its number, off the job.
+  await owner.goto("/inventory/serials");
+  const back = owner.getByRole("region", { name: "Back from a job" });
+  await back.getByLabel("Part").selectOption({ label: part });
+  await back.getByLabel("Put it at").selectOption({ label: "Shop" });
+  await back.getByLabel("Serial numbers").fill(first);
+  await back.getByLabel("Why it came back").fill("Wrong voltage");
+  await back.getByRole("button", { name: "Back in stock" }).click();
+  await expect(back.getByRole("status")).toContainText(`Back in stock: ${first} off job ${jobNumber}.`);
+  await expect(back.getByRole("status")).toContainText("still on their register");
+  await owner.goto(`/inventory/serials?number=${encodeURIComponent(first)}`);
+  await expect(owner.getByRole("row").filter({ hasText: first })).toContainText("In stock");
+});
+
+test("Purchasing: a draft is changed, sent, received, and a freight bill that came later is spread onto it", async ({ owner }) => {
+  const code = `DCT${run.slice(-6).toUpperCase()}`;
+  const vendor = `Johnstone ${run}`;
+  await newPart(owner, code, `Duct board ${run}`);
+
+  await owner.goto("/purchasing");
+  await owner.getByLabel("Name", { exact: true }).fill(vendor);
+  await owner.getByRole("button", { name: "Add vendor" }).click();
+  await expect(owner.getByRole("row").filter({ hasText: vendor })).toBeVisible();
+
+  const byPart = owner.locator("form").filter({ has: owner.getByLabel("Part, line 1") });
+  await byPart.getByLabel("Vendor").selectOption({ label: vendor });
+  await byPart.getByLabel("Deliver to").selectOption({ label: "Shop" });
+  await byPart.getByLabel("Part, line 1").fill(code);
+  await byPart.getByLabel("Quantity, line 1").fill("4");
+  await byPart.getByLabel("Price, line 1").fill("25");
+  await byPart.getByRole("button", { name: "Create a draft order" }).click();
+  await expect(byPart.getByRole("status")).toContainText("Saved.");
+  await owner.reload();
+  await owner.getByRole("row").filter({ hasText: vendor }).getByRole("link").first().click();
+  await expect(owner.getByRole("heading", { level: 1 })).toContainText(vendor);
+  const orderUrl = owner.url();
+
+  // Changed before it goes: six, not four.
+  const edit = owner.getByRole("region", { name: "Change the order" });
+  await edit.getByLabel(`Duct board ${run}, how many`).fill("6");
+  await edit.getByRole("button", { name: "Save changes" }).click();
+  await expect(edit.getByRole("status")).toContainText("Saved.");
+  await owner.reload();
+  await expect(owner.getByRole("table", { name: "Lines" }).getByRole("row").filter({ hasText: code })).toContainText("$150.00");
+
+  // Sent, then received in full.
+  await owner.goto("/purchasing");
+  await owner.getByRole("row").filter({ hasText: vendor }).getByRole("button", { name: "Send to vendor" }).click();
+  await expect(owner.getByRole("row").filter({ hasText: vendor })).toContainText("submitted");
+  await owner.goto(orderUrl);
+  const receive = owner.getByRole("region", { name: "Receive a delivery" });
+  await receive.getByRole("button", { name: "Receive" }).click();
+  await expect(receive.getByRole("status")).toContainText("Received. The order is received");
+
+  // The carrier's bill a week later: all of it onto parts still on the shelf.
+  await owner.reload();
+  const late = owner.getByRole("region", { name: "A freight or duty bill that came later" });
+  await late.getByLabel("Their bill number").fill(`PRO-${run.slice(-4)}`);
+  await late.getByLabel("Charge", { exact: true }).fill("Freight");
+  await late.getByLabel("Amount").first().fill("12.00");
+  await late.getByRole("button", { name: "Spread the bill" }).click();
+  await expect(late.getByRole("status")).toContainText("Spread 12.00: 12.00 onto parts on a shelf, 0.00 onto no jobs, 0.00 onto stock already gone.");
+  await owner.reload();
+  await expect(owner.getByRole("region", { name: "Deliveries" })).toContainText(`Billed later (PRO-${run.slice(-4)}): Freight $12.00.`);
+});

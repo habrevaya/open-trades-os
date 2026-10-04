@@ -36,7 +36,7 @@ export default async function TracePage({ params }: { params: Promise<{ id: stri
         <Fact label="Now">
           {unit.state === "in_stock"
             ? unit.where.map((w) => unit.mode === "lot" ? `${w.locationName}, ${w.quantity}` : w.locationName).join("; ")
-            : unit.state === "used" ? `Used on job ${unit.jobNumber ?? ""}` : "Written off"}
+            : unit.state === "used" ? `Used on job ${unit.jobNumber ?? ""}` : "Written off or sent back to the vendor"}
         </Fact>
         <Fact label="Use by">{unit.expiresOn}</Fact>
       </Facts>
@@ -46,7 +46,9 @@ export default async function TracePage({ params }: { params: Promise<{ id: stri
         {equipment ? (
           <div className="mt-2 rounded-md border border-steel-200 bg-canvas p-4 text-sm">
             <p className="font-medium">
-              {[equipment.manufacturer, equipment.model].filter(Boolean).join(" ") || equipment.category}
+              <a href={`/equipment/${equipment.id}`} className="underline underline-offset-4">
+                {[equipment.manufacturer, equipment.model].filter(Boolean).join(" ") || equipment.category}
+              </a>
               {equipment.tag ? <span className="ml-2 text-ink-500">{equipment.tag}</span> : null}
             </p>
             <p className="mt-1 text-ink-700">
