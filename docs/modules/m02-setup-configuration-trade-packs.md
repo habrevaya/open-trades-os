@@ -174,6 +174,31 @@ looked at is kept rather than overwritten. Costs in the preview are shown only
 to somebody who may read them. `GET /v1/trade-packs` says which version of each
 pack the company is on.
 
+The rest of the pack is upgraded by the same rule, and the preview lists it under
+its own heading: the service report template, each inspection programme, each
+retention rule and the portal layout. Each is compared as a whole against what the
+company's current version set up, which each application records beside the price
+book: a template's name and readings, a programme's name, standard, audience,
+frequency and checkpoints, a rule's records, clock, months and basis, a layout's
+name and sections. What the company decides for itself (whether a rule may purge,
+whether a template or rule is in force, which layouts show) is never compared and
+never touched.
+
+| The company's piece | What the upgrade does |
+|---|---|
+| Not set up yet | Set up |
+| Still as the older version set it up | Takes the new version; a template's readings and a programme's checkpoints get a new version number, as an edit by hand does, so a report or inspection done under the old ones still says which it answered |
+| Changed here since | Kept, and listed with the parts the new version would have changed |
+| Taken out here | Kept out: the record says it was there, and putting it back would undo a decision |
+| Made here under the same name (a programme) or for the same records (a rule) | Kept |
+| A retention rule with purging switched on, which the new version would keep for less time | Kept, because a shorter period on a rule that deletes is records gone sooner than anybody agreed to; the owner can change it on the retention screen |
+| Dropped by the new version | Kept as it is |
+
+A company whose pack was applied before the rest of it was recorded is judged by
+the rows themselves: a template or programme still on version one and not saved
+since it was made, and a rule or layout not saved since it was made, counts as
+untouched; anything else is kept.
+
 ### Configure the company
 
 `Settings` holds what a company changes about itself after setup: its name,
@@ -249,10 +274,13 @@ product does not email it. A deployment with no `PUBLIC_URL` makes no link at
 all and says so. An address with an account at another company cannot be
 invited.
 
-A trade pack upgrade covers the price book and job types. A newer version's
-changes to a service report template, inspection programmes, retention rules
-or the portal layout are not applied to a company that already has them, and
-the preview does not list them. An item's description or cost that a newer
+A trade pack upgrade does not touch checklists, KPIs, filing calendars or the
+other parts of a pack nothing in a company's rows records as the pack's. An
+inspection programme is known across versions by its name, so a newer version
+that renames one sets up a new programme and leaves the old one as it was. A
+company whose pack was applied before the template, programmes, rules and layout
+were recorded cannot be told it removed one of them, so one it took out is set up
+again by an upgrade. An item's description or cost that a newer
 version removes is left as it was, because a price book version cannot clear
 either. Every pack ships at version one today, so no company has an upgrade
 waiting yet.

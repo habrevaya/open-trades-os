@@ -38,6 +38,17 @@ function Changes({ changes }: { changes: rules.FieldChange[] }) {
  * seeded them), and what it leaves alone because somebody here changed it or
  * made it. Nothing the company changed is overwritten, and nothing is deleted.
  */
+const kindOf = (kind: rules.SetupKind) => rules.SETUP_KIND_LABELS[kind].toLowerCase();
+const partsOf = (parts: readonly string[]) =>
+  parts.map((part) => (rules.SETUP_PART_LABELS[part] ?? part).toLowerCase()).join(", ");
+/** Why something the new version changes stays as the company has it, in a sentence. */
+const KEPT_BECAUSE: Record<rules.SetupKeptReason, string> = {
+  edited: "you changed it.",
+  yours: "you made it yourselves under the same name.",
+  removed: "you took it out, and it is not put back.",
+  purging: "purging is on for this rule and the new version keeps records for less time, so that is yours to decide.",
+};
+
 export default async function TradeStep() {
   const { user, allowed } = await loadStep("trade");
   const ctx = { actor: user.actor, db: getDb() };
@@ -78,6 +89,15 @@ export default async function TradeStep() {
               <li>{plan.unchanged} already match.</li>
               {plan.dropped.length > 0 ? <li>{plan.dropped.length} the new version no longer has are kept, because invoices point at them.</li> : null}
               {plan.jobTypes.add.length > 0 ? <li>Job types added: {plan.jobTypes.add.map((t) => t.name).join(", ")}.</li> : null}
+              {plan.setup.add.length > 0 ? (
+                <li>Set up for the first time: {plan.setup.add.map((a) => `${a.name} (${kindOf(a.kind)})`).join(", ")}.</li>
+              ) : null}
+              {plan.setup.update.length > 0 ? (
+                <li>{plan.setup.update.map((u) => `${u.name} (${kindOf(u.kind)})`).join(", ")}: you have not changed {plan.setup.update.length === 1 ? "it, so it takes" : "them, so they take"} the new version.</li>
+              ) : null}
+              {plan.setup.kept.length > 0 ? (
+                <li>{plan.setup.kept.length} of your report, inspection, retention and portal settings stay exactly as they are.</li>
+              ) : null}
             </ul>
             {plan.update.length > 0 ? (
               <details className="mt-3 text-sm">
@@ -94,6 +114,22 @@ export default async function TradeStep() {
                   {plan.kept.map((k) => (
                     <li key={k.code}>
                       {k.name} ({k.reason === "edited" ? "you changed it" : "you made it"}). The new version says: <Changes changes={k.changes} />
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+            {plan.setup.update.length > 0 || plan.setup.kept.length > 0 ? (
+              <details className="mt-2 text-sm">
+                <summary className="cursor-pointer font-medium">Reports, inspections, retention and the portal</summary>
+                <ul className="mt-1 space-y-0.5">
+                  {plan.setup.update.map((u) => (
+                    <li key={`${u.kind}:${u.key}`}>{u.name} ({kindOf(u.kind)}) takes the new {partsOf(u.changed)}.</li>
+                  ))}
+                  {plan.setup.kept.map((k) => (
+                    <li key={`${k.kind}:${k.key}`}>
+                      {k.name} ({kindOf(k.kind)}) stays as it is: {KEPT_BECAUSE[k.reason]}
+                      {k.changed.length > 0 ? ` The new version changes its ${partsOf(k.changed)}.` : ""}
                     </li>
                   ))}
                 </ul>
