@@ -7,12 +7,13 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
 } from "./context";
 import * as email from "./email";
+import { sendTransactional } from "./comms-send";
 import { mintGrant } from "./portal";
 import { buildStatement } from "./statements";
 import { statementFileWithin } from "./documents";
 
 /**
- * A STATEMENT, EMAILED
+ * A STATEMENT, EMAILED OR TEXTED
  *
  * The statement has been on the customer's own account page since it was
  * built, and nothing put it in front of them. This sends it: by hand from the
@@ -37,20 +38,35 @@ import { statementFileWithin } from "./documents";
  * finance role exists to send bills and does not hold `message:send`, and
  * granting it would mean letting them text customers.
  *
+ * BY TEXT, THE LINK AND NOTHING ELSE, through `comms-send.sendTransactional`,
+ * the one gate every text goes through: consent, a number that replied STOP,
+ * quiet hours and which number it comes from are decided there and nowhere
+ * here. By hand the office picks the channel. The monthly run texts a
+ * customer whose main contact prefers texts only when the company turned
+ * that on (`delivery_schedule.text_when_preferred`), and emails one whose
+ * text cannot go, saying so on the row, because a customer who asked not to
+ * be texted did not ask to stop getting their statement.
+ *
  * EVERY ATTEMPT IS A ROW, whether it went or not. A customer with no address
  * on file, or one who asked not to be emailed, is a row saying so, which is
  * what lets the office see who did not get one rather than assume everybody
  * did.
  */
 
-/** How long the link in a statement email opens the statement. */
+/** How long the link in a statement email or text opens the statement. */
 const LINK_DAYS = 45;
+
+export type StatementChannel = "email" | "sms";
 
 export interface StatementSendResult {
   deliveryId: string;
   customerId: string;
+  /** How it went, or how it was tried last when it did not. */
+  channel: StatementChannel;
   destination: string | null;
   state: "queued" | "refused";
+  /** Why it went another way than the customer prefers, when it did. */
+  note: string | null;
   explanation: string | null;
   /** Empty on a replay: the token exists once, at the moment it is minted. */
   portalUrl: string;
@@ -126,6 +142,39 @@ export function composeStatementEmail(input: {
 }
 
 /**
+ * The text. Who it is from, what period, and the link: no amounts, for the
+ * reason the email carries none, and short enough to arrive as one message.
+ * It opens with the company's name because a text with a link and no sender
+ * is the shape carriers filter and customers are taught never to tap.
+ */
+export function composeStatementText(input: {
+  organizationName: string; customerName: string; from: string; to: string; url: string;
+}): string {
+  const first = input.customerName.split(" ")[0] || input.customerName;
+  return `Hi ${first}, it's ${input.organizationName}. Your statement for ${said(input.from)} to ${said(input.to)} `
+    + `is ready to view: ${input.url}`;
+}
+
+/**
+ * How a customer would rather hear from the company: their main contact's
+ * preferred channel, and the number to text. The contact on the customer
+ * record marked primary, or failing that the first one added; a customer with
+ * no contacts at all has said nothing, and is emailed as before.
+ */
+export async function preferenceOf(tx: Database, customerId: string): Promise<{ prefersText: boolean; phone: string | null }> {
+  const [contact] = await tx.select({
+    phone: schema.contact.phone, preferredChannel: schema.contact.preferredChannel,
+  }).from(schema.contact)
+    .where(and(eq(schema.contact.customerId, customerId), isNull(schema.contact.deletedAt)))
+    .orderBy(desc(schema.contact.isPrimary), schema.contact.createdAt)
+    .limit(1);
+  const [customer] = await tx.select({ phone: schema.customer.phone })
+    .from(schema.customer).where(eq(schema.customer.id, customerId)).limit(1);
+  const phone = (contact?.phone ?? "").trim() || (customer?.phone ?? "").trim() || null;
+  return { prefersText: contact?.preferredChannel === "sms", phone };
+}
+
+/**
  * Send one customer their statement for one period, inside a transaction
  * that is already in the tenant. Shared by the button and the monthly run so
  * the two cannot write different emails or record different rows.
@@ -136,11 +185,14 @@ export function composeStatementEmail(input: {
  */
 async function sendOne(tx: Database, ctx: ServiceContext, input: {
   customerId: string;
+  /** The way to try first. A text the consent gate refuses goes by email when `fallBack` says so. */
+  channel: StatementChannel;
   address: string | null;
   from?: string | undefined;
   to?: string | undefined;
   period: string | null;
   scheduleId?: string | undefined;
+  fallBack?: boolean | undefined;
 }): Promise<StatementSendResult | null> {
   const organizationId = ctx.actor.organizationId;
   const statement = await buildStatement(tx, organizationId, input.customerId, {
@@ -149,7 +201,10 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
 
   const [customer] = await tx.select({ email: schema.customer.email })
     .from(schema.customer).where(eq(schema.customer.id, input.customerId)).limit(1);
-  const destination = (input.address ?? customer?.email ?? "").trim();
+  const emailTo = (input.channel === "email" ? input.address ?? customer?.email ?? "" : customer?.email ?? "").trim();
+  const textTo = input.channel === "sms"
+    ? (input.address ?? (await preferenceOf(tx, input.customerId)).phone ?? "").trim()
+    : "";
 
   const [row] = await tx.insert(schema.statementDelivery).values({
     organizationId,
@@ -158,24 +213,14 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
     period: input.period,
     periodFrom: statement.from,
     periodTo: statement.to,
-    destination: destination === "" ? null : email.normalizeAddress(destination),
+    channel: input.channel,
+    destination: input.channel === "sms"
+      ? (textTo === "" ? null : textTo)
+      : (emailTo === "" ? null : email.normalizeAddress(emailTo)),
     closingBalance: statement.closingBalance,
     sentByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
   }).onConflictDoNothing().returning({ id: schema.statementDelivery.id });
   if (!row) return null;
-
-  const refuse = async (explanation: string): Promise<StatementSendResult> => {
-    await tx.update(schema.statementDelivery).set({ error: explanation })
-      .where(eq(schema.statementDelivery.id, row.id));
-    return {
-      deliveryId: row.id, customerId: input.customerId, destination: destination || null,
-      state: "refused", explanation, portalUrl: "",
-    };
-  };
-
-  if (destination === "") {
-    return refuse(`${statement.customerName} has no email address on file, so there was nowhere to send it.`);
-  }
 
   const grant = await mintGrant(tx, {
     organizationId, customerId: input.customerId, scope: "customer",
@@ -183,52 +228,116 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
   });
   const url = `${grant.url}/statement?from=${statement.from}&to=${statement.to}`;
   const identity = await identityOf(tx, organizationId);
-  const composed = composeStatementEmail({
-    organizationName: identity.name || statement.organizationName,
-    customerName: statement.customerName,
-    from: statement.from, to: statement.to, url,
-    color: identity.color, on: identity.on,
-  });
-
-  const printed = await statementFileWithin(tx, organizationId, statement);
-  const outcome = await email.queue(transportContext(ctx, tx), {
-    to: destination,
-    subject: composed.subject,
-    text: composed.text,
-    html: composed.html,
-    purpose: "transactional",
-    customerId: input.customerId,
-    attachments: [{ filename: printed.filename, contentType: "application/pdf", content: Buffer.from(printed.bytes) }],
-  });
-
+  const organizationName = identity.name || statement.organizationName;
   await tx.update(schema.statementDelivery).set({ portalGrantId: grant.row.id })
     .where(eq(schema.statementDelivery.id, row.id));
-  if (!outcome.queued) {
+
+  /** The attempt by one channel: the message it became, or why it did not go. */
+  const attemptBy = async (channel: StatementChannel): Promise<
+    { sent: true; messageId: string; destination: string } | { sent: false; explanation: string }
+  > => {
+    if (channel === "sms") {
+      if (textTo === "") {
+        return { sent: false, explanation: `${statement.customerName} has no mobile number on file, so there was nowhere to text it.` };
+      }
+      /**
+       * Through the one gate every text goes through (`comms-send`), which
+       * asks consent, the suppression list and quiet hours, and picks the
+       * number it comes from. A refusal is an answer, not an error.
+       */
+      const outcome = await sendTransactional(tx, {
+        organizationId,
+        address: textTo,
+        body: composeStatementText({
+          organizationName, customerName: statement.customerName, from: statement.from, to: statement.to, url,
+        }),
+        customerId: input.customerId,
+        sentByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+      });
+      return outcome.sent
+        ? { sent: true, messageId: outcome.messageId, destination: textTo }
+        : { sent: false, explanation: outcome.explanation };
+    }
+    if (emailTo === "") {
+      return { sent: false, explanation: `${statement.customerName} has no email address on file, so there was nowhere to send it.` };
+    }
+    const composed = composeStatementEmail({
+      organizationName,
+      customerName: statement.customerName,
+      from: statement.from, to: statement.to, url,
+      color: identity.color, on: identity.on,
+    });
+    const printed = await statementFileWithin(tx, organizationId, statement);
+    const outcome = await email.queue(transportContext(ctx, tx), {
+      to: emailTo,
+      subject: composed.subject,
+      text: composed.text,
+      html: composed.html,
+      purpose: "transactional",
+      customerId: input.customerId,
+      attachments: [{ filename: printed.filename, contentType: "application/pdf", content: Buffer.from(printed.bytes) }],
+    });
+    return outcome.queued
+      ? { sent: true, messageId: outcome.messageId, destination: email.normalizeAddress(emailTo) }
+      : { sent: false, explanation: outcome.explanation };
+  };
+
+  let channel = input.channel;
+  let textRefusal: string | null = null;
+  let outcome = await attemptBy(channel);
+  /**
+   * A TEXT THAT CANNOT GO IS EMAILED INSTEAD, on the monthly run, and the row
+   * says so. A customer who replied STOP to texts has not asked to stop
+   * getting their statement, and a run that recorded "not sent" for every
+   * texting customer without a number would leave the office to send each by
+   * hand. By hand, the office chose the channel and is told it did not go.
+   */
+  if (!outcome.sent && channel === "sms" && input.fallBack) {
+    textRefusal = outcome.explanation;
+    channel = "email";
+    outcome = await attemptBy("email");
+  }
+  const note = textRefusal ? `Not texted: ${textRefusal} Emailed instead.` : null;
+
+  if (!outcome.sent) {
     // A link that was never sent is a live key to somebody's account lying
     // in a table. Revoked, rather than left to expire in six weeks.
     await tx.update(schema.portalGrant).set({ revokedAt: new Date() })
       .where(eq(schema.portalGrant.id, grant.row.id));
-    return refuse(outcome.explanation);
+    const explanation = textRefusal
+      ? `Not texted: ${textRefusal} Not emailed: ${outcome.explanation}`
+      : outcome.explanation;
+    await tx.update(schema.statementDelivery).set({ error: explanation, channel })
+      .where(eq(schema.statementDelivery.id, row.id));
+    return {
+      deliveryId: row.id, customerId: input.customerId, channel,
+      destination: channel === "sms" ? (textTo || null) : (emailTo || null),
+      state: "refused", note: null, explanation, portalUrl: "",
+    };
   }
 
-  await tx.update(schema.statementDelivery).set({ messageId: outcome.messageId })
-    .where(eq(schema.statementDelivery.id, row.id));
+  await tx.update(schema.statementDelivery).set({
+    messageId: outcome.messageId, channel, destination: outcome.destination, note,
+  }).where(eq(schema.statementDelivery.id, row.id));
   return {
-    deliveryId: row.id, customerId: input.customerId, destination: email.normalizeAddress(destination),
-    state: "queued", explanation: null, portalUrl: url,
+    deliveryId: row.id, customerId: input.customerId, channel, destination: outcome.destination,
+    state: "queued", note, explanation: null, portalUrl: url,
   };
 }
 
 /**
- * "Email statement", from the office.
+ * "Email statement" and "Text statement", from the office.
  *
- * To the customer's address, or one the office types: a commercial customer's
- * accounts payable mailbox is rarely the address of the person who booked the
- * work. A retried request is the same send, by its idempotency key.
+ * To the customer's address or number, or one the office types: a commercial
+ * customer's accounts payable mailbox is rarely the address of the person who
+ * booked the work. The channel is the office's choice here, so a text that
+ * cannot go is recorded as not sent, with why, rather than quietly emailed. A
+ * retried request is the same send, by its idempotency key.
  */
-export function emailStatement(ctx: ServiceContext, input: {
+function sendByHand(ctx: ServiceContext, input: {
   id: string;
-  email?: string | undefined;
+  channel: StatementChannel;
+  address?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
 }): Promise<StatementSendResult> {
@@ -248,13 +357,17 @@ export function emailStatement(ctx: ServiceContext, input: {
       .where(and(eq(schema.customer.id, input.id), isNull(schema.customer.deletedAt))).limit(1);
     if (!customer) throw new NotFoundError("Customer");
 
-    const typed = input.email?.trim();
-    if (typed && !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(typed)) {
+    const typed = input.address?.trim();
+    if (typed && input.channel === "email" && !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(typed)) {
       throw new ConflictError(`"${typed}" is not an email address.`);
+    }
+    if (typed && input.channel === "sms" && typed.replace(/\D/g, "").length < 10) {
+      throw new ConflictError(`"${typed}" is not a phone number a text can go to.`);
     }
 
     const result = await sendOne(tx, ctx, {
       customerId: customer.id,
+      channel: input.channel,
       address: typed || null,
       from: input.from, to: input.to,
       period: null,
@@ -264,7 +377,7 @@ export function emailStatement(ctx: ServiceContext, input: {
 
     await audit(tx, ctx, result.state === "queued" ? "statement.sent" : "statement.refused",
       "customer", customer.id, null, {
-        deliveryId: result.deliveryId, to: result.destination, explanation: result.explanation,
+        deliveryId: result.deliveryId, channel: result.channel, to: result.destination, explanation: result.explanation,
       });
 
     if (ctx.idempotencyKey) {
@@ -279,13 +392,30 @@ export function emailStatement(ctx: ServiceContext, input: {
   });
 }
 
+export function emailStatement(ctx: ServiceContext, input: {
+  id: string; email?: string | undefined; from?: string | undefined; to?: string | undefined;
+}): Promise<StatementSendResult> {
+  return sendByHand(ctx, { id: input.id, channel: "email", address: input.email, from: input.from, to: input.to });
+}
+
+/**
+ * The statement's link by text, to the customer's main contact's mobile or
+ * the number on the customer, or one the office types.
+ */
+export function textStatement(ctx: ServiceContext, input: {
+  id: string; phone?: string | undefined; from?: string | undefined; to?: string | undefined;
+}): Promise<StatementSendResult> {
+  return sendByHand(ctx, { id: input.id, channel: "sms", address: input.phone, from: input.from, to: input.to });
+}
+
 async function replay(tx: Database, deliveryId: string): Promise<StatementSendResult> {
   const [row] = await tx.select().from(schema.statementDelivery)
     .where(eq(schema.statementDelivery.id, deliveryId)).limit(1);
   if (!row) throw new NotFoundError("Statement delivery");
   return {
-    deliveryId: row.id, customerId: row.customerId, destination: row.destination,
-    state: row.messageId ? "queued" : "refused", explanation: row.error, portalUrl: "",
+    deliveryId: row.id, customerId: row.customerId, channel: row.channel as StatementChannel,
+    destination: row.destination, state: row.messageId ? "queued" : "refused", note: row.note,
+    explanation: row.error, portalUrl: "",
   };
 }
 
@@ -302,6 +432,10 @@ export interface StatementRunResult {
   refused: number;
   /** Already sent for this month, by an earlier attempt. */
   alreadySent: number;
+  /** Of `queued`, how many went by text. */
+  texted: number;
+  /** Of `queued`, how many were meant to be texted and were emailed because the text could not go. */
+  emailedInstead: number;
 }
 
 /**
@@ -317,6 +451,8 @@ export async function deliverStatements(tx: Database, input: {
   scheduleId: string;
   at: Date;
   minimumBalance: string | null;
+  /** Text the customers whose main contact prefers texts, rather than emailing everybody. */
+  textWhenPreferred?: boolean | undefined;
 }): Promise<StatementRunResult> {
   const timezone = await timezoneOf(tx, input.organizationId);
   const month = reporting.statementMonth(input.at, timezone);
@@ -342,15 +478,21 @@ export async function deliverStatements(tx: Database, input: {
     db: tx,
   };
 
-  const result: StatementRunResult = { month: month.key, owing: owing.length, queued: 0, refused: 0, alreadySent: 0 };
+  const result: StatementRunResult = {
+    month: month.key, owing: owing.length, queued: 0, refused: 0, alreadySent: 0, texted: 0, emailedInstead: 0,
+  };
   for (const { customer_id: customerId } of owing) {
+    const texts = input.textWhenPreferred === true && (await preferenceOf(tx, customerId)).prefersText;
     const sent = await sendOne(tx, ctx, {
-      customerId, address: null, from: month.from, to: month.to,
-      period: month.key, scheduleId: input.scheduleId,
+      customerId, channel: texts ? "sms" : "email", address: null, from: month.from, to: month.to,
+      period: month.key, scheduleId: input.scheduleId, fallBack: true,
     });
     if (!sent) result.alreadySent += 1;
-    else if (sent.state === "queued") result.queued += 1;
-    else result.refused += 1;
+    else if (sent.state === "queued") {
+      result.queued += 1;
+      if (sent.channel === "sms") result.texted += 1;
+      if (sent.note) result.emailedInstead += 1;
+    } else result.refused += 1;
   }
   return result;
 }
@@ -364,11 +506,13 @@ export interface StatementDeliveryRecord {
   period: string | null;
   periodFrom: string;
   periodTo: string;
+  channel: StatementChannel;
   destination: string | null;
   closingBalance: string | null;
   /** The outbox's own word for the message, or null when nothing was queued. */
   messageStatus: string | null;
   error: string | null;
+  note: string | null;
   createdAt: Date;
 }
 
@@ -393,10 +537,12 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
       period: row.period,
       periodFrom: row.periodFrom,
       periodTo: row.periodTo,
+      channel: row.channel as StatementChannel,
       destination: row.destination,
       closingBalance: row.closingBalance === null ? null : m.toString(m.round(usd(row.closingBalance), 2)),
       messageStatus: messageStatus ?? null,
       error: row.error,
+      note: row.note,
       createdAt: row.createdAt,
     }));
   });
@@ -408,6 +554,9 @@ export const handlers = {
   emailCustomerStatement: (ctx: ServiceContext, input: {
     id: string; email?: string | undefined; from?: string | undefined; to?: string | undefined;
   }) => emailStatement(ctx, input),
+  textCustomerStatement: (ctx: ServiceContext, input: {
+    id: string; phone?: string | undefined; from?: string | undefined; to?: string | undefined;
+  }) => textStatement(ctx, input),
   listStatementDeliveries: async (ctx: ServiceContext, input: { customerId?: string | undefined; limit?: number | undefined }) =>
     ({ deliveries: await deliveries(ctx, input) }),
 } as const;

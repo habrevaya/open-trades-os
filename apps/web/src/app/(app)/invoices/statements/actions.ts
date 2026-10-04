@@ -14,6 +14,7 @@ export async function setMonthlyStatements(_previous: unknown, form: FormData) {
   const minimum = field(form, "minimumBalance");
   const result = await attempt(form, () => deliverySchedules.setStatementSchedule({ actor: user.actor, db: getDb() }, {
     enabled: form.get("enabled") === "on",
+    textWhenPreferred: form.get("textWhenPreferred") === "on",
     ...(day ? { dayOfMonth: Number(day) } : {}),
     ...(time ? { time } : {}),
     ...(minimum ? { minimumBalance: minimum.replace(/^\$/, "") } : {}),

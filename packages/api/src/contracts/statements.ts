@@ -25,6 +25,8 @@ import { Uuid, MoneyString, CompanyContact } from "./common";
 export const StatementLineKind = z.enum([
   "invoice", "payment", "refund", "void", "write_off", "credit_note", "credit_note_void",
   "deposit", "deposit_refund", "deposit_kept", "agreement",
+  /** Credit on a credit note given back as money, which takes it off what is held for them. */
+  "credit_payout",
 ]);
 
 export const StatementLine = z.object({
@@ -90,6 +92,21 @@ export const getCustomerStatement = defineRoute({
   output: CustomerStatement,
 });
 
+/** One statement sent, or refused, by email or by text. */
+export const StatementSent = z.object({
+  deliveryId: Uuid,
+  customerId: Uuid,
+  /** How it went, or how it was tried. */
+  channel: z.enum(["email", "sms"]),
+  destination: z.string().nullable(),
+  state: z.enum(["queued", "refused"]),
+  /** Why it went another way than the customer prefers, when the monthly run emailed a text that could not go. */
+  note: z.string().nullable(),
+  explanation: z.string().nullable(),
+  /** The link that went. Empty on a replay: the token exists once, when minted. */
+  portalUrl: z.string(),
+});
+
 export const emailCustomerStatement = defineRoute({
   method: "post",
   path: "/v1/customers/{id}/statement/email",
@@ -105,15 +122,25 @@ export const emailCustomerStatement = defineRoute({
     from: z.string().date().optional(),
     to: z.string().date().optional(),
   }),
-  output: z.object({
-    deliveryId: Uuid,
-    customerId: Uuid,
-    destination: z.string().nullable(),
-    state: z.enum(["queued", "refused"]),
-    explanation: z.string().nullable(),
-    /** The link that went. Empty on a replay: the token exists once, when minted. */
-    portalUrl: z.string(),
+  output: StatementSent,
+});
+
+export const textCustomerStatement = defineRoute({
+  method: "post",
+  path: "/v1/customers/{id}/statement/text",
+  summary: "Text a customer their statement",
+  description:
+    "The link to the statement on the customer's own account page, for the period, by text: to `phone` when given, or the customer's main contact's mobile, or the number on the customer. No amounts, for the reason the email carries none. It goes through the same consent gate as every text, so a number that replied STOP, a company with no number registered to text from, or no number at all is recorded as refused with the reason, rather than thrown, and the link minted for it is revoked. A retry with the same idempotency key is the same send.",
+  module: "M13",
+  permissions: ["invoice:send"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    phone: z.string().max(40).optional(),
+    from: z.string().date().optional(),
+    to: z.string().date().optional(),
   }),
+  output: StatementSent,
 });
 
 export const StatementDelivery = z.object({
@@ -124,18 +151,21 @@ export const StatementDelivery = z.object({
   period: z.string().nullable(),
   periodFrom: z.string().date(),
   periodTo: z.string().date(),
+  channel: z.enum(["email", "sms"]),
   destination: z.string().nullable(),
   closingBalance: MoneyString.nullable(),
   /** The outbox's word for the message. Null when nothing was queued. */
   messageStatus: z.string().nullable(),
   error: z.string().nullable(),
+  /** A text the run could not send and emailed instead, with why. */
+  note: z.string().nullable(),
   createdAt: z.string().datetime(),
 });
 
 export const listStatementDeliveries = defineRoute({
   method: "get",
   path: "/v1/statement-deliveries",
-  summary: "Statements emailed, by hand or by the monthly run",
+  summary: "Statements emailed or texted, by hand or by the monthly run",
   description:
     "Newest first, for one customer or everybody: the period, where it went, what the customer owed when it went, and the message's status, or why it was not sent.",
   module: "M13",
@@ -154,6 +184,12 @@ export const StatementSchedule = z.object({
   time: z.string(),
   /** A customer owing this much or less is not sent one. */
   minimumBalance: MoneyString,
+  /**
+   * Text the statement to a customer whose main contact prefers texts, and
+   * email it to everybody else. Off unless turned on. A text that cannot go
+   * is emailed instead, and the list says so.
+   */
+  textWhenPreferred: z.boolean(),
   nextRunAt: z.string().datetime().nullable(),
   lastRunAt: z.string().datetime().nullable(),
   lastError: z.string().nullable(),
@@ -175,7 +211,7 @@ export const setStatementSchedule = defineRoute({
   path: "/v1/statement-schedule",
   summary: "Turn monthly statements on or off",
   description:
-    "On a day from 1 to 28 at a time in the company's timezone, every customer owing more than `minimumBalance` on open invoices (counted by whoever pays them) is emailed a link to their statement for the month before. Each customer is sent at most one per month, whatever the worker does. Off is a pause: the history stays.",
+    "On a day from 1 to 28 at a time in the company's timezone, every customer owing more than `minimumBalance` on open invoices (counted by whoever pays them) is sent a link to their statement for the month before: by email, or with `textWhenPreferred` by text to a customer whose main contact prefers texts, through the consent gate, and by email when the text cannot go. Each customer is sent at most one per month, whatever the worker does. Off is a pause: the history stays.",
   module: "M13",
   permissions: ["invoice:send"],
   /** Setting a state: the same request twice leaves the same state. */
@@ -185,11 +221,13 @@ export const setStatementSchedule = defineRoute({
     dayOfMonth: z.number().int().min(1).max(28).optional(),
     time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
     minimumBalance: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+    /** Left off, it stays as it was. */
+    textWhenPreferred: z.boolean().optional(),
   }),
   output: StatementSchedule,
 });
 
 export const statementRoutes = {
-  getCustomerStatement, emailCustomerStatement, listStatementDeliveries,
+  getCustomerStatement, emailCustomerStatement, textCustomerStatement, listStatementDeliveries,
   getStatementSchedule, setStatementSchedule,
 } as const;

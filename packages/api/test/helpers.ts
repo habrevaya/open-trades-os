@@ -49,7 +49,7 @@ const ORDER = [
   "financing_application", "costing_rate", "budget_line", "budget", "journal_entry",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
-  "credit_note_application", "credit_note_line", "credit_note",
+  "credit_note_payout", "credit_note_application", "credit_note_line", "credit_note",
   /** An estimate's send points at the estimate, the message it became and the link it carried. */
   "estimate_delivery",
   /** A claim points at the invoice it is about, the job and the payer. */

@@ -5,6 +5,7 @@ import {
   postAgreementBilling, postAgreementRecognition, postDeferredRelease,
   recognitionSchedule, imbalanceOf, assertBalanced, UnbalancedPostingError,
   ACCOUNTS, type LedgerEntry, TaxAsAppliedError, totalsMismatch, postCreditApplication,
+  postCreditNote, postCreditNotePayout,
 } from "../src/ledger/index.js";
 
 const usd = (v: string) => money(v, "USD");
@@ -93,6 +94,7 @@ describe("every posting balances", () => {
     ["agreement recognition", () => postAgreementRecognition({ agreementVisitId: "v1", occurredAt: at, amount: usd("114.00") })],
     ["deferred release to revenue", () => postDeferredRelease({ agreementId: "a1", occurredAt: at, amount: usd("57.00"), toRevenue: true })],
     ["deferred release to the customer", () => postDeferredRelease({ agreementId: "a2", occurredAt: at, amount: usd("57.00"), toRevenue: false })],
+    ["credit paid out", () => postCreditNotePayout({ payoutId: "o1", occurredAt: at, amount: usd("64.95") })],
   ];
 
   it.each(cases)("%s", (_name, build) => {
@@ -327,5 +329,36 @@ describe("money applied to nothing", () => {
     expect(toString(net(posting.entries, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("40.0000");
     expect(toString(net(posting.entries, ACCOUNTS.AR))).toBe("10.0000");
     expect(toString(net(posting.entries, ACCOUNTS.CASH))).toBe("-50.0000");
+  });
+});
+
+describe("a credit paid out as money", () => {
+  it("takes the credit out of what is held for the customer and the cash out of the bank, and nothing else", () => {
+    const posting = postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("108.25"), customerId: "c" });
+    expect(posting.sourceType).toBe("credit_note_payout");
+    expect(toString(net(posting.entries, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("108.2500");
+    expect(toString(net(posting.entries, ACCOUNTS.CASH))).toBe("-108.2500");
+    expect(toString(net(posting.entries, ACCOUNTS.AR))).toBe("0.0000");
+    expect(toString(net(posting.entries, ACCOUNTS.REVENUE))).toBe("0.0000");
+    expect(posting.entries.every((e) => e.customerId === "c")).toBe(true);
+  });
+
+  it("leaves nothing held after a credit is issued and paid out in full, to the cent", () => {
+    const issued = postCreditNote({
+      creditNoteId: "n", occurredAt: at,
+      totals: { subtotal: usd("100.00"), taxTotal: usd("8.25"), total: usd("108.25") },
+    });
+    const paid = postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("108.25") });
+    const all = [...issued.entries, ...paid.entries];
+    expect(toString(imbalanceOf(all))).toBe("0.0000");
+    expect(toString(net(all, ACCOUNTS.CUSTOMER_DEPOSITS))).toBe("0.0000");
+    expect(toString(net(all, ACCOUNTS.REVENUE))).toBe("100.0000");
+    expect(toString(net(all, ACCOUNTS.TAX_PAYABLE))).toBe("8.2500");
+    expect(toString(net(all, ACCOUNTS.CASH))).toBe("-108.2500");
+  });
+
+  it("refuses nothing or less than nothing", () => {
+    expect(() => postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("0") })).toThrow(RangeError);
+    expect(() => postCreditNotePayout({ payoutId: "o", occurredAt: at, amount: usd("-5") })).toThrow(RangeError);
   });
 });

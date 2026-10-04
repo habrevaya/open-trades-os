@@ -1398,12 +1398,18 @@ async function assertAllocatable(
  * credit.
  */
 export function unappliedOf(
-  payment: { amount: string; refundedAmount: string },
+  payment: { amount: string; refundedAmount: string; paidOutAmount?: string | undefined },
   allocations: Array<{ amount: string }>,
 ): m.Money {
+  /**
+   * A credit note paid out through this payment's card went back through
+   * it without coming out of it: the invoices it paid stay paid and what it
+   * held is still held. So only the rest of what was refunded counts here.
+   */
+  const refunded = m.subtract(usd(payment.refundedAmount), usd(payment.paidOutAmount ?? "0"));
   const left = m.subtract(
     m.subtract(usd(payment.amount), m.sum(allocations.map((a) => usd(a.amount)), "USD")),
-    usd(payment.refundedAmount),
+    refunded,
   );
   return m.isNegative(left) ? usd("0") : left;
 }

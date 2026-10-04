@@ -6,6 +6,7 @@ import {
   ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
+import * as creditNotes from "./credit-notes";
 import * as deposits from "./deposits";
 import { assertPeriodOpen } from "./history";
 import * as tips from "./tips";
@@ -1005,6 +1006,46 @@ async function refundFromProcessor(
     posted.push({ refundId, amount: m.toString(take), refundedAt: refundedAt.toISOString() });
   };
 
+  /**
+   * A REFUND THAT PAID OUT A CREDIT NOTE IS NOT A REFUND OF THIS PAYMENT.
+   *
+   * It went back through this payment's card because that is where a card
+   * refund has to go, and it gives back money the company owed on a credit
+   * note, not money this payment paid: the invoices stay paid. So it is
+   * posted as the payout it is (`creditNotes.settleCardPayout`) and recorded
+   * as posted under its refund id like any other, which is what keeps the
+   * same dollars from being booked again as an ordinary refund by a later
+   * event about the same charge.
+   */
+  const recordPosted = async (refundId: string, amount: m.Money) => {
+    await tx.insert(schema.integrationEvent).values({
+      organizationId: ctx.actor.organizationId,
+      direction: "inbound",
+      provider,
+      eventType: REFUND_POSTED,
+      idempotencyKey: refundId,
+      status: "succeeded",
+      entityType: "payment",
+      entityId: current.id,
+      requestPayload: { amount: m.toString(amount), eventId: event.eventId },
+      completedAt: new Date(),
+    });
+  };
+  const settlePayout = async (payout: creditNotes.Payout, at: Date | null | undefined) => {
+    const when = await openDateFor(tx, ctx.actor.organizationId, at ?? new Date());
+    current = await creditNotes.settleCardPayout(tx, ctx, payout, current, when);
+    posted.push({ refundId: payout.processorRefundId, amount: payout.amount, refundedAt: when.toISOString() });
+    await recordPosted(payout.processorRefundId!, usd(payout.amount));
+  };
+
+  /** A payout's refund the processor says failed: its credit goes back on the account. */
+  for (const refund of (event.refunds ?? []).filter((r) => r.status === "failed" || r.status === "canceled")) {
+    const payout = await creditNotes.payoutForRefund(tx, ctx.actor.organizationId, refund.refundId);
+    if (payout && payout.paymentId === current.id) {
+      await creditNotes.failCardPayout(tx, ctx, payout, `The card processor reported the refund ${refund.status}.`);
+    }
+  }
+
   const named = (event.refunds ?? []).filter((r) => r.status === null || r.status === "succeeded");
 
   if (named.length > 0) {
@@ -1017,6 +1058,12 @@ async function refundFromProcessor(
           eq(schema.integrationEvent.eventType, REFUND_POSTED),
         )).limit(1);
       if (seen.length > 0) continue;
+
+      const payout = await creditNotes.payoutForRefund(tx, ctx.actor.organizationId, refund.refundId);
+      if (payout && payout.paymentId === current.id && payout.status === "pending") {
+        await settlePayout(payout, refund.createdAt ?? event.occurredAt);
+        continue;
+      }
 
       const amount = usd(fromMinor(refund.amountMinor));
       /**
@@ -1058,8 +1105,18 @@ async function refundFromProcessor(
      * The processor reports the CUMULATIVE amount refunded, not this
      * refund's amount. Booking it whole would double count the moment a
      * second partial refund arrives, so only the increase is posted.
+     *
+     * Credit payouts waiting on this payment are what the increase is first,
+     * oldest first, each only when the increase covers all of it: they were
+     * asked for from here, so a rise in what the processor has refunded is
+     * them before it is anything somebody did in the processor's dashboard.
      */
-    const delta = m.subtract(usd(fromMinor(event.refundedMinor)), usd(current.refundedAmount));
+    let delta = m.subtract(usd(fromMinor(event.refundedMinor)), usd(current.refundedAmount));
+    for (const payout of await creditNotes.pendingPayoutsOn(tx, current.id)) {
+      if (!payout.processorRefundId || m.compare(usd(payout.amount), delta) > 0) continue;
+      await settlePayout(payout, event.occurredAt);
+      delta = m.subtract(delta, usd(payout.amount));
+    }
     if (m.isPositive(delta)) await book(delta, event.occurredAt, null);
   }
 
@@ -1327,7 +1384,12 @@ export async function refund(
       );
     }
 
-    const alreadyRefunded = usd(payment.refundedAmount);
+    /**
+     * Less credit payouts still on their way back through this card: the
+     * processor counts them already, and would refuse the difference.
+     */
+    const waiting = await creditNotes.pendingPayoutsOn(tx, payment.id);
+    const alreadyRefunded = m.add(usd(payment.refundedAmount), m.sum(waiting.map((p) => usd(p.amount)), "USD"));
     const remaining = m.subtract(usd(payment.amount), alreadyRefunded);
     if (!m.isPositive(remaining)) {
       throw new ConflictError("That payment has already been refunded in full.");

@@ -1,4 +1,4 @@
-import { type Money, add, subtract, zero, toString, isZero, isNegative, allocate, multiply, round, sum, compare, money } from "../money/index.js";
+import { type Money, add, subtract, zero, toString, isZero, isNegative, isPositive, allocate, multiply, round, sum, compare, money } from "../money/index.js";
 
 /**
  * POSTING TO THE LEDGER
@@ -763,6 +763,42 @@ export function postCreditNoteVoid(input: {
       dr(ACCOUNTS.CUSTOMER_DEPOSITS, totals.total, "Credit withdrawn", tag),
       cr(revenueAccount, totals.subtotal, "Revenue restored", tag),
       cr(ACCOUNTS.TAX_PAYABLE, totals.taxTotal, "Sales tax restored", tag),
+    ]),
+  });
+}
+
+/**
+ * PAYING A CREDIT OUT AS MONEY.
+ *
+ * The credit note's issue left what the company owes the customer in customer
+ * deposits, and this is the company handing it over: back to the card they
+ * paid with, or as cash or a cheque. The liability goes and the cash goes with
+ * it. Nothing else moves: the revenue and tax came off when the credit note
+ * was issued, and no invoice is settled or reopened.
+ *
+ * NOT `postRefund`. A refund of a payment puts the receivable back up, because
+ * it gives back money that paid an invoice, and the customer owes that invoice
+ * again. Paying out a credit gives back money the company already owed, so the
+ * receivable is not touched, even when the money goes back through the very
+ * card payment that paid the invoice the credit was raised against.
+ */
+export function postCreditNotePayout(input: {
+  payoutId: string;
+  occurredAt: Date;
+  amount: Money;
+  customerId?: string | undefined;
+}): Posting {
+  if (!isPositive(input.amount)) {
+    throw new RangeError(`postCreditNotePayout takes the amount paid out, and was given ${toString(input.amount)}.`);
+  }
+  const tag = { customerId: input.customerId };
+  return assertBalanced({
+    sourceType: "credit_note_payout",
+    sourceId: input.payoutId,
+    occurredAt: input.occurredAt,
+    entries: compact([
+      dr(ACCOUNTS.CUSTOMER_DEPOSITS, input.amount, "Credit paid out to the customer", tag),
+      cr(ACCOUNTS.CASH, input.amount, "Cash out", tag),
     ]),
   });
 }

@@ -183,9 +183,28 @@ be credited for more than it charged, counting every earlier credit and draft, a
 goodwill needs a note. `/invoices/credit-notes` lists every one, with what is still
 unused.
 
+**Paying a credit back.** A credit the customer cannot use on another invoice
+can be given back as money from the credit note's page, with **Pay it back**
+(`POST /v1/credit-notes/{id}/payouts`, which needs `payment:refund`, because
+sending money back is a different decision from raising the credit). Back to
+their card goes through the card processor as a refund against one of their
+earlier card payments (`GET /v1/credit-notes/{id}/refundable-payments` lists
+them with what each still has to refund): the credit is set aside at once, so
+it cannot also be used on an invoice, and it is posted only when the
+processor's webhook says the refund moved, like any card refund; a refund the
+processor declines keeps nothing, and one it reports failed puts the credit
+back on the account. Cash, a cheque or another way is recorded as handed
+over and posted on the day given. Either way the posting takes the credit out
+of customer deposits against cash and touches no invoice: the card payment
+records the money as refunded and as paid out, and still says it paid what it
+paid, so the invoice stays paid and nothing is reopened. The customer's
+statement shows it as the credit paid back. A credit note any of which has
+been paid out cannot be voided.
+
 A company syncing its books gets each credit note there too: the credit note itself,
-each use of it on an invoice on the day it was used, and a void as an invoice
-reversing it on the day of the void. M14 says how each lands in QuickBooks and Xero.
+each use of it on an invoice on the day it was used, each payout on the day it
+was paid, and a void as an invoice reversing it on the day of the void. M14 says
+how each lands in QuickBooks and Xero.
 
 ### Invoices and proposals as PDF
 
@@ -225,15 +244,28 @@ not to be emailed, a customer with no address, or no email provider connected is
 recorded as not sent, with the reason, under the button, and the link minted for
 it is revoked rather than left alive.
 
+**Text statement**, beside it (`POST /v1/customers/{id}/statement/text`), sends
+the same link by text, with no amounts, to the customer's main contact's mobile,
+the number on the customer, or one the office types. It goes through the consent
+gate every text goes through (M18): a number that replied STOP, no number to text,
+or no number registered to text from is recorded as not sent with the reason, and
+its link revoked.
+
 **Monthly statements** are a setting at `/invoices/statements`, off until
 somebody turns it on: on a day from 1 to 28, at a time in the company's
 timezone, every customer owing more than the amount set on open invoices
 (counted by whoever pays them) is emailed a link to their statement for the
 month before. Each customer is sent at most one per month, whatever the worker
 does: the record of it is keyed on the customer and the month under a unique
-index, and is written in the same transaction as the email. The same page lists
-every statement sent, by hand or by the run, with where it went, what was owed
-then, and what became of it.
+index, and is written in the same transaction as the email. With **Text it to
+customers whose main contact prefers texts** ticked, the run texts the link to a
+customer whose main contact prefers texts and emails everybody else; a text that
+cannot go is emailed instead, and the row says why. It is off unless somebody
+ticks it, including on a run set up before texting existed, because a contact
+says it prefers texts unless somebody changed it, and a company that chose
+emailed statements did not choose to text its customers. The same page lists
+every statement sent, by hand or by the run, with how and where it went, what was
+owed then, and what became of it.
 
 ### Deposits
 
@@ -313,6 +345,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/invoices/{id}/write-off` | `invoice:writeoff` |
 | `GET /v1/customers/{id}/statement` | `invoice:read` |
 | `POST /v1/customers/{id}/statement/email` | `invoice:send` |
+| `POST /v1/customers/{id}/statement/text` | `invoice:send` |
 | `GET /v1/statement-deliveries` | `invoice:read` |
 | `GET /v1/statement-schedule` | `invoice:read` |
 | `POST /v1/statement-schedule` | `invoice:send` |
@@ -321,6 +354,8 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/credit-notes/{id}/issue` | `invoice:credit` |
 | `POST /v1/credit-notes/{id}/apply` | `invoice:credit` |
 | `POST /v1/credit-notes/{id}/void` | `invoice:credit` |
+| `POST /v1/credit-notes/{id}/payouts` | `payment:refund` |
+| `GET /v1/credit-notes/{id}/refundable-payments` | `payment:read` |
 | `GET /v1/payments` | `payment:read` |
 | `POST /v1/payments` | `payment:collect` |
 | `POST /v1/payments/{id}/apply` | `payment:collect` |
@@ -363,12 +398,17 @@ hold one for.
 
 ## What is not built
 
-A credit note cannot be paid out as money: an unused credit is used on a later
-invoice, or a refund is recorded against a payment. A credit note that has been used
-cannot be voided; the invoice it settled has to be dealt with on its own.
-A statement is emailed as a link with a PDF attached, and it is not sent
-by text. The monthly run covers the calendar month before and nothing else, and it
-emails nothing until an email provider is connected. A tip is taken from the portal and, with cash or a check, on site; the office's own card
+A credit is paid back to a card only through one of the customer's own earlier
+card payments with enough left to refund, one payment per payout, and never to a
+card they did not pay with. A card payout waits for the processor's webhook like
+every card refund, so with no webhook configured it stays with the card
+processor on the screen. A credit note that has been used or paid out cannot be
+voided; the invoice it settled has to be dealt with on its own.
+A statement is emailed as a link with a PDF attached, or texted as the link
+alone: a text carries no file. The monthly run reads a customer's preference from
+their main contact only, not from who the invoices name. It covers the calendar
+month before and nothing else, and it emails nothing until an email provider is
+connected. A tip is taken from the portal and, with cash or a check, on site; the office's own card
 and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
 technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
