@@ -674,12 +674,18 @@ export function postCreditNote(input: {
   /** Only the amounts being credited, never the original invoice's. */
   totals: { subtotal: Money; taxTotal: Money; total: Money };
   customerId?: string | undefined;
+  /**
+   * The job of the invoice it credits, so a job's revenue (the ledger's
+   * revenue lines carrying its id) is net of what was credited back, as
+   * every report and the ad platforms' values say it is.
+   */
+  jobId?: string | undefined;
   invoiceId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
-  const tag = { customerId: input.customerId };
+  const tag = { customerId: input.customerId, jobId: input.jobId };
 
   return assertBalanced({
     sourceType: "credit_note",
@@ -737,11 +743,17 @@ export function postCreditNoteVoid(input: {
   occurredAt: Date;
   totals: { subtotal: Money; taxTotal: Money; total: Money };
   customerId?: string | undefined;
+  /**
+   * The job of the invoice it credits, so a job's revenue (the ledger's
+   * revenue lines carrying its id) is net of what was credited back, as
+   * every report and the ad platforms' values say it is.
+   */
+  jobId?: string | undefined;
   isAgreementRevenue?: boolean | undefined;
 }): Posting {
   const { totals } = input;
   const revenueAccount = input.isAgreementRevenue ? ACCOUNTS.REVENUE_AGREEMENT : ACCOUNTS.REVENUE;
-  const tag = { customerId: input.customerId };
+  const tag = { customerId: input.customerId, jobId: input.jobId };
 
   return assertBalanced({
     sourceType: "credit_note_void",

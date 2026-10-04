@@ -1,4 +1,6 @@
 import { phoneAddress } from "../comms/index.js";
+import { resolveSource } from "../marketing/index.js";
+import * as m from "../money/index.js";
 
 /**
  * THE AD PLATFORMS, THE ANALYTICS PROPERTY AND THE REVIEW LISTING, SPOKEN TO
@@ -34,10 +36,23 @@ export type AdsProvider =
   | "google_lsa"
   | "meta_ads"
   | "ga4"
-  | "google_business_profile";
+  | "google_business_profile"
+  /** Microsoft Advertising, whose spend is a report job rather than a query. */
+  | "bing_ads"
+  /** Meta's instant forms: leads filled in on Facebook or Instagram without visiting the website. */
+  | "meta_lead_ads"
+  /** What people searched before they arrived, read back from Search Console. */
+  | "search_console"
+  /** Sessions by source read back from Google Analytics, as opposed to `ga4`, which is sent events. */
+  | "ga4_data";
 
-/** Who a person signs in with to grant access. GA4's Measurement Protocol has no sign in at all. */
-export type OAuthFamily = "google" | "meta";
+/**
+ * Who a person signs in with to grant access. GA4's Measurement Protocol has
+ * no sign in at all. Microsoft's identity platform hands back a refresh token
+ * the way Google's does, and rotates it more often, which the token source
+ * already keeps.
+ */
+export type OAuthFamily = "google" | "meta" | "microsoft";
 
 /** What a platform is told about. A lead when a job is booked, a purchase when it is paid. */
 export type EventKind = "lead" | "purchase";
@@ -52,6 +67,12 @@ export interface ProviderSpec {
   pullsSpend: boolean;
   pullsLeads: boolean;
   pullsReviews: boolean;
+  /**
+   * Reads behaviour back: search queries from Search Console, sessions by
+   * source from Google Analytics. Neither is spend nor a lead, and both sit
+   * beside the leads and jobs on the marketing overview.
+   */
+  pullsAnalytics: boolean;
   sends: readonly EventKind[];
   /**
    * The lead source keys whose work this platform may be told about.
@@ -79,6 +100,7 @@ export const PROVIDERS: Readonly<Record<AdsProvider, ProviderSpec>> = {
     pullsSpend: true,
     pullsLeads: false,
     pullsReviews: false,
+    pullsAnalytics: false,
     sends: ["purchase"],
     answersFor: ["google_ads"],
     personalData: true,
@@ -96,6 +118,7 @@ export const PROVIDERS: Readonly<Record<AdsProvider, ProviderSpec>> = {
     pullsSpend: true,
     pullsLeads: true,
     pullsReviews: false,
+    pullsAnalytics: false,
     sends: [],
     answersFor: ["google_lsa"],
     personalData: false,
@@ -108,6 +131,7 @@ export const PROVIDERS: Readonly<Record<AdsProvider, ProviderSpec>> = {
     pullsSpend: true,
     pullsLeads: false,
     pullsReviews: false,
+    pullsAnalytics: false,
     sends: ["lead", "purchase"],
     answersFor: ["meta_ads"],
     personalData: true,
@@ -120,6 +144,7 @@ export const PROVIDERS: Readonly<Record<AdsProvider, ProviderSpec>> = {
     pullsSpend: false,
     pullsLeads: false,
     pullsReviews: false,
+    pullsAnalytics: false,
     sends: ["lead", "purchase"],
     answersFor: "any",
     personalData: false,
@@ -132,6 +157,70 @@ export const PROVIDERS: Readonly<Record<AdsProvider, ProviderSpec>> = {
     pullsSpend: false,
     pullsLeads: false,
     pullsReviews: true,
+    pullsAnalytics: false,
+    sends: [],
+    answersFor: [],
+    personalData: false,
+  },
+  bing_ads: {
+    provider: "bing_ads",
+    label: "Microsoft Advertising",
+    oauth: "microsoft",
+    /**
+     * `offline_access` is what makes Microsoft hand back a refresh token at
+     * all. Without it the sign in works for an hour and the next pull finds
+     * nothing to refresh with.
+     */
+    scopes: ["https://ads.microsoft.com/msads.manage", "offline_access"],
+    pullsSpend: true,
+    pullsLeads: false,
+    pullsReviews: false,
+    pullsAnalytics: false,
+    sends: [],
+    answersFor: ["bing_ads"],
+    personalData: false,
+  },
+  meta_lead_ads: {
+    provider: "meta_lead_ads",
+    label: "Meta instant forms",
+    oauth: "meta",
+    /**
+     * Reading a lead needs `leads_retrieval` and a Page token, which needs the
+     * Page scopes; `pages_manage_metadata` is what subscribes the Page to the
+     * app so Meta posts each lead as it is filled in; `ads_read` is what
+     * names the campaign a lead came from. All five are Meta app review.
+     */
+    scopes: ["leads_retrieval", "pages_show_list", "pages_read_engagement", "pages_manage_metadata", "ads_read"],
+    pullsSpend: false,
+    pullsLeads: true,
+    pullsReviews: false,
+    pullsAnalytics: false,
+    sends: [],
+    answersFor: [],
+    personalData: false,
+  },
+  search_console: {
+    provider: "search_console",
+    label: "Google Search Console",
+    oauth: "google",
+    scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
+    pullsSpend: false,
+    pullsLeads: false,
+    pullsReviews: false,
+    pullsAnalytics: true,
+    sends: [],
+    answersFor: [],
+    personalData: false,
+  },
+  ga4_data: {
+    provider: "ga4_data",
+    label: "Google Analytics 4 reports",
+    oauth: "google",
+    scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+    pullsSpend: false,
+    pullsLeads: false,
+    pullsReviews: false,
+    pullsAnalytics: true,
     sends: [],
     answersFor: [],
     personalData: false,
@@ -169,6 +258,17 @@ export const OAUTH_ENDPOINTS: Readonly<Record<OAuthFamily, { authorize: string; 
     authorize: "https://www.facebook.com/v21.0/dialog/oauth",
     token: "https://graph.facebook.com/v21.0/oauth/access_token",
   },
+  microsoft: {
+    authorize: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    token: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+  },
+};
+
+/** Whose consent screen a family's sign in is, in words for a button and a sentence. */
+export const OAUTH_LABEL: Readonly<Record<OAuthFamily, string>> = {
+  google: "Google",
+  meta: "Meta",
+  microsoft: "Microsoft",
 };
 
 /** How long a person has between pressing "Sign in" and coming back. */
@@ -204,6 +304,15 @@ export function authorizeUrl(input: {
     params.set("access_type", "offline");
     params.set("prompt", "consent");
     params.set("include_granted_scopes", "true");
+  } else if (input.family === "microsoft") {
+    /**
+     * Space separated like Google's, with the refresh token asked for through
+     * the `offline_access` scope rather than a parameter, and the code handed
+     * back in the query string where the return page reads it.
+     */
+    params.set("scope", input.scopes.join(" "));
+    params.set("response_mode", "query");
+    params.set("prompt", "consent");
   } else {
     params.set("scope", input.scopes.join(","));
   }
@@ -221,7 +330,7 @@ export function authorizeUrl(input: {
  * lead is the whole game. Reviews hourly, which is inside every reply window
  * the policy can set. Conversions every quarter of an hour.
  */
-export const CADENCE_MINUTES = { spend: 360, leads: 10, reviews: 60, conversions: 15 } as const;
+export const CADENCE_MINUTES = { spend: 360, leads: 10, reviews: 60, conversions: 15, analytics: 720 } as const;
 export type Pull = keyof typeof CADENCE_MINUTES;
 
 export const isDue = (lastStartedAt: Date | null, now: Date, minutes: number): boolean =>
@@ -250,11 +359,15 @@ const addDays = (iso: string, days: number): string => {
  * in the company's calendar; never more than ninety days, so a connection
  * left switched off for a year does not ask for a year in one request.
  */
-export function spendWindow(input: { today: string; lastThrough: string | null }): { from: string; to: string } {
+export function spendWindow(input: {
+  today: string; lastThrough: string | null;
+  /** Days asked for again; the spend default unless a pull's figures settle more slowly. */
+  revisitDays?: number | undefined;
+}): { from: string; to: string } {
   const earliest = addDays(input.today, -(MAX_PULL_DAYS - 1));
   const wanted = input.lastThrough === null
     ? addDays(input.today, -(FIRST_PULL_DAYS - 1))
-    : addDays(input.lastThrough, -(REVISIT_DAYS - 1));
+    : addDays(input.lastThrough, -((input.revisitDays ?? REVISIT_DAYS) - 1));
   const from = wanted < earliest ? earliest : wanted > input.today ? input.today : wanted;
   return { from, to: input.today };
 }
@@ -293,8 +406,9 @@ export function microsToAmount(micros: string | number): string {
  * needs apart.
  */
 export function sourceOfPlatformCampaign(provider: AdsProvider, channelType: string | null): string {
-  if (provider === "meta_ads") return "meta_ads";
+  if (provider === "meta_ads" || provider === "meta_lead_ads") return "meta_ads";
   if (provider === "google_lsa") return "google_lsa";
+  if (provider === "bing_ads") return "bing_ads";
   return channelType === "LOCAL_SERVICES" ? "google_lsa" : "google_ads";
 }
 
@@ -628,3 +742,103 @@ export function suggestReviewMatch(
       + `${days === 0 ? "the same day" : days === 1 ? "the day before" : `${days} days before`} the review.`,
   };
 }
+
+/* ------------------------------------------------------------- read back */
+
+/**
+ * Days of analytics asked for again on every pull. Search Console publishes a
+ * day two or three days late and revises it after, and Google Analytics
+ * settles a day within about two, so the last five are always asked again.
+ */
+export const ANALYTICS_REVISIT_DAYS = 5;
+
+/** Google Analytics' own words for "nobody knows", which are not a source anybody chose. */
+const GA_NOTHING = new Set(["(direct)", "(none)", "(not set)", ""]);
+
+/**
+ * The lead source a Google Analytics session came from, in this product's
+ * catalogue, so sessions sit on the same rows as the leads and jobs.
+ *
+ * `(direct)` with `(none)` is direct, which is what Google means by it. Every
+ * other pair goes through the same resolver a utm tag on a landing page does,
+ * medium included, because "google / organic" and "google / cpc" are the free
+ * listing and the ad account and must not be added together. A pair the
+ * catalogue cannot place is `unknown` here rather than refused: the session
+ * happened, and a total that drops it would disagree with Analytics' own.
+ */
+export function sessionSource(source: string | null, medium: string | null): string {
+  const s = (source ?? "").trim().toLowerCase();
+  const md = (medium ?? "").trim().toLowerCase();
+  if (GA_NOTHING.has(s) && (GA_NOTHING.has(md) || md === "")) return "direct";
+  if (GA_NOTHING.has(s)) return "unknown";
+  const resolved = resolveSource(s, GA_NOTHING.has(md) ? null : md);
+  return resolved.ok ? resolved.source : "unknown";
+}
+
+/* ------------------------------------------------------------ restating */
+
+/**
+ * WHAT TO TELL A PLATFORM WHEN A JOB'S REVENUE CHANGED AFTER IT WAS SENT
+ *
+ * A paid job is sent with its value. Then a credit note takes two hundred
+ * off it, or a second invoice adds a thousand, and the account goes on
+ * bidding on what it was told rather than what happened. The two platforms
+ * that can be told differently are told differently:
+ *
+ *   GOOGLE ADS takes a conversion adjustment against the order id the
+ *   conversion carried: a RESTATEMENT to the new value, or a RETRACTION when
+ *   nothing is left. Google replaces the value, so what is sent is the new
+ *   figure, not the difference.
+ *
+ *   META has no way to change a value it was sent. A second Purchase under a
+ *   new event id, carrying only the INCREASE, is what its Conversions API
+ *   offers, and that is what an "updated event" is here. A DECREASE cannot be
+ *   told to Meta at all, so it is written down as withheld with that reason
+ *   rather than sent as a negative purchase Meta would refuse or, worse,
+ *   count.
+ *
+ * Nothing is sent when the value is the same to the cent, which is what makes
+ * a pass that looks every quarter hour quiet.
+ */
+export type Adjustment =
+  | { kind: "none" }
+  | { kind: "restatement"; value: string }
+  | { kind: "retraction" }
+  | { kind: "increase"; value: string; total: string }
+  | { kind: "cannot_lower"; because: string };
+
+export const CANNOT_LOWER =
+  "Meta has no way to lower the value of a purchase it was already sent, so the smaller figure is recorded here and Meta still has the first one.";
+
+export function decideAdjustment(input: {
+  provider: AdsProvider;
+  /** What the platform currently believes: the first send's value, or the last adjustment's. */
+  told: string;
+  /** This platform's share of the job's revenue now, or null when nothing is left. */
+  now: string | null;
+}): Adjustment {
+  /** Compared to the cent, which is what the platform was sent, so a fraction of a cent is no change. */
+  const told = m.round(m.money(input.told));
+  const now = m.round(m.money(input.now ?? "0"));
+  const text = (value: m.Money) => m.toString(m.round(value, 2)).replace(/(\.\d{2})\d*$/, "$1");
+  if (m.equals(now, told)) return { kind: "none" };
+  if (input.provider === "google_ads") {
+    return m.isPositive(now) ? { kind: "restatement", value: text(now) } : { kind: "retraction" };
+  }
+  if (input.provider === "meta_ads") {
+    if (m.compare(now, told) < 0) return { kind: "cannot_lower", because: CANNOT_LOWER };
+    return { kind: "increase", value: text(m.subtract(now, told)), total: text(now) };
+  }
+  return { kind: "none" };
+}
+
+/** The platforms a sent purchase is restated to. */
+export const RESTATES: readonly AdsProvider[] = ["google_ads", "meta_ads"];
+
+/**
+ * The id an adjustment carries, the same on every attempt at it: the
+ * purchase's own id with the adjustment's place in line, so Meta deduplicates
+ * a retried increase and never mistakes it for the purchase itself.
+ */
+export const adjustmentEventId = (jobId: string, sequence: number): string =>
+  `${eventId("purchase", jobId)}_adj${sequence}`;

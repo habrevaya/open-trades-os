@@ -232,6 +232,66 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     authUrl: BASE_URL,
     tokenUrl: BASE_URL,
   },
+  /**
+   * Microsoft Advertising. Two ids because Microsoft's API wants both the
+   * customer (the manager) and the account the campaigns live in on every
+   * request, in headers.
+   */
+  bing_ads: {
+    customerId: { kind: "text" },
+    accountId: { kind: "text" },
+    developerTokenRef: { kind: "secret_name" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  /** Meta's instant forms, read from one Page. */
+  meta_lead_ads: {
+    pageId: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    apiVersion: { kind: "text" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  search_console: {
+    /** The property as Search Console names it: `sc-domain:example.com` or `https://www.example.com/`. */
+    siteUrl: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  ga4_data: {
+    /** The property's number, not the G- measurement id, which is the data stream's. */
+    propertyId: { kind: "text" },
+    oauthClientRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+    authUrl: BASE_URL,
+    tokenUrl: BASE_URL,
+  },
+  /**
+   * The marketplaces' API connections. Each is made by the lead source setup
+   * rather than by the generic connect form, and holds the business the
+   * account is and the name of the token its API is spoken to with. The
+   * password the platform posts with is the connection's credential.
+   */
+  angi: { baseUrl: BASE_URL },
+  thumbtack: {
+    businessId: { kind: "text" },
+    apiTokenRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+  },
+  yelp: {
+    businessId: { kind: "text" },
+    apiTokenRef: { kind: "secret_name" },
+    baseUrl: BASE_URL,
+  },
+  /** The mail house. The API key is the connection's credential. */
+  lob: {
+    baseUrl: BASE_URL,
+  },
   callrail: {
     accountId: { kind: "text" },
     companyId: { kind: "text" },
