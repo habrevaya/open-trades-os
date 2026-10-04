@@ -5,7 +5,7 @@ import * as inspections from "../src/services/inspections";
 import * as fieldOps from "../src/services/field";
 import * as dispatch from "../src/services/dispatch";
 import type { ServiceContext } from "../src/services/context";
-import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, resetOrg, testDb, fixtureId, companyToday } from "./helpers";
 
 /**
  * M33. THE REPORT, THE QUOTE, AND THE PHONE.
@@ -259,7 +259,7 @@ run("an inspection from the phone", () => {
     /** 3 psi against at least 5, and enclosure never answered: a failure the phone never claimed. */
     expect(row).toEqual({ visit_id: visitId, job_id: jobId, property_id: propertyId, result: "fail", signed_by_name: "Ray Nunez" });
 
-    const snapshot = await dispatch.snapshot(inspector(), { deviceId: device, from: new Date().toISOString().slice(0, 10), days: 2 });
+    const snapshot = await dispatch.snapshot(inspector(), { deviceId: device, from: companyToday(), days: 2 });
     expect(snapshot.inspectionPrograms.map((p) => p.name)).toEqual(["Annual backflow test"]);
     expect(snapshot.inspectionPrograms[0]!.checkpoints[1]).toEqual({
       key: "psi", label: "Differential pressure", requiresReading: true, unit: "psi", min: 5, max: null,
@@ -278,7 +278,7 @@ run("an inspection from the phone", () => {
     });
     expect(result.results[0]!.status).toBe("rejected");
     expect(result.results[0]!.rejection).toMatch(/may not file inspections/);
-    const snapshot = await dispatch.snapshot(technician(), { deviceId: device, from: new Date().toISOString().slice(0, 10), days: 2 });
+    const snapshot = await dispatch.snapshot(technician(), { deviceId: device, from: companyToday(), days: 2 });
     expect(snapshot.inspectionPrograms).toEqual([]);
   });
 

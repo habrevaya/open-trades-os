@@ -377,6 +377,18 @@ export const TEARDOWN_ORDER: readonly string[] = ORDER;
  * Deriving the id from a name makes a collision require picking the same name,
  * which is visible rather than arithmetic.
  */
+/**
+ * A date as the seeded company counts days, `offset` days from today.
+ *
+ * Not `new Date().toISOString().slice(0, 10)`: that is UTC's date, and for
+ * the hours after midnight UTC it is already tomorrow where the company is
+ * (America/Chicago, the column's default), so a visit made "now" falls
+ * outside a day asked for by it and a date "today" is refused as the future.
+ */
+export function companyToday(offset = 0, timeZone = "America/Chicago"): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(Date.now() + offset * 86_400_000));
+}
+
 export function fixtureId(name: string): string {
   const h = createHash("sha256").update(name).digest("hex");
   return [

@@ -14,7 +14,7 @@ import * as billing from "../src/services/billing";
 import * as websiteTracking from "../src/services/website-tracking";
 import { inTenant, ConflictError, type ServiceContext } from "../src/services/context";
 import { unseal } from "../src/ads/index";
-import { seedOrg, testDb, fixtureId } from "./helpers";
+import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 import { ENV, SEALING_KEY, fakeGoogleOAuth, fakePlatform, readSecret, stateOf, type Call } from "./ads-fakes";
 
 /**
@@ -45,7 +45,7 @@ const ctx = (roles: Actor["roles"] = ["owner"], userId = USER): ServiceContext =
 const fake = fakePlatform();
 const oauth = fakeGoogleOAuth(fake);
 const deps = { transport: fake.transport, readSecret, env: ENV };
-const day = (offset = 0) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+const day = (offset = 0) => companyToday(offset);
 
 /** What the fake Ads account reports, which a test changes between pulls. */
 let spendRows: { id: string; name: string; type: string; date: string; micros: string; currency?: string }[] = [];

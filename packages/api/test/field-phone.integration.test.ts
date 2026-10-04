@@ -11,7 +11,7 @@ import * as dispatchSvc from "../src/services/dispatch";
 import * as billing from "../src/services/billing";
 import * as tasks from "../src/services/tasks";
 import { inTenant, ConflictError, SignInRefusedError, type ServiceContext } from "../src/services/context";
-import { seedOrg, fixtureId, testDb, resetOrg } from "./helpers";
+import { seedOrg, fixtureId, testDb, resetOrg, companyToday } from "./helpers";
 
 /**
  * THE REST OF THE TECHNICIAN'S PHONE
@@ -327,7 +327,7 @@ run("money taken on site", () => {
   it("shows what is still owed on the phone's day", async () => {
     const { visitId } = await visitWithInvoice("75.00");
     const device = await fieldOps.register(ray(), { installationId: `ray-${crypto.randomUUID()}` });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = companyToday();
     const day = await dispatchSvc.snapshot(ray(), { deviceId: device.deviceId, from: today, days: 2 });
     const visit = day.visits.find((v) => v.id === visitId);
     expect(visit?.amountDue).toBe("75.0000");
