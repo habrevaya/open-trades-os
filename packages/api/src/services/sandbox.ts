@@ -5,7 +5,7 @@ import { assertCan, sandbox as rules, customObjects as objectRules, type Actor }
 import { audit, inTenant, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import { createOrganization } from "./organizations";
 import { memberActor } from "./session";
-import { put } from "./files";
+import { put, bytesOf, HELD } from "./files";
 import * as customFields from "./custom-fields";
 import * as customObjects from "./custom-objects";
 import * as proposalTemplates from "./proposal-templates";
@@ -163,8 +163,9 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
     const reports = await tx.select().from(schema.report).where(isNull(schema.report.deletedAt));
     const templates = await tx.select().from(schema.proposalTemplate).where(isNull(schema.proposalTemplate.deletedAt));
     const coverKeys = templates.map((t) => t.cover?.photoKey).filter((k): k is string => Boolean(k));
-    const covers = coverKeys.length === 0 ? [] : await tx.select({ key: schema.storedFile.storageKey, bytes: schema.storedFile.bytes })
+    const held = coverKeys.length === 0 ? [] : await tx.select({ key: schema.storedFile.storageKey, ...HELD })
       .from(schema.storedFile).where(and(inArray(schema.storedFile.storageKey, coverKeys), isNull(schema.storedFile.deletedAt)));
+    const covers = await Promise.all(held.map(async (file) => ({ key: file.key, bytes: await bytesOf(file) })));
     const recent = input.sampleData ? await tx.select({
       status: schema.job.status, summary: schema.job.summary, jobTypeId: schema.job.jobTypeId,
       city: schema.property.city, state: schema.property.state, postalCode: schema.property.postalCode,
@@ -551,11 +552,12 @@ async function applyItem(
       let cover = content["cover"] as { headline: string; intro: string | null; photoKey: string | null } | null;
       if (cover?.photoKey) {
         await enter(tx, sandboxId);
-        const [file] = await tx.select({ bytes: schema.storedFile.bytes }).from(schema.storedFile)
+        const [file] = await tx.select(HELD).from(schema.storedFile)
           .where(eq(schema.storedFile.sha256, cover.photoKey)).limit(1);
+        const bytes = file ? await bytesOf(file) : null;
         await enter(tx, ctx.actor.organizationId);
-        cover = file
-          ? { ...cover, photoKey: (await put(tx, ctx.actor.organizationId, { bytes: new Uint8Array(file.bytes), uploadedByUserId: ctx.actor.userId })).file.storageKey }
+        cover = bytes
+          ? { ...cover, photoKey: (await put(tx, ctx.actor.organizationId, { bytes: new Uint8Array(bytes), uploadedByUserId: ctx.actor.userId })).file.storageKey }
           : { ...cover, photoKey: null };
       }
       const [found] = exists

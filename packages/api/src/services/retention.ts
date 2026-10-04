@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { retention as rules, SYSTEM_USER_ID, isSystem, time } from "@opentradesos/core";
 import { packById } from "@opentradesos/trade-packs";
+import { emptied } from "./files";
 import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, NotFoundError, UnprocessableError,
   type ServiceContext,
@@ -93,7 +94,7 @@ async function releaseAttachments(tx: Database, organizationId: string, entityTy
       .set({ references: sql`greatest(${schema.storedFile.references} - 1, 0)`, updatedAt: new Date() })
       .where(and(eq(schema.storedFile.organizationId, organizationId), eq(schema.storedFile.storageKey, row.storageKey)));
     await tx.update(schema.storedFile)
-      .set({ bytes: Buffer.alloc(0), sizeBytes: 0, deletedAt: new Date(), updatedAt: new Date() })
+      .set(emptied())
       .where(and(
         eq(schema.storedFile.organizationId, organizationId),
         eq(schema.storedFile.storageKey, row.storageKey),

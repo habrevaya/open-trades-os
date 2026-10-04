@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { customerPortal as cp } from "@opentradesos/core";
 import { packs } from "@opentradesos/trade-packs";
@@ -209,11 +210,11 @@ export async function customerPhotoBytes(tx: Database, organizationId: string, c
   const shown = await customerPhotos(tx, organizationId, customerId);
   const photo = shown.find((p) => p.row.id === attachmentId)?.row;
   if (!photo) return null;
-  const [file] = await tx.select({ bytes: schema.storedFile.bytes, contentType: schema.storedFile.contentType })
+  const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
     .from(schema.storedFile)
     .where(and(eq(schema.storedFile.storageKey, photo.storageKey), isNull(schema.storedFile.deletedAt)))
     .limit(1);
-  return file ?? null;
+  return file ? { bytes: await bytesOf(file), contentType: file.contentType } : null;
 }
 
 /** Equipment attribute labels the company's packs declare, by category code and name. */

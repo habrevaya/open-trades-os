@@ -5,6 +5,7 @@ import { files as f, assertCan, isSystem, type Permission } from "@opentradesos/
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
+import { fileStorage, FileStorageNotConfiguredError } from "../storage";
 
 /**
  * FILES, AND THE QUEUE NOBODY DRAINED
@@ -28,12 +29,13 @@ import {
  *
  * WHAT IS HERE, AND WHAT IS NOT
  *
- * `put` and `open` are the only two functions that touch bytes, so a
- * deployment that wants an object store has one pair of functions to
- * replace. That other implementation does not exist. Files live in Postgres,
- * which is the same decision the brand assets made and for the same reason:
- * a contractor self hosting this should not need a bucket policy before they
- * can attach a photograph to a job.
+ * `put` writes bytes and `bytesOf` reads them, and nothing else touches
+ * them. Files live in Postgres by default, which is the same decision the
+ * brand assets made and for the same reason: a contractor self hosting this
+ * should not need a bucket policy before they can attach a photograph to a
+ * job. A deployment that sets `FILE_STORAGE=s3` keeps them in a bucket
+ * instead (`../storage`), and each row says which, so the two kinds sit side
+ * by side while `pnpm --filter @opentradesos/api move-files` moves them.
  *
  * CONTENT ADDRESSED, SO A RETRY IS FREE. The key comes from the SHA-256 of
  * the bytes. A phone retrying over a metered connection, and the same
@@ -94,11 +96,17 @@ export async function put(
   const hash = sha256(input.bytes);
   const key = f.storageKey({ organizationId, sha256: hash, extension: verdict.extension });
 
+  /**
+   * Locked, because the worker deletes a removed file's object from the bucket
+   * under the same lock. Without it, bytes revived here could be written to
+   * the bucket a moment before the sweep deleted the object it found on a row
+   * that was, by then, no longer deleted.
+   */
   const [found] = await tx.select().from(schema.storedFile)
     .where(and(
       eq(schema.storedFile.organizationId, organizationId),
       eq(schema.storedFile.storageKey, key),
-    )).limit(1);
+    )).limit(1).for("update");
 
   /**
    * THE SAME BYTES, KEPT AGAIN AFTER BEING DELETED. A deleted file keeps its
@@ -108,8 +116,9 @@ export async function put(
    * silence are the same file. The row is filled again rather than inserted.
    */
   if (found?.deletedAt) {
+    const where = await keep(key, input.bytes, verdict.contentType);
     const [revived] = await tx.update(schema.storedFile).set({
-      bytes: Buffer.from(input.bytes),
+      ...where,
       sizeBytes: verdict.sizeBytes,
       contentType: verdict.contentType,
       uploadedByUserId: input.uploadedByUserId ?? null,
@@ -131,17 +140,93 @@ export async function put(
     return { file: view(existing), alreadyHeld: true };
   }
 
+  const where = await keep(key, input.bytes, verdict.contentType);
   const [row] = await tx.insert(schema.storedFile).values({
     organizationId,
     storageKey: key,
     contentType: verdict.contentType,
     sha256: hash,
     sizeBytes: verdict.sizeBytes,
-    bytes: Buffer.from(input.bytes),
+    ...where,
     uploadedByUserId: input.uploadedByUserId ?? null,
   }).returning();
 
   return { file: view(row!), alreadyHeld: false };
+}
+
+/**
+ * Put the bytes wherever this deployment keeps new files, and say so in the
+ * columns that record it.
+ *
+ * Into the bucket BEFORE the row is written, so a row never names an object
+ * that is not there. The other order of failure is the harmless one: a
+ * transaction that rolls back after the upload leaves an object nothing points
+ * at, under a content addressed name the same bytes would land on again.
+ */
+async function keep(
+  storageKey: string, bytes: Uint8Array, contentType: string,
+): Promise<{ bytes: Buffer | null; storedIn: string; objectKey: string | null }> {
+  const storage = fileStorage();
+  if (storage.writeTo === "postgres") return { bytes: Buffer.from(bytes), storedIn: "postgres", objectKey: null };
+  const bucket = storage.bucket!;
+  const objectKey = `${bucket.prefix}${storageKey}`;
+  await bucket.client.put(objectKey, bytes, contentType);
+  return { bytes: null, storedIn: "object", objectKey };
+}
+
+/** Where a stored file's bytes are, which is all `bytesOf` needs to read them. */
+export interface HeldBytes {
+  bytes: Buffer | null;
+  storedIn: string;
+  objectKey: string | null;
+}
+
+/** The columns `bytesOf` needs, for a select that names its columns. */
+export const HELD = {
+  bytes: schema.storedFile.bytes,
+  storedIn: schema.storedFile.storedIn,
+  objectKey: schema.storedFile.objectKey,
+};
+
+/**
+ * A stored file's bytes, from wherever its row says they are.
+ *
+ * THE ONE READ. Every service that shows, sends, attaches or copies a file
+ * reads it through here, which is what makes the move between Postgres and a
+ * bucket safe to run while the product is in use: a row is in one place or the
+ * other at any moment, the move changes it in one statement after the copy is
+ * verified, and a reader always follows the row.
+ */
+export async function bytesOf(row: HeldBytes): Promise<Buffer> {
+  if (row.storedIn !== "object") {
+    if (!row.bytes) throw new NotFoundError("File");
+    return row.bytes;
+  }
+  const bucket = fileStorage().bucket;
+  if (!bucket) {
+    throw new FileStorageNotConfiguredError(
+      "This file is kept in object storage and this deployment has no bucket configured to read it from. "
+      + "Set the FILE_STORAGE_S3_ settings it was stored with.",
+    );
+  }
+  const held = await bucket.client.get(row.objectKey!);
+  if (!held) throw new NotFoundError("File");
+  return Buffer.from(held.buffer, held.byteOffset, held.byteLength);
+}
+
+/**
+ * What a removed file's row is set to. The bytes go at once from Postgres; a
+ * file in the bucket keeps its object key until the worker has deleted the
+ * object (`file-storage.sweep`), so a crash between the two leaves something
+ * still to do rather than an object nobody knows about.
+ */
+export function emptied() {
+  return {
+    bytes: sql<Buffer | null>`case when ${schema.storedFile.storedIn} = 'postgres' then ''::bytea end`,
+    sizeBytes: 0,
+    deletedAt: new Date(),
+    updatedAt: new Date(),
+  };
 }
 
 /**
@@ -164,7 +249,7 @@ export async function open(
         isNull(schema.storedFile.deletedAt),
       )).limit(1);
     if (!row) throw new NotFoundError("File");
-    return { bytes: row.bytes, contentType: row.contentType, sizeBytes: row.sizeBytes };
+    return { bytes: await bytesOf(row), contentType: row.contentType, sizeBytes: row.sizeBytes };
   });
 }
 

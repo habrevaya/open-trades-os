@@ -1,5 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { and, asc, eq, inArray, isNull, ne, or, type SQL } from "drizzle-orm";
+import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, money as m, pdf, reporting, time } from "@opentradesos/core";
 import { contactOf, guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
@@ -248,10 +249,10 @@ async function proposalFile(tx: Database, doc: Awaited<ReturnType<typeof proposa
   ];
   const images = new Map<string, pdf.PdfImage | null>();
   if (keys.length > 0) {
-    const files = await tx.select({ key: schema.storedFile.storageKey, bytes: schema.storedFile.bytes })
+    const files = await tx.select({ key: schema.storedFile.storageKey, ...HELD })
       .from(schema.storedFile)
       .where(and(inArray(schema.storedFile.storageKey, [...new Set(keys)]), isNull(schema.storedFile.deletedAt)));
-    for (const file of files) images.set(file.key, pdf.readImage(new Uint8Array(file.bytes)));
+    for (const file of files) images.set(file.key, pdf.readImage(new Uint8Array(await bytesOf(file))));
   }
   const coverKey = doc.layout.cover?.photoKey ?? null;
   return {

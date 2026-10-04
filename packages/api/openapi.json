@@ -11695,6 +11695,576 @@
         ]
       }
     },
+    "/v1/backups": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listBackups",
+        "summary": "Every copy taken, and every attempt that failed",
+        "description": "Newest first, with the object each copy was written to, its size and row count, why a failed one failed, and when an old one was deleted to keep the newest. A record of what happened rather than a listing of the bucket.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every copy taken, and every attempt that failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBackupsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
+        ]
+      },
+      "post": {
+        "operationId": "startBackup",
+        "summary": "Take a copy now",
+        "description": "Queues a copy for the worker's next pass, seconds away, rather than holding the request open for as long as a company takes to write out. A retry with the same Idempotency-Key asks for one copy, not two.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartBackupInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a copy now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartBackupOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
+        ]
+      }
+    },
+    "/v1/backups/destination": {
+      "description": "Served at this path: DELETE, GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "GET",
+        "PUT"
+      ],
+      "delete": {
+        "operationId": "deleteBackupDestination",
+        "summary": "Stop taking copies",
+        "description": "Forgets the bucket. The copies already in it stay there; nothing here deletes them once the destination is gone.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteBackupDestinationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stop taking copies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteBackupDestinationOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
+        ]
+      },
+      "get": {
+        "operationId": "getBackupDestination",
+        "summary": "Where this company's copies go, and when",
+        "description": "Null when copies are not being taken. The bucket is the company's own, so a copy survives the deployment going away, which for a company on somebody else's hosting is the thing worth protecting against.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "responses": {
+          "200": {
+            "description": "Where this company's copies go, and when",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBackupDestinationOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
+        ]
+      },
+      "put": {
+        "operationId": "putBackupDestination",
+        "summary": "Set where copies go and when",
+        "description": "The whole company, as the zip of spreadsheets, written to an S3 compatible bucket daily or weekly at an hour on the company's own clock, keeping the newest `keep` and deleting older ones this company wrote. The bucket is checked as it is saved, by writing a small object, reading it back and deleting it, and the answer says what the check found: a wrong key shows now rather than as a failed copy at two in the morning. Saved even when the check fails, with the failure kept on the destination until a check passes. The secret key is a NAME in the deployment's secret store, and a value that looks like the key itself is refused.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutBackupDestinationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set where copies go and when",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutBackupDestinationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
+        ]
+      }
+    },
     "/v1/bank-payments": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -41574,6 +42144,124 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GetExportManifestOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:export"
+        ]
+      }
+    },
+    "/v1/export-files/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getExportFile",
+        "summary": "One stored file, with its bytes",
+        "description": "A stored file's bytes are held apart from `stored_file`'s rows, because a page of a thousand photographs inside one JSON answer is gigabytes. Walk `stored_file` with the pages above and fetch each file here by its id. The bytes are base64, with the `sha256` they were stored under, so a copy can be checked as it is taken. The one place this product hands bytes back inside JSON: an export is read by a program that wants the file and its checksum in one answer. Each call writes an audit line.\n\nRequires a session holding: data:export.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One stored file, with its bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetExportFileOutput"
                 }
               }
             }
@@ -93628,6 +94316,369 @@
         ]
       }
     },
+    "/v1/restores": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listRestores",
+        "summary": "Every attempt to restore a copy into this company",
+        "description": "Checked, restored or refused, newest first, each with its whole report: the counts per table, the people, what to set up again and every refusal. A dry run and a refusal are recorded although everything they tried was rolled back.\n\nRequires a session holding: data:import.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every attempt to restore a copy into this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRestoresOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:import"
+        ]
+      },
+      "post": {
+        "operationId": "restoreCopy",
+        "summary": "Check a copy from a bucket, or restore it into this company",
+        "description": "Loads a whole company copy, the zip a scheduled copy writes or the newline delimited file, into THIS company, which has to be empty: a copy is never merged into a company with records of its own, because every merge decision would be somebody's invoice. All of it or none of it, in one transaction. With `dryRun: true` it does everything a restore does and rolls it back, so the counts and refusals it reports are what would happen. Ids are kept unless the company the copy came from is still on this deployment, in which case every record gets a new one, rewritten wherever it is referred to. The people in the copy come back as accounts with no password, sent a first-password link from Team; an address that already has an account with a company you do not run is refused. Whatever was held back when the copy was taken (webhook tokens, signing keys, link hashes) is listed to set up again, and nothing sends until somebody has looked: connections are set to need checking and webhooks are switched off, unless `keepSending` says otherwise. To restore a file on your own computer, upload it on the restore screen; to restore one too large to upload, put it in a bucket and restore it from there. A retry with the same Idempotency-Key answers with the restore that went through.\n\nRequires a session holding: data:import.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreCopyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Check a copy from a bucket, or restore it into this company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreCopyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:import"
+        ]
+      }
+    },
+    "/v1/restores/available": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "listRestorableCopies",
+        "summary": "The copies in a bucket, for choosing one to restore",
+        "description": "Every .zip under the prefix, newest first. A POST because it carries the bucket's details in its body; it reads and changes nothing, so a retry is harmless. Needs `data:import`, the permission of the restore it is for.\n\nRequires a session holding: data:import.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListRestorableCopiesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The copies in a bucket, for choosing one to restore",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRestorableCopiesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:import"
+        ]
+      }
+    },
     "/v1/reviews": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -138360,6 +139411,21 @@
           "fields"
         ]
       },
+      "DeleteBackupDestinationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DeleteBackupDestinationOutput": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed"
+        ]
+      },
       "DeleteCallQueueInput": {
         "type": "object",
         "properties": {}
@@ -142977,6 +144043,102 @@
         },
         "required": [
           "slots"
+        ]
+      },
+      "GetBackupDestinationOutput": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "endpoint": {
+                "type": "string"
+              },
+              "bucket": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "accessKeyId": {
+                "type": "string"
+              },
+              "secretKeyRef": {
+                "type": "string"
+              },
+              "pathStyle": {
+                "type": "boolean"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "off"
+                ]
+              },
+              "hour": {
+                "type": "integer"
+              },
+              "weekday": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "keep": {
+                "type": "integer"
+              },
+              "nextRunAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastCheckedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastCheckError": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "endpoint",
+              "bucket",
+              "region",
+              "prefix",
+              "accessKeyId",
+              "secretKeyRef",
+              "pathStyle",
+              "frequency",
+              "hour",
+              "weekday",
+              "keep",
+              "nextRunAt",
+              "lastCheckedAt",
+              "lastCheckError"
+            ]
+          }
+        },
+        "required": [
+          "destination"
         ]
       },
       "GetBranchNumberingOutput": {
@@ -148756,9 +149918,53 @@
           "layout"
         ]
       },
+      "GetExportFileOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer"
+          },
+          "bytes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "storageKey",
+          "sha256",
+          "contentType",
+          "sizeBytes",
+          "bytes"
+        ]
+      },
       "GetExportManifestOutput": {
         "type": "object",
         "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "opentradesos-export"
+            ]
+          },
+          "version": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
           "organizationId": {
             "type": "string",
             "format": "uuid"
@@ -148800,18 +150006,112 @@
                       "reason"
                     ]
                   }
+                },
+                "apart": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "column": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "column",
+                      "reason"
+                    ]
+                  }
+                },
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "nullable": {
+                        "type": "boolean"
+                      },
+                      "references": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "type",
+                      "nullable",
+                      "references"
+                    ]
+                  }
                 }
               },
               "required": [
                 "table",
                 "rows",
                 "key",
-                "redacted"
+                "redacted",
+                "apart",
+                "columns"
               ]
             }
           },
           "totalRows": {
             "type": "integer"
+          },
+          "company": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "userId",
+                "email",
+                "name"
+              ]
+            }
+          },
+          "files": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "bytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "bytes"
+            ]
           },
           "outsideTheTenant": {
             "type": "array",
@@ -148833,10 +150133,15 @@
           }
         },
         "required": [
+          "format",
+          "version",
           "organizationId",
           "generatedAt",
           "tables",
           "totalRows",
+          "company",
+          "people",
+          "files",
           "outsideTheTenant"
         ]
       },
@@ -168486,6 +169791,96 @@
           "attachments"
         ]
       },
+      "ListBackupsOutput": {
+        "type": "object",
+        "properties": {
+          "backups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "trigger": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "succeeded",
+                    "failed"
+                  ]
+                },
+                "bucket": {
+                  "type": "string"
+                },
+                "objectKey": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "finishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sizeBytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "files": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "prunedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "trigger",
+                "status",
+                "bucket",
+                "objectKey",
+                "startedAt",
+                "finishedAt",
+                "sizeBytes",
+                "rows",
+                "files",
+                "error",
+                "prunedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "backups"
+        ]
+      },
       "ListBankPaymentsOutput": {
         "type": "object",
         "properties": {
@@ -182792,6 +184187,375 @@
           "suggestions"
         ]
       },
+      "ListRestorableCopiesInput": {
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "bucket": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "region": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "prefix": {
+            "type": "string",
+            "maxLength": 200,
+            "default": ""
+          },
+          "accessKeyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "secretKeyRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pathStyle": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "endpoint",
+          "bucket",
+          "region",
+          "accessKeyId",
+          "secretKeyRef"
+        ]
+      },
+      "ListRestorableCopiesOutput": {
+        "type": "object",
+        "properties": {
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "sizeBytes": {
+                  "type": "integer"
+                },
+                "lastModified": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "sizeBytes",
+                "lastModified"
+              ]
+            }
+          }
+        },
+        "required": [
+          "copies"
+        ]
+      },
+      "ListRestoresOutput": {
+        "type": "object",
+        "properties": {
+          "restores": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "sourceName": {
+                  "type": "string"
+                },
+                "sourceSha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sourceBytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "format": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dryRun": {
+                  "type": "boolean"
+                },
+                "outcome": {
+                  "type": "string"
+                },
+                "report": {
+                  "type": "object",
+                  "properties": {
+                    "dryRun": {
+                      "type": "boolean"
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "enum": [
+                        "checked",
+                        "restored",
+                        "refused"
+                      ]
+                    },
+                    "format": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "ndjson",
+                        "archive"
+                      ]
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "organizationId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "generatedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "organizationId",
+                        "name",
+                        "generatedAt"
+                      ]
+                    },
+                    "ids": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "kept",
+                        "renumbered"
+                      ]
+                    },
+                    "tables": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "table": {
+                            "type": "string"
+                          },
+                          "inCopy": {
+                            "type": "integer"
+                          },
+                          "restored": {
+                            "type": "integer"
+                          },
+                          "notes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "table",
+                          "inCopy",
+                          "restored",
+                          "notes"
+                        ]
+                      }
+                    },
+                    "totalRows": {
+                      "type": "integer"
+                    },
+                    "restoredRows": {
+                      "type": "integer"
+                    },
+                    "files": {
+                      "type": "object",
+                      "properties": {
+                        "inCopy": {
+                          "type": "integer"
+                        },
+                        "restored": {
+                          "type": "integer"
+                        },
+                        "bytes": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "inCopy",
+                        "restored",
+                        "bytes"
+                      ]
+                    },
+                    "people": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "email": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "outcome": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "email",
+                          "name",
+                          "outcome"
+                        ]
+                      }
+                    },
+                    "setUpAgain": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "table": {
+                            "type": "string"
+                          },
+                          "column": {
+                            "type": "string"
+                          },
+                          "rows": {
+                            "type": "integer"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "table",
+                          "column",
+                          "rows",
+                          "reason"
+                        ]
+                      }
+                    },
+                    "secretNames": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "held": {
+                      "type": "object",
+                      "properties": {
+                        "connections": {
+                          "type": "integer"
+                        },
+                        "webhooks": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "connections",
+                        "webhooks"
+                      ]
+                    },
+                    "refusals": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "notes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "dryRun",
+                    "outcome",
+                    "format",
+                    "source",
+                    "ids",
+                    "tables",
+                    "totalRows",
+                    "restoredRows",
+                    "files",
+                    "people",
+                    "setUpAgain",
+                    "secretNames",
+                    "held",
+                    "refusals",
+                    "notes"
+                  ]
+                },
+                "requestedByUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "source",
+                "sourceName",
+                "sourceSha256",
+                "sourceBytes",
+                "format",
+                "dryRun",
+                "outcome",
+                "report",
+                "requestedByUserId",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "restores"
+        ]
+      },
       "ListRetentionHoldsOutput": {
         "type": "object",
         "properties": {
@@ -193023,6 +194787,193 @@
           "requiredPermissions"
         ]
       },
+      "PutBackupDestinationInput": {
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "bucket": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "region": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "prefix": {
+            "type": "string",
+            "maxLength": 200,
+            "default": ""
+          },
+          "accessKeyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "secretKeyRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pathStyle": {
+            "type": "boolean"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "off"
+            ]
+          },
+          "hour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23
+          },
+          "weekday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 6,
+            "default": null
+          },
+          "keep": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          }
+        },
+        "required": [
+          "endpoint",
+          "bucket",
+          "region",
+          "accessKeyId",
+          "secretKeyRef",
+          "frequency",
+          "hour",
+          "keep"
+        ]
+      },
+      "PutBackupDestinationOutput": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "endpoint": {
+                "type": "string"
+              },
+              "bucket": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "accessKeyId": {
+                "type": "string"
+              },
+              "secretKeyRef": {
+                "type": "string"
+              },
+              "pathStyle": {
+                "type": "boolean"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "off"
+                ]
+              },
+              "hour": {
+                "type": "integer"
+              },
+              "weekday": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "keep": {
+                "type": "integer"
+              },
+              "nextRunAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastCheckedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastCheckError": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "endpoint",
+              "bucket",
+              "region",
+              "prefix",
+              "accessKeyId",
+              "secretKeyRef",
+              "pathStyle",
+              "frequency",
+              "hour",
+              "weekday",
+              "keep",
+              "nextRunAt",
+              "lastCheckedAt",
+              "lastCheckError"
+            ]
+          },
+          "check": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "ok",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "destination",
+          "check"
+        ]
+      },
       "QueueEmailInput": {
         "type": "object",
         "properties": {
@@ -200485,6 +202436,304 @@
         "required": [
           "moved",
           "movements"
+        ]
+      },
+      "RestoreCopyInput": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "object",
+            "properties": {
+              "endpoint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "bucket": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "region": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "prefix": {
+                "type": "string",
+                "maxLength": 200,
+                "default": ""
+              },
+              "accessKeyId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "secretKeyRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "pathStyle": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "endpoint",
+              "bucket",
+              "region",
+              "accessKeyId",
+              "secretKeyRef"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "keepSending": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "dryRun"
+        ]
+      },
+      "RestoreCopyOutput": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "report": {
+            "type": "object",
+            "properties": {
+              "dryRun": {
+                "type": "boolean"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "checked",
+                  "restored",
+                  "refused"
+                ]
+              },
+              "format": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "ndjson",
+                  "archive"
+                ]
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "organizationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "generatedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "organizationId",
+                  "name",
+                  "generatedAt"
+                ]
+              },
+              "ids": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "kept",
+                  "renumbered"
+                ]
+              },
+              "tables": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "table": {
+                      "type": "string"
+                    },
+                    "inCopy": {
+                      "type": "integer"
+                    },
+                    "restored": {
+                      "type": "integer"
+                    },
+                    "notes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "table",
+                    "inCopy",
+                    "restored",
+                    "notes"
+                  ]
+                }
+              },
+              "totalRows": {
+                "type": "integer"
+              },
+              "restoredRows": {
+                "type": "integer"
+              },
+              "files": {
+                "type": "object",
+                "properties": {
+                  "inCopy": {
+                    "type": "integer"
+                  },
+                  "restored": {
+                    "type": "integer"
+                  },
+                  "bytes": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "inCopy",
+                  "restored",
+                  "bytes"
+                ]
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "outcome": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "email",
+                    "name",
+                    "outcome"
+                  ]
+                }
+              },
+              "setUpAgain": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "table": {
+                      "type": "string"
+                    },
+                    "column": {
+                      "type": "string"
+                    },
+                    "rows": {
+                      "type": "integer"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "table",
+                    "column",
+                    "rows",
+                    "reason"
+                  ]
+                }
+              },
+              "secretNames": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "held": {
+                "type": "object",
+                "properties": {
+                  "connections": {
+                    "type": "integer"
+                  },
+                  "webhooks": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "connections",
+                  "webhooks"
+                ]
+              },
+              "refusals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "dryRun",
+              "outcome",
+              "format",
+              "source",
+              "ids",
+              "tables",
+              "totalRows",
+              "restoredRows",
+              "files",
+              "people",
+              "setUpAgain",
+              "secretNames",
+              "held",
+              "refusals",
+              "notes"
+            ]
+          }
+        },
+        "required": [
+          "runId",
+          "report"
         ]
       },
       "ResubmitRegulatorySubmissionInput": {
@@ -211000,6 +213249,25 @@
           "skippedOn",
           "skipReason",
           "stillDeferred"
+        ]
+      },
+      "StartBackupInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "StartBackupOutput": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "nextRunAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queued",
+          "nextRunAt"
         ]
       },
       "StartChatInput": {

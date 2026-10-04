@@ -1,7 +1,8 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { dataExport } from "@opentradesos/api/services";
-import { ndjson, exportFilename } from "@/lib/export-stream";
+import { writeNdjson } from "@opentradesos/api/portability";
+import { streamed, exportFilename } from "@/lib/export-stream";
 
 export const dynamic = "force-dynamic";
 
@@ -14,16 +15,14 @@ export const dynamic = "force-dynamic";
  * customers greps one table out of it; a reader loading all of it reads a line
  * at a time and never holds the company in memory.
  *
- * NOT CSV, and not one file per table in a zip. A CSV per table loses the type
- * of every column and cannot represent a jsonb field at all, which is where the
- * custom fields live. A zip has to be finished before its first byte can be
- * sent, so a company with real history gets a request that times out instead of
- * a file that starts arriving.
+ * The zip of spreadsheets is the other download, at `./archive`. This one keeps
+ * every type and every nested value exactly, and is the better input to a
+ * program; that one opens in a spreadsheet.
  *
- * The file's shape lives in `lib/export-stream.ts`, where it can be tested
- * without a database. This file is the authentication, the headers and nothing
- * else: the permission, the redactions, the keyset cursor and the audit line
- * per page are all the export service's.
+ * The file's shape lives in the API package and the stream in
+ * `lib/export-stream.ts`, where both can be tested without a database. This
+ * file is the authentication, the headers and nothing else: the permission, the
+ * redactions, the one moment and the audit lines are all the export service's.
  */
 export async function GET(): Promise<Response> {
   const user = await requireSetupUser();
@@ -36,8 +35,12 @@ export async function GET(): Promise<Response> {
    */
   const manifest = await dataExport.manifest(ctx);
 
-  const stream = ndjson(manifest, (table, after) =>
-    dataExport.page(ctx, { table, ...(after ? { after } : {}) }));
+  /**
+   * The rows themselves are read in ONE transaction at one moment, so a job
+   * booked while the file downloads cannot end up in it pointing at a
+   * customer who is not.
+   */
+  const stream = streamed((sink) => dataExport.withSnapshot(ctx, "download", (source) => writeNdjson(source, sink)));
 
   return new Response(stream, {
     headers: {

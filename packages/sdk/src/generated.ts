@@ -4275,6 +4275,12 @@ export interface DefineServiceReportTemplateOutput {
   }>;
 }
 
+export type DeleteBackupDestinationInput = Record<string, unknown>;
+
+export interface DeleteBackupDestinationOutput {
+  removed: boolean;
+}
+
 export type DeleteCallQueueInput = Record<string, unknown>;
 
 export interface DeleteCallQueueOutput {
@@ -5250,6 +5256,26 @@ export interface GetAvailabilityOutput {
     endsAt: string;
     remaining: number;
   }>;
+}
+
+export interface GetBackupDestinationOutput {
+  destination: {
+    id: string;
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+    accessKeyId: string;
+    secretKeyRef: string;
+    pathStyle: boolean;
+    frequency: "daily" | "weekly" | "off";
+    hour: number;
+    weekday: number | null;
+    keep: number;
+    nextRunAt: string | null;
+    lastCheckedAt: string | null;
+    lastCheckError: string | null;
+  } | null;
 }
 
 export interface GetBranchNumberingOutput {
@@ -6344,7 +6370,18 @@ export interface GetEstimateProposalOutput {
   };
 }
 
+export interface GetExportFileOutput {
+  id: string;
+  storageKey: string;
+  sha256: string;
+  contentType: string;
+  sizeBytes: number;
+  bytes: string;
+}
+
 export interface GetExportManifestOutput {
+  format: "opentradesos-export";
+  version: 1;
   organizationId: string;
   generatedAt: string;
   tables: Array<{
@@ -6355,8 +6392,28 @@ export interface GetExportManifestOutput {
       column: string;
       reason: string;
     }>;
+    apart: Array<{
+      column: string;
+      reason: string;
+    }>;
+    columns: Array<{
+      name: string;
+      type: string;
+      nullable: boolean;
+      references: string | null;
+    }>;
   }>;
   totalRows: number;
+  company: Record<string, unknown>;
+  people: Array<{
+    userId: string;
+    email: string;
+    name: string | null;
+  }>;
+  files: {
+    count: number;
+    bytes: number;
+  };
   outsideTheTenant: Array<{
     table: string;
     reason: string;
@@ -10126,6 +10183,23 @@ export interface ListAttachmentsOutput {
   }>;
 }
 
+export interface ListBackupsOutput {
+  backups: Array<{
+    id: string;
+    trigger: string;
+    status: "running" | "succeeded" | "failed";
+    bucket: string;
+    objectKey: string;
+    startedAt: string;
+    finishedAt: string | null;
+    sizeBytes: number | null;
+    rows: number | null;
+    files: number | null;
+    error: string | null;
+    prunedAt: string | null;
+  }>;
+}
+
 export interface ListBankPaymentsOutput {
   bankPayments: Array<{
     id: string;
@@ -12792,6 +12866,81 @@ export interface ListRestockSuggestionsOutput {
   }>;
 }
 
+export interface ListRestorableCopiesInput {
+  endpoint: string;
+  bucket: string;
+  region: string;
+  prefix?: string;
+  accessKeyId: string;
+  secretKeyRef: string;
+  pathStyle?: boolean;
+}
+
+export interface ListRestorableCopiesOutput {
+  copies: Array<{
+    key: string;
+    sizeBytes: number;
+    lastModified: string | null;
+  }>;
+}
+
+export interface ListRestoresOutput {
+  restores: Array<{
+    id: string;
+    source: string;
+    sourceName: string;
+    sourceSha256: string | null;
+    sourceBytes: number | null;
+    format: string | null;
+    dryRun: boolean;
+    outcome: string;
+    report: {
+      dryRun: boolean;
+      outcome: "checked" | "restored" | "refused";
+      format: "ndjson" | "archive" | null;
+      source: {
+        organizationId: string | null;
+        name: string | null;
+        generatedAt: string | null;
+      };
+      ids: "kept" | "renumbered" | null;
+      tables: Array<{
+        table: string;
+        inCopy: number;
+        restored: number;
+        notes: string[];
+      }>;
+      totalRows: number;
+      restoredRows: number;
+      files: {
+        inCopy: number;
+        restored: number;
+        bytes: number;
+      };
+      people: Array<{
+        email: string;
+        name: string | null;
+        outcome: string;
+      }>;
+      setUpAgain: Array<{
+        table: string;
+        column: string;
+        rows: number;
+        reason: string;
+      }>;
+      secretNames: string[];
+      held: {
+        connections: number;
+        webhooks: number;
+      };
+      refusals: string[];
+      notes: string[];
+    };
+    requestedByUserId: string | null;
+    createdAt: string;
+  }>;
+}
+
 export interface ListRetentionHoldsOutput {
   holds: Array<{
     id: string;
@@ -14829,6 +14978,44 @@ export interface PublishWorkflowOutput {
   requiredPermissions: string[];
 }
 
+export interface PutBackupDestinationInput {
+  endpoint: string;
+  bucket: string;
+  region: string;
+  prefix?: string;
+  accessKeyId: string;
+  secretKeyRef: string;
+  pathStyle?: boolean;
+  frequency: "daily" | "weekly" | "off";
+  hour: number;
+  weekday?: number | null;
+  keep: number;
+}
+
+export interface PutBackupDestinationOutput {
+  destination: {
+    id: string;
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix: string;
+    accessKeyId: string;
+    secretKeyRef: string;
+    pathStyle: boolean;
+    frequency: "daily" | "weekly" | "off";
+    hour: number;
+    weekday: number | null;
+    keep: number;
+    nextRunAt: string | null;
+    lastCheckedAt: string | null;
+    lastCheckError: string | null;
+  };
+  check: {
+    ok: boolean;
+    error: string | null;
+  };
+}
+
 export interface QueueEmailInput {
   to: string;
   subject: string;
@@ -16395,6 +16582,67 @@ export interface RestockTruckInput {
 export interface RestockTruckOutput {
   moved: string;
   movements: number;
+}
+
+export interface RestoreCopyInput {
+  bucket: {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    prefix?: string;
+    accessKeyId: string;
+    secretKeyRef: string;
+    pathStyle?: boolean;
+  };
+  key: string;
+  dryRun: boolean;
+  keepSending?: boolean;
+}
+
+export interface RestoreCopyOutput {
+  runId: string;
+  report: {
+    dryRun: boolean;
+    outcome: "checked" | "restored" | "refused";
+    format: "ndjson" | "archive" | null;
+    source: {
+      organizationId: string | null;
+      name: string | null;
+      generatedAt: string | null;
+    };
+    ids: "kept" | "renumbered" | null;
+    tables: Array<{
+      table: string;
+      inCopy: number;
+      restored: number;
+      notes: string[];
+    }>;
+    totalRows: number;
+    restoredRows: number;
+    files: {
+      inCopy: number;
+      restored: number;
+      bytes: number;
+    };
+    people: Array<{
+      email: string;
+      name: string | null;
+      outcome: string;
+    }>;
+    setUpAgain: Array<{
+      table: string;
+      column: string;
+      rows: number;
+      reason: string;
+    }>;
+    secretNames: string[];
+    held: {
+      connections: number;
+      webhooks: number;
+    };
+    refusals: string[];
+    notes: string[];
+  };
 }
 
 export interface ResubmitRegulatorySubmissionInput {
@@ -18695,6 +18943,13 @@ export interface SkipAgreementVisitOutput {
   skippedOn: string;
   skipReason: string;
   stillDeferred: string;
+}
+
+export type StartBackupInput = Record<string, unknown>;
+
+export interface StartBackupOutput {
+  queued: boolean;
+  nextRunAt: string;
 }
 
 export interface StartChatInput {
@@ -22069,6 +22324,8 @@ export interface GetAvailabilityInput {
   postalCode?: string;
 }
 
+export type GetBackupDestinationInput = Record<string, never>;
+
 export type GetBranchNumberingInput = Record<string, never>;
 
 export type GetBranchOverviewInput = Record<string, never>;
@@ -22210,6 +22467,10 @@ export interface GetEstimateFinancingInput {
 }
 
 export interface GetEstimateProposalInput {
+  id: string;
+}
+
+export interface GetExportFileInput {
   id: string;
 }
 
@@ -22724,6 +22985,10 @@ export interface ListAssetsHeldByInput {
 export interface ListAttachmentsInput {
   entityType: string;
   entityId: string;
+}
+
+export interface ListBackupsInput {
+  limit?: number;
 }
 
 export interface ListBankPaymentsInput {
@@ -23328,6 +23593,10 @@ export type ListReportSchedulesInput = Record<string, never>;
 export type ListReportingLinesInput = Record<string, never>;
 
 export type ListRestockSuggestionsInput = Record<string, never>;
+
+export interface ListRestoresInput {
+  limit?: number;
+}
 
 export interface ListRetentionHoldsInput {
   includeReleased?: boolean;
@@ -24729,6 +24998,7 @@ export interface OperationTypes {
   defineCustomObject: { input: DefineCustomObjectInput; output: DefineCustomObjectOutput };
   defineMessageTemplate: { input: DefineMessageTemplateInput; output: DefineMessageTemplateOutput };
   defineServiceReportTemplate: { input: DefineServiceReportTemplateInput; output: DefineServiceReportTemplateOutput };
+  deleteBackupDestination: { input: DeleteBackupDestinationInput; output: DeleteBackupDestinationOutput };
   deleteCallQueue: { input: DeleteCallQueueParams & DeleteCallQueueInput; output: DeleteCallQueueOutput };
   deleteCampaign: { input: DeleteCampaignParams & DeleteCampaignInput; output: DeleteCampaignOutput };
   deleteCreditNote: { input: DeleteCreditNoteParams & DeleteCreditNoteInput; output: DeleteCreditNoteOutput };
@@ -24788,6 +25058,7 @@ export interface OperationTypes {
   getAssetMaintenanceDue: { input: GetAssetMaintenanceDueInput; output: GetAssetMaintenanceDueOutput };
   getAssignmentSuggestions: { input: GetAssignmentSuggestionsInput; output: GetAssignmentSuggestionsOutput };
   getAvailability: { input: GetAvailabilityInput; output: GetAvailabilityOutput };
+  getBackupDestination: { input: GetBackupDestinationInput; output: GetBackupDestinationOutput };
   getBranchNumbering: { input: GetBranchNumberingInput; output: GetBranchNumberingOutput };
   getBranchOverview: { input: GetBranchOverviewInput; output: GetBranchOverviewOutput };
   getBudgetReport: { input: GetBudgetReportInput; output: GetBudgetReportOutput };
@@ -24824,6 +25095,7 @@ export interface OperationTypes {
   getEstimate: { input: GetEstimateInput; output: GetEstimateOutput };
   getEstimateFinancing: { input: GetEstimateFinancingInput; output: GetEstimateFinancingOutput };
   getEstimateProposal: { input: GetEstimateProposalInput; output: GetEstimateProposalOutput };
+  getExportFile: { input: GetExportFileInput; output: GetExportFileOutput };
   getExportManifest: { input: GetExportManifestInput; output: GetExportManifestOutput };
   getExportPage: { input: GetExportPageInput; output: GetExportPageOutput };
   getExternalWorkOrder: { input: GetExternalWorkOrderInput; output: GetExternalWorkOrderOutput };
@@ -24963,6 +25235,7 @@ export interface OperationTypes {
   listAssets: { input: ListAssetsInput; output: ListAssetsOutput };
   listAssetsHeldBy: { input: ListAssetsHeldByInput; output: ListAssetsHeldByOutput };
   listAttachments: { input: ListAttachmentsInput; output: ListAttachmentsOutput };
+  listBackups: { input: ListBackupsInput; output: ListBackupsOutput };
   listBankPayments: { input: ListBankPaymentsInput; output: ListBankPaymentsOutput };
   listBookableServices: { input: ListBookableServicesInput; output: ListBookableServicesOutput };
   listBookingRequests: { input: ListBookingRequestsInput; output: ListBookingRequestsOutput };
@@ -25094,6 +25367,8 @@ export interface OperationTypes {
   listReportSchedules: { input: ListReportSchedulesInput; output: ListReportSchedulesOutput };
   listReportingLines: { input: ListReportingLinesInput; output: ListReportingLinesOutput };
   listRestockSuggestions: { input: ListRestockSuggestionsInput; output: ListRestockSuggestionsOutput };
+  listRestorableCopies: { input: ListRestorableCopiesInput; output: ListRestorableCopiesOutput };
+  listRestores: { input: ListRestoresInput; output: ListRestoresOutput };
   listRetentionHolds: { input: ListRetentionHoldsInput; output: ListRetentionHoldsOutput };
   listRetentionPolicies: { input: ListRetentionPoliciesInput; output: ListRetentionPoliciesOutput };
   listRetentionPurgeRuns: { input: ListRetentionPurgeRunsInput; output: ListRetentionPurgeRunsOutput };
@@ -25199,6 +25474,7 @@ export interface OperationTypes {
   publishRevision: { input: PublishRevisionParams & PublishRevisionInput; output: PublishRevisionOutput };
   publishServiceReport: { input: PublishServiceReportParams & PublishServiceReportInput; output: PublishServiceReportOutput };
   publishWorkflow: { input: PublishWorkflowParams & PublishWorkflowInput; output: PublishWorkflowOutput };
+  putBackupDestination: { input: PutBackupDestinationInput; output: PutBackupDestinationOutput };
   queueEmail: { input: QueueEmailInput; output: QueueEmailOutput };
   quoteDeficiency: { input: QuoteDeficiencyParams & QuoteDeficiencyInput; output: QuoteDeficiencyOutput };
   raiseProjectApplication: { input: RaiseProjectApplicationParams & RaiseProjectApplicationInput; output: RaiseProjectApplicationOutput };
@@ -25285,6 +25561,7 @@ export interface OperationTypes {
   resolveCoverageFromEquipment: { input: ResolveCoverageFromEquipmentParams & ResolveCoverageFromEquipmentInput; output: ResolveCoverageFromEquipmentOutput };
   respondToReview: { input: RespondToReviewParams & RespondToReviewInput; output: RespondToReviewOutput };
   restockTruck: { input: RestockTruckInput; output: RestockTruckOutput };
+  restoreCopy: { input: RestoreCopyInput; output: RestoreCopyOutput };
   resubmitRegulatorySubmission: { input: ResubmitRegulatorySubmissionParams & ResubmitRegulatorySubmissionInput; output: ResubmitRegulatorySubmissionOutput };
   retireAgreementPlan: { input: RetireAgreementPlanParams & RetireAgreementPlanInput; output: RetireAgreementPlanOutput };
   retireAsset: { input: RetireAssetParams & RetireAssetInput; output: RetireAssetOutput };
@@ -25422,6 +25699,7 @@ export interface OperationTypes {
   signOutOfPortal: { input: SignOutOfPortalInput; output: SignOutOfPortalOutput };
   signSafetyMeeting: { input: SignSafetyMeetingParams & SignSafetyMeetingInput; output: SignSafetyMeetingOutput };
   skipAgreementVisit: { input: SkipAgreementVisitParams & SkipAgreementVisitInput; output: SkipAgreementVisitOutput };
+  startBackup: { input: StartBackupInput; output: StartBackupOutput };
   startChat: { input: StartChatInput; output: StartChatOutput };
   startConnectorSignIn: { input: StartConnectorSignInParams & StartConnectorSignInInput; output: StartConnectorSignInOutput };
   startConversation: { input: StartConversationInput; output: StartConversationOutput };
@@ -25677,6 +25955,7 @@ export const OPERATIONS = {
   defineCustomObject: { method: "POST", path: "/v1/custom-objects", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   defineMessageTemplate: { method: "POST", path: "/v1/message-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   defineServiceReportTemplate: { method: "POST", path: "/v1/service-report-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
+  deleteBackupDestination: { method: "DELETE", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   deleteCallQueue: { method: "DELETE", path: "/v1/call-queues/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   deleteCampaign: { method: "DELETE", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   deleteCreditNote: { method: "DELETE", path: "/v1/credit-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
@@ -25736,6 +26015,7 @@ export const OPERATIONS = {
   getAssetMaintenanceDue: { method: "GET", path: "/v1/assets/maintenance-due", pathParams: [], queryParams: ["assetId","now"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getAssignmentSuggestions: { method: "GET", path: "/v1/dispatch/suggestions", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getAvailability: { method: "GET", path: "/v1/public/availability", pathParams: [], queryParams: ["organizationSlug","bookableServiceId","from","days","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  getBackupDestination: { method: "GET", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getBranchNumbering: { method: "GET", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
@@ -25772,6 +26052,7 @@ export const OPERATIONS = {
   getEstimate: { method: "GET", path: "/v1/estimates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getEstimateFinancing: { method: "GET", path: "/v1/estimates/{estimateId}/financing", pathParams: ["estimateId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getEstimateProposal: { method: "GET", path: "/v1/estimates/{id}/proposal", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
+  getExportFile: { method: "GET", path: "/v1/export-files/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getExportManifest: { method: "GET", path: "/v1/export", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getExportPage: { method: "GET", path: "/v1/export/{table}", pathParams: ["table"], queryParams: ["after","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getExternalWorkOrder: { method: "GET", path: "/v1/external-work-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
@@ -25911,6 +26192,7 @@ export const OPERATIONS = {
   listAssets: { method: "GET", path: "/v1/assets", pathParams: [], queryParams: ["kind","includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listAssetsHeldBy: { method: "GET", path: "/v1/assets/held-by", pathParams: [], queryParams: ["custodianKind","custodianId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listAttachments: { method: "GET", path: "/v1/attachments", pathParams: [], queryParams: ["entityType","entityId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
+  listBackups: { method: "GET", path: "/v1/backups", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   listBankPayments: { method: "GET", path: "/v1/bank-payments", pathParams: [], queryParams: ["customerId","invoiceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listBookableServices: { method: "GET", path: "/v1/public/services", pathParams: [], queryParams: ["organizationSlug","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   listBookingRequests: { method: "GET", path: "/v1/bookings", pathParams: [], queryParams: ["cursor","limit","status","from","to"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["booking:read"] },
@@ -26042,6 +26324,8 @@ export const OPERATIONS = {
   listReportSchedules: { method: "GET", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportingLines: { method: "GET", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listRestockSuggestions: { method: "GET", path: "/v1/stock/restock-suggestions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
+  listRestorableCopies: { method: "POST", path: "/v1/restores/available", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
+  listRestores: { method: "GET", path: "/v1/restores", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listRetentionHolds: { method: "GET", path: "/v1/compliance/retention/holds", pathParams: [], queryParams: ["includeReleased"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listRetentionPolicies: { method: "GET", path: "/v1/compliance/retention/rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listRetentionPurgeRuns: { method: "GET", path: "/v1/compliance/retention/purges", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -26147,6 +26431,7 @@ export const OPERATIONS = {
   publishRevision: { method: "POST", path: "/v1/pricebook/scheduled/{versionId}/publish", pathParams: ["versionId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:publish"] },
   publishServiceReport: { method: "POST", path: "/v1/service-reports/{id}/publish", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
   publishWorkflow: { method: "POST", path: "/v1/workflows/{id}/versions", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["workflow:write"] },
+  putBackupDestination: { method: "PUT", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   queueEmail: { method: "POST", path: "/v1/email/messages", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   quoteDeficiency: { method: "POST", path: "/v1/inspection-deficiencies/{id}/quote", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write","estimate:write"] },
   raiseProjectApplication: { method: "POST", path: "/v1/project-applications/{id}/raise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
@@ -26233,6 +26518,7 @@ export const OPERATIONS = {
   resolveCoverageFromEquipment: { method: "POST", path: "/v1/jobs/{id}/coverage/from-equipment", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   respondToReview: { method: "POST", path: "/v1/reviews/{id}/response", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   restockTruck: { method: "POST", path: "/v1/stock/restocks", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  restoreCopy: { method: "POST", path: "/v1/restores", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   resubmitRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions/{id}/resubmit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   retireAgreementPlan: { method: "POST", path: "/v1/agreement-plans/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   retireAsset: { method: "POST", path: "/v1/assets/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -26370,6 +26656,7 @@ export const OPERATIONS = {
   signOutOfPortal: { method: "POST", path: "/v1/portal/sign-out", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   signSafetyMeeting: { method: "POST", path: "/v1/safety/meetings/{id}/sign", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   skipAgreementVisit: { method: "POST", path: "/v1/agreement-visits/{id}/skip", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
+  startBackup: { method: "POST", path: "/v1/backups", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   startChat: { method: "POST", path: "/v1/public/chat/sessions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   startConnectorSignIn: { method: "POST", path: "/v1/connectors/{provider}/authorize", pathParams: ["provider"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   startConversation: { method: "POST", path: "/v1/conversations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
@@ -27894,6 +28181,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Stop taking copies.
+   *
+   * DELETE /v1/backups/destination. Needs data:export.
+   */
+  deleteBackupDestination(input: DeleteBackupDestinationInput = {} as DeleteBackupDestinationInput, options?: CallOptions): Promise<DeleteBackupDestinationOutput> {
+    return this.call("deleteBackupDestination", input, options);
+  }
+
+  /**
    * Delete a waiting line.
    *
    * DELETE /v1/call-queues/{id}. Needs settings:write.
@@ -28425,6 +28721,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Where this company's copies go, and when.
+   *
+   * GET /v1/backups/destination. Needs data:export.
+   */
+  getBackupDestination(input: GetBackupDestinationInput = {} as GetBackupDestinationInput, options?: CallOptions): Promise<GetBackupDestinationOutput> {
+    return this.call("getBackupDestination", input, options);
+  }
+
+  /**
    * Whether branch codes are printed in front of job and invoice numbers.
    *
    * GET /v1/branch-numbering. Needs settings:read.
@@ -28746,6 +29051,15 @@ export abstract class GeneratedOperations {
    */
   getEstimateProposal(input: GetEstimateProposalInput, options?: CallOptions): Promise<GetEstimateProposalOutput> {
     return this.call("getEstimateProposal", input, options);
+  }
+
+  /**
+   * One stored file, with its bytes.
+   *
+   * GET /v1/export-files/{id}. Needs data:export.
+   */
+  getExportFile(input: GetExportFileInput, options?: CallOptions): Promise<GetExportFileOutput> {
+    return this.call("getExportFile", input, options);
   }
 
   /**
@@ -30000,6 +30314,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Every copy taken, and every attempt that failed.
+   *
+   * GET /v1/backups. Needs data:export.
+   */
+  listBackups(input: ListBackupsInput = {} as ListBackupsInput, options?: CallOptions): Promise<ListBackupsOutput> {
+    return this.call("listBackups", input, options);
+  }
+
+  /**
    * Bank payments on their way, and the ones that failed this month.
    *
    * GET /v1/bank-payments. Needs payment:read.
@@ -31179,6 +31502,24 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The copies in a bucket, for choosing one to restore.
+   *
+   * POST /v1/restores/available. Needs data:import.
+   */
+  listRestorableCopies(input: ListRestorableCopiesInput, options?: CallOptions): Promise<ListRestorableCopiesOutput> {
+    return this.call("listRestorableCopies", input, options);
+  }
+
+  /**
+   * Every attempt to restore a copy into this company.
+   *
+   * GET /v1/restores. Needs data:import.
+   */
+  listRestores(input: ListRestoresInput = {} as ListRestoresInput, options?: CallOptions): Promise<ListRestoresOutput> {
+    return this.call("listRestores", input, options);
+  }
+
+  /**
    * Records kept whatever their age.
    *
    * GET /v1/compliance/retention/holds. Needs compliance:read.
@@ -32124,6 +32465,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set where copies go and when.
+   *
+   * PUT /v1/backups/destination. Needs data:export.
+   */
+  putBackupDestination(input: PutBackupDestinationInput, options?: CallOptions): Promise<PutBackupDestinationOutput> {
+    return this.call("putBackupDestination", input, options);
+  }
+
+  /**
    * Put an email in the outbox.
    *
    * POST /v1/email/messages. Needs message:send.
@@ -32895,6 +33245,15 @@ export abstract class GeneratedOperations {
    */
   restockTruck(input: RestockTruckInput, options?: CallOptions): Promise<RestockTruckOutput> {
     return this.call("restockTruck", input, options);
+  }
+
+  /**
+   * Check a copy from a bucket, or restore it into this company.
+   *
+   * POST /v1/restores. Needs data:import.
+   */
+  restoreCopy(input: RestoreCopyInput, options?: CallOptions): Promise<RestoreCopyOutput> {
+    return this.call("restoreCopy", input, options);
   }
 
   /**
@@ -34128,6 +34487,15 @@ export abstract class GeneratedOperations {
    */
   skipAgreementVisit(input: SkipAgreementVisitParams & SkipAgreementVisitInput, options?: CallOptions): Promise<SkipAgreementVisitOutput> {
     return this.call("skipAgreementVisit", input, options);
+  }
+
+  /**
+   * Take a copy now.
+   *
+   * POST /v1/backups. Needs data:export.
+   */
+  startBackup(input: StartBackupInput = {} as StartBackupInput, options?: CallOptions): Promise<StartBackupOutput> {
+    return this.call("startBackup", input, options);
   }
 
   /**
