@@ -36,7 +36,7 @@ export interface ProviderForm {
    * the ad platforms, whose access is granted by a person on the platform's
    * own screen rather than pasted from a vendor dashboard.
    */
-  signIn?: "Google" | "Meta";
+  signIn?: "Google" | "Meta" | "Microsoft";
 }
 
 /** What the company lets go to an ad platform about its customers. Mirrors core's three modes. */
@@ -270,6 +270,53 @@ export const FORMS: Record<string, ProviderForm> = {
       OAUTH_CLIENT,
     ],
   },
+  bing_ads: {
+    credential: "A refresh token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    signIn: "Microsoft",
+    fields: [
+      { key: "customerId", label: "Customer id", kind: "text", hint: "From the top of the Microsoft Advertising screen, or the cid in its address." },
+      { key: "accountId", label: "Account id", kind: "text", hint: "The account the campaigns are in: the aid in the address." },
+      { key: "developerTokenRef", label: "Developer token, as the name of the secret holding it", kind: "secret_name",
+        placeholder: "MICROSOFT_ADS_DEVELOPER_TOKEN", hint: "From the Microsoft Advertising Developer Portal." },
+      { ...OAUTH_CLIENT, label: "App registered in Microsoft Entra, as the name of the secret holding clientId and clientSecret as one JSON value", placeholder: "MICROSOFT_OAUTH_CLIENT" },
+    ],
+  },
+  meta_lead_ads: {
+    credential: "A Page access token kept in your own secret store, as its name (leave empty and sign in below instead)",
+    signIn: "Meta",
+    fields: [
+      { key: "pageId", label: "Facebook Page id", kind: "text", hint: "The Page your instant forms run on, from its About section." },
+      { ...OAUTH_CLIENT, label: "Meta app, as the name of the secret holding its id and secret as clientId and clientSecret", placeholder: "META_OAUTH_CLIENT",
+        hint: "The same app's secret signs every lead Meta posts, which is how a post is known to be Meta's." },
+    ],
+  },
+  search_console: {
+    credential: OWN_TOKEN,
+    signIn: "Google",
+    fields: [
+      { key: "siteUrl", label: "Search Console property", kind: "text", placeholder: "sc-domain:yourcompany.com",
+        hint: "Exactly as Search Console names it: sc-domain: and the domain, or the https address of a URL property." },
+      OAUTH_CLIENT,
+    ],
+  },
+  ga4_data: {
+    credential: OWN_TOKEN,
+    signIn: "Google",
+    fields: [
+      { key: "propertyId", label: "Property id", kind: "text", placeholder: "123456789",
+        hint: "In Analytics, Admin, Property details. Not the G- measurement id." },
+      OAUTH_CLIENT,
+    ],
+  },
+  lob: {
+    credential: "Lob secret API key, as the name of the secret holding it",
+    fields: [],
+  },
+  angi: { credential: null, fields: [], noForm: "Set up on Marketing, Lead offers, Lead sources, where its address and password are made." },
+  thumbtack: { credential: null, fields: [], noForm: "Set up on Marketing, Lead offers, Lead sources, where its address and password are made." },
+  yelp: { credential: null, fields: [], noForm: "Set up on Marketing, Lead offers, Lead sources, where its address is made." },
+  nextdoor: { credential: null, fields: [], noForm: "Nothing to connect: forward Nextdoor's emails to the lead inbox address on Marketing, Lead offers, Lead sources." },
+  lead_email: { credential: null, fields: [], noForm: "The address is on Marketing, Lead offers, Lead sources." },
   ics_feed: {
     credential: null,
     fields: [],

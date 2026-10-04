@@ -4,7 +4,7 @@ import { useKeptAction } from "@/lib/use-kept-action";
 import { signIn, type ActionState } from "./actions";
 
 /**
- * "Sign in with Google", or with Meta.
+ * "Sign in with Google", with Meta, or with Microsoft.
  *
  * The person leaves for the platform's own consent screen and comes back to
  * `/settings/integrations/oauth`. Shown once the settings are saved, because
@@ -16,7 +16,7 @@ export function SignIn({
   provider, platform, status, mayChange,
 }: {
   provider: string;
-  platform: "Google" | "Meta";
+  platform: "Google" | "Meta" | "Microsoft";
   status: string;
   mayChange: boolean;
 }) {

@@ -1,63 +1,13 @@
 "use server";
 
-import { attempt, field, fields, type FormState } from "@/lib/actions";
+import { attempt, field, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { campaigns, ConflictError } from "@opentradesos/api/services";
-import type { campaign as cp } from "@opentradesos/core";
+import { audienceFrom } from "./rules";
 
 export type CampaignState = FormState;
-
-/**
- * The audience, read off a form.
- *
- * ONE RULE PER SUBMITTED KIND, and only the kinds that were ticked. The nine
- * rules are a closed set in core, so this does not validate them: it assembles
- * what the boxes say and lets `checkAudience` refuse the rest, which reports ALL
- * the refusals rather than the first. Building a rule the union does not have is
- * a type error here rather than a runtime surprise there.
- *
- * An empty audience is not assembled into "everybody". It is passed through as
- * empty and refused, because that refusal is the most valuable one in the module:
- * no rules means the whole customer list, which is how a company's one registered
- * number gets flagged by a carrier and its domain blocked in an afternoon.
- */
-function audienceFrom(form: FormData): cp.AudienceRule[] {
-  const picked = new Set(fields(form, "rule"));
-  const rules: cp.AudienceRule[] = [];
-  const whole = (name: string, fallback: number) => {
-    const raw = field(form, name);
-    const parsed = raw === undefined ? NaN : Number(raw);
-    return Number.isInteger(parsed) ? parsed : fallback;
-  };
-
-  if (picked.has("no_job_since")) {
-    rules.push({ kind: "no_job_since", days: whole("no_job_since_days", 0) });
-  }
-  if (picked.has("equipment_older_than")) {
-    const category = field(form, "equipment_category");
-    rules.push({
-      kind: "equipment_older_than",
-      years: whole("equipment_years", 0),
-      ...(category ? { category } : {}),
-    });
-  }
-  if (picked.has("agreement_ending_within")) {
-    rules.push({ kind: "agreement_ending_within", days: whole("agreement_days", 0) });
-  }
-  if (picked.has("agreement_lapsed")) rules.push({ kind: "agreement_lapsed" });
-  if (picked.has("no_agreement")) rules.push({ kind: "no_agreement" });
-  if (picked.has("postal_code_in")) {
-    rules.push({ kind: "postal_code_in", codes: listOf(form, "postal_codes") });
-  }
-  if (picked.has("tagged_any")) {
-    rules.push({ kind: "tagged_any", tags: listOf(form, "tags") });
-  }
-  if (picked.has("open_deficiency")) rules.push({ kind: "open_deficiency" });
-  if (picked.has("served_at_least_once")) rules.push({ kind: "served_at_least_once" });
-  return rules;
-}
 
 /**
  * A datetime-local box as an instant. The browser sends the wall clock with no
@@ -73,10 +23,6 @@ function whenFrom(form: FormData, zone: string): string | undefined {
   const offset = shown.getTime() - new Date(naive.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
   return new Date(naive.getTime() - offset).toISOString();
 }
-
-/** A comma separated box, split and trimmed. Empties dropped, not kept as "". */
-const listOf = (form: FormData, name: string): string[] =>
-  (field(form, name) ?? "").split(",").map((part) => part.trim()).filter((part) => part !== "");
 
 /**
  * Every campaign write, through its service handler.
