@@ -1,9 +1,12 @@
 import { Money } from "@opentradesos/ui";
+import type { branding } from "@opentradesos/core";
 import { formatDay } from "@/lib/dates";
+import { CompanyContact } from "./CompanyContact";
 
 export interface StatementData {
   customerName: string;
   organizationName: string;
+  organizationContact: branding.CompanyContact;
   from: string;
   to: string;
   openingBalance: string;
@@ -29,9 +32,14 @@ export interface StatementData {
  * A negative balance is money the company owes the customer, and says so in
  * words rather than as a minus sign somebody misreads.
  */
-export function StatementView({ statement, timezone, invoiceHref }: {
+export function StatementView({ statement, timezone, invoiceHref, withContact = true }: {
   statement: StatementData;
   timezone: string;
+  /**
+   * Whether to print how to reach the company under its name. Off on the
+   * customer's own pages, whose header already prints it once.
+   */
+  withContact?: boolean;
   /** Where an invoice line links to, or nowhere. */
   invoiceHref?: (id: string) => string;
 }) {
@@ -50,6 +58,9 @@ export function StatementView({ statement, timezone, invoiceHref }: {
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-steel-200 pb-4">
         <div>
           <p className="text-sm text-ink-500">{statement.organizationName}</p>
+          {withContact ? (
+            <CompanyContact contact={statement.organizationContact} className="mb-2 text-xs not-italic text-ink-500" />
+          ) : null}
           <h1 className="text-xl font-semibold">Statement for {statement.customerName}</h1>
           <p className="mt-1 text-sm text-ink-700">
             {formatDay(statement.from, timezone)} to {formatDay(statement.to, timezone)}

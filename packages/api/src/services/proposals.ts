@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, estimate as est, money as m } from "@opentradesos/core";
-import { guardedRead, type ServiceContext } from "./context";
+import { contactOf, guardedRead, type ServiceContext } from "./context";
 import { assertEstimateVisible, loadEstimate } from "./estimates";
 import { inGrant, peek, requireScope } from "./portal";
 
@@ -75,6 +75,8 @@ export interface ProposalDocument {
     version: number;
     /** The company's calendar, for the dates on the page. */
     timezone: string;
+    /** How the customer reaches the company, printed under its name. */
+    contact: brand.CompanyContact;
   };
   id: string;
   number: number;
@@ -151,6 +153,7 @@ export async function proposalWithin(
       hasLogo: marks.some((a) => a.kind === "logo"),
       version: Math.floor(latest.getTime() / 1000),
       timezone: org?.timezone ?? "America/Chicago",
+      contact: await contactOf(tx, ctx.actor.organizationId),
     },
     id: full.id,
     number: full.number,

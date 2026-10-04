@@ -1,6 +1,6 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, isSystem, redact, redactMany, effectiveScope, type Actor, type Permission, type ScopedResource } from "@opentradesos/core";
+import { assertCan, branding, isSystem, redact, redactMany, effectiveScope, type Actor, type Permission, type ScopedResource } from "@opentradesos/core";
 
 /**
  * THE SERVICE LAYER
@@ -334,6 +334,28 @@ export async function timezoneOf(tx: Database, organizationId: string): Promise<
    * hours for the one tenant least able to explain what changed.
    */
   return row?.timezone ?? "America/Chicago";
+}
+
+/**
+ * How a customer reaches the company: its phone, email and postal address,
+ * for the documents and pages that print them under its name.
+ *
+ * Read here beside `timezoneOf` for the same reason: several services print
+ * it (the proposal, the statement, the PDFs, the portal's header), and every
+ * one of them reading the same columns the same way is what stops one
+ * document printing the suite number and another leaving it off.
+ */
+export async function contactOf(tx: Database, organizationId: string): Promise<branding.CompanyContact> {
+  const [org] = await tx.select({
+    phone: schema.organization.phone,
+    email: schema.organization.email,
+    addressLine1: schema.organization.addressLine1,
+    addressLine2: schema.organization.addressLine2,
+    city: schema.organization.city,
+    state: schema.organization.state,
+    postalCode: schema.organization.postalCode,
+  }).from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  return org ?? branding.NO_CONTACT;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString } from "./common";
+import { Uuid, MoneyString, CompanyContact } from "./common";
 
 /**
  * A CUSTOMER STATEMENT
@@ -46,6 +46,8 @@ export const CustomerStatement = z.object({
   customerId: Uuid,
   customerName: z.string(),
   organizationName: z.string(),
+  /** How the customer reaches the company, printed under its name. */
+  organizationContact: CompanyContact,
   from: z.string().date(),
   to: z.string().date(),
   openingBalance: MoneyString,

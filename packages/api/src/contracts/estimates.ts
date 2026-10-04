@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
+import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup, CompanyContact } from "./common";
 
 export const EstimateStatus = z.enum([
   "draft", "sent", "viewed", "approved", "declined", "expired", "converted",
@@ -276,6 +276,7 @@ export const Proposal = z.object({
     hasLogo: z.boolean(),
     version: z.number().int(),
     timezone: z.string(),
+    contact: CompanyContact,
   }),
   id: Uuid,
   number: z.number().int(),

@@ -1,10 +1,10 @@
 "use server";
 
-import { refused } from "@/lib/actions";
+import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, telephony, phoneNumbers, voice, websiteTracking, ConflictError } from "@opentradesos/api/services";
+import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, ConflictError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 /**
@@ -17,6 +17,29 @@ const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
 
 /** Everything under this layout renders the colours, so it all revalidates. */
 const refresh = () => revalidatePath("/", "layout");
+
+/**
+ * The company's names and how a customer reaches it, from the one form the
+ * setup wizard and Settings both draw. An emptied contact box is posted as
+ * null, which clears it, rather than left out, which would keep the old one:
+ * somebody who deletes the address expects it off the next invoice.
+ */
+export async function saveCompanyDetails(_previous: FormState, form: FormData): Promise<FormState> {
+  const cleared = (name: string) => field(form, name) ?? null;
+  const result = await attempt(form, async () => setup.updateDetails(await ctx(), {
+    name: field(form, "name") ?? "",
+    legalName: cleared("legalName"),
+    phone: cleared("phone"),
+    email: cleared("email"),
+    addressLine1: cleared("addressLine1"),
+    addressLine2: cleared("addressLine2"),
+    city: cleared("city"),
+    state: cleared("state"),
+    postalCode: cleared("postalCode"),
+  }));
+  refresh();
+  return result;
+}
 
 export async function setBrandColor(_previous: unknown, form: FormData) {
   try {

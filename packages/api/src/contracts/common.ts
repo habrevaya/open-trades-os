@@ -126,3 +126,17 @@ export const ExternalLookup = {
   externalSource: z.string().max(50).optional(),
   externalId: z.string().max(200).optional(),
 };
+
+/**
+ * How a customer reaches a company, as its documents print it. Every field
+ * may be null, and a document prints only the ones that are set.
+ */
+export const CompanyContact = z.object({
+  phone: z.string().nullable().describe("E.164."),
+  email: z.string().nullable(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  city: z.string().nullable(),
+  state: z.string().nullable(),
+  postalCode: z.string().nullable(),
+});

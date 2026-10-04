@@ -2,7 +2,7 @@ import { deflateSync } from "node:zlib";
 import { and, asc, eq, isNull, ne, or, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, money as m, pdf, reporting, time } from "@opentradesos/core";
-import { guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
+import { contactOf, guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
 import { invoiceScopeFilter, estimateScopeFilter } from "./scope";
 import { InvalidGrantError, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
 import { proposalWithin } from "./proposals";
@@ -41,11 +41,19 @@ export const RENDER: pdf.RenderOptions = {
   deflate: (bytes) => new Uint8Array(deflateSync(bytes)),
 };
 
-/** The company as a document's header prints it. */
+/**
+ * The company as a document's header prints it: the name, the colour, and
+ * the lines a customer needs to reach it, which every document had to leave
+ * out while the company record had no phone, email or address.
+ */
 export async function companyOf(tx: Database, organizationId: string): Promise<pdf.Company> {
   const [org] = await tx.select({ name: schema.organization.name, color: schema.organization.brandColor })
     .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
-  return { name: org?.name ?? "", color: org?.color ? brand.parseColor(org.color) : null };
+  return {
+    name: org?.name ?? "",
+    color: org?.color ? brand.parseColor(org.color) : null,
+    contact: brand.contactLines(await contactOf(tx, organizationId)),
+  };
 }
 
 /* ------------------------------------------------------------- invoice */
@@ -231,7 +239,7 @@ function proposalFile(doc: Awaited<ReturnType<typeof proposalWithin>>): PdfFile 
     filename: `proposal-${doc.number}.pdf`,
     bytes: pdf.proposalPdf({
       ...doc,
-      company: { name: doc.company.name, color: doc.company.color },
+      company: { name: doc.company.name, color: doc.company.color, contact: brand.contactLines(doc.company.contact) },
       generatedAt: new Date(),
     }, RENDER),
   };
