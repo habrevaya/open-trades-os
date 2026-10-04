@@ -4,7 +4,7 @@ import { timeOff } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { ActionForm } from "@/components/ActionForm";
 import { Empty, PageHeader, Table, Td, Th } from "@/components/Table";
-import { formatIn } from "@/lib/dates";
+import { leaveSpan } from "@/lib/dates";
 import { approve, decline } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +36,7 @@ export default async function TimeOffPage() {
   const answers = can(user.actor, "timesheet:approve");
   const waiting = answers ? await timeOff.pending(ctx) : [];
   const granted = await timeOff.upcoming(ctx);
-  const day = (iso: string) => formatIn(iso, zone, { weekday: "short", month: "short", day: "numeric" });
-  const span = (from: string, to: string) => {
-    const last = day(new Date(new Date(to).getTime() - 1).toISOString());
-    return day(from) === last ? day(from) : `${day(from)} to ${last}`;
-  };
+  const span = (from: string, to: string) => leaveSpan(from, to, zone);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">

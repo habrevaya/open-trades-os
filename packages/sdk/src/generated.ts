@@ -13777,6 +13777,8 @@ export interface ListWageScalesOutput {
     externalReference: string | null;
     baseRate: string;
     fringeRate: string | null;
+    overtimeMultiplier: string | null;
+    doubleTimeMultiplier: string | null;
     apprenticeRatio: string | null;
     effectiveFrom: string | null;
     effectiveTo: string | null;
@@ -13998,6 +14000,8 @@ export interface LoadWageScaleOutput {
   externalReference: string | null;
   baseRate: string;
   fringeRate: string | null;
+  overtimeMultiplier: string | null;
+  doubleTimeMultiplier: string | null;
   apprenticeRatio: string | null;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -17015,6 +17019,8 @@ export interface RetireWageScaleOutput {
   externalReference: string | null;
   baseRate: string;
   fringeRate: string | null;
+  overtimeMultiplier: string | null;
+  doubleTimeMultiplier: string | null;
   apprenticeRatio: string | null;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -17227,6 +17233,8 @@ export interface ReviseWageScaleOutput {
   externalReference: string | null;
   baseRate: string;
   fringeRate: string | null;
+  overtimeMultiplier: string | null;
+  doubleTimeMultiplier: string | null;
   apprenticeRatio: string | null;
   effectiveFrom: string | null;
   effectiveTo: string | null;

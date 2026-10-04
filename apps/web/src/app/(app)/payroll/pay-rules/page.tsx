@@ -162,12 +162,17 @@ export default async function PayRulesPage() {
           </Empty>
         ) : (
           <Table label="Wage scales"
-                 head={<><Th>Classification</Th><Th className="text-right">Rate</Th><Th className="text-right">Fringe</Th><Th>Set by</Th><Th>From</Th><Th>Until</Th><Th>{""}</Th></>}>
+                 head={<><Th>Classification</Th><Th className="text-right">Rate</Th><Th className="text-right">Fringe</Th><Th>Agreement terms</Th><Th>Set by</Th><Th>From</Th><Th>Until</Th><Th>{""}</Th></>}>
             {scales.map((scale) => (
               <tr key={scale.id}>
                 <Td className="font-medium">{scale.classification}</Td>
                 <Td className="text-right"><Money value={scale.baseRate} /></Td>
                 <Td className="text-right">{scale.fringeRate ? <Money value={scale.fringeRate} /> : ""}</Td>
+                <Td className="text-sm text-ink-700">
+                  {scale.overtimeMultiplier ? <span className="block">Overtime {scale.overtimeMultiplier} times</span> : null}
+                  {scale.doubleTimeMultiplier ? <span className="block">Double time {scale.doubleTimeMultiplier} times</span> : null}
+                  {scale.apprenticeRatio ? <span className="block">Apprentices {scale.apprenticeRatio}</span> : null}
+                </Td>
                 <Td>
                   {AUTHORITY[scale.authority] ?? scale.authority}
                   {scale.externalReference ? <span className="block text-xs text-ink-500">{scale.externalReference}</span> : null}
@@ -212,7 +217,18 @@ export default async function PayRulesPage() {
                 <TextField label="Reference (needed for a union agreement or a prevailing wage)" name="externalReference" />
                 <TextField label="Where it applies (optional)" name="jurisdiction" />
                 <TextField label="From (optional)" name="effectiveFrom" type="date" />
+                <TextField label="Overtime pays this many times, if the agreement says" name="overtimeMultiplier"
+                           inputMode="decimal" placeholder="1.5" />
+                <TextField label="Double time pays this many times, if the agreement says" name="doubleTimeMultiplier"
+                           inputMode="decimal" placeholder="2" />
+                <TextField label="Apprentices to journeymen, if the agreement says" name="apprenticeRatio"
+                           maxLength={50} placeholder="1:3" />
               </div>
+              <p className="mt-3 max-w-2xl text-sm text-ink-700">
+                The three agreement terms are kept with the scale so they are on file next to the rate.
+                They do not change what a week costs: overtime is still worked out from the company&rsquo;s
+                overtime rule above, and nothing checks the apprentice ratio against who is on a job.
+              </p>
             </ActionForm>
           </details>
         ) : null}

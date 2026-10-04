@@ -250,6 +250,32 @@ run("loading a wage scale", () => {
     })).resolves.toBeTruthy();
   });
 
+  it("keeps the agreement's own overtime multipliers and apprentice ratio, and carries them across a change of rate", async () => {
+    const loaded = await settings.setScale(owner(), {
+      ...SCALE, effectiveFrom: "2026-01-01",
+      overtimeMultiplier: "1.5", doubleTimeMultiplier: "2.5", apprenticeRatio: "1:3",
+    });
+    expect(loaded).toMatchObject({ overtimeMultiplier: "1.5", doubleTimeMultiplier: "2.5", apprenticeRatio: "1:3" });
+
+    const revised = await settings.reviseScale(owner(), { id: loaded.id, baseRate: "44.00", effectiveFrom: "2026-07-01" });
+    expect(revised).toMatchObject({ overtimeMultiplier: "1.5", doubleTimeMultiplier: "2.5", apprenticeRatio: "1:3" });
+    const listed = (await settings.scales(owner(), {})).find((x) => x.id === revised.id);
+    expect(listed).toMatchObject({ overtimeMultiplier: "1.5", doubleTimeMultiplier: "2.5", apprenticeRatio: "1:3" });
+
+    // A scale with none of them says so rather than inventing the company's.
+    const plain = await settings.setScale(owner(), { ...SCALE, classification: "Helper" });
+    expect(plain).toMatchObject({ overtimeMultiplier: null, doubleTimeMultiplier: null, apprenticeRatio: null });
+  });
+
+  it("refuses a multiplier under one, one that is not a number, and double time under overtime", async () => {
+    await expect(settings.setScale(owner(), { ...SCALE, overtimeMultiplier: "0.9" }))
+      .rejects.toThrow(/at least 1/);
+    await expect(settings.setScale(owner(), { ...SCALE, doubleTimeMultiplier: "twice" }))
+      .rejects.toThrow(/at least 1/);
+    await expect(settings.setScale(owner(), { ...SCALE, overtimeMultiplier: "2", doubleTimeMultiplier: "1.5" }))
+      .rejects.toThrow(/Double time cannot pay less than overtime/);
+  });
+
   it("refuses a scale that ends before it starts", async () => {
     await expect(settings.setScale(owner(), {
       ...SCALE, effectiveFrom: "2027-01-01", effectiveTo: "2026-01-01",

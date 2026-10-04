@@ -116,4 +116,19 @@ test("a technician completes onboarding and asks for a day off that the office a
   // And the technician sees the answer.
   await stranger.reload();
   await expect(stranger.getByRole("listitem").filter({ hasText: "Sister's wedding" })).toContainText("Approved");
+
+  // A few hours, another day: asked for with times, and said with them on both screens.
+  await stranger.getByLabel("First day off").fill(companyDay(9));
+  await stranger.getByLabel("Only part of the day: from").fill("13:00");
+  // Half asked is refused in words, and keeps what was typed.
+  await stranger.getByRole("button", { name: "Ask for these days" }).click();
+  await expect(stranger.getByRole("alert").filter({ hasText: "say when it starts and when it ends" })).toBeVisible();
+  await stranger.getByLabel("Only part of the day: from").fill("13:00");
+  await stranger.getByLabel("Only part of the day: until").fill("17:00");
+  await stranger.getByLabel("Why (optional)").fill("Dentist");
+  await stranger.getByRole("button", { name: "Ask for these days" }).click();
+  await expect(stranger.getByRole("listitem").filter({ hasText: "Dentist" })).toContainText("1:00 PM to 5:00 PM");
+  await owner.goto("/timesheets/time-off");
+  await expect(owner.getByRole("region", { name: "Waiting for an answer" }).getByRole("row").filter({ hasText: "Dentist" }))
+    .toContainText("1:00 PM to 5:00 PM");
 });

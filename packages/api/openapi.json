@@ -189863,6 +189863,18 @@
                     "null"
                   ]
                 },
+                "overtimeMultiplier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "doubleTimeMultiplier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "apprenticeRatio": {
                   "type": [
                     "string",
@@ -189893,6 +189905,8 @@
                 "externalReference",
                 "baseRate",
                 "fringeRate",
+                "overtimeMultiplier",
+                "doubleTimeMultiplier",
                 "apprenticeRatio",
                 "effectiveFrom",
                 "effectiveTo",
@@ -190966,6 +190980,18 @@
               "null"
             ]
           },
+          "overtimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doubleTimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "apprenticeRatio": {
             "type": [
               "string",
@@ -190996,6 +191022,8 @@
           "externalReference",
           "baseRate",
           "fringeRate",
+          "overtimeMultiplier",
+          "doubleTimeMultiplier",
           "apprenticeRatio",
           "effectiveFrom",
           "effectiveTo",
@@ -205566,6 +205594,18 @@
               "null"
             ]
           },
+          "overtimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doubleTimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "apprenticeRatio": {
             "type": [
               "string",
@@ -205596,6 +205636,8 @@
           "externalReference",
           "baseRate",
           "fringeRate",
+          "overtimeMultiplier",
+          "doubleTimeMultiplier",
           "apprenticeRatio",
           "effectiveFrom",
           "effectiveTo",
@@ -206611,6 +206653,18 @@
               "null"
             ]
           },
+          "overtimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doubleTimeMultiplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "apprenticeRatio": {
             "type": [
               "string",
@@ -206641,6 +206695,8 @@
           "externalReference",
           "baseRate",
           "fringeRate",
+          "overtimeMultiplier",
+          "doubleTimeMultiplier",
           "apprenticeRatio",
           "effectiveFrom",
           "effectiveTo",

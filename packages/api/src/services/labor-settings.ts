@@ -302,6 +302,29 @@ export async function setScale(ctx: ServiceContext, input: ScaleInput) {
     }
     if (input.fringeRate) parseRate(input.fringeRate, "fringe rate");
 
+    /**
+     * THE SCALE'S OWN MULTIPLIERS, checked as the company policy's are. A premium
+     * under one pays somebody less for working longer, and double time under
+     * overtime is a pair of numbers one of which is a typo. They are RECORDED with
+     * the scale (an agreement's terms) and not read by the pay calculation, which
+     * works overtime out from the company's overtime policy; the screen says so.
+     */
+    for (const [what, value] of [
+      ["overtime multiplier", input.overtimeMultiplier], ["double time multiplier", input.doubleTimeMultiplier],
+    ] as const) {
+      if (value === null || value === undefined) continue;
+      if (!/^\d+(\.\d+)?$/.test(value.trim()) || Number(value) < 1) {
+        throw new ConflictError(
+          `The ${what} is ${JSON.stringify(value)}. It has to be a number of at least 1, such as 1.5: `
+          + "a premium below the base rate pays somebody less for working longer.",
+        );
+      }
+    }
+    if (input.overtimeMultiplier && input.doubleTimeMultiplier
+        && Number(input.doubleTimeMultiplier) < Number(input.overtimeMultiplier)) {
+      throw new ConflictError("Double time cannot pay less than overtime. One of the two numbers is wrong.");
+    }
+
     if (input.effectiveFrom && input.effectiveTo && input.effectiveTo < input.effectiveFrom) {
       throw new ConflictError("That scale ends before it takes effect.");
     }
@@ -461,6 +484,10 @@ export async function scales(ctx: ServiceContext, input: { classification?: stri
   });
 }
 
+/** A stored rate as a person types it: "1.500000" is "1.5" and "2.000000" is "2". */
+const plainRate = (value: string | null): string | null =>
+  value === null ? null : value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
+
 function shapeScale(row: typeof schema.wageScale.$inferSelect) {
   return {
     id: row.id,
@@ -470,6 +497,8 @@ function shapeScale(row: typeof schema.wageScale.$inferSelect) {
     externalReference: row.externalReference,
     baseRate: row.baseRate,
     fringeRate: row.fringeRate,
+    overtimeMultiplier: plainRate(row.overtimeMultiplier),
+    doubleTimeMultiplier: plainRate(row.doubleTimeMultiplier),
     apprenticeRatio: row.apprenticeRatio,
     effectiveFrom: row.effectiveFrom,
     effectiveTo: row.effectiveTo,

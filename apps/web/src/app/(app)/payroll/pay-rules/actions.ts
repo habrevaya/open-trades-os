@@ -60,6 +60,9 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           externalReference: field(form, "externalReference") ?? null,
           jurisdiction: field(form, "jurisdiction") ?? null,
           fringeRate: field(form, "fringeRate") ?? null,
+          overtimeMultiplier: field(form, "overtimeMultiplier") ?? null,
+          doubleTimeMultiplier: field(form, "doubleTimeMultiplier") ?? null,
+          apprenticeRatio: field(form, "apprenticeRatio") ?? null,
           effectiveFrom: field(form, "effectiveFrom") ?? null,
         });
         return { message: "Loaded." };
