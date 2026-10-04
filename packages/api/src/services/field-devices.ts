@@ -24,6 +24,7 @@ import "../email";
 import type {
   signInDevice, listDevices, requestSignInCode, signInWithCode, setTechnicianMobile, listFieldPeople,
 } from "../contracts/field";
+import { readerFor } from "../secrets/store";
 
 /**
  * SIGNING A PHONE IN
@@ -165,13 +166,6 @@ function codeActor(organizationId: string): Actor {
   return { userId: SYSTEM_USER_ID, organizationId, roles: [], grants: ["message:read"], agentId: "sign-in-code" };
 }
 
-/** A provider credential, by the name the connection stores, from the environment like the worker's. */
-const secretFromEnv = async (ref: string): Promise<string> => {
-  const value = process.env[ref];
-  if (!value) throw new Error(`No secret in the environment for "${ref}"`);
-  return value;
-};
-
 export const sendCodeDirect: CodeSender = async (db, input) => {
   const ctx: ServiceContext = { actor: codeActor(input.organizationId), db };
 
@@ -179,7 +173,9 @@ export const sendCodeDirect: CodeSender = async (db, input) => {
     const route = await inTenant(ctx, async (tx) => {
       const from = await smsSenderFor(tx, input.organizationId, { smsRequired: true });
       if (!from) return null;
-      const provider = await smsProviderFor(tx, input.organizationId, secretFromEnv).catch(() => null);
+      // The company's own carrier secret, read the way the worker reads it.
+      const provider = await smsProviderFor(tx, input.organizationId, readerFor(tx, input.organizationId))
+        .catch(() => null);
       return provider ? { provider, from: from.e164 } : null;
     });
     if (!route) return { sent: false, reason: "This company has no number connected that can send texts." };
@@ -189,7 +185,7 @@ export const sendCodeDirect: CodeSender = async (db, input) => {
     return result.ok ? { sent: true, reason: null } : { sent: false, reason: result.message };
   }
 
-  const provider = await email.providerFor(db, input.organizationId, secretFromEnv).catch(() => null);
+  const provider = await email.providerFor(db, input.organizationId).catch(() => null);
   const sender = provider ? await inTenant(ctx, (tx) => email.senderFor(tx, input.organizationId)) : null;
   if (!provider || !sender) return { sent: false, reason: "This company has no email provider connected." };
   const result = await provider.send({

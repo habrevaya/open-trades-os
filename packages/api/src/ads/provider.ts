@@ -1,5 +1,6 @@
 import type { ads } from "@opentradesos/core";
 import type { HttpTransport } from "../accounting/provider";
+import { adapterSettings } from "../secrets/endpoints";
 
 export type { HttpTransport };
 
@@ -212,7 +213,8 @@ export function registerAdsAdapter(provider: ads.AdsProvider, factory: (input: A
 export function createAdsAdapter(provider: string, input: AdapterInput): AdsAdapter {
   const factory = registry.get(provider);
   if (!factory) throw new AdapterNotRegisteredError(provider);
-  return factory(input);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory({ ...input, settings: adapterSettings(provider, input.settings) });
 }
 
 /** Read by the catalogue test: nothing may be `built` without an adapter here. */

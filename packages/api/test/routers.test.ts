@@ -1,4 +1,20 @@
 import { describe, it, expect } from "vitest";
+
+/**
+ * A self hosted routing server is the deployment's (`OSRM_URL`,
+ * `OPENROUTESERVICE_URL`), not a connection's: an `endpoint` on a connection
+ * is dropped before the adapter is built (secret-namespace.integration).
+ */
+function routerAt(variable: string, url: string, make: () => ReturnType<typeof createRouter>) {
+  const previous = process.env[variable];
+  process.env[variable] = url;
+  try {
+    return make();
+  } finally {
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+  }
+}
 import { createRouter, registeredRouters, minutesOf } from "../src/routing/index";
 
 /**
@@ -51,7 +67,8 @@ describe("the registry", () => {
 describe("OSRM", () => {
   it("asks its table endpoint with sources and destinations named, and reads minutes back", async () => {
     const fake = fakeFetch(() => json({ code: "Ok", durations: [[600, 125], [610, null]], distances: [[9000, 2000], [9100, null]] }));
-    const router = createRouter("osrm", { settings: { endpoint: "https://osrm.test/" }, secret: null, fetch: fake.fn });
+    const router = routerAt("OSRM_URL", "https://osrm.test/",
+      () => createRouter("osrm", { settings: {}, secret: null, fetch: fake.fn }));
     const out = await router.matrix({ sources: [yard, house], destinations: [shed, yard] });
     // From the yard to the yard is no drive at all, whatever the table says.
     expect(out).toEqual({ kind: "ok", minutes: [[10, 0], [11, null]], meters: [[9000, 2000], [9100, null]] });
@@ -70,7 +87,8 @@ describe("OSRM", () => {
 
   it("passes on what OSRM said when it refused", async () => {
     const fake = fakeFetch(() => json({ code: "TooBig", message: "Too many table coordinates" }));
-    const out = await createRouter("osrm", { settings: { endpoint: "https://osrm.test" }, secret: null, fetch: fake.fn })
+    const out = await routerAt("OSRM_URL", "https://osrm.test",
+      () => createRouter("osrm", { settings: {}, secret: null, fetch: fake.fn }))
       .matrix({ sources: [yard], destinations: [house] });
     expect(out).toMatchObject({ kind: "failed", reason: expect.stringContaining("TooBig") });
   });
@@ -119,9 +137,10 @@ describe("OpenRouteService", () => {
     });
   });
 
-  it("needs no key for a company's own server, and a key for the hosted one", async () => {
+  it("needs no key for the deployment's own server, and a key for the hosted one", async () => {
     const fake = fakeFetch(() => json({ durations: [[60]] }));
-    const own = createRouter("openrouteservice", { settings: { endpoint: "https://ors.yard.test" }, secret: null, fetch: fake.fn });
+    const own = routerAt("OPENROUTESERVICE_URL", "https://ors.yard.test",
+      () => createRouter("openrouteservice", { settings: { endpoint: "https://elsewhere.test" }, secret: null, fetch: fake.fn }));
     expect(await own.matrix({ sources: [yard], destinations: [house] })).toMatchObject({ kind: "ok" });
     expect(await createRouter("openrouteservice", { settings: {}, secret: null }).matrix({ sources: [yard], destinations: [house] }))
       .toMatchObject({ kind: "failed", retryable: false });

@@ -137,10 +137,14 @@ Never set this outside a test environment. With it set, anybody who can
 connect an integration can send the provider credential the server holds to a
 host of their choosing.
 
-That covers every provider: payments, accounting, texts, calls on Twilio
-(numbers, recordings), email, AI models, call tracking and the geocoders. A
-self hosted Nominatim server is set for the whole deployment with
-`NOMINATIM_URL`, by whoever runs it, rather than on a company's connection.
+That covers every provider: payments, accounting, financing, texts, calls on
+Twilio (numbers, recordings, the browser phone), call transcripts, email, AI
+models, call tracking, the geocoders, drive times, the ad platforms (including
+their sign in and token exchange), the lead marketplaces and direct mail. A
+self hosted server is set for the whole deployment, by whoever runs it, rather
+than on a company's connection: `NOMINATIM_URL` for OpenStreetMap,
+`OSRM_URL` or `OPENROUTESERVICE_URL` for drive times, `WHISPER_URL` for
+transcripts.
 
 ## Addresses a company does choose
 

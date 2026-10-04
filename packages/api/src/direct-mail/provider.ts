@@ -1,4 +1,5 @@
 import type { HttpTransport } from "../accounting/provider";
+import { adapterSettings } from "../secrets/endpoints";
 
 export type { HttpTransport };
 export { PlatformRefusedError, PlatformUnavailableError } from "../ads/provider";
@@ -66,7 +67,8 @@ export function registerMailProvider(name: string, factory: (input: MailProvider
 export function createMailProvider(name: string, input: MailProviderInput): MailProvider {
   const factory = registry.get(name);
   if (!factory) throw new Error(`No mail provider registered for "${name}"`);
-  return factory(input);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory({ ...input, settings: adapterSettings(name, input.settings) });
 }
 
 /** Read by the catalogue test. */

@@ -14,6 +14,7 @@ import {
   type HttpTransport, type MarketplaceAdapter, type MarketplaceLead, type MarketplaceMessage, type MarketplacePlatform,
 } from "../marketplaces/index";
 import "../marketing/index";
+import { readerFor } from "../secrets/store";
 
 /**
  * LEADS FROM THE MARKETPLACES, AND TALKING TO THE CUSTOMER THROUGH THEM
@@ -49,12 +50,6 @@ export interface MarketplaceDeps {
   transport?: HttpTransport | undefined;
   readSecret?: SecretReader | undefined;
 }
-
-const envSecret: SecretReader = async (ref) => {
-  const value = process.env[ref];
-  if (!value) throw new ConflictError(`No secret in the environment for "${ref}".`);
-  return value;
-};
 
 const PLATFORMS: readonly MarketplacePlatform[] = ["angi", "thumbtack", "yelp"];
 const isPlatform = (value: string): value is MarketplacePlatform => (PLATFORMS as readonly string[]).includes(value);
@@ -244,7 +239,6 @@ export interface WebhookInput {
  * (Yelp retries), and 2xx for anything recorded, including a lead seen before.
  */
 export async function receiveWebhook(db: Database, input: WebhookInput, deps: MarketplaceDeps = {}): Promise<WebhookAnswer> {
-  const readSecret = deps.readSecret ?? envSecret;
   const [connector] = await db.select().from(schema.leadSourceConnector)
     .where(and(eq(schema.leadSourceConnector.webhookToken, input.token), isNull(schema.leadSourceConnector.deletedAt)))
     .limit(1);
@@ -254,6 +248,8 @@ export async function receiveWebhook(db: Database, input: WebhookInput, deps: Ma
     ? await db.select().from(schema.integrationConnection)
       .where(eq(schema.integrationConnection.id, connector.connectionId)).limit(1)
     : [];
+  /** The connector's own company's secrets, never a variable with the bare name a connection holds. */
+  const readSecret = deps.readSecret ?? readerFor(db, connector.organizationId);
 
   if (connector.kind === "webhook") return genericWebhook(db, connector, connection ?? null, input, readSecret);
   if (!isPlatform(connector.kind) || !connection || connection.status !== "connected") {
@@ -552,7 +548,7 @@ export async function sendOfferMessage(
   try {
     const settings = (connection.settings ?? {}) as Record<string, unknown>;
     const tokenRef = typeof settings["apiTokenRef"] === "string" ? settings["apiTokenRef"] : null;
-    const apiToken = tokenRef ? await (deps.readSecret ?? envSecret)(tokenRef) : null;
+    const apiToken = tokenRef ? await (deps.readSecret ?? readerFor(ctx.db, ctx.actor.organizationId))(tokenRef) : null;
     const adapter: MarketplaceAdapter = createMarketplace(connector.kind, {
       settings, webhookSecret: null, apiToken,
       transport: deps.transport ?? (globalThis.fetch as unknown as HttpTransport),

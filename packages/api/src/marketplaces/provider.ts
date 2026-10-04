@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { HttpTransport } from "../accounting/provider";
 import type { InboundLead } from "../marketing/provider";
+import { adapterSettings } from "../secrets/endpoints";
 
 export type { HttpTransport };
 export { PlatformRefusedError, PlatformUnavailableError, AuthorizationLostError } from "../ads/provider";
@@ -96,7 +97,8 @@ export function registerMarketplace(platform: MarketplacePlatform, factory: (inp
 export function createMarketplace(platform: string, input: MarketplaceInput): MarketplaceAdapter {
   const factory = registry.get(platform);
   if (!factory) throw new Error(`No lead marketplace adapter registered for "${platform}"`);
-  return factory(input);
+  // Never a stored endpoint override: see `adapterSettings`.
+  return factory({ ...input, settings: adapterSettings(platform, input.settings) });
 }
 
 /** Read by the catalogue test: nothing may be `built` without an adapter here or in another registry. */

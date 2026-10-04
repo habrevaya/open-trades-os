@@ -89,6 +89,13 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     accountSid: { kind: "text" },
     messagingServiceSid: { kind: "text" },
     webhookToken: WEBHOOK_TOKEN,
+    /**
+     * The browser phone, written by its own setup (services/softphone.ts):
+     * an API key SID, the NAME of the secret holding that key's secret
+     * (`apiKeySecretRef`, read from the company's own secrets like any other),
+     * the TwiML app and the caller id number.
+     */
+    softphone: { kind: "record", system: true },
     baseUrl: BASE_URL,
   },
   justcall: {
@@ -164,10 +171,15 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     maxAmount: { kind: "text" },
     /** Off hides the monthly figure everywhere and keeps the apply link. On by default once connected. */
     showMonthly: { kind: "boolean" },
+    baseUrl: BASE_URL,
   },
   osrm: {
-    /** The address of the company's own OSRM server. Required: there is no public default. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the routing server is. An endpoint: every customer's coordinates
+     * go to it, from inside the deployment's network. A self hosted OSRM is
+     * the deployment's `OSRM_URL`, never a company's connection.
+     */
+    endpoint: BASE_URL,
     /** The OSRM profile, `driving` unless the server was built with another. */
     profile: { kind: "text" },
   },
@@ -177,15 +189,23 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     baseUrl: BASE_URL,
   },
   openrouteservice: {
-    /** A self hosted server; the hosted service when absent. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the API is. An endpoint, which would receive the key: a self
+     * hosted server is the deployment's `OPENROUTESERVICE_URL`.
+     */
+    endpoint: BASE_URL,
     /** `driving-car` unless a truck profile suits the vans better. */
     profile: { kind: "text" },
     baseUrl: BASE_URL,
   },
   whisper: {
-    /** Where the API lives: OpenAI's, or a Whisper server the company runs itself. */
-    endpoint: { kind: "text" },
+    /**
+     * Where the API lives. An endpoint like `baseUrl`: the API key and every
+     * customer's recorded voice go to it. A Whisper server of the
+     * deployment's own is `WHISPER_URL`, set by whoever runs it
+     * (docs/self-hosting/voice.md), never a company's connection.
+     */
+    endpoint: BASE_URL,
     model: { kind: "text" },
     language: { kind: "text" },
     baseUrl: BASE_URL,
@@ -258,6 +278,8 @@ export const CONNECTOR_SETTINGS: Readonly<Record<string, Readonly<Record<string,
     accountId: { kind: "text" },
     developerTokenRef: { kind: "secret_name" },
     oauthClientRef: { kind: "secret_name" },
+    /** How long to wait between asks for a report Microsoft is still building. */
+    pollMs: { kind: "number" },
     baseUrl: BASE_URL,
     authUrl: BASE_URL,
     tokenUrl: BASE_URL,

@@ -21,6 +21,7 @@ import {
  * with nothing to say why.
  */
 import "../financing/index";
+import { readerFor } from "../secrets/store";
 
 /**
  * CONSUMER FINANCING
@@ -108,28 +109,26 @@ export async function connectionById(db: Database, connectionId: string): Promis
 
 export type ReadSecret = (ref: string) => Promise<string>;
 
-/** The secret named by a reference, from the environment, refused in words when it is not there. */
-export const secretFromEnvironment: ReadSecret = async (ref: string) => {
-  const value = process.env[ref];
-  if (!value) {
-    throw new ConflictError(
-      `No financing credential in the environment under "${ref}". The connection names it and nothing is set there.`,
-    );
-  }
-  return value;
-};
-
 export interface FinancingDeps {
-  readSecret: ReadSecret;
+  /**
+   * For a test. Left out, the connection's own company's secrets
+   * (`readerFor`), never a variable with the bare name it holds.
+   */
+  readSecret?: ReadSecret | undefined;
   /** Injected so a test never reaches a lender. */
   provider?: FinancingProvider | undefined;
 }
 
-export const DEFAULT_DEPS: FinancingDeps = { readSecret: secretFromEnvironment };
+export const DEFAULT_DEPS: FinancingDeps = {};
 
-async function providerFor(connection: Connection, deps: FinancingDeps): Promise<FinancingProvider> {
+const secretsOf = (db: Database, connection: Connection, deps: FinancingDeps): ReadSecret =>
+  deps.readSecret ?? readerFor(db, connection.organizationId);
+
+async function providerFor(db: Database, connection: Connection, deps: FinancingDeps): Promise<FinancingProvider> {
   if (deps.provider) return deps.provider;
-  return createFinancingProvider(connection.provider, connection.settings, await deps.readSecret(connection.credentialRef));
+  return createFinancingProvider(
+    connection.provider, connection.settings, await secretsOf(db, connection, deps)(connection.credentialRef),
+  );
 }
 
 /**
@@ -397,7 +396,7 @@ async function openWithin(
     .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
 
   const id = randomUUID();
-  const provider = await providerFor(connection, deps);
+  const provider = await providerFor(tx, connection, deps);
   const created = await provider.createApplication({
     amountMinor: minorOf(subject.amount),
     currency: subject.currency,
@@ -888,7 +887,7 @@ export async function refresh(ctx: ServiceContext, input: { applicationId: strin
     const [connectionRow] = await tx.select().from(schema.integrationConnection)
       .where(eq(schema.integrationConnection.id, row.connectionId)).limit(1);
     if (!connectionRow) throw new FinancingNotConfiguredError(row.provider);
-    const provider = await providerFor(readConnection(connectionRow), deps);
+    const provider = await providerFor(tx, readConnection(connectionRow), deps);
     const read = await provider.readApplication(row.externalId);
     if (!read.ok) throw new ConflictError(`The lender could not be asked: ${read.message}`);
     await applyState(tx, ctx, row, read.value);
@@ -924,10 +923,10 @@ export async function receiveWebhook(
   if (!connection.webhookSecretRef) return { status: 409, body: { error: "No signing secret is set on this connection." } };
 
   let secret: string;
-  try { secret = await deps.readSecret(connection.webhookSecretRef); }
+  try { secret = await secretsOf(db, connection, deps)(connection.webhookSecretRef); }
   catch { return { status: 409, body: { error: "The signing secret named on this connection is not set." } }; }
 
-  const provider = await providerFor(connection, deps);
+  const provider = await providerFor(db, connection, deps);
   if (!provider.verify(input.request, secret)) return { status: 401, body: { error: "Bad signature" } };
   const event = provider.parseEvent(input.request);
   if (!event) return { status: 422, body: { error: "That body is not an event this can read." } };

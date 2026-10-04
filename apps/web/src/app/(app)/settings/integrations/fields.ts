@@ -199,9 +199,6 @@ export const FORMS: Record<string, ProviderForm> = {
   osrm: {
     credential: null,
     fields: [
-      { key: "endpoint", label: "Your OSRM server's address", kind: "text",
-        placeholder: "https://osrm.yourcompany.com",
-        hint: "Where your own OSRM server answers. There is no public one to fall back on." },
       { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving" },
     ],
   },
@@ -217,9 +214,6 @@ export const FORMS: Record<string, ProviderForm> = {
     credential: "API key, as the name of the secret holding it (not needed for your own server)",
     credentialSecret: "API key",
     fields: [
-      { key: "endpoint", label: "Your own server (optional)", kind: "text",
-        placeholder: "https://api.openrouteservice.org",
-        hint: "Leave blank for the hosted service, which needs a key." },
       { key: "profile", label: "Profile (optional)", kind: "text", placeholder: "driving-car" },
     ],
   },

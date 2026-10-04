@@ -40,6 +40,9 @@ describe("the integrations screen", () => {
       for (const field of form.fields) {
         const spec = declared[field.key];
         if (!spec) wrong.push(`${provider}.${field.key} is not a setting ${provider} reads`);
+        // Where a provider's requests go is never a company's to type: the
+        // service refuses it, so a box for it is a form that cannot be saved.
+        else if (spec.endpoint) wrong.push(`${provider}.${field.key} says where requests go`);
         else if ((spec.kind === "secret_name") !== (field.kind === "secret_name")) {
           wrong.push(`${provider}.${field.key} is ${spec.kind} and the form treats it as ${field.kind}`);
         }

@@ -14,6 +14,8 @@ import {
   sealingKey, tokenSource, unseal, SealingKeyMissingError, SealedUnderAnotherKeyError,
   type AdsAdapter, type HttpTransport, type OAuthClient, type PulledLead,
 } from "../ads/index";
+import { readerFor } from "../secrets/store";
+import { adapterSettings } from "../secrets/endpoints";
 
 /**
  * THE AD PLATFORMS: SIGNING IN, PULLING, AND KEEPING TRACK
@@ -52,11 +54,12 @@ export interface AdsDeps {
   now?: (() => Date) | undefined;
 }
 
-const envSecret: SecretReader = async (ref) => {
-  const value = process.env[ref];
-  if (!value) throw new ConflictError(`No secret in the environment for "${ref}".`);
-  return value;
-};
+/**
+ * The company's own secrets, never a variable with the bare name a
+ * connection holds: a bare name would let anybody holding
+ * `integration:write` name AUTH_SECRET and have it sent to the platform.
+ */
+const ownSecrets = (db: Database, organizationId: string): SecretReader => readerFor(db, organizationId);
 
 const transportOf = (deps: AdsDeps): HttpTransport =>
   deps.transport ?? (globalThis.fetch as unknown as HttpTransport);
@@ -77,7 +80,14 @@ const systemCtx = (db: Database, organizationId: string): ServiceContext => ({ a
 
 export type Connection = typeof schema.integrationConnection.$inferSelect;
 
-const settingsOf = (row: Connection) => (row.settings ?? {}) as Record<string, unknown>;
+/**
+ * A connection's settings with any stored endpoint override removed
+ * (`adapterSettings`), so neither an adapter nor the sign in here can be
+ * pointed at a host the platform does not own: the token exchange sends the
+ * OAuth client's secret to `tokenUrl`.
+ */
+const settingsOf = (row: Connection) =>
+  adapterSettings(row.provider, (row.settings ?? {}) as Record<string, unknown>);
 const text = (settings: Record<string, unknown>, key: string) => {
   const value = settings[key];
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
@@ -196,7 +206,7 @@ export async function startSignIn(
       throw new ConflictError((error as Error).message);
     }
     const row = await connectionByProvider(tx, ctx.actor.organizationId, input.provider);
-    const client = await oauthClientFor(row, deps.readSecret ?? envSecret);
+    const client = await oauthClientFor(row, deps.readSecret ?? ownSecrets(tx, ctx.actor.organizationId));
     const redirectUri = signInReturnAddress(env);
 
     const state = randomBytes(32).toString("base64url");
@@ -290,7 +300,7 @@ export async function finishSignIn(
 
   let grant;
   try {
-    const client = await oauthClientFor(connection, deps.readSecret ?? envSecret);
+    const client = await oauthClientFor(connection, deps.readSecret ?? ownSecrets(ctx.db, ctx.actor.organizationId));
     grant = await exchangeCode({
       family: spec.oauth!,
       scopes: spec.scopes,
@@ -356,7 +366,7 @@ export async function adapterFor(db: Database, row: Connection, deps: AdsDeps = 
   if (!ads.isAdsProvider(row.provider)) throw new NotFoundError(`Ad platform "${row.provider}"`);
   const spec = ads.PROVIDERS[row.provider];
   const settings = settingsOf(row);
-  const readSecret = deps.readSecret ?? envSecret;
+  const readSecret = deps.readSecret ?? ownSecrets(db, row.organizationId);
   const transport = transportOf(deps);
   const env = deps.env ?? process.env;
 

@@ -16,6 +16,7 @@ import { render } from "../lib/render";
 import {
   PlatformRefusedError, createMailProvider, type HttpTransport, type MailParty,
 } from "../direct-mail/index";
+import { readerFor } from "../secrets/store";
 
 /**
  * DIRECT MAIL: SENDING A MAILING AND CREDITING WHAT COMES BACK
@@ -50,12 +51,6 @@ export interface MailDeps {
 export const MAIL_BATCH = 100;
 /** A piece the printer could not be reached for is tried this many times, then left as failed for a person. */
 const MAX_ATTEMPTS = 5;
-
-const envSecret = async (ref: string) => {
-  const value = process.env[ref];
-  if (!value) throw new ConflictError(`No secret in the environment for "${ref}".`);
-  return value;
-};
 
 function mailActor(organizationId: string): Actor {
   return { userId: SYSTEM_USER_ID, organizationId, roles: [], grants: [], agentId: "direct-mail" };
@@ -498,7 +493,7 @@ export async function sendBatch(db: Database, organizationId: string, id: string
   const { campaign, connection, sender, pieces, returnAddress } = claimed;
   const provider = createMailProvider(connection.provider, {
     settings: (connection.settings ?? {}) as Record<string, unknown>,
-    apiKey: await (deps.readSecret ?? envSecret)(connection.credentialRef!),
+    apiKey: await (deps.readSecret ?? readerFor(db, organizationId))(connection.credentialRef!),
     transport: deps.transport ?? (globalThis.fetch as unknown as HttpTransport),
   });
 
