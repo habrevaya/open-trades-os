@@ -289,7 +289,10 @@ export function approvalPayload(input: {
 export function invoiceFromWork(lines: readonly BillableLine[], member: MemberTerms | null | undefined) {
   const priced = priceOnSite(lines.map((l) => ({
     quantity: l.quantity, unitPrice: l.unitPrice,
-    /** Invoices carry no sales tax yet (BUILD.md, phase 5), so neither does the phone's. */
+    /**
+     * No rate, as on the server: recorded work has none of its own and no company rate is stored, so
+     * `billing.createIn` charges none for it. An invoice from a signed option carries the estimate's rate.
+     */
     taxable: l.taxable, taxRate: "0",
     itemKind: l.itemKind, feeRole: l.feeRole,
   })), memberTerms(member));

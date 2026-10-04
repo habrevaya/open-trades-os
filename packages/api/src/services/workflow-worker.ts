@@ -15,6 +15,7 @@ import { agentPass } from "./agent-worker";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { taskPass } from "./task-rules";
+import { expiryPass } from "./estimate-expiry";
 import { purgePass } from "./retention";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
@@ -368,6 +369,19 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] tasks:", (error as Error).message);
+    }
+    /**
+     * Estimates past their date, marked expired in each company's own
+     * calendar. Its own try, for the reason the task pass has one. A pass
+     * that has nothing to do is one cheap read, once a minute, and the unsold list and the
+     * estimate screens read the date themselves, so nothing waits on it.
+     */
+    try {
+      for (const result of await expiryPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] estimate expiry ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] estimate expiry:", (error as Error).message);
     }
     /**
      * Contract clocks: SLA, invoicing and claim deadlines reconciled against

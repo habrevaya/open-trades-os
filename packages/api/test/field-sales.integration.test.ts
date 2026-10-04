@@ -4,6 +4,9 @@ import { agents as coreAgents, field, PermissionError, type Actor, type Permissi
 import * as fieldOps from "../src/services/field";
 import * as fieldPayments from "../src/services/field-payments";
 import * as fieldSales from "../src/services/field-sales";
+import * as estimates from "../src/services/estimates";
+import * as billing from "../src/services/billing";
+import * as jobBilling from "../src/services/job-billing";
 import * as dispatchSvc from "../src/services/dispatch";
 import * as tasks from "../src/services/tasks";
 import * as portalSettings from "../src/services/portal-settings";
@@ -510,6 +513,114 @@ run("the invoice, raised and signed for on site, and paid", () => {
 });
 
 /* ------------------------------------------------------- tips and the queue */
+
+/**
+ * SALES TAX ON AN INVOICE RAISED ON SITE, AGAINST ONE THE OFFICE RAISES
+ *
+ * M11 said invoices carry no sales tax yet, which stopped being true when the
+ * rate went onto each line. What is true is narrower, and these pin it: a
+ * rate is on an invoice only where a person typed one (on an estimate, on the
+ * phone or in the office, and carried onto the invoice as applied; or on the
+ * job's "Bill this job" screen), because nothing in the product decides a
+ * company's rate. On site and in the office the rule is the same.
+ */
+run("sales tax on an invoice raised on site", () => {
+  const RATE = "0.0825";
+
+  /** The estimate the phone writes, taxable at the rate typed on its builder. */
+  function taxedOption() {
+    const line = (key: keyof typeof book) => ({
+      id: crypto.randomUUID(), priceBookItemId: book[key].itemId, versionId: book[key].versionId,
+      name: key, quantity: "1", unitPrice: book[key].price, taxable: true,
+    });
+    return { id: crypto.randomUUID(), name: "Replace", isRecommended: true, lines: [line("heater"), line("tank")] };
+  }
+
+  it("charges the tax the estimate was written with, the same as the office's conversion of the same estimate", async () => {
+    const option = taxedOption();
+    // What the customer is shown on the phone, tax included.
+    const shown = field.priceOnSite(option.lines.map((l) => ({
+      quantity: l.quantity, unitPrice: l.unitPrice, taxable: true, taxRate: RATE,
+      itemKind: l.name === "tank" ? "material" : "service",
+    })), MEMBER).totals.total;
+
+    // On site: written on the phone, signed for, billed and issued from the visit.
+    const { visitId } = await visitFor([rayTech]);
+    const estimateId = crypto.randomUUID();
+    const invoiceId = crypto.randomUUID();
+    const { results } = await send(ray(), [
+      { kind: "estimate.create", subjectId: estimateId, payload: { visitId, taxRate: RATE, options: [option] } },
+      { kind: "estimate.approve", subjectId: estimateId, payload: {
+        visitId, optionId: option.id, selectedLineIds: [], signerName: "Nina Patel", signatureUploadId: crypto.randomUUID(), shownTotal: shown,
+      } },
+      { kind: "invoice.raise", subjectId: invoiceId, payload: { visitId, source: "estimate", estimateId, shownTotal: shown } },
+    ]);
+    expect(results.map((r) => [r.status, r.rejection])).toEqual(Array(3).fill(["applied", null]));
+    const [onSite] = await raw`select status, tax_total::text, total::text from public.invoice where id = ${invoiceId}`;
+    expect(onSite).toMatchObject({ status: "open", total: shown });
+    expect(Number(onSite!.tax_total)).toBeGreaterThan(0);
+
+    // In the office: the same estimate written by hand, approved, converted.
+    const written = await estimates.create(owner(), {
+      customerId, propertyId, taxRate: RATE,
+      options: [{
+        name: "Replace", isRecommended: true,
+        lines: option.lines.map((l) => ({
+          priceBookItemId: l.priceBookItemId, name: l.name, quantity: "1", unitPrice: l.unitPrice,
+          discountAmount: "0", taxable: true, isOptional: false, isSelected: false,
+        })),
+      }],
+    } as Parameters<typeof estimates.create>[1]);
+    const [officeOption] = await raw<{ id: string }[]>`select id from public.estimate_option where estimate_id = ${written.id}`;
+    await estimates.approve(owner(), { id: written.id, optionId: officeOption!.id, selectedLineIds: [], signerName: "Nina Patel", capturedVia: "phone" } as Parameters<typeof estimates.approve>[1]);
+    const converted = await estimates.convert(owner(), { id: written.id, createJob: false, createInvoice: true } as Parameters<typeof estimates.convert>[1]);
+    const [office] = await raw`select tax_total::text, total::text from public.invoice where id = ${converted.invoiceId}`;
+
+    expect(office!.tax_total).toBe(onSite!.tax_total);
+    expect(office!.total).toBe(onSite!.total);
+    // And every line carries the rate it was charged at, on site as in the office.
+    const rates = (id: string) => raw`select tax_rate::text, tax_amount::text from public.invoice_line where invoice_id = ${id} order by sort_order`;
+    expect(await rates(invoiceId)).toEqual(await rates(converted.invoiceId as string));
+    expect((await rates(invoiceId)).every((l) => l.tax_rate === "0.082500")).toBe(true);
+  });
+
+  it("charges none on work recorded and billed on site, exactly as the office's ordinary invoice for the same work charges none", async () => {
+    const { visitId, jobId } = await visitFor([rayTech]);
+    const lineId = crypto.randomUUID();
+    const invoiceId = crypto.randomUUID();
+    const { results } = await send(ray(), [
+      { kind: "visit.add_line", subjectId: visitId, payload: {
+        lineId, kind: "part", priceBookItemVersionId: book.tank.versionId, name: "Expansion tank", quantity: "1", unitPrice: "180.0000",
+      } },
+      // The phone's figure for a taxable part, at the rate nothing in the product holds: none.
+      { kind: "invoice.raise", subjectId: invoiceId, payload: { visitId, source: "work", jobLineIds: [lineId], shownTotal: "162.00" } },
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["applied", "applied"]);
+    const [onSite] = await raw`select tax_total::text, total::text from public.invoice where id = ${invoiceId}`;
+    expect(onSite).toEqual({ tax_total: "0.0000", total: "162.0000" });
+    const [taxable] = await raw`select taxable from public.invoice_line where invoice_id = ${invoiceId}`;
+    expect(taxable!.taxable).toBe(true);
+
+    const office = await billing.create(owner(), {
+      customerId, jobId,
+      lines: [{ priceBookItemId: book.tank.itemId, name: "Expansion tank", quantity: "1", unitPrice: "180.0000", discountAmount: "0", taxable: true }],
+    } as Parameters<typeof billing.create>[1]);
+    expect(office.taxTotal).toBe(onSite!.tax_total);
+    expect(office.total).toBe(onSite!.total);
+  });
+
+  it("charges tax on the job's own work in the office only where somebody typed a rate, which the phone has no box for", async () => {
+    const { visitId, jobId } = await visitFor([rayTech]);
+    const lineId = crypto.randomUUID();
+    await send(ray(), [{ kind: "visit.add_line", subjectId: visitId, payload: {
+      lineId, kind: "part", priceBookItemVersionId: book.tank.versionId, name: "Expansion tank", quantity: "1", unitPrice: "180.0000",
+    } }]);
+    const untyped = await jobBilling.preview(owner(), { jobId });
+    expect(untyped.payers.reduce((sum, p) => sum + Number(p.taxTotal), 0)).toBe(0);
+    const typed = await jobBilling.preview(owner(), { jobId, taxRate: RATE });
+    expect(typed.payers.reduce((sum, p) => sum + Number(p.taxTotal), 0)).toBeGreaterThan(0);
+  });
+});
 
 run("a cash tip kept, and the office's tasks", () => {
   it("records a cash tip on the technician's own pay statement, already in their hand", async () => {

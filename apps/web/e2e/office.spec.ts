@@ -218,6 +218,43 @@ test("who a person reports to is on their own page, and follows the escalation s
   await expect(owner.getByTestId("reports-to")).toContainText("Nobody recorded");
 });
 
+test("an estimate past its date is expired, off the unsold list, and still open to a yes", async ({ owner }) => {
+  const name = `Ellis Expired ${run}`;
+  const customerId = await newCustomer(owner, {
+    name, address: { street: "3 Lapsed Lane", city: "Austin", state: "TX", zip: "78701" },
+  });
+  const places = await owner.request.get(`/api/v1/properties?customerId=${customerId}`);
+  const propertyId = ((await places.json()) as { data: { id: string }[] }).data[0]!.id;
+  const line = { name: "Coil clean", quantity: "1", unitPrice: "300.00", discountAmount: "0", taxable: false };
+  const make = async (title: string, expiresOn: string) => {
+    const made = await owner.request.post("/api/v1/estimates", {
+      data: { customerId, propertyId, title, expiresOn, options: [{ name: "Clean", isRecommended: true, lines: [line] }] },
+    });
+    expect(made.ok()).toBe(true);
+    const id = ((await made.json()) as { id: string }).id;
+    const sent = await owner.request.post(`/api/v1/estimates/${id}/send`, { data: { channel: "link" } });
+    expect(sent.ok()).toBe(true);
+    return id;
+  };
+  const lapsed = await make(`Lapsed ${run}`, daysFromNow(-10));
+  const open = await make(`Still good ${run}`, daysFromNow(20));
+
+  // Sent after its date, so it went out expired and says so, with what that means.
+  await owner.goto(`/estimates/${lapsed}`);
+  await expect(owner.getByText("Expired", { exact: true })).toBeVisible();
+  await expect(owner.getByRole("note")).toContainText("out of the unsold list and cannot be financed");
+  // Still open to a yes: the office can record one.
+  await expect(owner.getByText("Record a yes given in person or by phone")).toBeVisible();
+
+  await owner.goto("/estimates");
+  const unsold = owner.getByRole("region").filter({ hasText: "Unsold estimates" });
+  await expect(unsold).toContainText(name);
+  await expect(unsold.getByRole("row").filter({ hasText: name })).toHaveCount(1);
+  await owner.goto(`/estimates/${open}`);
+  await expect(owner.locator("span").filter({ hasText: /^Sent$/ })).toBeVisible();
+  await expect(owner.getByRole("note")).toHaveCount(0);
+});
+
 test("a category is added, and a price change is previewed, applied and undone", async ({ owner }) => {
   await owner.goto("/pricebook/categories");
   const shelf = `Shelf ${run}`;
