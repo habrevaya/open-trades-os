@@ -120,9 +120,11 @@ test("a failing receiver's answer is readable, filtered, and sent again from the
   /** Changed their mind before the worker came round: stopped, and nothing more of it goes. */
   const asked = owner.getByRole("table", { name: "Sent again on request" }).getByRole("row").filter({ hasText: "Waiting" });
   await asked.getByRole("button", { name: "Stop it" }).click();
-  await expect(asked.getByRole("status")).toContainText("Stopped. Nothing more of it is sent.");
+  /** The row turns into a stopped one in place, and stays that way on a fresh load. */
+  await expect(owner.getByRole("table", { name: "Sent again on request" }).getByRole("row").filter({ hasText: "Stopped by hand" }))
+    .toBeVisible();
   await owner.reload();
-  const stoppedRow = owner.getByRole("table", { name: "Sent again on request" }).getByRole("row").filter({ hasText: "Stopped" });
+  const stoppedRow = owner.getByRole("table", { name: "Sent again on request" }).getByRole("row").filter({ hasText: "Stopped by hand" });
   await expect(stoppedRow).toContainText("before anything went");
   await expect(stoppedRow.getByRole("button", { name: "Stop it" })).toHaveCount(0);
 
