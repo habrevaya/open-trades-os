@@ -1073,7 +1073,18 @@ async function loadInvoice(tx: Database, ctx: ServiceContext, id: string) {
 }
 
 export async function get(ctx: ServiceContext, input: z.infer<typeof getInvoice.input>) {
-  return guardedRead(ctx, "invoice:read", (tx) => loadInvoice(tx, ctx, input.id));
+  return guardedRead(ctx, "invoice:read", async (tx) => {
+    /**
+     * In scope, as the invoice list is: a technician who sees invoices for
+     * their own work cannot open another by its id, and one out of scope
+     * reads as not found rather than as forbidden, so an id says nothing.
+     */
+    const [visible] = await tx.select({ id: schema.invoice.id }).from(schema.invoice)
+      .where(and(eq(schema.invoice.id, input.id), invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor)))
+      .limit(1);
+    if (!visible) throw new NotFoundError("Invoice");
+    return loadInvoice(tx, ctx, input.id);
+  });
 }
 
 export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoices.input>) {

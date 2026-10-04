@@ -320,7 +320,21 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createEs
 }
 
 export async function get(ctx: ServiceContext, input: z.infer<typeof getEstimate.input>) {
-  return guardedRead(ctx, "estimate:read", (tx) => loadEstimate(tx, ctx, input.id));
+  return guardedRead(ctx, "estimate:read", async (tx) => {
+    await assertEstimateVisible(tx, ctx, input.id);
+    return loadEstimate(tx, ctx, input.id);
+  });
+}
+
+/**
+ * In scope, as the estimate list is: one out of the reader's scope reads as
+ * not found, so a technician cannot open another's estimate by its id.
+ */
+export async function assertEstimateVisible(tx: Database, ctx: ServiceContext, id: string): Promise<void> {
+  const [visible] = await tx.select({ id: schema.estimate.id }).from(schema.estimate)
+    .where(and(eq(schema.estimate.id, id), estimateScopeFilter(scopeOf(ctx, "estimate"), ctx.actor)))
+    .limit(1);
+  if (!visible) throw new NotFoundError("Estimate");
 }
 
 export async function list(ctx: ServiceContext, input: z.infer<typeof listEstimates.input>) {

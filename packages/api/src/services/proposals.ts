@@ -2,7 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, estimate as est, money as m } from "@opentradesos/core";
 import { guardedRead, type ServiceContext } from "./context";
-import { loadEstimate } from "./estimates";
+import { assertEstimateVisible, loadEstimate } from "./estimates";
 import { inGrant, peek, requireScope } from "./portal";
 
 /**
@@ -203,7 +203,10 @@ export async function proposalWithin(
 
 /** The office's copy, to read, print or hand over. */
 export async function proposal(ctx: ServiceContext, input: { id: string }): Promise<ProposalDocument> {
-  return guardedRead(ctx, "estimate:read", (tx) => proposalWithin(tx, ctx, input.id));
+  return guardedRead(ctx, "estimate:read", async (tx) => {
+    await assertEstimateVisible(tx, ctx, input.id);
+    return proposalWithin(tx, ctx, input.id);
+  });
 }
 
 /**
