@@ -5,6 +5,7 @@ import { allTools } from "../src/mcp/tools";
 import { routes } from "../src/contracts";
 import { PERMISSIONS, automation, connectors } from "@opentradesos/core";
 import { CATALOGUE, KEYS } from "../src/services/kpi-catalogue";
+import { ADAPTERS } from "../src/services/retention";
 
 /**
  * THE DOCUMENTATION IS CHECKED AGAINST THE CODE
@@ -349,6 +350,17 @@ describe("the counts the docs state", () => {
   it("M29 counts the recommended automations", () => {
     expect(countIn("m29-custom-fields-objects-workflow-builder.md",
       `There are ${NUMBER} recommended automations`)).toEqual([automation.TEMPLATES.length]);
+  });
+
+  it("M23 counts the kinds of record the retention purge acts on", () => {
+    expect(countIn("m23-documents-compliance-safety.md",
+      `The purge acts on ${NUMBER} kinds of record`)).toEqual([Object.keys(ADAPTERS).length]);
+  });
+
+  it("M28 counts the routes that offer a dry run", () => {
+    const offered = Object.values(routes).filter((route) => (route as { dryRun?: boolean }).dryRun === true).length;
+    expect(countIn("m28-developer-agent-platform.md",
+      `A dry run is offered on ${NUMBER} bulk routes`)).toEqual([offered]);
   });
 
   it("M21 counts the KPIs it cannot compute out of those declared", () => {
