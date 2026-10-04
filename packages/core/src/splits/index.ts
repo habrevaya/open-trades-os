@@ -200,6 +200,114 @@ export function shareTargets(
   return { ok: true, targets };
 }
 
+/* ------------------------------------------------------------ the tax */
+
+export interface TaxedLine {
+  /** The rate AS APPLIED to this line, as a decimal string: 0.0825. */
+  rate: string;
+  taxable: boolean;
+}
+
+export interface TaxSplit {
+  /** Per payer, per line: the tax each payer's invoice states on its part of each line. Whole cents. */
+  lines: Money[][];
+  /** Per payer: what their invoice charges in tax. Whole cents, and the lines above add up to it. */
+  payers: Money[];
+  /** What the work would be taxed if one invoice billed it all to the payers who pay tax. */
+  total: Money;
+}
+
+/**
+ * THE TAX FOLLOWS THE LINE TO WHOEVER PAYS IT, AND STILL ADDS UP.
+ *
+ * Each payer is taxed on their part of each line at that line's own rate:
+ * the warranty company on the covered repair, the homeowner on the
+ * deductible and the parts the plan left out, an exempt payer on nothing.
+ * The obvious way to do that, each invoice working its own tax out and
+ * rounding once, is right on each invoice and wrong across them: half a cent
+ * of tax on each of two parts rounds to a cent on each, and the two invoices
+ * then charge two cents of tax on work that, billed whole, carries one. The
+ * customer and the warranty company each check their own invoice, the
+ * company remits what it collected, and the extra cent is tax nobody owed.
+ *
+ * So the tax is worked out once, on the whole, and shared:
+ *
+ *   1. Each payer's exact tax on each part, at four places, from `basis`,
+ *      which is the amount each invoice line will itself compute tax on.
+ *   2. The total: the whole of each line that taxable payers pay, times the
+ *      line's rate, summed and rounded once to the cent. With nobody exempt
+ *      that is exactly the tax one invoice for the whole job would charge.
+ *   3. The total shared between payers by largest remainder: each payer gets
+ *      their exact tax rounded down, and the cents left over go one each to
+ *      the payers with the largest fraction left, earliest payer first on a
+ *      tie, so the same split is always cut the same way.
+ *   4. Each payer's share shared between their lines the same way.
+ *
+ * Every figure is then within a cent of its exact tax, never a cent or more
+ * away, which is the test an invoice applies to a tax it is told
+ * (`ledger.computeInvoice`): each invoice is still its own lines at their
+ * own rates, and the invoices add up to the whole.
+ */
+export function taxAcross(
+  lines: readonly TaxedLine[],
+  basis: readonly (readonly Money[])[],
+  exempt: readonly boolean[] = [],
+): TaxSplit {
+  const currency = basis[0]?.[0]?.currency ?? "USD";
+  const cent = money("0.01", currency).amount;
+  const taxes = (p: number) => !exempt[p];
+
+  const exact = basis.map((parts, p) => lines.map((line, i) =>
+    line.taxable && taxes(p) ? multiply(parts[i] ?? zero(currency), line.rate) : zero(currency)));
+
+  const wholes = lines.map((line, i) => {
+    if (!line.taxable) return zero(currency);
+    const paid = sum(basis.flatMap((parts, p) => (taxes(p) ? [parts[i] ?? zero(currency)] : [])), currency);
+    return multiply(paid, line.rate);
+  });
+  const total = round(sum(wholes, currency), 2);
+
+  const share = (target: bigint, parts: Money[]): bigint[] => {
+    const floors = parts.map((x) => floorTo(x.amount, cent));
+    let left = target - floors.reduce((a, b) => a + b, 0n);
+    const order = parts
+      .map((x, i) => ({ i, rest: x.amount - floors[i]! }))
+      .sort((a, b) => (b.rest > a.rest ? 1 : b.rest < a.rest ? -1 : a.i - b.i));
+    const out = [...floors];
+    /**
+     * Up, a cent at a time, to the largest remainders. Down only if the four
+     * place products ever sum past the rounded total, which takes thousands
+     * of lines, and then from the smallest remainders that still have a cent.
+     */
+    const owing = order.filter((x) => x.rest > 0n);
+    const fallback = order.filter((x) => parts[x.i]!.amount > 0n);
+    const up = owing.length > 0 ? owing : fallback;
+    for (let k = 0; left > 0n && up.length > 0; k += 1) {
+      out[up[k % up.length]!.i]! += cent;
+      left -= cent;
+    }
+    for (let k = order.length - 1; left < 0n && k >= 0; k -= 1) {
+      const i = order[k]!.i;
+      if (out[i]! >= cent) { out[i]! -= cent; left += cent; }
+    }
+    return out;
+  };
+
+  const perPayer = share(total.amount, exact.map((parts) => sum(parts, currency)));
+  const perLine = exact.map((parts, p) => share(perPayer[p]!, parts));
+  return {
+    lines: perLine.map((row) => row.map((amount) => ({ amount, currency }))),
+    payers: perPayer.map((amount) => ({ amount, currency })),
+    total,
+  };
+}
+
+/** Down to a whole step, for positive and negative amounts alike. */
+function floorTo(amount: bigint, step: bigint): bigint {
+  const rest = ((amount % step) + step) % step;
+  return amount - rest;
+}
+
 /** Whether a set of invoices adds up to the work, which is the question a split has to answer. */
 export function reconciles(job: Money, invoices: readonly Money[]): { ok: boolean; difference: Money } {
   const difference = subtract(job, sum([...invoices], job.currency));

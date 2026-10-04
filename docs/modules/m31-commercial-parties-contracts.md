@@ -333,6 +333,20 @@ on its own payer's receivable by the same path as any invoice. The job's
 authorisation applies to the payer it belongs to, and each payer's contract
 limit to theirs.
 
+**The tax follows the line to whoever pays it.** The sales tax rate on the
+job's taxable lines is typed on the billing preview (`taxRate` on both calls,
+as a fraction: 0.0825), because nothing in this product decides a rate for
+anybody (M13). Each payer's invoice is then taxed on that payer's part of each
+taxable line at the line's rate, and a payer whose customer record says tax
+exempt is taxed on nothing. The tax is worked out once on the whole job,
+rounded once, and shared between the payers and then between their lines by
+largest remainder (`core/splits.taxAcross`): two payers each owing half a cent
+are not each charged a cent, so the invoices' tax adds up to exactly what one
+invoice for the whole job would charge, and every line's tax is still within a
+cent of its own rate. That is checked again after the invoices are written,
+like the total, and the ledger posts each payer's tax as collected from them.
+A limit is checked against what the invoice will carry, tax included.
+
 Billing is refused while the preview lists a problem, with the problem as the
 reason: covered work with nobody named to pay it, a payer with no customer
 record, shares that do not add up, a limit that holds.
@@ -418,9 +432,11 @@ shape, not any standard's.
 **No annual escalation.** A contract's escalation rate is stored and nothing
 applies it to the card; next year's rates are loaded as next year's card.
 
-**Tax on a split.** Sales tax is not yet resolved by jurisdiction anywhere in
-the product, so a split is cut before tax and each payer's invoice carries
-its own (zero) tax. A taxable split will need the tax worked out on each part.
+**Tax rates on a split.** The rate is one figure for the job's taxable lines,
+typed by whoever bills it, so a job whose taxable lines owe different rates
+cannot be billed in parts at each one. Nothing looks up a jurisdiction's
+rate, and a payer is exempt for everything or nothing, as the customer record
+says.
 
 **Member pricing on a job billed in parts.** The plan discount is applied to
 an invoice raised the ordinary way, and not when a job is billed by payer:

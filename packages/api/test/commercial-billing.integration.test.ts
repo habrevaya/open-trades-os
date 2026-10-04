@@ -589,3 +589,90 @@ run("shares between two payers", () => {
     expect(totals).toEqual({ "Lakeside Owners LLC": "307.3000", "Tom Tenant": "131.7000" });
   });
 });
+
+run("tax on a job billed in parts", () => {
+  /** What the ledger holds as sales tax collected from one customer. */
+  async function taxCollectedFrom(customerId: string) {
+    const [row] = await raw<{ tax: string }[]>`
+      select coalesce(sum(case when direction = 'credit' then amount else -amount end), 0)::text as tax
+      from public.ledger_entry
+      where organization_id = ${ORG} and account_code = '2200' and customer_id = ${customerId}`;
+    return row!.tax;
+  }
+
+  it("taxes each payer on their own half and adds up to the tax on the whole job, to the cent", async () => {
+    const filter = (await priceBook.create(owner(), {
+      kind: "material", code: "FILT-T", name: "Pleated filter", price: "33.35", cost: "9.00", taxable: true,
+    })).id;
+    const landlord = (await person("Harbor Rentals", "commercial")).id;
+    const tenant = (await person("Tia Tenant", "residential")).id;
+    const flat = (await place("8 Harbor Ln", tenant)).id;
+    const jobId = await workedJob(tenant, flat, [{ priceBookItemId: filter, quantity: "1" }]);
+    await commercial.setParties(owner(), { jobId, parties: [{ role: "payer", customerId: landlord, sharePercent: "0.5" }] });
+
+    /**
+     * 33.35 at five per cent is 1.6675 of tax, which is 1.67. Halved, the
+     * parts are 16.68 and 16.67 and their tax 0.834 and 0.8335: rounded on
+     * each invoice separately that is 0.83 twice, a cent short of the job.
+     */
+    const plan = await jobBilling.preview(owner(), { jobId, taxRate: "0.05" });
+    expect(plan.taxTotal).toBe("1.6700");
+    const of = (id: string) => plan.payers.find((p) => p.customerId === id)!;
+    expect(of(landlord)).toMatchObject({ total: "16.6800", taxTotal: "0.8400", totalWithTax: "17.5200" });
+    expect(of(tenant)).toMatchObject({ total: "16.6700", taxTotal: "0.8300", totalWithTax: "17.5000" });
+    expect(plan.lines[0]!.taxRate).toBe("0.05");
+
+    const before = await ledgerBalances();
+    const result = await jobBilling.bill(owner(), { jobId, taxRate: "0.05" });
+    expect(result.taxTotal).toBe("1.6700");
+    const landlordInvoice = await billing.get(owner(), { id: result.invoices.find((i) => i.customerId === landlord)!.id });
+    const tenantInvoice = await billing.get(owner(), { id: result.invoices.find((i) => i.customerId === tenant)!.id });
+    expect(landlordInvoice).toMatchObject({ subtotal: "16.6800", taxTotal: "0.8400", total: "17.5200" });
+    expect(tenantInvoice).toMatchObject({ subtotal: "16.6700", taxTotal: "0.8300", total: "17.5000" });
+    /** The tax follows the line: each invoice's line carries the rate and its own part's tax. */
+    expect(landlordInvoice.lines[0]).toMatchObject({ taxRate: "0.050000", taxAmount: "0.8400" });
+    expect(tenantInvoice.lines[0]).toMatchObject({ taxRate: "0.050000", taxAmount: "0.8300" });
+
+    /** Posted as collected from each payer, and the books still balance. */
+    expect(await taxCollectedFrom(landlord)).toBe("0.8400");
+    expect(await taxCollectedFrom(tenant)).toBe("0.8300");
+    const after = await ledgerBalances();
+    expect(after.debits).toBe(after.credits);
+    expect(m(after.debits) - m(before.debits)).toBe(m("35.0200"));
+  });
+
+  it("charges a tax exempt payer nothing on their part, and the other payer on theirs", async () => {
+    const valve = (await priceBook.create(owner(), {
+      kind: "material", code: "VALVE-T", name: "Mixing valve", price: "212.47", cost: "80.00", taxable: true,
+    })).id;
+    const church = (await customers.create(owner(), {
+      type: "commercial", name: "Grace Chapel", phone: "+15125550777",
+      paymentTermsDays: 30, taxExempt: true, tags: [], customFields: {},
+    })).id;
+    const caretaker = (await person("Cal Caretaker", "residential")).id;
+    const rectory = (await place("1 Chapel Rd", caretaker)).id;
+    const jobId = await workedJob(caretaker, rectory, [{ priceBookItemId: valve, quantity: "1" }]);
+    await commercial.setParties(owner(), { jobId, parties: [{ role: "payer", customerId: church, sharePercent: "0.7" }] });
+
+    const result = await jobBilling.bill(owner(), { jobId, taxRate: "0.0825" });
+    const chapel = await billing.get(owner(), { id: result.invoices.find((i) => i.customerId === church)!.id });
+    const cal = await billing.get(owner(), { id: result.invoices.find((i) => i.customerId === caretaker)!.id });
+    /** 212.47 at seventy per cent is 148.73; the caretaker's 63.74 at 8.25% is 5.25855, so 5.26. */
+    expect(chapel).toMatchObject({ subtotal: "148.7300", taxTotal: "0.0000", total: "148.7300" });
+    expect(cal).toMatchObject({ subtotal: "63.7400", taxTotal: "5.2600", total: "69.0000" });
+    expect(result.taxTotal).toBe("5.2600");
+    expect(Number(await taxCollectedFrom(church))).toBe(0);
+    expect(await taxCollectedFrom(caretaker)).toBe("5.2600");
+  });
+
+  it("refuses a rate written as a percentage, and bills nothing", async () => {
+    const jobId = await workedJob(homeowner, home, [{ priceBookItemId: flush, quantity: "1" }]);
+    await expect(jobBilling.preview(owner(), { jobId, taxRate: "8.25" })).rejects.toThrow(/Write 0.0825/);
+  });
+});
+
+/** Whole cents as a number of cents, for comparing sums of money without a float. */
+function m(value: string): number {
+  const [whole = "0", frac = ""] = value.split(".");
+  return Number(whole) * 100 + Number(frac.padEnd(2, "0").slice(0, 2));
+}

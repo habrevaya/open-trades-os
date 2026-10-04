@@ -68,15 +68,22 @@ export interface PlanLine {
   rateCardLineId: string | null;
   outOfScope: boolean;
   taxable: boolean;
+  /** The rate the line is taxed at, as applied: the rate asked for when it is taxable, nought when not. */
+  taxRate: string;
 }
 
 export interface PayerPart {
   customerId: string;
   name: string;
   role: "third_party" | "customer" | "share";
+  /** Before tax. */
   total: string;
-  /** Each line this payer pays any of, with how much. */
-  lines: Array<{ key: string; amount: string; whole: boolean }>;
+  /** The tax on this payer's parts. Nothing for a payer who is tax exempt. */
+  taxTotal: string;
+  totalWithTax: string;
+  taxExempt: boolean;
+  /** Each line this payer pays any of, with how much, and the tax their invoice states on it. */
+  lines: Array<{ key: string; amount: string; whole: boolean; tax: string }>;
   /** What the client's limit says about this payer's invoice. */
   ceiling: { state: "within" | "over"; held: boolean; message: string | null } | null;
 }
@@ -92,6 +99,8 @@ export interface BillingPlan {
   invoicedTotal: string;
   absorbed: string;
   reconciles: boolean;
+  /** The tax on everything invoiced, worked out whole; the payers' tax adds up to it exactly. */
+  taxTotal: string;
   outOfScope: number;
   /** Why the job cannot be billed this way yet, in words somebody can act on. */
   problems: string[];
@@ -112,11 +121,22 @@ async function nameOf(tx: Database, customerId: string): Promise<string> {
  *
  * Inside a caller's transaction, so `bill` acts on exactly the plan it read.
  */
-export async function planIn(tx: Database, organizationId: string, jobId: string): Promise<BillingPlan> {
+export async function planIn(
+  tx: Database, organizationId: string, jobId: string, options: { taxRate?: string | undefined } = {},
+): Promise<BillingPlan> {
   const [job] = await tx.select().from(schema.job)
     .where(and(eq(schema.job.id, jobId), isNull(schema.job.deletedAt))).limit(1);
   if (!job) throw new NotFoundError("Job");
   const problems: string[] = [];
+  /**
+   * The rate is asked for, never decided here, for the reason M13 gives: the
+   * product does not determine anybody's sales tax. Checked once so a typo
+   * (8.25 for eight and a quarter per cent) is a sentence, not a bill.
+   */
+  const taxRate = options.taxRate ?? "0";
+  if (!(Number(taxRate) >= 0 && Number(taxRate) < 1)) {
+    throw new ConflictError(`A tax rate of ${taxRate} is not a fraction. Write 0.0825 for eight and a quarter per cent.`);
+  }
 
   const parties = await tx.select().from(schema.jobParty).where(eq(schema.jobParty.jobId, jobId));
   const billTo = parties.find((p) => p.role === "bill_to" && p.customerId)?.customerId ?? null;
@@ -198,7 +218,7 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
       at: facts.at,
       jobTypeId: job.jobTypeId,
     });
-    lines.push(lineOf(`line:${row.id}`, row.id, facts.itemId, row.name, facts.kind, kind, priced, row.taxable));
+    lines.push(lineOf(`line:${row.id}`, row.id, facts.itemId, row.name, facts.kind, kind, priced, row.taxable, taxRate));
   }
 
   /**
@@ -227,7 +247,7 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
       kind: "trip", name: "Trip charge", priceBookItemId: null, quantity: String(visits),
       ourPrice: trip.amount, ourPriceIsBook: false, unitCost: null, at: new Date(), jobTypeId: job.jobTypeId,
     });
-    lines.push(lineOf("trip", null, null, "Trip charge", "trip", "trip", priced, false));
+    lines.push(lineOf("trip", null, null, "Trip charge", "trip", "trip", priced, false, taxRate));
   }
 
   const amounts = lines.map((l) => usd(l.amount));
@@ -282,14 +302,44 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
   }
 
   const absorbed = basis === "absorbed" ? m.sum(parts[0] ?? [], "USD") : ZERO;
+
+  /**
+   * TAX, PER PAYER, ON WHAT EACH ONE PAYS (`core/splits.taxAcross`).
+   *
+   * Worked out on exactly the amount each invoice line will compute its own
+   * tax on: the whole line's price times its quantity where a payer takes
+   * the whole line, and their part where they share it. A payer the customer
+   * record marks tax exempt pays none on their part, and nobody is taxed on
+   * what a plan or our own warranty absorbs, because nobody is invoiced for it.
+   */
+  const exemptOf = new Map<string, boolean>();
+  for (const payer of payers) {
+    if (!payer.customerId || exemptOf.has(payer.customerId)) continue;
+    const [row] = await tx.select({ taxExempt: schema.customer.taxExempt }).from(schema.customer)
+      .where(eq(schema.customer.id, payer.customerId)).limit(1);
+    exemptOf.set(payer.customerId, row?.taxExempt ?? false);
+  }
+  const wholeNet = lines.map((line) => m.multiply(usd(line.unitPrice), line.quantity));
+  const taxBasis = payers.map((_, p) => lines.map((line, i) => {
+    const part = parts[p]?.[i] ?? ZERO;
+    return m.equals(part, amounts[i]!) ? wholeNet[i]! : part;
+  }));
+  const tax = splits.taxAcross(
+    lines.map((line) => ({ rate: line.taxRate, taxable: line.taxable })),
+    taxBasis,
+    payers.map((payer) => !payer.customerId || (exemptOf.get(payer.customerId) ?? false)),
+  );
+
   const ceiling = await commercial.ceilingFor(tx, jobId);
   const result: PayerPart[] = [];
   for (const [p, payer] of payers.entries()) {
     if (!payer.customerId) continue;
     const mine = parts[p] ?? [];
     const total = m.sum(mine, "USD");
+    const taxed = tax.payers[p] ?? ZERO;
+    /** Against what the invoice will carry, tax included, as raising it checks. */
     const verdict = await ceilingOf(tx, organizationId, {
-      jobId, customerId: payer.customerId, amount: total, authorization: ceiling,
+      jobId, customerId: payer.customerId, amount: m.add(total, taxed), authorization: ceiling,
       governs: payer.role === "third_party" || basis !== "coverage",
     });
     result.push({
@@ -297,6 +347,9 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
       name: await nameOf(tx, payer.customerId),
       role: payer.role,
       total: m.toString(total),
+      taxTotal: m.toString(taxed),
+      totalWithTax: m.toString(m.add(total, taxed)),
+      taxExempt: exemptOf.get(payer.customerId) ?? false,
       lines: lines.flatMap((line, i) => {
         const amount = mine[i] ?? ZERO;
         /**
@@ -306,7 +359,10 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
          */
         const keepAtZero = basis === "absorbed" && payer.role === "customer" && m.isZero(amount);
         if (m.isZero(amount) && !keepAtZero) return [];
-        return [{ key: line.key, amount: m.toString(amount), whole: m.equals(amount, amounts[i]!) }];
+        return [{
+          key: line.key, amount: m.toString(amount), whole: m.equals(amount, amounts[i]!),
+          tax: m.toString(tax.lines[p]?.[i] ?? ZERO),
+        }];
       }),
       ceiling: verdict,
     });
@@ -334,6 +390,7 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
     invoicedTotal: m.toString(invoicedTotal),
     absorbed: m.toString(absorbed),
     reconciles: splits.reconciles(pricedTotal, [invoicedTotal, absorbed]).ok,
+    taxTotal: m.toString(tax.total),
     outOfScope: lines.filter((l) => l.outOfScope).length,
     problems,
     existing,
@@ -343,6 +400,7 @@ export async function planIn(tx: Database, organizationId: string, jobId: string
 function lineOf(
   key: string, jobLineId: string | null, itemId: string | null, name: string,
   kind: rates.WorkKind, chargeKind: coverage.ChargeKind, priced: rates.PricedLine, taxable: boolean,
+  taxRate: string,
 ): PlanLine {
   return {
     key,
@@ -362,6 +420,7 @@ function lineOf(
     rateCardLineId: priced.rateCardLineId,
     outOfScope: priced.outOfScope,
     taxable,
+    taxRate: taxable ? taxRate : "0",
   };
 }
 
@@ -397,8 +456,11 @@ async function ceilingOf(
   return { state: verdict.state === "over" ? "over" : "within", held: verdict.held, message: verdict.message };
 }
 
-export async function preview(ctx: ServiceContext, input: { jobId: string }): Promise<BillingPlan> {
-  return guardedRead(ctx, "invoice:read", (tx) => planIn(tx, ctx.actor.organizationId, input.jobId));
+export async function preview(
+  ctx: ServiceContext, input: { jobId: string; taxRate?: string | undefined },
+): Promise<BillingPlan> {
+  return guardedRead(ctx, "invoice:read", (tx) =>
+    planIn(tx, ctx.actor.organizationId, input.jobId, { taxRate: input.taxRate }));
 }
 
 /* ------------------------------------------------------------- billing */
@@ -410,6 +472,7 @@ export interface BillResult {
   pricedTotal: string;
   invoicedTotal: string;
   absorbed: string;
+  taxTotal: string;
 }
 
 /**
@@ -421,13 +484,13 @@ export interface BillResult {
  * raise their limit.
  */
 export async function bill(
-  ctx: ServiceContext, input: { jobId: string; draft?: boolean | undefined },
+  ctx: ServiceContext, input: { jobId: string; draft?: boolean | undefined; taxRate?: string | undefined },
 ): Promise<BillResult> {
   return guardedWrite(ctx, "invoice:write", async (tx) => {
     const seen = await replayed<BillResult>(tx, ctx, "job_billing");
     if (seen) return seen;
 
-    const plan = await planIn(tx, ctx.actor.organizationId, input.jobId);
+    const plan = await planIn(tx, ctx.actor.organizationId, input.jobId, { taxRate: input.taxRate });
     if (plan.problems.length > 0) throw new ConflictError(plan.problems.join(" "));
 
     const [job] = await tx.select().from(schema.job).where(eq(schema.job.id, input.jobId)).limit(1);
@@ -471,7 +534,7 @@ export async function bill(
             quantity: share ? "1" : line.quantity,
             unitPrice: share ? part.amount : line.unitPrice,
             discountAmount: "0",
-            taxable: line.taxable,
+            taxable: line.taxable && !payer.taxExempt,
             ...(source ? { coverageSource: source } : {}),
             ...(line.jobLineId && owner.get(line.jobLineId) === payer.customerId ? { jobLineId: line.jobLineId } : {}),
           },
@@ -485,6 +548,13 @@ export async function bill(
               : line.note,
             rateCardId: line.rateCardId,
             rateCardLineId: line.rateCardLineId,
+            /**
+             * The tax this payer's part of the line carries, as the plan
+             * shared it, so the invoices add up to the tax on the whole job
+             * rather than each rounding its own way.
+             */
+            taxRate: line.taxable && !payer.taxExempt ? line.taxRate : "0",
+            taxAmount: usd(part.tax),
           } satisfies billing.PreparedLine,
         };
       });
@@ -530,6 +600,15 @@ export async function bill(
         `The invoices come to ${m.edit(written)} and the work to ${m.edit(usd(plan.pricedTotal))}. Nothing was billed.`,
       );
     }
+    /** And their tax to the tax on the whole, the same way. */
+    const taxes = await tx.select({ tax: schema.invoice.taxTotal })
+      .from(schema.invoice).where(inArray(schema.invoice.id, created.map((c) => c.id)));
+    const taxWritten = m.sum(taxes.map((t) => usd(t.tax)), "USD");
+    if (!m.equals(taxWritten, usd(plan.taxTotal))) {
+      throw new ConflictError(
+        `The invoices charge ${m.edit(taxWritten)} in tax and the work carries ${m.edit(usd(plan.taxTotal))}. Nothing was billed.`,
+      );
+    }
 
     await contractClocks.reconcileJob(tx, ctx.actor.organizationId, input.jobId);
     const result: BillResult = {
@@ -539,6 +618,7 @@ export async function bill(
       pricedTotal: plan.pricedTotal,
       invoicedTotal: m.toString(written),
       absorbed: plan.absorbed,
+      taxTotal: plan.taxTotal,
     };
     await audit(tx, ctx, "job.billed", "job", input.jobId, null, result);
     await remember(tx, ctx, "job_billing", input.jobId, result);
@@ -694,9 +774,10 @@ export async function coverageFromEquipment(
 type PartyRole = Parameters<typeof commercial.setParties>[1]["parties"][number]["role"];
 
 export const handlers = {
-  previewJobBilling: (ctx: ServiceContext, input: { id: string }) => preview(ctx, { jobId: input.id }),
-  billJob: (ctx: ServiceContext, input: { id: string; draft?: boolean | undefined }) =>
-    bill(ctx, { jobId: input.id, draft: input.draft }),
+  previewJobBilling: (ctx: ServiceContext, input: { id: string; taxRate?: string | undefined }) =>
+    preview(ctx, { jobId: input.id, taxRate: input.taxRate }),
+  billJob: (ctx: ServiceContext, input: { id: string; draft?: boolean | undefined; taxRate?: string | undefined }) =>
+    bill(ctx, { jobId: input.id, draft: input.draft, taxRate: input.taxRate }),
   setJobContract: (ctx: ServiceContext, input: { id: string; contractId: string | null }) =>
     setContract(ctx, { jobId: input.id, contractId: input.contractId }),
   listJobClocks: (ctx: ServiceContext, input: { id: string }) => clocks(ctx, { jobId: input.id }),
