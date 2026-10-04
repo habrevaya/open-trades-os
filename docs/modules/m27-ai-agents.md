@@ -185,6 +185,24 @@ transcript unless the call already has one, and the call log marks the call.
 its settings, who must hold `message:read`, `message:send`, `customer:read` and
 `booking:read`.
 
+### Members
+
+All three know a member by how they reached the company (M08): the number a
+call or a text comes from, the number or email a text, email or form came
+from for the intake agent, or a number or email a website visitor writes in
+the chat, matched to a customer holding a running plan that promises
+priority dispatch. Never by a name they say. A member is offered their plan's
+share of the windows held for members, as their own account would be, and
+their booking request may go into it. Who the number belongs to is not
+proof of who is asking, so nothing about it reaches the model or the person:
+the prompt carries no membership, plan or account, only the longer list of
+windows, and nothing is said beyond what the intake flow already said. The
+office is told: the call's assistant record says it knew the number as a
+member's, the chat agent's log line for the booking says so, and an intake
+draft says "This came from a member's number or email". When the office
+books an intake draft, the customer chosen (or the draft's number and email)
+decides again whether a held window may be used.
+
 ### Estimate drafter
 
 On a job, "Draft options from the notes" reads the job's notes, photo captions,

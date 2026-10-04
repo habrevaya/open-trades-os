@@ -99,6 +99,23 @@ agreement and the office is handed a task to tell them another way. A sweep
 that only recorded successes would try somebody who said STOP on every pass for
 a month.
 
+**What a term owed and the member never took is earned when the term ends.**
+A visit not taken by the end of a term is still paid for, and the company
+stood ready to deliver it all year, so on the day the term ends the deferred
+revenue behind it (breakage) moves to revenue. Never before the end: a visit
+skipped in March can be put back in June, and revenue recognised in March for
+it would need reversing against a closed month. This is an accounting
+treatment chosen on purpose, the conservative one: at the end of the term,
+whole slices, never pro rata and never on a guess about who will not call.
+The visit itself stays owed, and doing it later earns nothing more.
+
+**A discount can leave things out.** A plan that discounts labour and not
+equipment names the price book categories (everything filed under them,
+however deep) and single items its discount does not touch. What it leaves
+out is part of the discount, so it is frozen on each agreement at sale like
+the rate. A waived fee is still waived wherever it is filed, because that is
+a separate promise the plan makes.
+
 **A member discount is a per line discount, never a hidden one.** When a job
 or an estimate is priced for a customer holding a running agreement whose plan
 carries a discount, the rate comes off each eligible line as part of that
@@ -123,6 +140,14 @@ Whether it renews on its own, and how many days' notice a member is owed
 before the end of a term, sit there too. `POST /v1/agreement-plans` defines
 one over the API, where a discount rate is a fraction: 0.15 is fifteen per
 cent, and 15 is refused rather than guessed at.
+
+Under "Not discounted" on the same form, tick the price book categories and
+pick the single items the discount leaves out; over the API it is
+`discountExclusions`, two lists of ids, each checked to be in this company's
+price book. A plan that promises priority dispatch can hold its own share of
+each booking window ("Share of each booking window held for these members",
+`memberHoldPercent`); left blank, it holds the company's figure from
+`/booking`.
 
 Each plan opens at `/agreements/plans/{id}` to edit or retire.
 `PATCH /v1/agreement-plans/{id}` edits one and
@@ -181,7 +206,43 @@ new one keeps the reason it was cancelled on the record.
 The worker does the rest on each pass, in the company's own calendar: on the
 end date it renews an agreement whose plan and member both said so, marks the
 others lapsed (which is what the "their plan lapsed" campaign audience reads),
-and inside the notice window it sends the notice the plan owes.
+inside the notice window it sends the notice the plan owes, and for every term
+that has ended it releases the breakage (below).
+
+### Word the renewal notice and choose how it goes
+
+`/agreements/renewals/notices` (linked from Ending soon as "Renewal notices")
+holds the notice's words as four message templates: a term that renews on its
+own and one that does not, each as a text and as an email with its subject.
+A new company starts with the wording the product always sent, and a company
+made before the templates existed sends that same wording until it saves its
+own. The words may use `{{ customer.firstName }}`, `{{ company.name }}`,
+`{{ plan.name }}`, `{{ plan.termMonths }}`, `{{ agreement.renewsOn }}`,
+`{{ agreement.lastCoveredDay }}` and `{{ agreement.price }}`; anything else is
+refused when it is saved. The same screen chooses how the notice goes: by text
+first (email when they cannot be texted, which is what it always did), by
+email first (text when they have no email), or both. Whichever goes first,
+the other is tried when it cannot go, and when nothing can go the office gets
+its task as before. `GET /v1/agreement-renewal-notices` and
+`PUT /v1/agreement-renewal-notices` are the same, under `settings:read` and
+`settings:write`, the permissions every message template is under.
+
+### What happens when a term ends: breakage
+
+On the day a term ends, whatever its visits never taken still hold deferred
+(owed and never booked, booked and not delivered, or skipped, and for a plan
+with no visits the whole term's price) is moved from deferred revenue (2400)
+to agreement revenue (4100) in one balanced posting sourced to the term. It
+happens when the worker renews an agreement on its end date, when a person
+renews one on or after the end, and on the worker's pass for every other
+term that has ended: lapsed ones, and the old term of one renewed early, on
+its own end date. Each term is released once: it is claimed by its own row
+before anything is posted, so two passes cannot post it twice, and a term
+with nothing left (every visit taken, or a cancellation that already released
+it) is marked done at nothing. The agreement's screen lists its terms under
+"Terms" with what each released and when, and `GET /v1/agreements/{id}`
+carries the same as `terms`. Delivering a visit whose term has been released
+recognises nothing more, because it is already earned.
 
 `/agreements/renewals` is what ends in the next 30, 60 or 90 days, soonest
 first, with the ones that lapsed in the last month on top.
@@ -202,6 +263,17 @@ save that the customer is a member. `GET /v1/customers/{id}/member-pricing` says
 whether it would apply. A hand typed discount is still checked against the
 company's discount limit; the member discount is not, because the company made
 that decision when it set the plan's rate.
+
+What the plan leaves out is left out everywhere the discount is taken: an
+estimate, an invoice raised in the office or on a technician's phone (the
+server sends the phone the excluded items as one list, because the phone
+carries the price book without its categories), and the composer's note and
+`GET /v1/customers/{id}/member-pricing` say it by name (`leavesOut`). The
+customer's own account page says the discount and what it leaves out. A job
+billed by payer (M31) takes the plan's discount off the customer's own part,
+at our price, and nothing off a third party's part, which its own authority
+prices; the preview shows it on the customer's part and the invoices, the
+discount and the tax still add up to the job.
 
 ### Sell and read the book from the API
 
@@ -233,7 +305,12 @@ It also reserves capacity. On `/booking`, under Held for members, a company
 holds a share of each arrival window back from anybody who is not a member,
 until a set number of hours before the window opens
 (`GET /v1/booking/member-hold` and `PUT /v1/booking/member-hold`, with
-`booking:configure` to change it). The share is of what the window holds with
+`booking:configure` to change it). That figure is the default: each plan can
+hold its own share instead, set on the plan, and the screen lists every plan
+that promises priority with its share. A window keeps back the largest share
+any live plan holds, and a member is let into as much of it as their own
+plan holds, so a plan holding a third and one holding a tenth both mean what
+they say. The share is of what the window holds with
 nothing booked, rounded to whole jobs with a half rounded down, so a quarter
 of a window two technicians could fill with eight one hour jobs keeps two
 back. Members' own work in the window uses the held share first. The public
@@ -241,6 +318,31 @@ page never offers the held share; a member offers themselves it from their
 own account (at an address their plan covers) and when they ask to move a
 visit from their link. Nothing is held while no live plan promises priority,
 and the screen says so.
+
+The office is held to it too. Booking a job by hand on `/jobs/new`, or adding
+a visit on a job, into an arrival window whose remaining room is held from
+this customer (not a member there that day) is refused in words naming the
+window, until the person booking ticks "Book anyway" (`bookAnyway` on
+`POST /v1/jobs` and `POST /v1/jobs/{id}/visits`). Then it is booked and the
+audit log records `visit.booked_into_member_hold` with their name, the day
+and the window. A window already full for everybody is not the hold, and the
+office stays free to overbook it as before; a job made from a booking request
+was held to the share when the request was made and is not asked again.
+"Rebalance several days" keeps it as well: a visit for somebody no plan lets
+into the hold is moved into a window on another day only while that window
+has room outside the hold, counting every visit the plan moves in.
+
+The phone assistant, the chat on the website and by text, and the intake
+agent (M27) know a member by how they reached the company: the number a call
+or text comes from, or a number or email a website visitor writes in the
+chat, matched to a customer holding a running plan that promises priority.
+Such a member is offered their plan's share of what is held, as their own
+account would offer it, and their booking request may go into it. A number
+can be borrowed and an email typed by anybody, so nothing is said about it:
+the assistant is never told there is a membership, a plan or an account, and
+the caller hears nothing the existing intake flow did not already say. The
+office is told, on the call's record of what the assistant did, in the chat
+agent's log line for the booking, and on the intake draft.
 
 ### Cancel one
 
@@ -262,7 +364,9 @@ answer that is wrong either way.
 | dispatcher, csr, technician | Not by default |
 
 `membership:read` sees the book and the ending soon list. `membership:write`
-defines plans, sells, renews and cancels. Invoicing an instalment additionally
+defines plans, sells, renews and cancels. The renewal notice's words and how
+it goes are company settings: `settings:read` to see them on
+`/agreements/renewals/notices`, `settings:write` to change them. Invoicing an instalment additionally
 needs `invoice:write`. Whether work is priced as member work is readable with
 `customer:read`, because the technician quoting at the kitchen table needs to
 know the customer is a member and does not need the agreement book to find out.
@@ -289,6 +393,8 @@ know the customer is a member and does not need the agreement book to find out.
 | `POST /v1/agreement-instalments/{id}/invoice` | `invoice:write` |
 | `GET /v1/agreement-renewals` | `membership:read` |
 | `GET /v1/customers/{id}/member-pricing` | `customer:read` |
+| `GET /v1/agreement-renewal-notices` | `settings:read` |
+| `PUT /v1/agreement-renewal-notices` | `settings:write` |
 
 The book's unearned total across every agreement is on the `/agreements`
 screen and not on the API; one agreement's is on `GET /v1/agreements/{id}`.
@@ -309,30 +415,36 @@ posts to deferred revenue rather than revenue.
 
 **Why did a member not get their notice?** The agreement says, in words, and
 there is a task in the office queue for it: no number or email on the
-customer, or they replied STOP.
+customer, or they replied STOP. A notice that went the second way says so
+("Sent by email. Not texted: ...").
+
+**Why did revenue go up the day a plan ended?** That is breakage: the money
+for visits the member never took, counted as earned on the last day of the
+term, on the agreement's Terms list. If they ring later, the visit is still
+owed and can be done; it adds nothing more to the books.
 
 **Can a member pay annually and be visited monthly?** Yes. That is the whole
 reason the two schedules are separate.
 
 ## What is not built
 
-Member pricing applies the plan's whole discount on every eligible line;
-there is no per item or per category exclusion beyond discount items, so a
-company whose plan discounts labour and not equipment cannot say so. A member
-discount is taken off a contract rate card price as well as off the price
-book. The waived fees are applied only to a price book item marked as that
-fee; a fee typed onto a line by hand is charged. Priority dispatch reserves a share of
-each window in online booking, but the office booking a job by hand is not
-held to it: a stranger can still be booked into a held window from the
-office. The share is one company wide figure, not one per plan. A member
-calling in is not recognised by the voice or chat assistants as a member, so
-the windows those offer are a stranger's.
+A member discount is taken off a contract rate card price as well as off the
+price book. The waived fees are applied only to a price book item marked as
+that fee; a fee typed onto a line by hand is charged, and a line typed by hand
+is never left out of the discount, because nothing says what it is. What the
+discount leaves out is chosen from every category and the first two hundred
+items still sold on the plan screen; a bigger book is left out by category.
 The perks are read from the plan when they are used rather than frozen on the
 agreement, so turning one off takes it from existing members at once; the
-screen says so, and freezing them is a decision nobody has made. Breakage, the
-deferred revenue behind visits a member never took, is not released at the end
-of a term or on renewal; it sits deferred until somebody cancels the
-agreement. A renewal notice is sent by text when the customer can be texted and
-by email when they cannot; never both, and the wording is fixed rather than a
-message template. Prorating a cancellation to the day, rather than releasing
-whole undelivered slices, is a decision nobody has made.
+screen says so, and freezing them is a decision nobody has made. Moving a
+visit to another time by dragging it on the board is not held to the share
+kept for members; booking a job or adding a visit is, and so is the several
+day rebalance. The assistants know a member only by the number they ring or
+text from or a number or email written in the chat, never by a name they say,
+and that match proves nothing about who is asking: it changes which windows
+are offered and nothing else. A breakage release is reached by the worker's
+pass or by a renewal; a term is not released by any screen. Terms of an
+agreement sold before terms were recorded, other than its current one, have
+no end date written down and are never released. Prorating a cancellation to
+the day, rather than releasing whole undelivered slices, is a decision nobody
+has made.

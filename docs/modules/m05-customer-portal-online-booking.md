@@ -152,7 +152,9 @@ there is. A company whose plans promise priority dispatch can hold a share
 of each window back for members until a set time before it opens (M08): the
 public page is offered what is left, and a member booking from their own
 account, or asking to move a visit from their link, is offered the held
-share too when their plan covers the address.
+share too when their plan covers the address. Each plan can hold its own
+share, the company's figure being the default; a member is let into as much
+of what is held as their own plan holds.
 
 **A resubmission inside a short window is the same submission.** Long enough to
 cover a phone that lost signal mid-request and somebody who gave up and refilled
