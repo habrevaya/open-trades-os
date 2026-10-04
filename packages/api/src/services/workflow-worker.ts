@@ -9,6 +9,7 @@ import { clockPass } from "./contract-clocks";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
 import { adsPass } from "./ads";
 import type { AdsDeps } from "./ad-platforms";
+import { mailPass, type MailDeps } from "./direct-mail";
 import { deliverDue } from "./delivery-schedules";
 import { agentPass } from "./agent-worker";
 import { renewalsPass } from "./agreements";
@@ -228,6 +229,8 @@ export interface PassOptions {
    * is how a test supplies fakes.
    */
   ads?: false | { deps?: AdsDeps };
+  /** Mailings left half sent, finished a batch at a time. False turns it off; deps point it at a fake mail house. */
+  mail?: false | { deps?: MailDeps };
   /**
    * Runs after each drain, for the organizations that had events.
    *
@@ -448,6 +451,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       });
     } catch (error) {
       console.error("[worker] ad platforms:", (error as Error).message);
+    }
+  }
+
+  /**
+   * Mailings larger than one send's batch, a batch per company per pass. Its
+   * own try, because a mail house that is down must not hold up a text.
+   */
+  if (options.mail !== false) {
+    try {
+      await mailPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.mail?.deps ? { deps: options.mail.deps } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] direct mail:", (error as Error).message);
     }
   }
 

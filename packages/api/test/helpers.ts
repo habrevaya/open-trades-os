@@ -67,7 +67,13 @@ const ORDER = [
    * about their details and advertising. Both point at the job or the
    * customer below.
    */
-  "ad_conversion_send", "advertising_consent",
+  "ad_conversion_adjustment", "ad_conversion_send", "advertising_consent",
+  /**
+   * A mailing's pieces point at the customer and the property they were
+   * posted to, so they go before both; the mailing itself before the tracking
+   * campaign it is credited to, further down.
+   */
+  "mail_piece", "mail_campaign",
   "delivery",
   "obligation", "authorization", "external_work_order",
   /**
@@ -187,7 +193,11 @@ const ORDER = [
    */
   "asset_cost", "asset_compliance", "asset_maintenance_plan",
   "asset_meter_reading", "asset_custody", "company_asset",
+  /** A lead's messages and the inbox's emails point at the offer; the offer at its connector. */
+  "lead_offer_message", "lead_email", "lead_inbox",
   "lead_offer", "lead_source_connector", "sync_run",
+  /** What Search Console and Analytics reported, per connection. */
+  "search_query_day", "analytics_session_day",
   /**
    * Calendar feeds, before the technician they point at and before the
    * organization. A feed is a credential rather than a record of work, so it

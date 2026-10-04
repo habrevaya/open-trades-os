@@ -542,3 +542,242 @@ export async function setAdChoice(ctx: ServiceContext, input: {
   });
   return adChoice(ctx, { customerId: input.customerId });
 }
+
+/* -------------------------------------------------------- restating a send */
+
+/** How far back a sent purchase is watched for a change in what the job is worth. */
+const RESTATE_DAYS = 90;
+
+/**
+ * This platform's share of a job's revenue now, to the cent, by the same rules
+ * the first send was valued by: the whole recognised revenue, split under the
+ * company's attribution model, this platform's part of it. Zero when nothing
+ * is left or the model now gives it none.
+ */
+async function shareNow(tx: Database, row: Connection, jobId: string): Promise<string> {
+  const org = row.organizationId;
+  const provider = row.provider as ads.AdsProvider;
+  const revenue = (await revenueByJob(tx, [jobId])).get(jobId);
+  if (!revenue || !m.isPositive(revenue)) return "0.00";
+  const touches = await tx.select().from(schema.marketingTouch)
+    .where(and(eq(schema.marketingTouch.organizationId, org), eq(schema.marketingTouch.jobId, jobId)))
+    .orderBy(asc(schema.marketingTouch.occurredAt));
+  const model = (await acquisition.settingsWithin(tx, org)).attributionModel;
+  const decision = mk.attribute(model, touches.map(touchToCore));
+  if (!decision.ok) return "0.00";
+  const share = mk.creditRevenue(decision.credits, revenue)
+    .filter((s) => ads.answersFor(provider, s.source))
+    .reduce((sum, s) => m.add(sum, s.amount), m.zero(revenue.currency));
+  return m.isPositive(share) ? m.toString(m.round(share, 2)) : "0.00";
+}
+
+type AdjustmentRow = typeof schema.adConversionAdjustment.$inferSelect;
+
+/**
+ * One pass of restatements for one connection: purchases sent whose job is
+ * worth something different to this platform now, each told once, and the
+ * adjustments already decided that are due a (re)try.
+ *
+ * Decided in a transaction, sent after it, recorded after that, the same
+ * shape as the sends above, for the same reasons.
+ */
+export async function restateConversions(db: Database, row: Connection, deps: AdsDeps = {}): Promise<PullOutcome> {
+  const provider = row.provider as ads.AdsProvider;
+  const ctx: ServiceContext = { actor: adsActor(row.organizationId), db };
+  const now = (deps.now ?? (() => new Date()))();
+
+  return runPull(db, row, "adjustments", async () => {
+    if (!ads.RESTATES.includes(provider) || notSending(row)) return { read: 0, written: 0 };
+
+    const due = await inTenant(ctx, async (tx) => {
+      const [company] = await tx.select({ currency: schema.organization.currency })
+        .from(schema.organization).where(eq(schema.organization.id, row.organizationId)).limit(1);
+      const currency = company?.currency ?? "USD";
+      const sent = await tx.select().from(schema.adConversionSend).where(and(
+        eq(schema.adConversionSend.organizationId, row.organizationId),
+        eq(schema.adConversionSend.provider, provider),
+        eq(schema.adConversionSend.kind, "purchase"),
+        eq(schema.adConversionSend.state, "sent"),
+        sql`${schema.adConversionSend.sentAt} >= ${new Date(now.getTime() - RESTATE_DAYS * 86_400_000).toISOString()}::timestamptz`,
+      )).orderBy(asc(schema.adConversionSend.sentAt)).limit(BATCH * 4);
+      let considered = 0;
+
+      for (const send of sent) {
+        considered += 1;
+        const history = await tx.select().from(schema.adConversionAdjustment)
+          .where(eq(schema.adConversionAdjustment.sendId, send.id))
+          .orderBy(desc(schema.adConversionAdjustment.sequence));
+        const latest = history[0] ?? null;
+        /** Something still in flight is finished before anything new is decided about the same job. */
+        if (latest && (latest.state === "sending" || latest.state === "failed")) continue;
+        const believed = history.find((a) => a.state === "sent")?.newValue ?? send.value ?? "0";
+        const recorded = latest?.newValue ?? send.value ?? "0";
+        const now$ = await shareNow(tx, row, send.jobId);
+        if (m.equals(m.round(m.money(now$)), m.round(m.money(recorded)))) continue;
+        const decision = ads.decideAdjustment({ provider, told: believed, now: now$ });
+        if (decision.kind === "none") continue;
+        const sequence = (latest?.sequence ?? 0) + 1;
+        await tx.insert(schema.adConversionAdjustment).values({
+          organizationId: row.organizationId,
+          sendId: send.id,
+          provider,
+          jobId: send.jobId,
+          sequence,
+          kind: decision.kind,
+          previousValue: believed,
+          newValue: now$,
+          sentValue: decision.kind === "restatement" || decision.kind === "increase" ? decision.value : null,
+          currency,
+          state: decision.kind === "cannot_lower" ? "withheld" : "sending",
+          eventId: ads.adjustmentEventId(send.jobId, sequence),
+          detail: decision.kind === "cannot_lower" ? decision.because : null,
+        }).onConflictDoNothing();
+      }
+
+      /** Decided now, or failed earlier and due again, or left mid send by a worker that died. */
+      const queued = await tx.select().from(schema.adConversionAdjustment).where(and(
+        eq(schema.adConversionAdjustment.organizationId, row.organizationId),
+        eq(schema.adConversionAdjustment.provider, provider),
+        or(
+          and(eq(schema.adConversionAdjustment.state, "sending"), eq(schema.adConversionAdjustment.attempts, 0)),
+          and(eq(schema.adConversionAdjustment.state, "failed"), lte(schema.adConversionAdjustment.nextAttemptAt, now)),
+          and(eq(schema.adConversionAdjustment.state, "sending"), lt(schema.adConversionAdjustment.updatedAt, new Date(now.getTime() - STUCK_MS))),
+        ),
+      )).limit(BATCH);
+
+      const out: { adjustment: AdjustmentRow; event: OutboundEvent | null }[] = [];
+      for (const adjustment of queued) {
+        await tx.update(schema.adConversionAdjustment).set({ state: "sending", updatedAt: new Date() })
+          .where(eq(schema.adConversionAdjustment.id, adjustment.id));
+        if (provider !== "meta_ads") { out.push({ adjustment, event: null }); continue; }
+        /**
+         * Meta matches the increase to a person the way it matched the
+         * purchase, so it is decided afresh: a customer who said no since the
+         * purchase went has nothing more sent.
+         */
+        const prepared = await prepare(tx, row, "purchase", adjustment.jobId, now).catch(() => null);
+        if (!prepared || !prepared.send) {
+          await tx.update(schema.adConversionAdjustment).set({
+            state: "withheld",
+            detail: prepared && !prepared.send ? prepared.because : "The job is gone.",
+            updatedAt: new Date(),
+          }).where(eq(schema.adConversionAdjustment.id, adjustment.id));
+          continue;
+        }
+        out.push({
+          adjustment,
+          event: { ...prepared.event, eventId: adjustment.eventId, value: adjustment.sentValue, at: now, currency: adjustment.currency ?? prepared.event.currency },
+        });
+      }
+      return { out, considered };
+    });
+
+    if (due.out.length === 0) return { read: due.considered, written: 0 };
+
+    let outcomes = new Map<string, { ok: boolean; message: string | null }>();
+    let failedWith: Error | null = null;
+    try {
+      const adapter = await adapterFor(db, row, deps);
+      if (provider === "google_ads") {
+        const answers = await adapter.adjustConversions!(due.out.map(({ adjustment }) => ({
+          orderId: ads.eventId("purchase", adjustment.jobId),
+          kind: adjustment.kind === "retraction" ? "retraction" as const : "restatement" as const,
+          value: adjustment.sentValue,
+          currency: adjustment.currency ?? "USD",
+          at: now,
+        })));
+        outcomes = new Map(due.out.map(({ adjustment }, i) => [adjustment.id, { ok: answers[i]?.ok ?? false, message: answers[i]?.message ?? null }]));
+      } else {
+        const answers = await adapter.sendEvents!(due.out.map((d) => d.event!));
+        const byEvent = new Map(answers.map((a) => [a.eventId, a]));
+        outcomes = new Map(due.out.map(({ adjustment }) => {
+          const a = byEvent.get(adjustment.eventId);
+          return [adjustment.id, { ok: a?.ok ?? false, message: a && !a.ok ? a.message : null }];
+        }));
+      }
+    } catch (error) {
+      failedWith = error as Error;
+    }
+
+    let sent = 0;
+    await inTenant(ctx, async (tx) => {
+      for (const { adjustment } of due.out) {
+        const attempts = adjustment.attempts + 1;
+        const outcome = outcomes.get(adjustment.id);
+        if (outcome?.ok) {
+          sent += 1;
+          await tx.update(schema.adConversionAdjustment).set({
+            state: "sent", attempts, sentAt: new Date(), detail: null, nextAttemptAt: null, updatedAt: new Date(),
+          }).where(eq(schema.adConversionAdjustment.id, adjustment.id));
+        } else if (outcome || failedWith instanceof PlatformRefusedError) {
+          await tx.update(schema.adConversionAdjustment).set({
+            state: "refused", attempts, detail: (outcome?.message ?? failedWith?.message ?? "Refused.").slice(0, 1000),
+            nextAttemptAt: null, updatedAt: new Date(),
+          }).where(eq(schema.adConversionAdjustment.id, adjustment.id));
+        } else {
+          const retry = ads.retryAt(attempts, now);
+          await tx.update(schema.adConversionAdjustment).set({
+            state: "failed", attempts,
+            detail: (failedWith?.message ?? "No answer for this adjustment.").slice(0, 1000),
+            nextAttemptAt: retry, updatedAt: new Date(),
+          }).where(eq(schema.adConversionAdjustment.id, adjustment.id));
+        }
+      }
+      await audit(tx, ctx, "ad_conversions.restated", "integration_connection", row.id, null, {
+        provider, attempted: due.out.length, sent,
+      });
+    });
+    if (failedWith instanceof AuthorizationLostError) throw failedWith;
+    return { read: due.considered, written: sent };
+  });
+}
+
+export interface AdjustmentView {
+  id: string;
+  provider: string;
+  providerLabel: string;
+  jobId: string;
+  jobNumber: number | null;
+  sequence: number;
+  kind: string;
+  previousValue: string;
+  newValue: string;
+  sentValue: string | null;
+  state: string;
+  detail: string | null;
+  attempts: number;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+/** Every restatement decided, newest first, with what was sent and what the platform said. */
+export async function listAdjustments(ctx: ServiceContext, input: { jobId?: string | undefined; limit?: number | undefined }): Promise<AdjustmentView[]> {
+  return guardedRead(ctx, "adspend:read", async (tx) => {
+    const rows = await tx.select({ adjustment: schema.adConversionAdjustment, number: schema.job.number })
+      .from(schema.adConversionAdjustment)
+      .leftJoin(schema.job, eq(schema.job.id, schema.adConversionAdjustment.jobId))
+      .where(and(
+        eq(schema.adConversionAdjustment.organizationId, ctx.actor.organizationId),
+        ...(input.jobId ? [eq(schema.adConversionAdjustment.jobId, input.jobId)] : []),
+      ))
+      .orderBy(desc(schema.adConversionAdjustment.createdAt))
+      .limit(Math.min(input.limit ?? 200, 500));
+    return rows.map(({ adjustment: a, number }) => ({
+      id: a.id,
+      provider: a.provider,
+      providerLabel: ads.isAdsProvider(a.provider) ? ads.PROVIDERS[a.provider].label : a.provider,
+      jobId: a.jobId,
+      jobNumber: number,
+      sequence: a.sequence,
+      kind: a.kind,
+      previousValue: a.previousValue,
+      newValue: a.newValue,
+      sentValue: a.sentValue,
+      state: a.state,
+      detail: a.detail,
+      attempts: a.attempts,
+      sentAt: a.sentAt?.toISOString() ?? null,
+      createdAt: a.createdAt.toISOString(),
+    }));
+  });
+}

@@ -254,7 +254,10 @@ function shape(row: typeof schema.leadSourceConnector.$inferSelect) {
   return {
     id: row.id,
     source: row.source,
+    /** How its leads arrive: the signed webhook, a marketplace's own post, or forwarded emails. */
+    kind: row.kind,
     channelId: row.channelId,
+    campaignId: row.acquisitionCampaignId,
     displayName: row.displayName,
     active: row.active,
     /** The half of the URL this product knows. The host is the deployment's own. */
@@ -278,6 +281,12 @@ export interface ConnectorInput {
    * answer does not change under the company later.
    */
   channelId?: string | null | undefined;
+  /**
+   * The tracking campaign its leads are credited to. Optional; when given,
+   * it decides the channel too, and a channel chosen as well has to be the
+   * campaign's own.
+   */
+  campaignId?: string | null | undefined;
   displayName: string;
   fieldMap?: Record<string, unknown> | undefined;
   commissionRate?: string | null | undefined;
@@ -311,8 +320,13 @@ export async function create(ctx: ServiceContext, input: ConnectorInput) {
     }
 
     const fieldMap = checkFieldMap(input.fieldMap ?? {});
+    const declared = input.campaignId
+      ? await acquisition.resolveDeclared(tx, ctx.actor.organizationId, {
+        campaignId: input.campaignId, channelId: input.channelId ?? null,
+      })
+      : null;
     const channel = await resolveConnectorChannel(tx, ctx.actor.organizationId, {
-      source, channelId: input.channelId ?? null,
+      source, channelId: declared?.channelId ?? input.channelId ?? null,
     });
     if (!channel.channelId) {
       throw new ConflictError(
@@ -326,6 +340,7 @@ export async function create(ctx: ServiceContext, input: ConnectorInput) {
       organizationId: ctx.actor.organizationId,
       source,
       channelId: channel.channelId,
+      acquisitionCampaignId: declared?.campaignId ?? null,
       displayName,
       webhookToken: newToken(),
       fieldMap,
@@ -396,6 +411,7 @@ export async function update(
     id: string;
     displayName?: string | undefined;
     channelId?: string | undefined;
+    campaignId?: string | null | undefined;
     fieldMap?: Record<string, unknown> | undefined;
     active?: boolean | undefined;
     commissionRate?: string | null | undefined;
@@ -408,10 +424,18 @@ export async function update(
       const channel = await acquisition.loadChannel(tx, ctx.actor.organizationId, input.channelId);
       if (channel.archivedAt) throw new ConflictError(`${channel.name} is archived.`);
     }
+    /** A campaign brings its own channel, and a channel chosen with it has to be that one. */
+    const declared = input.campaignId
+      ? await acquisition.resolveDeclared(tx, ctx.actor.organizationId, {
+        campaignId: input.campaignId, channelId: input.channelId ?? null,
+      })
+      : null;
 
     const [after] = await tx.update(schema.leadSourceConnector).set({
       ...(input.displayName !== undefined ? { displayName: input.displayName.trim() } : {}),
       ...(input.channelId !== undefined ? { channelId: input.channelId } : {}),
+      ...(declared ? { channelId: declared.channelId, acquisitionCampaignId: declared.campaignId } : {}),
+      ...(input.campaignId === null ? { acquisitionCampaignId: null } : {}),
       ...(input.fieldMap !== undefined ? { fieldMap: checkFieldMap(input.fieldMap) } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
       ...(input.commissionRate !== undefined ? { commissionRate: input.commissionRate } : {}),
@@ -574,6 +598,7 @@ export const handlers = {
     ctx: ServiceContext,
     input: {
       id: string; displayName?: string | undefined; channelId?: string | undefined;
+      campaignId?: string | null | undefined;
       fieldMap?: Record<string, unknown> | undefined; active?: boolean | undefined;
       commissionRate?: string | null | undefined; leadFee?: string | null | undefined;
     },

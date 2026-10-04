@@ -5,9 +5,12 @@ import { guardedWrite, ConflictError, type ServiceContext } from "./context";
 import { replayed, remember } from "./once";
 import {
   connectedRow, connectedRows, finishSignIn, isDue, listPlatformCampaigns, mapPlatformCampaign, platforms,
-  pullLeads, pullSpend, startSignIn, type AdsDeps, type Connection, type PullOutcome,
+  pullAnalytics, pullLeads, pullSpend, startSignIn, type AdsDeps, type Connection, type PullOutcome,
 } from "./ad-platforms";
-import { adChoice, listSends, retrySend, sendConversions, setAdChoice } from "./ad-conversions";
+import {
+  adChoice, listAdjustments, listSends, restateConversions, retrySend, sendConversions, setAdChoice,
+} from "./ad-conversions";
+import { overview } from "./marketing-overview";
 import { confirmMatch, postPendingReplies, pullReviews, syncNow } from "./review-sync";
 import "../ads/index";
 
@@ -32,6 +35,11 @@ async function workOn(db: Database, row: Connection, deps: AdsDeps, now: Date, f
     });
   }
   if (spec.sends.length > 0 && (force || await isDue(db, row, "conversions", now))) out.push(await sendConversions(db, row, deps));
+  /** After the sends, so a job sent and changed in the same quarter hour is restated on the next pass, not raced. */
+  if (ads.RESTATES.includes(row.provider as ads.AdsProvider) && (force || await isDue(db, row, "adjustments", now))) {
+    out.push(await restateConversions(db, row, deps));
+  }
+  if (spec.pullsAnalytics && (force || await isDue(db, row, "analytics", now))) out.push(await pullAnalytics(db, row, deps));
   return out;
 }
 
@@ -124,6 +132,9 @@ export const handlers = {
     state?: string | undefined; provider?: string | undefined; jobId?: string | undefined; limit?: number | undefined;
   }) => ({ sends: await listSends(ctx, input) }),
   retryConversionSend: (ctx: ServiceContext, input: { id: string }) => retrySend(ctx, input),
+  listConversionAdjustments: async (ctx: ServiceContext, input: { jobId?: string | undefined; limit?: number | undefined }) =>
+    ({ adjustments: await listAdjustments(ctx, input) }),
+  getMarketingOverview: (ctx: ServiceContext, input: { from: string; to: string }) => overview(ctx, input),
   getCustomerAdData: (ctx: ServiceContext, input: { id: string }) => adChoice(ctx, { customerId: input.id }),
   setCustomerAdData: (ctx: ServiceContext, input: {
     id: string; choice: "granted" | "refused"; method?: "verbal" | "written" | "web_form" | "api" | undefined;

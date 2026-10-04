@@ -493,6 +493,12 @@ export interface HttpResponse {
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /**
+   * The bytes, for the one answer that is not text: a report handed back as a
+   * zip. Optional so every fake that answers JSON stays as it is; `fetch`
+   * has it.
+   */
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
 export type HttpTransport = (

@@ -59,7 +59,7 @@ const normaliseHeader = (value: string): string =>
  * the wrong campaign rather than failing, which is the worst way for this to
  * be wrong.
  */
-function splitRow(line: string): string[] {
+export function splitRow(line: string): string[] {
   const out: string[] = [];
   let current = "";
   let quoted = false;

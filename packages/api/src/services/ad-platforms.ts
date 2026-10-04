@@ -12,7 +12,7 @@ import * as leadIntake from "./lead-intake";
 import {
   AuthorizationLostError, PlatformRefusedError, createAdsAdapter, exchangeCode, parseOAuthClient, seal,
   sealingKey, tokenSource, unseal, SealingKeyMissingError, SealedUnderAnotherKeyError,
-  type AdsAdapter, type HttpTransport, type OAuthClient,
+  type AdsAdapter, type HttpTransport, type OAuthClient, type PulledLead,
 } from "../ads/index";
 
 /**
@@ -293,6 +293,7 @@ export async function finishSignIn(
     const client = await oauthClientFor(connection, deps.readSecret ?? envSecret);
     grant = await exchangeCode({
       family: spec.oauth!,
+      scopes: spec.scopes,
       client,
       code: input.code,
       redirectUri: signInReturnAddress(env),
@@ -366,7 +367,7 @@ export async function adapterFor(db: Database, row: Connection, deps: AdsDeps = 
 
   let token = null;
   if (spec.oauth) {
-    const client = spec.oauth === "google" ? await oauthClientFor(row, readSecret) : null;
+    const client = spec.oauth !== "meta" ? await oauthClientFor(row, readSecret) : null;
     let credential: string;
     let expiresAt: Date | null = row.expiresAt ?? null;
     let sealedHere = false;
@@ -376,7 +377,7 @@ export async function adapterFor(db: Database, row: Connection, deps: AdsDeps = 
     } else {
       const [grant] = await inTenant(systemCtx(db, row.organizationId), (tx) =>
         tx.select().from(schema.sealedCredential).where(eq(schema.sealedCredential.connectionId, row.id)).limit(1));
-      if (!grant) throw new AuthorizationLostError(`Nobody has signed in with ${spec.oauth === "google" ? "Google" : "Meta"} for ${spec.label} yet.`);
+      if (!grant) throw new AuthorizationLostError(`Nobody has signed in with ${ads.OAUTH_LABEL[spec.oauth]} for ${spec.label} yet.`);
       const key = sealingKey(env);
       if (!key) throw new AuthorizationLostError(new SealingKeyMissingError().message);
       try {
@@ -416,7 +417,7 @@ export async function adapterFor(db: Database, row: Connection, deps: AdsDeps = 
 
 /* ------------------------------------------------------------ one pull */
 
-export type Entity = "spend" | "leads" | "reviews" | "conversions";
+export type Entity = "spend" | "leads" | "reviews" | "conversions" | "analytics" | "adjustments";
 
 export interface PullOutcome {
   provider: string;
@@ -449,7 +450,7 @@ export async function runPull(
   const [run] = await inTenant(ctx, (tx) => tx.insert(schema.syncRun).values({
     organizationId: row.organizationId,
     connectionId: row.id,
-    direction: entity === "conversions" ? "outbound" : "inbound",
+    direction: entity === "conversions" || entity === "adjustments" ? "outbound" : "inbound",
     entityType: entity,
   }).returning({ id: schema.syncRun.id }));
 
@@ -493,7 +494,8 @@ async function lastRun(tx: Database, connectionId: string, entity: Entity, succe
 /* ----------------------------------------------------------------- spend */
 
 /** The origin a pulled spend row carries: the API it came through, so Google Ads and Local Services pulls of one account cannot both write a day. */
-const originOf = (provider: string) => (provider === "meta_ads" ? "meta_ads" : "google_ads");
+const originOf = (provider: string) =>
+  provider === "meta_ads" || provider === "meta_lead_ads" ? "meta_ads" : provider === "bing_ads" ? "bing_ads" : "google_ads";
 
 /**
  * Pull a connection's spend into the ordinary spend rows.
@@ -593,7 +595,8 @@ export async function pullSpend(db: Database, row: Connection, deps: AdsDeps = {
 
       /** Days asked about where the platform now reports nothing for a campaign it reported before. */
       const accounts = [...new Set(pulled.map((p) => p.accountId))];
-      const account = accounts[0] ?? text(settingsOf(row), "customerId")?.replace(/\D/g, "")
+      const account = accounts[0] ?? (provider === "bing_ads" ? text(settingsOf(row), "accountId")?.replace(/\D/g, "") : undefined)
+        ?? text(settingsOf(row), "customerId")?.replace(/\D/g, "")
         ?? text(settingsOf(row), "adAccountId")?.replace(/\D/g, "");
       if (account) {
         await tx.update(schema.adSpend).set({ deletedAt: new Date(), updatedAt: new Date() }).where(and(
@@ -762,43 +765,136 @@ export async function mapPlatformCampaign(
   });
 }
 
-/* ---------------------------------------------------- Local Services leads */
+/* ------------------------------------------------- leads from a platform */
 
 /**
- * The lead source connector a Local Services connection's leads arrive under.
+ * The lead source connector a platform connection's leads arrive under.
  *
  * The lead inbox is offers from lead source connectors, and a Local Services
- * lead is one: a person who rang or messaged, with a charge attached. Made
- * the first time it is needed, credited to the company's Local Services
- * channel, with no webhook token because nothing posts to it.
+ * lead or an instant form is one: a person who asked, read from the
+ * platform rather than posted by it. Made the first time it is needed,
+ * credited to the platform's channel, with no webhook token because nothing
+ * posts to it.
  */
-async function lsaConnector(tx: Database, row: Connection): Promise<string> {
+const LEAD_CONNECTOR: Partial<Record<ads.AdsProvider, { source: string; displayName: string }>> = {
+  google_lsa: { source: "google_lsa", displayName: "Google Local Services Ads" },
+  meta_lead_ads: { source: "meta_ads", displayName: "Meta instant forms" },
+};
+
+async function platformLeadConnector(tx: Database, row: Connection): Promise<string> {
   const [existing] = await tx.select({ id: schema.leadSourceConnector.id }).from(schema.leadSourceConnector)
     .where(and(
       eq(schema.leadSourceConnector.organizationId, row.organizationId),
       eq(schema.leadSourceConnector.connectionId, row.id),
     )).limit(1);
   if (existing) return existing.id;
+  const spec = LEAD_CONNECTOR[row.provider as ads.AdsProvider] ?? { source: "marketplace", displayName: row.provider };
   const [created] = await tx.insert(schema.leadSourceConnector).values({
     organizationId: row.organizationId,
     connectionId: row.id,
-    source: "google_lsa",
-    channelId: await acquisition.channelForSource(tx, row.organizationId, "google_lsa"),
-    displayName: "Google Local Services Ads",
+    source: spec.source,
+    kind: row.provider,
+    channelId: await acquisition.channelForSource(tx, row.organizationId, spec.source),
+    displayName: spec.displayName,
   }).returning({ id: schema.leadSourceConnector.id });
   return created!.id;
 }
 
-const LEAD_TYPE: Record<string, string> = { PHONE_CALL: "A call", MESSAGE: "A message", BOOKING: "A booking" };
+/**
+ * Which of the company's tracking campaigns a lead's ad campaign is.
+ *
+ * Through the same map the spend pull keeps: the platform's campaign found by
+ * its id under any connection to that platform, and when it has never been
+ * seen, written there (matched by name when exactly one tracking campaign's
+ * name or tag agrees) so it appears on the Ad platforms screen to be mapped
+ * by a person. A mapping made there credits every later lead.
+ */
+async function campaignForLead(
+  tx: Database, row: Connection, campaign: { id: string; name: string | null },
+): Promise<string | null> {
+  const family = row.provider === "meta_lead_ads" || row.provider === "meta_ads" ? ["meta_ads", "meta_lead_ads"] : [row.provider];
+  const [known] = await tx.select({ id: schema.adPlatformCampaign.id, campaignId: schema.adPlatformCampaign.acquisitionCampaignId })
+    .from(schema.adPlatformCampaign).where(and(
+      eq(schema.adPlatformCampaign.organizationId, row.organizationId),
+      eq(schema.adPlatformCampaign.externalId, campaign.id),
+      inArray(schema.adPlatformCampaign.provider, family),
+    ))
+    .orderBy(sql`${schema.adPlatformCampaign.acquisitionCampaignId} is null`)
+    .limit(1);
+  if (known) return known.campaignId;
+  const ours = await tx.select({
+    id: schema.acquisitionCampaign.id, name: schema.acquisitionCampaign.name, utm: schema.acquisitionCampaign.utmCampaign,
+  }).from(schema.acquisitionCampaign)
+    .where(and(eq(schema.acquisitionCampaign.organizationId, row.organizationId), isNull(schema.acquisitionCampaign.archivedAt)));
+  const matched = campaign.name ? ads.matchCampaign(campaign.name, ours) : null;
+  await tx.insert(schema.adPlatformCampaign).values({
+    organizationId: row.organizationId,
+    connectionId: row.id,
+    provider: row.provider,
+    accountId: text(settingsOf(row), "pageId") ?? text(settingsOf(row), "customerId") ?? row.provider,
+    externalId: campaign.id,
+    name: campaign.name ?? `Campaign ${campaign.id}`,
+    channelType: null,
+    source: ads.sourceOfPlatformCampaign(row.provider as ads.AdsProvider, null),
+    acquisitionCampaignId: matched,
+    mappedBy: matched ? "matched" : null,
+  }).onConflictDoNothing();
+  return matched;
+}
+
+const LEAD_TYPE: Record<string, string> = { PHONE_CALL: "A call", MESSAGE: "A message", BOOKING: "A booking", FORM: "An instant form" };
 
 /**
- * Read Local Services leads into the lead inbox.
+ * Leads a platform read or posted, into the lead inbox.
  *
- * Through the same intake a lead webhook uses, so the offer, the touch on
- * the Local Services channel and the "same lead twice is the same lead" rule
- * are one implementation. Each pull overlaps the last by an hour, because a
- * lead Google writes a moment late must not fall between two pulls; the
- * overlap is free, since a lead read twice is found by its id.
+ * Through the same intake a lead webhook uses, so the offer, the touch on the
+ * platform's channel (and its tracking campaign, when the lead names an ad
+ * campaign that is mapped) and the "same lead twice is the same lead" rule
+ * are one implementation. Shared by the pull and Meta's webhook, so a lead
+ * found both ways is one lead.
+ */
+export async function ingestLeads(tx: Database, row: Connection, leads: readonly PulledLead[]): Promise<{ written: number; offers: string[] }> {
+  const provider = row.provider as ads.AdsProvider;
+  const connectorId = await platformLeadConnector(tx, row);
+  const label = ads.PROVIDERS[provider]?.label ?? provider;
+  let written = 0;
+  const offers: string[] = [];
+  for (const lead of leads) {
+    const campaignId = lead.campaign ? await campaignForLead(tx, row, lead.campaign) : null;
+    const outcome = await leadIntake.receiveLead(tx, {
+      connectorId,
+      organizationId: row.organizationId,
+      campaignId,
+      lead: {
+        externalId: lead.externalId,
+        contactName: lead.name ?? `${label} lead`,
+        contactEmail: lead.email,
+        contactPhone: lead.phone,
+        addressLine1: lead.address?.line1 ?? null,
+        city: lead.address?.city ?? null,
+        state: lead.address?.state ?? null,
+        postalCode: lead.address?.postalCode ?? null,
+        serviceRequested: lead.service,
+        notes: `${LEAD_TYPE[lead.type] ?? "A lead"} through ${label}${lead.charged ? ", charged" : ""}`
+          + `${lead.campaign?.name ? `, from the campaign ${lead.campaign.name}` : ""}.`,
+        estimatedValue: null,
+        expiresAt: null,
+        source: LEAD_CONNECTOR[provider]?.source ?? "marketplace",
+        raw: lead.raw,
+      },
+    });
+    if (outcome.offerId) offers.push(outcome.offerId);
+    if (!outcome.duplicate) written += 1;
+  }
+  return { written, offers };
+}
+
+/**
+ * Read a platform's leads into the lead inbox: Local Services' calls,
+ * messages and bookings, and Meta's instant forms. Each pull overlaps the
+ * last by an hour, because a lead the platform writes a moment late must not
+ * fall between two pulls; the overlap is free, since a lead read twice is
+ * found by its id.
  */
 export async function pullLeads(db: Database, row: Connection, deps: AdsDeps = {}): Promise<PullOutcome> {
   const ctx = systemCtx(db, row.organizationId);
@@ -816,31 +912,89 @@ export async function pullLeads(db: Database, row: Connection, deps: AdsDeps = {
     if (!adapter.pullLeads) return { read: 0, written: 0 };
     const leads = await adapter.pullLeads(since);
     return inTenant(ctx, async (tx) => {
-      const connectorId = await lsaConnector(tx, row);
-      let written = 0;
-      let latest = since;
-      for (const lead of leads) {
-        if (lead.createdAt > latest) latest = lead.createdAt;
-        const outcome = await leadIntake.receiveLead(tx, {
-          connectorId,
-          organizationId: row.organizationId,
-          lead: {
-            externalId: lead.externalId,
-            contactName: lead.name ?? "Local Services lead",
-            contactEmail: lead.email,
-            contactPhone: lead.phone,
-            addressLine1: null, city: null, state: null, postalCode: null,
-            serviceRequested: lead.service,
-            notes: `${LEAD_TYPE[lead.type] ?? "A lead"} through Google Local Services${lead.charged ? ", charged" : ""}.`,
-            estimatedValue: null,
-            expiresAt: null,
-            source: "google_lsa",
-            raw: lead.raw,
-          },
-        });
-        if (!outcome.duplicate) written += 1;
-      }
+      const { written } = await ingestLeads(tx, row, leads);
+      const latest = leads.reduce((max, lead) => (lead.createdAt > max ? lead.createdAt : max), since);
       return { read: leads.length, written, cursor: (latest > now ? now : latest).toISOString() };
+    });
+  });
+}
+
+/* --------------------------------------------------------------- read back */
+
+/**
+ * Search queries or sessions per day, into their own tables.
+ *
+ * The same windowing as spend (thirty days the first time, then from a few
+ * days before the last pull), because Search Console publishes late and both
+ * revise. Every day asked about is rewritten: a row the platform no longer
+ * reports for a day it was asked about is taken out, so the figures are what
+ * Google says now and never a sum of two readings.
+ */
+export async function pullAnalytics(db: Database, row: Connection, deps: AdsDeps = {}): Promise<PullOutcome> {
+  const org = row.organizationId;
+  const ctx = systemCtx(db, org);
+  const now = nowOf(deps);
+  const window = await inTenant(ctx, async (tx) => {
+    const zone = await timezoneOf(tx, org);
+    const last = await lastRun(tx, row.id, "analytics", true);
+    return ads.spendWindow({
+      today: time.dateIn(now, zone), lastThrough: last?.cursor ?? null, revisitDays: ads.ANALYTICS_REVISIT_DAYS,
+    });
+  });
+
+  return runPull(db, row, "analytics", async () => {
+    const adapter = await adapterFor(db, row, deps);
+    if (!adapter.pullAnalytics) return { read: 0, written: 0 };
+    const pulled = await adapter.pullAnalytics(window);
+    return inTenant(ctx, async (tx) => {
+      let written = 0;
+      if (row.provider === "search_console") {
+        await tx.delete(schema.searchQueryDay).where(and(
+          eq(schema.searchQueryDay.connectionId, row.id),
+          gte(schema.searchQueryDay.day, window.from), lte(schema.searchQueryDay.day, window.to),
+        ));
+        /** One row per day and query; a query Google repeats in a day (it should not) is added together. */
+        const merged = new Map<string, { day: string; query: string; clicks: number; impressions: number; position: string | null }>();
+        for (const p of pulled) {
+          if (p.kind !== "search") continue;
+          const key = `${p.day}\u0000${p.query}`;
+          const seen = merged.get(key);
+          if (seen) { seen.clicks += p.clicks; seen.impressions += p.impressions; } else merged.set(key, { ...p });
+        }
+        const rows = [...merged.values()];
+        for (let i = 0; i < rows.length; i += 500) {
+          await tx.insert(schema.searchQueryDay).values(rows.slice(i, i + 500).map((r) => ({
+            organizationId: org, connectionId: row.id, day: r.day, query: r.query,
+            clicks: r.clicks, impressions: r.impressions, position: r.position,
+          })));
+        }
+        written = rows.length;
+      } else {
+        await tx.delete(schema.analyticsSessionDay).where(and(
+          eq(schema.analyticsSessionDay.connectionId, row.id),
+          gte(schema.analyticsSessionDay.day, window.from), lte(schema.analyticsSessionDay.day, window.to),
+        ));
+        const merged = new Map<string, { day: string; source: string; medium: string; sessions: number; engaged: number }>();
+        for (const p of pulled) {
+          if (p.kind !== "sessions") continue;
+          const key = `${p.day}\u0000${p.source}\u0000${p.medium}`;
+          const seen = merged.get(key);
+          if (seen) { seen.sessions += p.sessions; seen.engaged += p.engagedSessions; }
+          else merged.set(key, { day: p.day, source: p.source, medium: p.medium, sessions: p.sessions, engaged: p.engagedSessions });
+        }
+        const rows = [...merged.values()];
+        for (let i = 0; i < rows.length; i += 500) {
+          await tx.insert(schema.analyticsSessionDay).values(rows.slice(i, i + 500).map((r) => ({
+            organizationId: org, connectionId: row.id, day: r.day, sessionSource: r.source, sessionMedium: r.medium,
+            source: ads.sessionSource(r.source, r.medium), sessions: r.sessions, engagedSessions: r.engaged,
+          })));
+        }
+        written = rows.length;
+      }
+      await audit(tx, ctx, "analytics.pulled", "integration_connection", row.id, null, {
+        provider: row.provider, from: window.from, to: window.to, rows: written,
+      });
+      return { read: pulled.length, written, cursor: window.to };
     });
   });
 }
@@ -880,7 +1034,7 @@ export async function platforms(ctx: ServiceContext): Promise<PlatformView[]> {
       const [grant] = await tx.select().from(schema.sealedCredential)
         .where(eq(schema.sealedCredential.connectionId, row.id)).limit(1);
       const runs = [];
-      for (const entity of ["spend", "leads", "reviews", "conversions"] as const) {
+      for (const entity of ["spend", "leads", "reviews", "conversions", "adjustments", "analytics"] as const) {
         const run = await lastRun(tx, row.id, entity);
         if (run) {
           runs.push({
@@ -898,7 +1052,7 @@ export async function platforms(ctx: ServiceContext): Promise<PlatformView[]> {
 
       const notices: string[] = [];
       if (row.status === "pending" && spec.oauth) {
-        notices.push(`Nobody has signed in yet. Press Sign in with ${spec.oauth === "google" ? "Google" : "Meta"} on Settings, Integrations.`);
+        notices.push(`Nobody has signed in yet. Press Sign in with ${ads.OAUTH_LABEL[spec.oauth]} on Settings, Integrations.`);
       }
       if (row.status === "needs_reauth") notices.push("The platform stopped accepting the sign in. Sign in again on Settings, Integrations.");
       if (provider === "google_ads" && settings["sendConversions"] !== false && !text(settings, "conversionActionId")) {
@@ -906,6 +1060,9 @@ export async function platforms(ctx: ServiceContext): Promise<PlatformView[]> {
       }
       if (provider === "meta_ads" && settings["sendConversions"] !== false && !text(settings, "pixelId")) {
         notices.push("No pixel id is entered, so booked and paid jobs are not being sent to Meta.");
+      }
+      if (provider === "meta_lead_ads" && !text(settings, "pageId")) {
+        notices.push("No Page id is entered, so no instant form leads are read.");
       }
       const expires = grant?.expiresAt ?? null;
       if (expires && expires.getTime() - Date.now() < 14 * 86_400_000) {
@@ -965,6 +1122,7 @@ export async function isDue(db: Database, row: Connection, entity: Entity, now: 
   const run = await inTenant(systemCtx(db, row.organizationId), (tx) => lastRun(tx, row.id, entity));
   const cadence = entity === "spend" ? ads.CADENCE_MINUTES.spend
     : entity === "leads" ? ads.CADENCE_MINUTES.leads
-      : entity === "reviews" ? ads.CADENCE_MINUTES.reviews : ads.CADENCE_MINUTES.conversions;
+      : entity === "reviews" ? ads.CADENCE_MINUTES.reviews
+        : entity === "analytics" ? ads.CADENCE_MINUTES.analytics : ads.CADENCE_MINUTES.conversions;
   return ads.isDue(run?.startedAt ?? null, now, cadence);
 }

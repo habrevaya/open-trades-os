@@ -43,6 +43,8 @@ import { calendarRoutes } from "./calendar";
 import { callTrackingRoutes } from "./call-tracking";
 import { trackingRoutes } from "./tracking";
 import { adsRoutes } from "./ads";
+import { marketplaceRoutes } from "./marketplaces";
+import { directMailRoutes } from "./direct-mail";
 import { companyRoutes } from "./company";
 import { readbackRoutes } from "./readbacks";
 import { serviceReportRoutes } from "./service-reports";
@@ -155,6 +157,8 @@ export * from "./branches";
 export * from "./phone-menus";
 export * from "./tasks";
 export * from "./ads";
+export * from "./marketplaces";
+export * from "./direct-mail";
 export * from "./stock-tracking";
 export * from "./purchasing";
 export * from "./rental-billing";
@@ -257,6 +261,8 @@ export const routes = {
   ...setupRoutes,
   ...branchRoutes,
   ...adsRoutes,
+  ...marketplaceRoutes,
+  ...directMailRoutes,
   ...safetyRoutes,
   ...retentionRoutes,
   ...stockTrackingRoutes,

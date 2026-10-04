@@ -19,6 +19,11 @@ import {
  *   Access tokens last an hour and are minted from it as needed, in memory,
  *   never stored.
  *
+ *   Microsoft is Google's shape: a refresh token, asked for with the
+ *   `offline_access` scope, and hour long access tokens minted from it. It
+ *   hands back a NEW refresh token on most refreshes, so the rotation hook
+ *   below is the ordinary path for it rather than the rare one.
+ *
  *   Meta has no refresh token. The code becomes a token that lasts an hour or
  *   two, which is traded at once for a long lived one that lasts about sixty
  *   days and cannot be extended without the person signing in again. So the
@@ -94,6 +99,8 @@ function errorCode(body: unknown): string {
  */
 export async function exchangeCode(input: {
   family: ads.OAuthFamily;
+  /** What the authorize request asked for, which Meta does not echo back. */
+  scopes?: readonly string[] | undefined;
   client: OAuthClient;
   code: string;
   redirectUri: string;
@@ -105,7 +112,8 @@ export async function exchangeCode(input: {
   const tokenUrl = input.tokenUrl ?? ads.OAUTH_ENDPOINTS[input.family].token;
   const now = input.now ?? new Date();
 
-  if (input.family === "google") {
+  if (input.family === "google" || input.family === "microsoft") {
+    const who = ads.OAUTH_LABEL[input.family];
     const response = await input.transport(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -115,11 +123,13 @@ export async function exchangeCode(input: {
         client_id: input.client.clientId,
         client_secret: input.client.clientSecret,
         redirect_uri: input.redirectUri,
+        /** Microsoft wants the scopes again on the trade; Google ignores them. */
+        ...(input.family === "microsoft" && input.scopes ? { scope: input.scopes.join(" ") } : {}),
       }),
     });
-    const body = await jsonOf(response, "Google");
+    const body = await jsonOf(response, who);
     if (response.status < 200 || response.status >= 300) {
-      throw new PlatformRefusedError(`Google refused the sign in (HTTP ${response.status}, ${errorCode(body)}). Try signing in again.`);
+      throw new PlatformRefusedError(`${who} refused the sign in (HTTP ${response.status}, ${errorCode(body)}). Try signing in again.`);
     }
     const payload = body as { refresh_token?: unknown; scope?: unknown };
     if (typeof payload.refresh_token !== "string" || payload.refresh_token === "") {
@@ -129,10 +139,10 @@ export async function exchangeCode(input: {
        * request forces the screen, so this is rare, and the fix is the one
        * Google's own documentation gives.
        */
-      throw new PlatformRefusedError(
-        "Google signed you in but sent back no lasting access. Remove this app at "
-        + "myaccount.google.com/permissions and sign in again, so Google asks for consent afresh.",
-      );
+      throw new PlatformRefusedError(input.family === "microsoft"
+        ? "Microsoft signed you in but sent back no lasting access, which happens when offline_access was not granted. Sign in again and accept every permission asked for."
+        : "Google signed you in but sent back no lasting access. Remove this app at "
+          + "myaccount.google.com/permissions and sign in again, so Google asks for consent afresh.");
     }
     return {
       credential: payload.refresh_token,
@@ -167,7 +177,7 @@ export async function exchangeCode(input: {
   const seconds = typeof long.expires_in === "number" ? long.expires_in : 60 * 86_400;
   return {
     credential: long.access_token,
-    scopes: [...ads.PROVIDERS.meta_ads.scopes],
+    scopes: [...(input.scopes ?? ads.PROVIDERS.meta_ads.scopes)],
     expiresAt: new Date(now.getTime() + seconds * 1000),
   };
 }
@@ -183,8 +193,8 @@ export async function exchangeCode(input: {
  *
  * A refresh token handed back in place of the old one is passed to
  * `onRotated`, because dropping it is the bug that kills a connection days
- * later in the middle of a night. Google rarely rotates; the hook is there
- * because "rarely" is not "never".
+ * later in the middle of a night. Google rarely rotates and Microsoft
+ * usually does, which is the same hook.
  */
 export function tokenSource(input: {
   family: ads.OAuthFamily;
@@ -212,6 +222,7 @@ export function tokenSource(input: {
     };
   }
 
+  const who = ads.OAUTH_LABEL[input.family];
   let refreshToken = input.credential;
   let cached: { token: string; expiresAt: number } | null = null;
 
@@ -221,7 +232,7 @@ export function tokenSource(input: {
       if (!input.client) throw new AuthorizationLostError("There is no OAuth client to refresh this sign in with.");
       let response;
       try {
-        response = await input.transport(input.tokenUrl ?? ads.OAUTH_ENDPOINTS.google.token, {
+        response = await input.transport(input.tokenUrl ?? ads.OAUTH_ENDPOINTS[input.family].token, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
           body: form({
@@ -232,22 +243,22 @@ export function tokenSource(input: {
           }),
         });
       } catch (error) {
-        throw new PlatformUnavailableError(`Google's sign in service could not be reached: ${(error as Error).message}`);
+        throw new PlatformUnavailableError(`${who}'s sign in service could not be reached: ${(error as Error).message}`);
       }
-      const body = await jsonOf(response, "Google");
+      const body = await jsonOf(response, who);
       if (response.status < 200 || response.status >= 300) {
         const code = errorCode(body);
         if (code === "invalid_grant" || code === "unauthorized_client" || code === "invalid_client") {
           throw new AuthorizationLostError(
-            `Google no longer accepts this connection's sign in (${code}). It was revoked, expired or the OAuth client `
+            `${who} no longer accepts this connection's sign in (${code}). It was revoked, expired or the OAuth client `
             + "changed. Sign in again.",
           );
         }
-        throw new PlatformUnavailableError(`Google's sign in service answered HTTP ${response.status} (${code}).`);
+        throw new PlatformUnavailableError(`${who}'s sign in service answered HTTP ${response.status} (${code}).`);
       }
       const payload = body as { access_token?: unknown; expires_in?: unknown; refresh_token?: unknown };
       if (typeof payload.access_token !== "string") {
-        throw new PlatformUnavailableError("Google's sign in service returned no access token.");
+        throw new PlatformUnavailableError(`${who}'s sign in service returned no access token.`);
       }
       const seconds = typeof payload.expires_in === "number" ? payload.expires_in : 3600;
       cached = { token: payload.access_token, expiresAt: clock().getTime() + Math.max(0, seconds - 60) * 1000 };
