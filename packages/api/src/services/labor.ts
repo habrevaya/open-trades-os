@@ -2,7 +2,7 @@ import { and, eq, gte, lte, isNull, desc, asc, or, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { labor, money as m, time } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, NotFoundError, ConflictError,
+  guardedRead, guardedWrite, audit, timezoneOf, NotFoundError, ConflictError,
   type ServiceContext,
 } from "./context";
 
@@ -93,7 +93,13 @@ export async function policyFor(tx: Database, organizationId: string): Promise<l
 export async function scaleOn(
   tx: Database, organizationId: string, classification: string, on: Date,
 ): Promise<typeof schema.wageScale.$inferSelect | null> {
-  const day = on.toISOString().slice(0, 10);
+  /**
+   * The company's day the work happened on, which is how a union agreement
+   * dates a rise and how the job costing report reads the same scale. Read
+   * as UTC, an evening shift on the last day of the old rate was costed at
+   * the new one.
+   */
+  const day = time.dateIn(on, await timezoneOf(tx, organizationId));
   const [row] = await tx.select().from(schema.wageScale)
     .where(and(
       eq(schema.wageScale.organizationId, organizationId),

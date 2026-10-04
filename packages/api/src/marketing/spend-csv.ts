@@ -132,7 +132,13 @@ function parseDate(raw: string): string | null {
   /** "Mar 1, 2026" and "1 Mar 2026", which some exports use for a summary row. */
   const parsed = Date.parse(text);
   if (!Number.isNaN(parsed) && /[A-Za-z]{3}/.test(text)) {
-    return new Date(parsed).toISOString().slice(0, 10);
+    /**
+     * A written date with no time parses as midnight in the SERVER's zone, so
+     * it is read back in that zone. Read back as UTC, a server west of
+     * Greenwich wrote "Mar 1" as the 1st and one east of it as the 28th.
+     */
+    const on = new Date(parsed);
+    return `${on.getFullYear()}-${String(on.getMonth() + 1).padStart(2, "0")}-${String(on.getDate()).padStart(2, "0")}`;
   }
   return null;
 }

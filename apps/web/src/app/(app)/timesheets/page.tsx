@@ -1,4 +1,5 @@
 import { requireSetupUser } from "@/lib/auth";
+import { todayIn } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { labor, laborSettings } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
@@ -44,7 +45,8 @@ export default async function TimesheetsPage({
     );
   }
 
-  const weekOf = params.week ?? new Date().toISOString().slice(0, 10);
+  /** This week where the company is: from seven on a Saturday evening in Austin, UTC is in next week. */
+  const weekOf = params.week ?? todayIn(user.organizationTimezone);
   const declares = can(user.actor, "payroll:configure");
   const declared = declares
     ? (await laborSettings.policies(ctx)).find((policy) => policy.active) ?? null

@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, ledger, money as m, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, ledger, money as m, time, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
 import {
@@ -1149,6 +1149,8 @@ async function pushOutbound(
   meteredRead: MeteredRead,
 ): Promise<void> {
   const organizationId = ctx.actor.organizationId;
+  /** The company's calendar, for the date each document carries in the books. */
+  const zone = await guardedRead(ctx, "accounting:sync", (tx) => timezoneOf(tx, organizationId));
 
   const work = await guardedRead(ctx, "accounting:sync", async (tx) => ({
     invoices: await invoicesToPush(tx, connection.id, closedOn, limit),
@@ -1240,7 +1242,7 @@ async function pushOutbound(
         idempotencyKey: key,
         customerExternalId,
         documentNumber: String(invoice.number),
-        issuedOn: invoice.issuedOn ?? new Date().toISOString().slice(0, 10),
+        issuedOn: invoice.issuedOn ?? time.dateIn(new Date(), zone),
         dueOn: invoice.dueOn,
         currency: invoice.currency,
         lines,
@@ -1345,7 +1347,7 @@ async function pushOutbound(
         return deps.provider.pushPayment({
           idempotencyKey: key,
           customerExternalId,
-          receivedOn: payment.receivedAt.toISOString().slice(0, 10),
+          receivedOn: time.dateIn(payment.receivedAt, zone),
           amount: { amount: m.toString(netted.kept), currency: payment.currency },
           depositAccountExternalId: cashAccount.externalId,
           allocations: netted.allocations.map(({ invoiceId, amount }) => ({
@@ -1381,7 +1383,7 @@ async function pushOutbound(
       send: () => deps.provider.pushCredit({
         idempotencyKey: key,
         customerExternalId,
-        issuedOn: (credit.voidedAt ?? new Date()).toISOString().slice(0, 10),
+        issuedOn: time.dateIn(credit.voidedAt ?? new Date(), zone),
         /**
          * What was written off or voided, which is what was still owed: a
          * partly paid invoice written off loses its balance, not its total,
@@ -1613,6 +1615,8 @@ async function pushRefunds(
   customerRef: (customerId: string) => Promise<string | null>,
 ): Promise<void> {
   const organizationId = ctx.actor.organizationId;
+  /** The company's calendar, for the date each document carries in the books. */
+  const zone = await guardedRead(ctx, "accounting:sync", (tx) => timezoneOf(tx, organizationId));
 
   /**
    * A payment pushed before refunds were synced has no record of which of
@@ -1694,7 +1698,7 @@ async function pushRefunds(
         idempotencyKey: key,
         customerExternalId,
         paymentExternalId: refund.paymentExternalId,
-        refundedOn: refund.occurredAt.toISOString().slice(0, 10),
+        refundedOn: time.dateIn(refund.occurredAt, zone),
         amount: money(toSend),
         appliedAmount: money(applied),
         heldAmount: money(deps.provider.heldMoneyReachesBooks ? held : zero),
@@ -1749,7 +1753,7 @@ async function refundsToPush(
     .where(and(
       eq(schema.ledgerEntry.sourceType, "refund"),
       offerable(refundLink.id, refundLink.state),
-      closedOn ? sql`${schema.ledgerEntry.occurredAt}::date > ${closedOn}` : undefined,
+      closedOn ? sql`${companyDay(schema.ledgerEntry.occurredAt)} > ${closedOn}` : undefined,
     ))
     .groupBy(schema.ledgerEntry.transactionId, schema.ledgerEntry.sourceId,
       schema.payment.customerId, schema.payment.currency)
@@ -1810,6 +1814,8 @@ async function pushCreditNotes(
   customerRef: (customerId: string) => Promise<string | null>,
 ): Promise<void> {
   const organizationId = ctx.actor.organizationId;
+  /** The company's calendar, for the date each document carries in the books. */
+  const zone = await guardedRead(ctx, "accounting:sync", (tx) => timezoneOf(tx, organizationId));
   const money = (amount: string, currency: string) => ({ amount, currency });
 
   /** Lines and accounts for a document built from a credit note's lines. */
@@ -1934,7 +1940,7 @@ async function pushCreditNotes(
       continue;
     }
 
-    const voidedOn = (note.voidedAt ?? new Date()).toISOString().slice(0, 10);
+    const voidedOn = time.dateIn(note.voidedAt ?? new Date(), zone);
     await pushOne(ctx, connection.id, state, meteredRead, {
       kind: "credit_note_void",
       entityId: note.id,
@@ -1967,7 +1973,7 @@ async function pushCreditNotes(
       customerExternalId,
       creditNoteExternalId: note.creditNoteExternalId!,
       invoiceExternalId: note.reversalExternalId!,
-      appliedOn: (note.voidedAt ?? new Date()).toISOString().slice(0, 10),
+      appliedOn: time.dateIn(note.voidedAt ?? new Date(), zone),
       /**
        * The whole credit note, because nothing of it was ever applied: the
        * void is refused here once any of it has been.
@@ -2037,7 +2043,7 @@ async function applicationsToPush(
      * application since the column existed, so this is a fallback, and it
      * is the same day in all but a migration.
      */
-    appliedOn: sql<string>`coalesce(${schema.creditNoteApplication.appliedOn}, ${schema.creditNoteApplication.createdAt}::date)::text`,
+    appliedOn: sql<string>`coalesce(${schema.creditNoteApplication.appliedOn}, ${companyDay(schema.creditNoteApplication.createdAt)})::text`,
     customerId: schema.creditNote.customerId,
     currency: schema.creditNote.currency,
     creditNoteExternalId: noteLink.externalId,
@@ -2067,7 +2073,7 @@ async function applicationsToPush(
     .where(and(
       offerable(applicationLink.id, applicationLink.state),
       closedOn
-        ? sql`coalesce(${schema.creditNoteApplication.appliedOn}, ${schema.creditNoteApplication.createdAt}::date) > ${closedOn}`
+        ? sql`coalesce(${schema.creditNoteApplication.appliedOn}, ${companyDay(schema.creditNoteApplication.createdAt)}) > ${closedOn}`
         : undefined,
     ))
     .orderBy(asc(schema.creditNoteApplication.createdAt))
@@ -2108,7 +2114,7 @@ async function voidsToPush(
     .where(and(
       eq(schema.creditNote.status, "void"),
       offerable(voidLink.id, voidLink.state),
-      closedOn ? sql`${schema.creditNote.voidedAt}::date > ${closedOn}` : undefined,
+      closedOn ? sql`${companyDay(schema.creditNote.voidedAt)} > ${closedOn}` : undefined,
     ))
     .orderBy(asc(schema.creditNote.number))
     .limit(limit);
@@ -2153,7 +2159,7 @@ async function voidSettlementsToPush(
     .where(and(
       eq(schema.creditNote.status, "void"),
       offerable(settlementLink.id, settlementLink.state),
-      closedOn ? sql`${schema.creditNote.voidedAt}::date > ${closedOn}` : undefined,
+      closedOn ? sql`${companyDay(schema.creditNote.voidedAt)} > ${closedOn}` : undefined,
     ))
     .orderBy(asc(schema.creditNote.number))
     .limit(limit);
@@ -2278,6 +2284,20 @@ function afterClose(column: PgColumn, closedOn: string | null) {
 }
 
 /**
+ * The company's calendar day of an instant, for comparing with a close date.
+ *
+ * A bare `::date` is the database session's day, which is UTC: a payment
+ * taken at eight in the evening in Chicago on the last day of a closed month
+ * was the next month's, so it was offered to the books after the close the
+ * posting guard (`history.assertPeriodOpen`, which reads the company's day)
+ * had already put it inside. Read inside the company's own transaction, so
+ * the organization is the current one.
+ */
+function companyDay(instant: PgColumn | SQL): SQL {
+  return sql`(${instant} at time zone coalesce((select o.timezone from public.organization o where o.id = app.current_organization_id()), 'America/Chicago'))::date`;
+}
+
+/**
  * Whether a document is still worth offering, from the link row alone.
  *
  * No link at all, or a link that is not `linked` and not `deleted`. A
@@ -2365,7 +2385,7 @@ async function paymentsToPush(
        */
       inArray(schema.payment.status, ["succeeded", "partially_refunded"]),
       offerable(link.id, link.state),
-      closedOn ? sql`${schema.payment.receivedAt}::date > ${closedOn}` : undefined,
+      closedOn ? sql`${companyDay(schema.payment.receivedAt)} > ${closedOn}` : undefined,
     ))
     .orderBy(asc(schema.payment.receivedAt))
     .limit(limit);
@@ -2428,7 +2448,7 @@ async function creditsToPush(
        * the document cannot disagree.
        */
       closedOn
-        ? sql`coalesce(${schema.invoice.voidedAt}, ${schema.invoice.updatedAt})::date > ${closedOn}`
+        ? sql`${companyDay(sql`coalesce(${schema.invoice.voidedAt}, ${schema.invoice.updatedAt})`)} > ${closedOn}`
         : undefined,
     ))
     .orderBy(asc(schema.invoice.number))

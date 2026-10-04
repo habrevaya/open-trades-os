@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { money as m, rates } from "@opentradesos/core";
+import { money as m, rates, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { inGrant, mintGrant, peek, requireScope } from "./portal";
 import { remember, replayed } from "./once";
@@ -280,7 +280,8 @@ export async function exportInvoices(
     const [org] = await tx.select({ name: schema.organization.name }).from(schema.organization)
       .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
     const now = new Date();
-    const stamp = now.toISOString().slice(0, 10);
+    /** The company's date on the file's name, which is what its office files it under. */
+    const stamp = time.dateIn(now, await timezoneOf(tx, ctx.actor.organizationId));
     const slug = payer.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "payer";
     const file: InvoiceFile = {
       fileName: `${stamp}_${slug}-invoices.${format}`,

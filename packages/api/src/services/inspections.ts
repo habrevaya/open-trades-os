@@ -550,6 +550,8 @@ export async function backlog(
 ) {
   return guardedRead(ctx, "compliance:read", async (tx) => {
     const now = input.now ?? new Date();
+    /** For a fault with no found date, the company's day it was written down. */
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
 
     const rows = await tx.select({
       deficiency: schema.deficiency,
@@ -580,7 +582,7 @@ export async function backlog(
       const standing = insp.backlogStanding({
         itemKey: deficiency.checkpointKey ?? deficiency.id,
         severity,
-        foundAt: new Date(`${deficiency.foundOn ?? deficiency.createdAt.toISOString().slice(0, 10)}T00:00:00Z`),
+        foundAt: new Date(`${deficiency.foundOn ?? time.dateIn(deficiency.createdAt, zone)}T00:00:00Z`),
       }, now);
 
       return {

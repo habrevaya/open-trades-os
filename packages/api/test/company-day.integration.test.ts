@@ -101,7 +101,7 @@ run("the report builder in the company's calendar", () => {
       definition: { dataset: "jobs", dimensions: ["month"], measures: ["count"], from: "2026-06-01", to: "2026-08-01" },
       match: { month: "2026-06" },
     });
-    expect(drilled.rows.map((r) => r["id"] ?? r["job"])).toHaveLength(1);
+    expect(drilled.rows).toHaveLength(1);
     expect(JSON.stringify(drilled.rows)).toContain(lateJobId);
   });
 
