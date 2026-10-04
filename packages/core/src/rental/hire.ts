@@ -46,14 +46,24 @@ export interface OpenHire {
   readonly includedDays: number | null;
   /** A collection already on the board for it. */
   readonly collectionVisitId: string | null;
+  /**
+   * The day the customer agreed for the collection, in the company's
+   * calendar, when they agreed one. It beats the day the price runs out:
+   * a customer who finished early wants the can gone, and one who asked
+   * for two more days has been promised them.
+   */
+  readonly agreedOn?: string | null | undefined;
 }
 
 export interface CollectionToSchedule {
   readonly rentalId: string;
-  readonly dueOn: string;
-  /** The day to put it on: the day it is due, or today when it is already late. */
+  /** The last day the price covers, or null for a standing hire collected on an agreed day. */
+  readonly dueOn: string | null;
+  /** The day to put it on: the agreed day or the day it is due, or today when that has passed. */
   readonly collectOn: string;
   readonly daysLate: number;
+  /** Whether the day is the one agreed with the customer rather than the end of the price. */
+  readonly agreed: boolean;
 }
 
 export type CollectionSkip = { rentalId: string; reason: string };
@@ -62,10 +72,11 @@ export type CollectionSkip = { rentalId: string; reason: string };
  * Which open hires to put on the route, up to and including `through`.
  *
  * A hire already given a collection is skipped, which is what makes running
- * the scheduler twice put one stop on the board rather than two. A hire with
- * no included period is skipped with the reason, because a standing can on a
- * commercial site goes back when the customer says so, not when a date
- * arrives.
+ * the scheduler twice put one stop on the board rather than two. A hire
+ * with an agreed collection day goes on that day. A hire with no included
+ * period and no agreed day is skipped with the reason, because a standing
+ * can on a commercial site goes back when the customer says so, not when a
+ * date arrives.
  */
 export function collectionsDue(input: {
   hires: readonly OpenHire[];
@@ -81,22 +92,24 @@ export function collectionsDue(input: {
       continue;
     }
     const dueOn = collectionDueOn(hire.deliveredAt, hire.includedDays, input.zone);
-    if (dueOn === null) {
+    const agreedOn = hire.agreedOn ?? null;
+    const when = agreedOn ?? dueOn;
+    if (when === null) {
       skipped.push({ rentalId: hire.id, reason: "It is a standing hire with no included period. It goes back when the customer asks." });
       continue;
     }
-    if (dueOn > input.through) continue;
+    if (when > input.through) continue;
     if (hire.collectionVisitId !== null) {
       skipped.push({ rentalId: hire.id, reason: "A collection is already on the board for it." });
       continue;
     }
-    const collectOn = dueOn < input.today ? input.today : dueOn;
-    const daysLate = dueOn < input.today
-      ? containerDays(time.startOfDayIn(dueOn, input.zone), time.startOfDayIn(input.today, input.zone), input.zone) - 1
+    const collectOn = when < input.today ? input.today : when;
+    const daysLate = when < input.today
+      ? containerDays(time.startOfDayIn(when, input.zone), time.startOfDayIn(input.today, input.zone), input.zone) - 1
       : 0;
-    schedule.push({ rentalId: hire.id, dueOn, collectOn, daysLate });
+    schedule.push({ rentalId: hire.id, dueOn, collectOn, daysLate, agreed: agreedOn !== null });
   }
-  schedule.sort((a, b) => a.collectOn.localeCompare(b.collectOn) || a.dueOn.localeCompare(b.dueOn));
+  schedule.sort((a, b) => a.collectOn.localeCompare(b.collectOn) || (a.dueOn ?? a.collectOn).localeCompare(b.dueOn ?? b.collectOn));
   return { schedule, skipped };
 }
 
